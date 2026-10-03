@@ -1,0 +1,823 @@
+import Foundation
+
+// MARK: - ServerRemoteInfo（packages/shared/src/server-remote.ts:5-38）
+
+struct ServerWorkspaceInfo: Equatable {
+    var path: String
+    var label: String?
+    var workspaceIdentity: String?
+}
+
+struct ServerRemoteInfo: Equatable {
+    static let expectedProtocolVersion = 1 // SERVER_REMOTE_PROTOCOL_VERSION
+
+    var serverId: String
+    var name: String?
+    var version: String
+    var protocolVersion: Int
+    var authRequired: Bool
+    var workspaces: [ServerWorkspaceInfo]
+    var capabilities: [String] // chips 展示（server-info.capabilities 键集，L5 双源口径之展示源）
+
+    static func parse(_ json: JSONValue) -> ServerRemoteInfo? {
+        guard let dict = json.objectValue,
+              let serverId = dict["serverId"]?.stringValue,
+              let version = dict["version"]?.stringValue else { return nil }
+        let workspaces = (dict["workspaces"]?.arrayValue ?? []).compactMap { item -> ServerWorkspaceInfo? in
+            guard let path = item.objectValue?["path"]?.stringValue else { return nil }
+            return ServerWorkspaceInfo(
+                path: path,
+                label: item.objectValue?["label"]?.stringValue,
+                workspaceIdentity: item.objectValue?["workspaceIdentity"]?.stringValue)
+        }
+        var capabilities: [String] = []
+        if let caps = dict["capabilities"]?.objectValue {
+                capabilities = caps.filter { $0.value.boolValue == true }.keys.sorted()
+        }
+        return ServerRemoteInfo(
+            serverId: serverId,
+            name: dict["name"]?.stringValue,
+            version: version,
+            protocolVersion: dict["protocolVersion"]?.intValue ?? 0,
+            authRequired: dict["authRequired"]?.boolValue ?? false,
+            workspaces: workspaces,
+            capabilities: capabilities)
+    }
+}
+
+// MARK: - 连接错误（L3 四态对照）
+
+enum ConnectError: Error, Equatable {
+    case http(status: Int, endpoint: String)   // 401 → 令牌不匹配
+    case timeout(endpoint: String)             // 超时（含本地网络权限被拒的静默失败）
+    case protocolVersion(actual: String)       // remote v1 / v4 wire v3 不符
+    case emptyWorkspaces                       // workspaces 为空
+    case handshakeFailed(String)               // v4 握手失败
+    case transport(String)                     // WS 升级失败
+
+    var headline: String {
+        switch self {
+        case .http(let status, _):
+            return status == 401 ? "无法验证访问令牌" : "服务返回错误"
+        case .timeout: return "连接超时"
+        case .protocolVersion: return "协议版本不匹配"
+        case .emptyWorkspaces: return "工作区列表为空"
+        case .handshakeFailed: return "协议握手失败"
+        case .transport: return "无法建立 WebSocket"
+        }
+    }
+
+    /// mono 错误码行（l3-err-code）
+    var codeLine: String {
+        switch self {
+        case .http(let status, let endpoint): return "HTTP \(status) · \(endpoint)"
+        case .timeout(let endpoint): return "TIMEOUT · \(endpoint)"
+        case .protocolVersion(let actual): return "PROTOCOL \(actual) · 期望 remote v1 · v4 v3"
+        case .emptyWorkspaces: return "workspaces=[]"
+        case .handshakeFailed(let detail): return "HANDSHAKE · \(detail)"
+        case .transport(let detail): return "WS · \(detail)"
+        }
+    }
+}
+
+// MARK: - server-info HTTP 探测（GET /api/server-info?token=…）
+
+enum ServerInfoClient {
+
+    struct ProbeResult {
+        var info: ServerRemoteInfo?
+        var status: Int?
+        var latencyMs: Int
+        var error: ConnectError?
+    }
+
+    /// 连接测试（L4-B：1.5s 超时，仅探测不建 WS）；L2 第一步超时 3s 自动重试 1 次。
+    static func probe(server: ServerConfig, timeout: TimeInterval) async -> ProbeResult {
+        guard let url = URL(string: server.baseURL)?.appendingPathComponent("api/server-info") else {
+            return ProbeResult(info: nil, status: nil, latencyMs: 0, error: .transport("无效地址"))
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        var items = components.queryItems ?? []
+        if !server.token.isEmpty {
+            items.append(URLQueryItem(name: "token", value: server.token))
+        }
+        components.queryItems = items
+        guard let requestURL = components.url else {
+            return ProbeResult(info: nil, status: nil, latencyMs: 0, error: .transport("无效地址"))
+        }
+
+        let started = Date()
+        var request = URLRequest(url: requestURL)
+        request.timeoutInterval = timeout
+        request.httpMethod = "GET"
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            let latency = Int(Date().timeIntervalSince(started) * 1000)
+            return ProbeResult(info: nil, status: nil, latencyMs: latency,
+                               error: .timeout(endpoint: "GET /api/server-info"))
+        }
+        let latency = Int(Date().timeIntervalSince(started) * 1000)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            return ProbeResult(info: nil, status: status, latencyMs: latency,
+                               error: .http(status: status, endpoint: "GET /api/server-info"))
+        }
+        guard let json = try? JSONDecoder().decode(JSONValue.self, from: data),
+              let info = ServerRemoteInfo.parse(json) else {
+            return ProbeResult(info: nil, status: status, latencyMs: latency,
+                               error: .transport("server-info 解析失败"))
+        }
+        guard info.protocolVersion == ServerRemoteInfo.expectedProtocolVersion else {
+            return ProbeResult(info: info, status: status, latencyMs: latency,
+                               error: .protocolVersion(actual: "remote v\(info.protocolVersion)"))
+        }
+        return ProbeResult(info: info, status: status, latencyMs: latency, error: nil)
+    }
+}
+
+// MARK: - 连接五步进度（L2：发现 → 鉴权 → WS → v4 握手 → 工作区）
+
+struct ConnectStepState: Equatable {
+    enum Phase: Equatable {
+        case pending
+        case running
+        case done
+        case failed
+    }
+    var phase: Phase = .pending
+    var meta: String = ""   // 步骤 meta 列（耗时 / 状态码 / 免鉴权标注）
+}
+
+struct ConnectProgress: Equatable {
+    var discover = ConnectStepState()
+    var auth = ConnectStepState()
+    var websocket = ConnectStepState()
+    var handshake = ConnectStepState()
+    var workspace = ConnectStepState()
+
+    /// 计数含进行中（2 完成 + 1 进行中 = 3/5）
+    var completedCount: Int {
+        [discover, auth, websocket, handshake, workspace].filter { $0.phase == .done }.count
+    }
+    var runningCount: Int {
+        [discover, auth, websocket, handshake, workspace].filter { $0.phase == .running }.count
+    }
+    var fraction: Double {
+        Double(completedCount + runningCount) / 5.0
+    }
+    var allSteps: [ConnectStepState] {
+        [discover, auth, websocket, handshake, workspace]
+    }
+}
+
+/// 连接日志行（connect.log / oauth.log 终端条；token 一律 *** 掩码）
+struct ConnectLogLine: Equatable, Identifiable {
+    enum Kind { case ok, working, info, error }
+    var id = UUID()
+    var kind: Kind
+    var text: String
+}
+
+// MARK: - v4 握手模型（transport.ts:40-86）
+
+struct V4HelloMessage {
+    static let wireProtocolVersion = 3 // V4_WIRE_PROTOCOL_VERSION
+
+    var protocolVersion: Int
+    var connectionId: String
+    var clientMode: String
+    var deliveryProfile: String
+    var serverTime: String?
+    var capabilities: [String: Bool]
+    var authUserId: String?
+
+    static func parse(_ json: JSONValue) -> V4HelloMessage? {
+        guard let dict = json.objectValue else { return nil }
+        var capabilities: [String: Bool] = [:]
+        if let caps = dict["capabilities"]?.objectValue {
+            for (key, value) in caps {
+                capabilities[key] = value.boolValue ?? false
+            }
+        }
+        return V4HelloMessage(
+            protocolVersion: dict["protocolVersion"]?.intValue ?? 0,
+            connectionId: dict["connectionId"]?.stringValue ?? "",
+            clientMode: dict["clientMode"]?.stringValue ?? "",
+            deliveryProfile: dict["deliveryProfile"]?.stringValue ?? "",
+            serverTime: dict["serverTime"]?.stringValue,
+            capabilities: capabilities,
+            authUserId: dict["auth"]?.objectValue?["userId"]?.stringValue)
+    }
+}
+
+// MARK: - 服务器连接管理（五步 + channel RPC 门面 + 断线通知）
+
+/// 与桌面 zcode-server 的单条连接：GET server-info → WS /ws?token → v4 握手 → workspaces[0]。
+@MainActor
+@Observable
+final class ZCodeServerConnection {
+
+    enum ConnectionState: Equatable {
+        case idle
+        case connecting(ConnectProgress)
+        case connected(ServerRemoteInfo, workspace: ServerWorkspaceInfo)
+        case failed(ConnectError)
+        case disconnected(ConnectError) // 曾连接后断线（重连提示）
+    }
+
+    private(set) var state: ConnectionState = .idle
+    private(set) var logs: [ConnectLogLine] = []
+
+    /// 局域网直连（ChannelClient，13 字节头二进制帧）或云中继（RelayChannelClient，
+    /// JSON 文本帧 + rpc-frame）——统一走 RPCChannelTransport 门面，只读拦截同源覆盖
+    private var client: (any RPCChannelTransport)?
+    private var relayTransport: RelayTransport?
+    private var serverConfig: ServerConfig?
+    private(set) var serverInfo: ServerRemoteInfo?
+    private(set) var workspace: ServerWorkspaceInfo?
+    private var helloMessage: V4HelloMessage?
+    private var frameSubscription: EventSubscription?
+    private var frameAssemblers: [String: TopicWireFrameAssembler] = [:] // channel 名键控
+    private var frameHandlers: [String: @Sendable (V4TopicFrame) -> Void] = [:]
+    /// assembler 丢帧（dropped）回调：key 同 assemblerKey，订阅方据此触发 resync 自愈
+    private var frameDropHandlers: [String: @Sendable () -> Void] = [:]
+    /// workspace-config 订阅面（connection 持有：subscribe/unsubscribe/resync 均为 promise 面）
+    private var workspaceConfigTopicPath: String?
+    private var workspaceConfigSubscriptionId: String?
+    /// Store 注册 workspace-config handler 前到达的帧（快照/增量整体替换语义，重放安全）
+    private var workspaceConfigReplay: [V4TopicFrame] = []
+    private var manuallyCancelled = false
+    private var clientId = "zcode-mobile-" + UUID().uuidString.prefix(8)
+
+    /// 只读边界拦截记录（最近 20 条；连接态 execution 命令在 RPC 出口被拒的证据）
+    private(set) var blockedExecutionCalls: [String] = []
+
+    /// 断线回落回调（连接成功后 WS/中继通道意外中断时触发）：AppSession 据此把
+    /// mode 切为 .disconnected（RootView 黄色横幅「与桌面端的连接已断开 · 重连」）。
+    /// 仅「曾进入 .connected 后的真实传输中断」触发；手动 disconnect() 经
+    /// manuallyCancelled 守卫先行返回，不会误触发。
+    var onConnectionDropped: (@MainActor (String) -> Void)?
+
+    let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+
+    var isActive: Bool {
+        if case .connected = state { return true }
+        return false
+    }
+
+    // MARK: 五步连接（超时阈值 3s/5s，自动重试 1 次；L2 口径）
+
+    func connect(to server: ServerConfig, preferredWorkspace: String? = nil) async -> Result<ServerRemoteInfo, ConnectError> {
+        disconnect()
+        manuallyCancelled = false
+        serverConfig = server
+        logs.removeAll()
+        var progress = ConnectProgress()
+
+        // 步骤 1：发现服务（GET /api/server-info，3s 超时，重试 1 次）
+        progress.discover.phase = .running
+        state = .connecting(progress)
+        log(.working, "GET /api/server-info")
+        var probe = await ServerInfoClient.probe(server: server, timeout: 3)
+        if probe.error != nil {
+            log(.info, "超时，自动重试 1 次（指数退避）")
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            probe = await ServerInfoClient.probe(server: server, timeout: 3)
+        }
+        if let error = probe.error {
+            progress.discover.phase = .failed
+            state = .connecting(progress)
+            await finishFailure(error)
+            return .failure(error)
+        }
+        progress.discover.phase = .done
+        progress.discover.meta = "\(probe.status ?? 200) · \(probe.latencyMs)ms"
+        log(.ok, "GET /api/server-info → \(probe.status ?? 200) · \(probe.latencyMs)ms")
+        guard let info = probe.info else {
+            await finishFailure(.transport("server-info 缺失"))
+            return .failure(.transport("server-info 缺失"))
+        }
+        serverInfo = info
+        if let name = info.name {
+            log(.ok, "serverId=\(info.serverId) · \(name) · v\(info.version) · protocolVersion=1")
+        } else {
+            log(.ok, "serverId=\(info.serverId) · v\(info.version) · protocolVersion=1")
+        }
+
+        // 步骤 2：校验访问令牌（authRequired=false 时为「免鉴权」口径，不出现「校验通过」）
+        progress.auth.phase = .running
+        state = .connecting(progress)
+        if info.authRequired {
+            if server.token.isEmpty {
+                progress.auth.phase = .failed
+                state = .connecting(progress)
+                let error = ConnectError.http(status: 401, endpoint: "/api/server-info")
+                await finishFailure(error)
+                return .failure(error)
+            }
+            progress.auth.phase = .done
+            progress.auth.meta = "authRequired=true"
+            log(.ok, "token 校验通过 · authRequired=true")
+        } else {
+            progress.auth.phase = .done
+            progress.auth.meta = "免鉴权"
+            log(.ok, "authRequired=false · --no-token（免鉴权）")
+        }
+
+        // 步骤 3：建立 WebSocket（ws://host:port/ws?token=…，5s 超时）
+        progress.websocket.phase = .running
+        state = .connecting(progress)
+        let client = ChannelClient()
+        self.client = client
+        do {
+            var components = URLComponents(string: "\(server.wsBaseURL)/ws")!
+            if !server.token.isEmpty {
+                components.queryItems = [URLQueryItem(name: "token", value: server.token)]
+                log(.working, "WS 升级 \(server.wsBaseURL)/ws?token=***")
+            } else {
+                log(.working, "WS 升级 \(server.wsBaseURL)/ws（无 token 段）")
+            }
+            try await client.connect(url: components.url!, timeout: 5) { [weak self] error in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if self.manuallyCancelled { return }
+                    let connectError = ConnectError.transport(error.map { $0.localizedDescription } ?? "连接中断")
+                    self.notifyDroppedIfConnected(connectError.headline)
+                    self.state = .disconnected(connectError)
+                    self.teardownTransport()
+                }
+            }
+            progress.websocket.phase = .done
+            progress.websocket.meta = "web-remote-replayable"
+            log(.ok, "WS 已建立 · clientMode=web-remote-replayable")
+        } catch let error as RPCError where error.name == "TimeoutError" {
+            progress.websocket.phase = .failed
+            state = .connecting(progress)
+            let connectError = ConnectError.timeout(endpoint: "GET /ws")
+            await finishFailure(connectError)
+            return .failure(connectError)
+        } catch {
+            progress.websocket.phase = .failed
+            state = .connecting(progress)
+            let connectError = ConnectError.transport(error.localizedDescription)
+            await finishFailure(connectError)
+            return .failure(connectError)
+        }
+
+        // 订阅 workspace 级下行帧流（zcode-agent.onDynamicConversationFrame / onDynamicSessionsIndexFrame）
+        frameSubscription = await subscribeFrameStreams(client: client)
+
+        // 步骤 4：v4 握手（hello → clientHello，clientKind=mobileApp；capabilities 单向规则：不携带）
+        progress.handshake.phase = .running
+        state = .connecting(progress)
+        do {
+            let helloValue = try await client.call("zcode-agent", "helloConversationV4", .undefined, timeout: 5)
+            guard let hello = V4HelloMessage.parse(helloValue.jsonValue ?? .null) else {
+                throw ConnectError.handshakeFailed("hello 解析失败")
+            }
+            guard hello.protocolVersion == V4HelloMessage.wireProtocolVersion else {
+                throw ConnectError.protocolVersion(actual: "v4 wire v\(hello.protocolVersion)")
+            }
+            guard hello.clientMode == "web-remote-replayable" else {
+                throw ConnectError.handshakeFailed("clientMode=\(hello.clientMode)")
+            }
+            helloMessage = hello
+            log(.ok, "helloConversationV4 · protocolVersion=3 · deliveryProfile=\(hello.deliveryProfile)")
+
+            // clientHello capabilities 缺席 = 旧客户端语义，严格满足单向宣告规则
+            //（transport.ts:53-86 .strict()：携带 Host 未宣告的键会整条解析失败）
+            let clientHello = RPCValue.jsonObject { builder in
+                builder.set("kind", "clientHello")
+                builder.set("protocolVersion", V4HelloMessage.wireProtocolVersion)
+                builder.set("clientId", clientId)
+                builder.set("clientKind", "mobileApp") // transport.ts:73 预留值
+                builder.set("appVersion", appVersion)
+            }
+            _ = try await client.call("zcode-agent", "initializeConversationV4", clientHello, timeout: 5)
+            progress.handshake.phase = .done
+            progress.handshake.meta = "clientKind=mobileApp"
+            log(.ok, "initializeConversationV4 · 握手完成")
+        } catch let error as ConnectError {
+            progress.handshake.phase = .failed
+            state = .connecting(progress)
+            await finishFailure(error)
+            return .failure(error)
+        } catch {
+            progress.handshake.phase = .failed
+            state = .connecting(progress)
+            let connectError = ConnectError.handshakeFailed(error.localizedDescription)
+            await finishFailure(connectError)
+            return .failure(connectError)
+        }
+
+        // 步骤 5：载入工作区（默认 workspaces[0]，或用户偏好）
+        progress.workspace.phase = .running
+        state = .connecting(progress)
+        let preferred = preferredWorkspace.flatMap { path in
+            info.workspaces.first { $0.path == path }
+        }
+        guard let workspace = preferred ?? info.workspaces.first else {
+            progress.workspace.phase = .failed
+            state = .connecting(progress)
+            let error = ConnectError.emptyWorkspaces
+            await finishFailure(error)
+            return .failure(error)
+        }
+        progress.workspace.phase = .done
+        progress.workspace.meta = workspace.label ?? workspace.path
+        log(.ok, "workspaces[0] · \(workspace.path)")
+        self.workspace = workspace
+        state = .connected(info, workspace: workspace)
+        return .success(info)
+    }
+
+    // MARK: 云中继连接（remote/v4：跳过局域网探测，WS + auth 握手 → bootstrap → workspace 桥）
+
+    /// 中继五步映射（L2 面板口径）：发现=跳过标注；鉴权=auth 握手 matched；
+    /// WS=transport paired；握手=bootstrap + bridge-open + 桥内 Initialize；工作区=bridge.workspacePath。
+    /// 成功后复用既有 Remote Store 面（call/listen 经 RPCChannelTransport 门面，
+    /// ReadOnlyGate 出口拦截对中继路径同等生效）。
+    @discardableResult
+    func connectRelay(to server: ServerConfig) async -> Result<ServerRemoteInfo, ConnectError> {
+        disconnect()
+        manuallyCancelled = false
+        serverConfig = server
+        logs.removeAll()
+        var progress = ConnectProgress()
+        guard let link = server.relay else {
+            let error = ConnectError.transport("中继配置缺失")
+            await finishFailure(error)
+            return .failure(error)
+        }
+
+        // 步骤 1：发现——中继模式无 /api/server-info HTTP 面，直连 WS
+        progress.discover.phase = .done
+        progress.discover.meta = "云端中继"
+        log(.ok, "云端中继 · 跳过局域网探测 → \(link.endpointHost ?? "?")/ws")
+
+        // 步骤 2-4：auth 握手 → bootstrap → workspace-bridge-open → 桥内 Initialize
+        progress.auth.phase = .running
+        state = .connecting(progress)
+        let transport = RelayTransport(config: link) { [weak self] kind, text in
+            Task { @MainActor [weak self] in self?.log(kind, text) }
+        }
+        let client = RelayChannelClient(transport: transport, link: link, appVersion: appVersion)
+        self.relayTransport = transport
+        self.client = client
+        do {
+            let summary = try await client.connectRelay(timeout: 15) { [weak self] error in
+                Task { @MainActor [weak self] in
+                    guard let self, !self.manuallyCancelled else { return }
+                    let connectError = ConnectError.transport(
+                        error.map { $0.localizedDescription } ?? "中继连接中断")
+                    self.notifyDroppedIfConnected(connectError.headline)
+                    self.state = .disconnected(connectError)
+                    self.teardownTransport()
+                }
+            }
+            progress.auth.phase = .done
+            progress.auth.meta = "auth matched"
+            progress.websocket.phase = .done
+            progress.websocket.meta = summary.desktopAppVersion.map { "桌面 v\($0)" } ?? "paired"
+            log(.ok, "WS + auth 握手完成 · pair_status=matched · \(summary.sessionCount) 个会话")
+
+            progress.handshake.phase = .done
+            progress.handshake.meta = "bridge kind=\(summary.bridgeKind ?? "local")"
+            log(.ok, "bootstrap + workspace-bridge-open 完成 · 桥内 Initialize 已到")
+
+            // 步骤 5：桥 workspacePath → ServerWorkspaceInfo（Store 装配与局域网同构）
+            progress.workspace.phase = .running
+            state = .connecting(progress)
+            let workspace = ServerWorkspaceInfo(
+                path: summary.workspacePath,
+                label: server.displayName,
+                workspaceIdentity: nil)
+            progress.workspace.phase = .done
+            progress.workspace.meta = workspace.label ?? workspace.path
+            log(.ok, "workspace-bridge · \(workspace.path)")
+            let info = ServerRemoteInfo(
+                serverId: "relay-\(link.endpointHost ?? "zcode")",
+                name: server.displayName,
+                version: summary.desktopAppVersion ?? "relay",
+                protocolVersion: ServerRemoteInfo.expectedProtocolVersion,
+                authRequired: false,
+                workspaces: [workspace],
+                capabilities: [])
+            serverInfo = info
+            self.workspace = workspace
+
+            // 桥内先 v4 握手（hello → clientHello）再订阅：桌面桥有 handshakeRequired 闸
+            // （探针实测 subscribeSessionsIndexV4 在握手前报 fault.connection.handshakeRequired；
+            // 局域网 server 无此闸，故 connect() 保持先订阅后握手的既有顺序）
+            await performRelayV4Handshake(client: client)
+            frameSubscription = await subscribeFrameStreams(client: client)
+            state = .connected(info, workspace: workspace)
+            return .success(info)
+        } catch let error as RPCError {
+            markRunningStepFailed(&progress)
+            state = .connecting(progress)
+            let connectError = Self.mapRelayError(error)
+            await finishFailure(connectError)
+            return .failure(connectError)
+        } catch {
+            markRunningStepFailed(&progress)
+            state = .connecting(progress)
+            let connectError = ConnectError.transport(error.localizedDescription)
+            await finishFailure(connectError)
+            return .failure(connectError)
+        }
+    }
+
+    /// 桥内 v4 握手（helloConversationV4 → initializeConversationV4，clientKind=mobileApp）。
+    /// 桌面桥为标准 channel server（下行 Initialize 实测）；旧版本缺命令时降级放行。
+    private func performRelayV4Handshake(client: any RPCChannelTransport) async {
+        do {
+            let helloValue = try await client.call("zcode-agent", "helloConversationV4", .undefined, timeout: 5)
+            guard let hello = V4HelloMessage.parse(helloValue.jsonValue ?? .null) else {
+                log(.info, "中继桥 hello 解析失败（降级继续）")
+                return
+            }
+            guard hello.protocolVersion == V4HelloMessage.wireProtocolVersion else {
+                log(.info, "中继桥 v4 wire v\(hello.protocolVersion)（降级继续）")
+                return
+            }
+            let clientHello = RPCValue.jsonObject { builder in
+                builder.set("kind", "clientHello")
+                builder.set("protocolVersion", V4HelloMessage.wireProtocolVersion)
+                builder.set("clientId", clientId)
+                builder.set("clientKind", "mobileApp")
+                builder.set("appVersion", appVersion)
+            }
+            _ = try await client.call("zcode-agent", "initializeConversationV4", clientHello, timeout: 5)
+            log(.ok, "桥内 v4 握手 · protocolVersion=3 · deliveryProfile=\(hello.deliveryProfile)")
+        } catch {
+            log(.info, "桥内 v4 握手不可用（降级继续）：\(error.localizedDescription)")
+        }
+    }
+
+    private func markRunningStepFailed(_ progress: inout ConnectProgress) {
+        if progress.discover.phase == .running { progress.discover.phase = .failed }
+        if progress.auth.phase == .running { progress.auth.phase = .failed }
+        if progress.websocket.phase == .running { progress.websocket.phase = .failed }
+        if progress.handshake.phase == .running { progress.handshake.phase = .failed }
+        if progress.workspace.phase == .running { progress.workspace.phase = .failed }
+    }
+
+    /// 中继错误 → L3 连接错误映射
+    private static func mapRelayError(_ error: RPCError) -> ConnectError {
+        switch error.name {
+        case "TimeoutError":
+            return .timeout(endpoint: "中继 auth/bridge")
+        case "RelayFailure", "RelayClosed":
+            return .handshakeFailed(error.message)
+        default:
+            return .transport(error.message)
+        }
+    }
+
+    /// 取消连接（L2 右上 ✕ / 底部取消：立即中断不留半开连接）
+    func cancelConnecting() {
+        manuallyCancelled = true
+        disconnect()
+        state = .idle
+    }
+
+    func disconnect() {
+        manuallyCancelled = true
+        teardownTransport()
+        client = nil
+        relayTransport = nil
+    }
+
+    private func teardownTransport() {
+        frameSubscription?.cancel()
+        frameSubscription = nil
+        frameAssemblers.removeAll()
+        frameHandlers.removeAll()
+        frameDropHandlers.removeAll()
+        workspaceConfigReplay.removeAll()
+        let configTopic = workspaceConfigTopicPath
+        let configSubscriptionId = workspaceConfigSubscriptionId
+        workspaceConfigTopicPath = nil
+        workspaceConfigSubscriptionId = nil
+        Task { [client] in
+            // 退订 workspace-config（promise 面）需在连接仍存活时发出，随后再断开传输
+            if let client, let configTopic {
+                var builder = JSONObjectBuilder()
+                builder.set("topic", configTopic)
+                builder.set("workspacePath", workspacePath(fromConfigTopic: configTopic))
+                if let configSubscriptionId {
+                    builder.set("subscriptionId", configSubscriptionId)
+                }
+                _ = try? await client.call(
+                    "zcode-agent", "unsubscribeWorkspaceConfigV4",
+                    .json(.object(builder.fields)), timeout: 3)
+            }
+            await client?.disconnect()
+        }
+    }
+
+    /// "workspace-config/<workspacePath>" → workspacePath
+    private func workspacePath(fromConfigTopic topic: String) -> String {
+        guard topic.hasPrefix("workspace-config/") else { return topic }
+        return String(topic.dropFirst("workspace-config/".count))
+    }
+
+    private func finishFailure(_ error: ConnectError) async {
+        teardownTransport()
+        client = nil
+        state = .failed(error)
+        log(.error, error.codeLine)
+    }
+
+    /// 连接日志写入（internal：Remote Store 的订阅诊断同源进 L2 面板）
+    func log(_ kind: ConnectLogLine.Kind, _ text: String) {
+        logs.append(ConnectLogLine(kind: kind, text: text))
+        if logs.count > 40 { logs.removeFirst(logs.count - 40) }
+        #if DEBUG
+        // 连接日志同步进 unified log（文本已脱敏），供 simctl log stream 真机诊断
+        NSLog("[relay-log][\(kind)] \(text)")
+        #endif
+    }
+
+    // MARK: 帧流订阅（conversation / sessions-index / workspace-config 三路 dynamic 事件）
+
+    /// workspace 级下行帧流：三个 dynamic 事件共用通知面，按 topic 前缀分流；
+    /// 另注册 zcode-task.onError（固定事件）进连接日志供诊断。
+    /// 局域网与中继共用（中继路径 eventListen 载荷经 rpc-frame 透传，eventFire 结构不变）。
+    private func subscribeFrameStreams(client: any RPCChannelTransport) async -> EventSubscription {
+        // dynamic 事件带参数：{workspacePath}（zcodeAgent.ts WorkspaceTarget）
+        let arg = RPCValue.jsonObject { builder in
+            builder.set("workspacePath", workspace?.path ?? "")
+        }
+        let conversationSub = await client.listen("zcode-agent", "onDynamicConversationFrame", arg) { [weak self] payload in
+            self?.routeFrame(payload, assemblerKey: "conversation", handlerKey: nil)
+        }
+        let sessionsSub = await client.listen("zcode-agent", "onDynamicSessionsIndexFrame", arg) { [weak self] payload in
+            self?.routeFrame(payload, assemblerKey: "sessions", handlerKey: "sessions-index")
+        }
+        let configSub = await client.listen("zcode-agent", "onDynamicWorkspaceConfigFrame", arg) { [weak self] payload in
+            self?.routeFrame(payload, assemblerKey: "workspace-config", handlerKey: "workspace-config")
+        }
+        // zcode-task.onError：固定事件（无参），错误文本进连接日志面板
+        let taskErrorSub = await client.listen("zcode-task", "onError", .undefined) { [weak self] payload in
+            let message = payload.jsonValue?["message"]?.stringValue
+                ?? payload.stringValue
+                ?? "未知错误"
+            Task { @MainActor [weak self] in
+                self?.log(.error, "zcode-task.onError · \(message)")
+            }
+        }
+        // workspace-config 订阅（promise 面）：runtimePolicy=existing-only，
+        // 被动观察者禁止为订阅拉起 Agent（zcodeAgent.ts:527-529 注释口径）。
+        // 服务端为 additive 演进面，旧版本不支持时订阅静默失败（chips 回退演示值）。
+        let configTopic = "workspace-config/\(workspace?.path ?? "")"
+        workspaceConfigTopicPath = configTopic
+        var builder = JSONObjectBuilder()
+        builder.set("topic", configTopic)
+        builder.set("workspacePath", workspace?.path ?? "")
+        builder.set("runtimePolicy", "existing-only")
+        if let value = try? await client.call(
+            "zcode-agent", "subscribeWorkspaceConfigV4",
+            .json(.object(builder.fields)), timeout: 5) {
+            workspaceConfigSubscriptionId = value.jsonValue?["subscriptionId"]?.stringValue
+        }
+        log(.ok, workspaceConfigSubscriptionId != nil
+            ? "subscribeWorkspaceConfigV4 · workspace-config 订阅完成"
+            : "subscribeWorkspaceConfigV4 · 服务端未提供（chips 走缺省展示）")
+        // 丢帧自愈：workspace-config assembler dropped → resyncWorkspaceConfigV4
+        // （订阅面归 connection，resync 亦在此闭环；Store 仅消费投影）
+        setFrameDropHandler(key: "workspace-config") { [weak self] in
+            guard let self else { return }
+            Task { await self.resyncWorkspaceConfig() }
+        }
+        return EventSubscription {
+            conversationSub.cancel()
+            sessionsSub.cancel()
+            configSub.cancel()
+            taskErrorSub.cancel()
+        }
+    }
+
+    /// assembler dropped → resyncWorkspaceConfigV4（subscriptionId + base；无水位传 null 全量）
+    private func resyncWorkspaceConfig() {
+        guard let subscriptionId = workspaceConfigSubscriptionId, let client, isActive else { return }
+        var builder = JSONObjectBuilder()
+        builder.set("subscriptionId", subscriptionId)
+        builder.set("base", JSONValue.null)
+        Task { [weak self] in
+            guard let self else { return }
+            _ = try? await self.call(
+                "zcode-agent", "resyncWorkspaceConfigV4", .json(.object(builder.fields)), timeout: 5)
+            self.log(.info, "resyncWorkspaceConfigV4 · 丢帧自愈已触发")
+        }
+    }
+
+    nonisolated private func routeFrame(_ payload: RPCValue, assemblerKey: String, handlerKey: String?) {
+        guard let json = payload.jsonValue,
+              let envelope = TopicWireFrame.parse(json) else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var assembler = self.frameAssemblers[assemblerKey] ?? TopicWireFrameAssembler()
+            guard let logical = assembler.accept(envelope) else {
+                self.frameAssemblers[assemblerKey] = assembler
+                // 丢帧自愈：assembler 置位 dropped → 通知订阅方 resync（断线/换代/坏分片）
+                if assembler.consumeDroppedFlag() {
+                    self.frameDropHandlers[assemblerKey]?()
+                }
+                return
+            }
+            self.frameAssemblers[assemblerKey] = assembler
+            if assembler.consumeDroppedFlag() {
+                self.frameDropHandlers[assemblerKey]?()
+            }
+            guard let frame = V4TopicFrame.parse(logical) else { return }
+            // 会话索引帧：handlerKey 为事件别名（"sessions-index"），而订阅侧按完整 topic
+            // （"sessions-index/<workspacePath>"）注册——两个键都尝试，否则快照帧被静默丢弃
+            // （症状：连接成功但会话列表恒为空态；e2e 门禁第 1 轮 test06/test12 实证）。
+            if let handlerKey {
+                let handler = self.frameHandlers[handlerKey] ?? self.frameHandlers[frame.topic]
+                if assemblerKey == "workspace-config" {
+                    // Store 注册 handler 前到达的快照/增量先缓存（整体替换语义，重放安全）
+                    self.workspaceConfigReplay.append(frame)
+                    if self.workspaceConfigReplay.count > 32 {
+                        self.workspaceConfigReplay.removeFirst(self.workspaceConfigReplay.count - 32)
+                    }
+                }
+                handler?(frame)
+            }
+            // conversation 帧按 topic 前缀分流给 handlerKey="conversation/<id>"
+            if handlerKey == nil, frame.topic.hasPrefix("conversation/"),
+               let handler = self.frameHandlers[frame.topic] {
+                handler(frame)
+            }
+        }
+    }
+
+    /// 注册 logical 帧处理器（topic：conversation/<sessionId> 或 sessions-index/<workspaceId>）。
+    /// workspace-config topic 注册时重放缓存帧（连接即订阅、Store 晚注册不丢快照）。
+    func setFrameHandler(topic: String, handler: @escaping @Sendable (V4TopicFrame) -> Void) {
+        frameHandlers[topic] = handler
+        if topic.hasPrefix("workspace-config/") {
+            let replay = workspaceConfigReplay
+            workspaceConfigReplay.removeAll()
+            for frame in replay {
+                handler(frame)
+            }
+        }
+    }
+
+    func removeFrameHandler(topic: String) {
+        frameHandlers.removeValue(forKey: topic)
+    }
+
+    /// 注册 assembler 丢帧回调（key：conversation / sessions / workspace-config）。
+    /// 回调方（各 Store）保存订阅回执的 subscriptionId，据以发 resyncConversationV4 /
+    /// resyncSessionsIndexV4 / resyncWorkspaceConfigV4 恢复续流。
+    func setFrameDropHandler(key: String, handler: @escaping @Sendable () -> Void) {
+        frameDropHandlers[key] = handler
+    }
+
+    func removeFrameDropHandler(key: String) {
+        frameDropHandlers.removeValue(forKey: key)
+    }
+
+    // MARK: channel RPC 门面
+
+    /// 纵深防御：所有 V4Wire/RPC 调用的唯一出口。连接态（真实服务器）下 directWrite
+    /// 分类（文件直写/回滚/仓库写/宿主与配置写）在此直接拦截——即使 UI 层有遗漏入口
+    /// 也不会触达服务端；消息/审批/停止/队列等桌面代执行命令放行。
+    /// mock 演示不经过本连接，演示态交互不受影响。
+    func call(_ channel: String, _ command: String, _ arg: RPCValue = .undefined,
+              timeout: TimeInterval = 30) async throws -> RPCValue {
+        guard let client, isActive else {
+            throw RPCError(message: "未连接桌面端", name: "NotConnected")
+        }
+        let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: arg)
+        if verdict.isBlocked {
+            let reason = verdict.reason ?? "直写类命令"
+            blockedExecutionCalls.append(reason)
+            if blockedExecutionCalls.count > 20 { blockedExecutionCalls.removeFirst(blockedExecutionCalls.count - 20) }
+            log(.error, "边界拦截 · \(reason)")
+            throw RPCError(message: "移动端边界：\(reason) 属手机直写面，不接", name: "ReadOnlyViolation")
+        }
+        return try await client.call(channel, command, arg, timeout: timeout)
+    }
+
+    func listen(_ channel: String, _ event: String, _ arg: RPCValue = .undefined,
+                handler: @escaping @Sendable (RPCValue) -> Void) async -> EventSubscription? {
+        guard let client, isActive else { return nil }
+        return await client.listen(channel, event, arg, handler: handler)
+    }
+
+    /// 曾连接后的真实传输中断 → 通知 AppSession 切 .disconnected（横幅）。
+    /// 连接建立前的失败走 finishFailure/.connectFailed 分支，state 非 .connected，不触发。
+    private func notifyDroppedIfConnected(_ detail: String) {
+        guard case .connected = state else { return }
+        onConnectionDropped?(detail)
+    }
+}

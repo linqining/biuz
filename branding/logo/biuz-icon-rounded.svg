@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- BiuZ app icon, 圆角预览版(rx=228 对应 iOS 裁切比例), 仅用于展示 -->
+  <defs>
+    <radialGradient id="bgGlow" cx="60%" cy="62%" r="78%">
+      <stop offset="0" stop-color="#0f1214"/>
+      <stop offset="1" stop-color="#0a0b0d"/>
+    </radialGradient>
+    <radialGradient id="head" cx="36%" cy="32%" r="78%">
+      <stop offset="0" stop-color="#eafff4"/>
+      <stop offset=".22" stop-color="#8ff8c0"/>
+      <stop offset=".55" stop-color="#32f08c"/>
+      <stop offset="1" stop-color="#1ba968"/>
+    </radialGradient>
+    <filter id="blurS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="12"/></filter>
+    <filter id="blurXS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="2.5"/></filter>
+    <filter id="blurL" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="34"/></filter>
+    <filter id="blurXL" x="-90%" y="-90%" width="280%" height="280%"><feGaussianBlur stdDeviation="70"/></filter>
+    <clipPath id="screen"><rect width="1024" height="1024" rx="228"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#screen)">
+  <rect width="1024" height="1024" fill="url(#bgGlow)"/>
+  <ellipse cx="620" cy="560" rx="340" ry="310" fill="#32f08c" opacity=".14" filter="url(#blurXL)"/>
+
+    <!-- 尾迹断点: 速度线 -->
+    <g fill="none" stroke-linecap="round">
+      <path d="M150 242 L182 242" stroke="#102b1f" stroke-width="16"/>
+      <path d="M214 242 L262 242" stroke="#143f2b" stroke-width="22"/>
+      <path d="M300 242 L360 242" stroke="#175637" stroke-width="28"/>
+    </g>
+    <!-- 彗星主体: 沿脊线连续锥形扫掠 -->
+    <g fill="none" stroke-linecap="round">
+      <path d="M398.0 242.0 L433.8 242.0" stroke="#195d3b" stroke-width="30.0"/>
+      <path d="M433.8 242.0 L469.5 242.0" stroke="#1a623e" stroke-width="30.3"/>
+      <path d="M469.5 242.0 L505.3 242.0" stroke="#1b6741" stroke-width="30.8"/>
+      <path d="M505.3 242.0 L541.0 242.0" stroke="#1b6c43" stroke-width="31.4"/>
+      <path d="M541.0 242.0 L576.8 242.0" stroke="#1c7146" stroke-width="32.1"/>
+      <path d="M576.8 242.0 L612.5 242.0" stroke="#1d7649" stroke-width="33.0"/>
+      <path d="M612.5 242.0 L648.3 242.0" stroke="#1e7a4b" stroke-width="34.0"/>
+      <path d="M648.3 242.0 L684.0 242.0" stroke="#1e7e4d" stroke-width="35.1"/>
+      <path d="M684.0 242.0 L667.0 266.1" stroke="#1f8350" stroke-width="36.3"/>
+      <path d="M667.0 266.1 L643.3 293.1" stroke="#208752" stroke-width="37.6"/>
+      <path d="M643.3 293.1 L619.6 320.2" stroke="#218b55" stroke-width="39.0"/>
+      <path d="M619.6 320.2 L595.9 347.2" stroke="#219057" stroke-width="40.5"/>
+      <path d="M595.9 347.2 L572.2 374.3" stroke="#229459" stroke-width="42.2"/>
+      <path d="M572.2 374.3 L548.6 401.4" stroke="#23985c" stroke-width="43.9"/>
+      <path d="M548.6 401.4 L524.9 428.4" stroke="#249c5e" stroke-width="45.7"/>
+      <path d="M524.9 428.4 L501.2 455.5" stroke="#24a060" stroke-width="47.6"/>
+      <path d="M501.2 455.5 L477.5 482.5" stroke="#25a462" stroke-width="49.6"/>
+      <path d="M477.5 482.5 L453.9 509.6" stroke="#26a865" stroke-width="51.6"/>
+      <path d="M453.9 509.6 L430.2 536.7" stroke="#26ac67" stroke-width="53.8"/>
+      <path d="M430.2 536.7 L406.5 563.7" stroke="#27b069" stroke-width="56.0"/>
+      <path d="M406.5 563.7 L382.8 590.8" stroke="#28b46b" stroke-width="58.4"/>
+      <path d="M382.8 590.8 L359.1 617.8" stroke="#28b86d" stroke-width="60.8"/>
+      <path d="M359.1 617.8 L338.1 641.9" stroke="#29bc70" stroke-width="63.3"/>
+      <path d="M338.1 641.9 L317.0 665.9" stroke="#2ac071" stroke-width="65.5"/>
+      <path d="M317.0 665.9 L296.0 690.0" stroke="#2ac373" stroke-width="67.9"/>
+      <path d="M296.0 690.0 L328.0 690.0" stroke="#2bc775" stroke-width="70.3"/>
+      <path d="M328.0 690.0 L360.0 690.0" stroke="#2cca77" stroke-width="72.7"/>
+      <path d="M360.0 690.0 L388.0 690.0" stroke="#2ccd79" stroke-width="74.9"/>
+      <path d="M388.0 690.0 L416.0 690.0" stroke="#2dd07b" stroke-width="77.2"/>
+      <path d="M416.0 690.0 L444.0 690.0" stroke="#2dd37c" stroke-width="79.5"/>
+      <path d="M444.0 690.0 L472.0 690.0" stroke="#2ed67e" stroke-width="81.8"/>
+      <path d="M472.0 690.0 L500.0 690.0" stroke="#2ed97f" stroke-width="84.2"/>
+      <path d="M500.0 690.0 L528.0 690.0" stroke="#2fdc81" stroke-width="86.6"/>
+      <path d="M528.0 690.0 L556.0 690.0" stroke="#2fdf83" stroke-width="89.1"/>
+      <path d="M556.0 690.0 L584.0 690.0" stroke="#30e284" stroke-width="91.6"/>
+      <path d="M584.0 690.0 L608.0 690.0" stroke="#30e586" stroke-width="94.1"/>
+      <path d="M608.0 690.0 L632.0 690.0" stroke="#31e887" stroke-width="96.4"/>
+      <path d="M632.0 690.0 L656.0 690.0" stroke="#31ea89" stroke-width="98.6"/>
+      <path d="M656.0 690.0 L680.0 690.0" stroke="#31ed8a" stroke-width="100.9"/>
+      <path d="M680.0 690.0 L700.0 690.0" stroke="#32ef8b" stroke-width="102.8"/>
+    </g>
+    <!-- biu 亮核 -->
+    <circle cx="736" cy="690" r="140" fill="#32f08c" opacity="0.38" filter="url(#blurL)"/>
+    <circle cx="736" cy="690" r="104" fill="url(#head)"/>
+    <circle cx="700" cy="644" r="24" fill="#ffffff" opacity="0.2" filter="url(#blurS)"/>
+    <circle cx="700" cy="644" r="10" fill="#ffffff" opacity="0.85" filter="url(#blurXS)"/>
+  </g>
+</svg>

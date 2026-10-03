@@ -1,0 +1,1991 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BiuZ 移动端客户端 · 高保真设计稿</title>
+<style>
+/* ============================================================
+   BiuZ Mobile · 设计令牌（对齐 TRAE 深色语言 + Qoder 状态语义）
+   ============================================================ */
+:root{
+  --bg:#0a0b0d;            /* 页面背景 L≈4.5% */
+  --bg-card:#121316;       /* 卡片 L≈6.5% */
+  --bg-elevated:#17181c;   /* 浮层/侧栏 L≈8% */
+  --bg-input:#1a1c21;
+  --bg-code:#0d0e10;       /* 代码块底 */
+  --bg-term:#050607;       /* 终端底 */
+  --border:#26282e;
+  --border-strong:#34373f;
+  --text:#f5f9fe;
+  --text-2:#a6aab5;
+  --text-3:#8a8f9b;        /* 最小说字 · #121316 上 5.79:1 / #0a0b0d 上 5.93:1（AA ✓） */
+  --accent:#32f08c;        /* 强调亮绿（按钮底，深字 12.7:1） */
+  --accent-text:#32f08c;   /* 强调文字（深底上 12.7:1） */
+  --accent-press:#28c974;
+  --accent-dim:rgba(50,240,140,.12);
+  --blue:#4da3ff;          /* Running · #121316 上 7.1:1 */
+  --blue-dim:rgba(77,163,255,.14);
+  --orange:#ffb224;        /* Waiting / 待操作 · #121316 上 9.8:1 */
+  --orange-dim:rgba(255,178,36,.14);
+  --red:#ff5d5d;           /* 危险 · #121316 上 6.1:1 */
+  --red-dim:rgba(255,93,93,.12);
+  --red-line:rgba(255,93,93,.55);
+  --violet:#c792ff;        /* 能力/生态标签、轨迹/工作流语义（非任务状态） */
+  --violet-dim:rgba(199,146,255,.12);
+  --add:#3ddc84;           /* diff 新增 */
+  --add-bg:rgba(50,240,140,.10);
+  --del:#ff7a7a;           /* diff 删除 */
+  --del-bg:rgba(255,93,93,.10);
+  --code-kw:#c792ff;       /* 代码关键字 */
+  --code-lab:#8f9bdd;      /* 代码类型/日志标签 */
+  --code-lab-dim:rgba(125,139,221,.08);
+  --tabbar-bg:rgba(13,14,16,.92);
+  --grad-avatar:linear-gradient(135deg,#4da3ff,#7d8bdd);
+  --grad-bubble:linear-gradient(135deg,#1d2a23,#152019);
+  --grad-usercard:linear-gradient(160deg,#131a16,var(--bg-card));
+  --home-bg:rgba(245,249,254,.85);
+  --sb-fg-dim:rgba(245,249,254,.5);
+  --badge-fg:#0d1500;      /* 徽章前景（橙/蓝亮底上深字 ≥7:1） */
+  --on-orange:#1a0f00;     /* 橙色按钮前景（#ffb224 底上 10.5:1） */
+  --on-accent:#04120a;     /* 强调绿底前景（深/浅两档均深字：12.7 / 6.7:1） */
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","HarmonyOS Sans SC","MiSans","Segoe UI","Microsoft YaHei",sans-serif;
+  --font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --r-s:8px; --r-m:12px; --r-l:16px;
+  --sh-card:0 8px 24px rgba(0,0,0,.45);
+  --sh-sheet:0 -12px 48px rgba(0,0,0,.6);
+  --safe-top:54px;   /* 灵动岛安全区 */
+  --safe-bot:34px;   /* Home 指示条安全区 */
+}
+/* ---------- Light 主题（跟随系统切换；与深色为同一结构令牌映射，对比度均经验证 ≥4.5:1） ---------- */
+.theme-light{
+  --bg:#f4f5f7;
+  --bg-card:#ffffff;
+  --bg-elevated:#ffffff;
+  --bg-input:#eceef2;
+  --bg-code:#f6f7f9;
+  --bg-term:#fbfbfc;
+  --border:#e3e5e9;
+  --border-strong:#d2d5db;
+  --text:#17181c;
+  --text-2:#4b5563;
+  --text-3:#5f6673;        /* #ffffff 上 5.78:1（AA ✓，实算） */
+  --accent:#17b26a;        /* 按钮底，深字 #04120a 上 6.7:1 */
+  --accent-text:#0a7f45;   /* 白底文字 5.08:1（实算） */
+  --accent-press:#0e9f58;
+  --accent-dim:rgba(23,178,106,.12);
+  --blue:#1a6fd4;          /* #ffffff 上 4.6:1 */
+  --blue-dim:rgba(26,111,212,.10);
+  --orange:#9a5200;        /* #ffffff 上 5.5:1 */
+  --orange-dim:rgba(154,82,0,.10);
+  --red:#c53030;           /* #ffffff 上 5.1:1 */
+  --red-dim:rgba(197,48,48,.08);
+  --red-line:rgba(197,48,48,.45);
+  --violet:#7c3aed;
+  --violet-dim:rgba(124,58,237,.10);
+  --add:#0a7340;           /* 最差复合底（code底+add-bg）4.94:1，全场景 ≥4.5 */
+  --add-bg:rgba(10,160,80,.10);
+  --del:#b32e20;           /* 最差复合底（code底+del-bg）5.26:1 */
+  --del-bg:rgba(200,60,50,.08);
+  --code-kw:#7c3aed;
+  --code-lab:#1a6fd4;
+  --code-lab-dim:rgba(26,111,212,.08);
+  --tabbar-bg:rgba(255,255,255,.92);
+  --grad-avatar:linear-gradient(135deg,#1a6fd4,#7d8bdd);
+  --grad-bubble:linear-gradient(135deg,#e8f7ef,#e2f3ea);
+  --grad-usercard:linear-gradient(160deg,#ecf9f2,#ffffff);
+  --home-bg:rgba(23,24,28,.85);
+  --sb-fg-dim:rgba(23,24,28,.5);
+  --badge-fg:#ffffff;      /* Light 深色徽章底上白字（#9a5200 5.5:1 / #1a6fd4 4.6:1） */
+  --on-orange:#ffffff;     /* Light 橙色按钮前景（#9a5200 底上 5.5:1） */
+  --on-accent:#04120a;
+  --sh-card:0 4px 16px rgba(23,25,35,.08);
+  --sh-sheet:0 -12px 48px rgba(23,25,35,.16);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html{-webkit-font-smoothing:antialiased;text-size-adjust:100%;}
+body{background:#060708;color:var(--text);font-family:var(--font-ui);font-size:14px;line-height:1.5;}
+::selection{background:var(--accent-dim);}
+
+/* ---------- 图标 ---------- */
+.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;display:block;}
+.ic-s{width:14px;height:14px;}
+.ic-l{width:22px;height:22px;}
+
+/* ---------- 画布整体 ---------- */
+.canvas-head{max-width:1560px;margin:0 auto;padding:56px 40px 8px;}
+.canvas-head .kicker{color:var(--accent);font-size:12px;font-weight:600;letter-spacing:.28em;text-transform:uppercase;}
+.canvas-head h1{font-size:34px;font-weight:700;letter-spacing:.01em;margin:12px 0 10px;}
+.canvas-head p{color:var(--text-2);font-size:14px;max-width:860px;}
+.canvas-head p b{color:var(--text);}
+.meta-strip{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;}
+.meta-chip{display:flex;align-items:center;gap:8px;background:var(--bg-card);border:1px solid var(--border);border-radius:999px;padding:7px 14px;font-size:12px;color:var(--text-2);}
+.meta-chip .sw{width:12px;height:12px;border-radius:4px;flex:none;}
+.token-board{max-width:1560px;margin:28px auto 0;padding:0 40px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;}
+.token-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-l);padding:18px 20px;}
+.token-card h3{font-size:12px;color:var(--text-3);font-weight:600;letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px;}
+.swatch-row{display:flex;gap:8px;flex-wrap:wrap;}
+.swatch{display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text-3);min-width:64px;}
+.swatch i{display:block;height:40px;border-radius:8px;border:1px solid var(--border-strong);}
+.swatch b{color:var(--text-2);font-weight:500;font-family:var(--font-mono);font-size:10.5px;}
+.token-lines{font-size:12px;color:var(--text-2);display:grid;gap:8px;}
+.token-lines b{color:var(--text);font-weight:600;}
+.token-lines code{font-family:var(--font-mono);font-size:11px;color:var(--accent);background:var(--accent-dim);padding:1px 6px;border-radius:5px;}
+
+/* ---------- 导航结构图 ---------- */
+.nav-map{max-width:1560px;margin:16px auto 0;padding:0 40px;}
+.nav-map-inner{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-l);padding:22px 24px;}
+.nav-cols{display:flex;gap:14px;flex-wrap:wrap;align-items:stretch;}
+.nav-col{flex:1;min-width:230px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-m);padding:14px 16px;}
+.nav-col h4{font-size:12px;font-weight:600;letter-spacing:.08em;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.nav-col h4 .dot{width:8px;height:8px;border-radius:50%;}
+.nav-item{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12.5px;color:var(--text-2);margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;align-items:center;}
+.nav-item span{color:var(--text-3);font-size:11px;}
+.nav-item b{color:var(--text);font-weight:600;}
+.nav-arrow{align-self:center;color:var(--text-3);font-size:18px;padding:0 2px;}
+
+/* ---------- 屏幕分区 ---------- */
+.boards{display:flex;flex-wrap:wrap;gap:64px 48px;justify-content:center;padding:56px 40px 120px;}
+.board{display:flex;gap:24px;align-items:flex-start;}
+.board-col{display:flex;flex-direction:column;gap:12px;}
+.board-tag{display:flex;align-items:center;gap:10px;}
+.board-tag .num{font-family:var(--font-mono);font-size:12px;color:var(--on-accent);background:var(--accent);border-radius:6px;padding:2px 8px;font-weight:700;}
+.board-tag h2{font-size:16px;font-weight:700;}
+.lvl{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:999px;border:1px solid var(--border-strong);color:var(--text-2);letter-spacing:.04em;}
+.lvl.root{color:var(--accent);border-color:rgba(50,240,140,.4);background:var(--accent-dim);}
+.lvl.push{color:var(--blue);border-color:rgba(77,163,255,.4);background:var(--blue-dim);}
+.lvl.sheet{color:var(--orange);border-color:rgba(255,178,36,.4);background:var(--orange-dim);}
+.lvl.l3{color:var(--violet);border-color:rgba(199,146,255,.4);background:rgba(199,146,255,.12);}
+
+/* 手机外壳 */
+.phone{width:406px;background:#1c1d21;border:1px solid #3a3c43;border-radius:56px;padding:8px;box-shadow:0 24px 80px rgba(0,0,0,.7),inset 0 0 0 2px #000;}
+.screen{position:relative;width:390px;height:844px;background:var(--bg);color:var(--text);border-radius:48px;overflow:hidden;display:flex;flex-direction:column;}
+.notch{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:122px;height:35px;background:#000;border-radius:20px;z-index:60;}
+.statusbar{position:relative;z-index:50;height:var(--safe-top);flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 6px;font-size:14.5px;font-weight:600;color:var(--text);}
+.statusbar .sb-icons{display:flex;align-items:center;gap:6px;}
+.sb-batt{width:24px;height:12px;border:1px solid var(--sb-fg-dim);border-radius:4px;position:relative;}
+.sb-batt::before{content:"";position:absolute;inset:2px;right:6px;background:var(--text);border-radius:2px;}
+.sb-batt::after{content:"";position:absolute;right:-4px;top:3px;width:2px;height:5px;background:var(--sb-fg-dim);border-radius:1px;}
+.home-indicator{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:134px;height:5px;border-radius:3px;background:var(--home-bg);z-index:70;}
+
+/* 导航栏 */
+.navbar{flex:none;display:flex;align-items:center;gap:10px;padding:8px 12px;min-height:52px;}
+.navbar .nb-title{flex:1;text-align:center;font-size:16.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.navbar .nb-side{width:64px;display:flex;}
+.nav-btn{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:12px;color:var(--text-2);}
+.nav-btn.active{color:var(--text);}
+
+/* 内容区 */
+.content{flex:1;overflow:hidden;padding:0 16px;display:flex;flex-direction:column;gap:12px;}
+
+/* ---------- 通用组件 ---------- */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-m);box-shadow:var(--sh-card);}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+.pill .d{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.pill.run{color:var(--blue);background:var(--blue-dim);}
+.pill.wait{color:var(--orange);background:var(--orange-dim);}
+.pill.done{color:var(--accent);background:var(--accent-dim);}
+.pill.err{color:var(--red);background:var(--red-dim);}
+.pill.tag{color:var(--violet);background:var(--violet-dim);} /* 能力/生态标签（非任务状态） */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;height:48px;border-radius:var(--r-m);font-size:15.5px;font-weight:600;border:none;font-family:inherit;cursor:default;}
+.btn-primary{background:var(--accent);color:var(--on-accent);}
+.btn-ghost{background:transparent;border:1px solid var(--border-strong);color:var(--text);}
+.btn-danger{background:transparent;border:1px solid rgba(255,93,93,.55);color:var(--red);}
+.input{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-m);color:var(--text);font-family:inherit;font-size:16px;/* ≥16px 防 iOS 聚焦缩放 */}
+.sec-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--text-2);letter-spacing:.02em;}
+.sec-title .d{width:7px;height:7px;border-radius:50%;}
+.sec-title .more{margin-left:auto;font-size:12px;color:var(--accent-text);font-weight:600;padding:12px 0 12px 12px;margin-top:-12px;margin-bottom:-12px;} /* 44px 热区 */
+.mono{font-family:var(--font-mono);}
+
+/* Tab 栏（顶内边距 7px + Tab 热区 48px + 底内边距 6px + 安全区 34px ≈ 总高 95px，390 基准实测；实现按系统安全区 API 动态计算，不按固定 49px 裁切） */
+.tabbar{flex:none;display:flex;align-items:flex-start;justify-content:space-around;padding:7px 8px calc(var(--safe-bot) + 6px);background:var(--tabbar-bg);backdrop-filter:blur(20px);border-top:1px solid var(--border);}
+.tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:64px;min-height:48px;color:var(--text-3);font-size:10.5px;font-weight:600;position:relative;}
+.tab.active{color:var(--accent);}
+.tab .badge{position:absolute;top:-2px;right:16px;min-width:16px;height:16px;border-radius:9px;background:var(--orange);color:var(--badge-fg);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;}
+.tab .badge.blue{background:var(--blue);}
+
+/* FAB */
+.fab{position:absolute;right:18px;bottom:calc(var(--safe-bot) + 92px);width:56px;height:56px;border-radius:18px;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(50,240,140,.35);z-index:40;}
+
+/* 任务卡 */
+.task-card{padding:14px;display:flex;flex-direction:column;gap:9px;}
+.task-card .tc-top{display:flex;align-items:center;gap:8px;}
+.task-card .tc-ws{font-size:11px;color:var(--text-3);font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.task-card h4{font-size:15.5px;font-weight:700;letter-spacing:.01em;}
+.task-card .tc-sum{font-size:12.5px;color:var(--text-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.task-card .tc-meta{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-3);}
+.todo-mini{display:flex;align-items:center;gap:8px;}
+.todo-mini .bar{flex:1;height:4px;border-radius:2px;background:var(--bg-input);overflow:hidden;}
+.todo-mini .bar i{display:block;height:100%;border-radius:2px;background:var(--blue);}
+.todo-mini span{font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);}
+.tool-chip{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:var(--text-2);background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:2px 7px;font-family:var(--font-mono);}
+.chip-btn{min-height:44px;font-size:12.5px;font-family:var(--font-ui);border-radius:12px;padding:0 14px;} /* 可交互 chips：≥44px */
+.tok-kw{color:var(--code-kw);}
+.tok-ty{color:var(--code-lab);}
+/* 授权范围单选行（审批安全动作，≥44px 整行可点） */
+.choice-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:0 14px;border:1px solid var(--border);border-radius:var(--r-m);font-size:14px;color:var(--text-2);}
+.choice-row.selected{border-color:rgba(50,240,140,.5);background:var(--accent-dim);color:var(--text);font-weight:600;}
+.theme-light .choice-row.selected{border-color:rgba(23,178,106,.5);}
+.radio{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--border-strong);flex:none;}
+.choice-row.selected .radio{border:6px solid var(--accent);}
+/* 状态样张板 */
+.state-grid{display:flex;flex-wrap:wrap;gap:20px;max-width:1560px;margin:0 auto;padding:0 40px 32px;}
+.state-card{width:302px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-l);padding:18px;display:flex;flex-direction:column;gap:12px;}
+.state-card h4{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.state-card h4 .tag-no{font-family:var(--font-mono);font-size:10px;color:var(--accent);background:var(--accent-dim);border-radius:5px;padding:2px 6px;font-weight:700;}
+.state-card .sc-desc{font-size:11px;color:var(--text-3);line-height:1.7;margin-top:auto;padding-top:10px;border-top:1px dashed var(--border);}
+.state-demo{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-m);padding:14px;display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center;}
+.state-demo.row{flex-direction:row;text-align:left;align-items:flex-start;}
+/* Live Activity / 锁屏实时活动 */
+.live-activity{width:390px;border-radius:26px;background:rgba(28,29,33,.9);backdrop-filter:blur(24px);border:1px solid var(--border-strong);padding:14px 16px;display:flex;gap:12px;align-items:center;box-shadow:var(--sh-card);}
+.theme-light .live-activity{background:rgba(255,255,255,.92);}
+
+/* spinner / cursor 动画 */
+.spin{width:13px;height:13px;border-radius:50%;border:2px solid rgba(77,163,255,.28);border-top-color:var(--blue);animation:spin 1s linear infinite;flex:none;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.caret{display:inline-block;width:7px;height:14px;background:var(--accent);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(1) infinite;}
+@keyframes blink{50%{opacity:0;}}
+
+/* 会话消息 */
+.msg-user{align-self:flex-end;max-width:82%;background:var(--grad-bubble);border:1px solid rgba(50,240,140,.22);border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:14px;color:var(--text);}
+.theme-light .msg-user{border-color:rgba(23,178,106,.3);}
+.msg-agent{font-size:14px;color:var(--text-2);line-height:1.6;}
+.msg-agent b{color:var(--text);}
+.msg-avatar{width:22px;height:22px;border-radius:7px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--on-accent);flex:none;}
+
+/* 工具调用卡 */
+.toolcard{background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-m);overflow:hidden;}
+.toolcard .t-head{display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:12.5px;min-height:44px;}
+.toolcard .t-kind{color:var(--text-3);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;font-family:var(--font-mono);}
+.toolcard .t-path{font-family:var(--font-mono);font-size:11.5px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.toolcard .t-right{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--text-3);font-size:10.5px;font-family:var(--font-mono);}
+.t-body{border-top:1px solid var(--border);background:var(--bg-code);padding:8px 12px;font-family:var(--font-mono);font-size:12px;color:var(--text-2);overflow-x:auto;white-space:pre;}
+.diff-inline{border-top:1px solid var(--border);font-family:var(--font-mono);font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre;}
+.diff-inline .ln{display:block;padding:0 10px 0 0;}
+.diff-inline .ln .no{display:inline-block;width:32px;text-align:right;margin-right:10px;color:var(--text-3);font-size:10.5px;user-select:none;}
+.diff-inline .ctx{color:var(--text-2);background:transparent;}
+.diff-inline .add{color:var(--add);background:var(--add-bg);}
+.diff-inline .del{color:var(--del);background:var(--del-bg);}
+.diff-inline .hunk{color:var(--code-lab);background:var(--code-lab-dim);}
+
+/* todo 卡 */
+.todo-card{padding:12px 14px;display:flex;flex-direction:column;gap:8px;}
+.todo-row{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--text-2);}
+.todo-row.done{color:var(--text-3);text-decoration:line-through;}
+.todo-row.now{color:var(--text);font-weight:600;}
+.todo-box{width:17px;height:17px;border-radius:6px;flex:none;display:flex;align-items:center;justify-content:center;}
+.todo-box.done{background:var(--accent);color:var(--on-accent);}
+.todo-box.now{border:2px solid var(--blue);}
+.todo-box.todo{border:1.5px solid var(--border-strong);}
+
+/* 输入栏 */
+.composer{flex:none;border-top:1px solid var(--border);background:var(--tabbar-bg);backdrop-filter:blur(20px);padding:8px 12px calc(var(--safe-bot) + 8px);display:flex;flex-direction:column;gap:8px;}
+.composer .c-tools{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-3);}
+.c-pill{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:999px;padding:3px 9px;color:var(--text-2);font-weight:600;}
+.ctx-meter{margin-left:auto;display:flex;align-items:center;gap:6px;}
+.ctx-meter .bar{width:64px;height:4px;border-radius:2px;background:var(--bg-input);overflow:hidden;}
+.ctx-meter .bar i{display:block;height:100%;width:64%;background:var(--accent);}
+.composer .c-input{display:flex;align-items:center;gap:8px;}
+.composer .c-field{flex:1;display:flex;align-items:center;background:var(--bg-input);border:1px solid var(--border-strong);border-radius:999px;padding:0 14px;height:44px;font-size:16px;/* ≥16px 防 iOS 聚焦缩放 */color:var(--text-3);}
+.c-send{width:44px;height:44px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;flex:none;}
+
+/* 列表行（设置） */
+.glist{border-radius:var(--r-l);overflow:hidden;border:1px solid var(--border);background:var(--bg-card);}
+.grow{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 14px;border-bottom:1px solid var(--border);font-size:14.5px;}
+.grow:last-child{border-bottom:none;}
+.grow .g-ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:none;background:var(--bg-elevated);color:var(--text-2);}
+.grow .g-main{flex:1;min-width:0;}
+.grow .g-sub{font-size:11.5px;color:var(--text-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.grow .g-val{font-size:12.5px;color:var(--text-3);display:flex;align-items:center;gap:4px;}
+.grow .chev{color:var(--text-3);}
+
+/* 标注面板 */
+.notes{width:262px;flex:none;display:flex;flex-direction:column;gap:12px;position:sticky;top:32px;}
+.note-block{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-m);padding:14px 16px;}
+.note-block h5{font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.note-block ul{list-style:none;display:flex;flex-direction:column;gap:7px;}
+.note-block li{font-size:12px;color:var(--text-2);padding-left:14px;position:relative;line-height:1.55;}
+.note-block li::before{content:"";position:absolute;left:0;top:7px;width:6px;height:6px;border-radius:2px;background:var(--border-strong);}
+.note-block li b{color:var(--text);font-weight:600;}
+.note-block li code{font-family:var(--font-mono);font-size:10.5px;color:var(--violet);background:var(--violet-dim);padding:0 4px;border-radius:4px;}
+.flow-line{font-size:11.5px;color:var(--text-3);line-height:1.7;}
+.flow-line b{color:var(--text-2);font-weight:600;}
+</style>
+</head>
+<body>
+
+<!-- ================= SVG 图标库（内联 sprite，无外部依赖） ================= -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-diff" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>
+  <symbol id="i-chev-u" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="12" r="1.6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><line x1="4" y1="18" x2="4" y2="14"/><line x1="9" y1="18" x2="9" y2="10"/><line x1="14" y1="18" x2="14" y2="6"/><line x1="19" y1="18" x2="19" y2="2"/></symbol>
+  <symbol id="i-at" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><line x1="12" y1="17" x2="12" y2="22"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></symbol>
+</svg>
+
+<!-- ================= 画布头部 ================= -->
+<header class="canvas-head">
+  <div class="kicker">BiuZ Mobile · Hi-Fi Mockups</div>
+  <h1>BiuZ 移动端客户端 · 高保真设计稿</h1>
+  <p>定位：<b>手机 = 遥控与审批台</b>，重活交给云端沙盒 / 配对电脑执行（对应桌面 Host 的 web-remote 链路，手机端不另起 agent）。深色优先、近黑三级分层背景 + 单一高饱和强调绿；任务状态沿用 <b>运行中=蓝 · 待操作=橙 · 已完成=绿</b> 语义。下方 <b>12 屏</b>覆盖全部 core 模块，另附<b>状态与次级页样张（屏 13）</b>与 <b>Light 主题样张（屏 14）</b>，每屏附交互标注；全部可读色值按<b>最差复合底</b>经 WCAG AA（4.5:1）实算验证。</p>
+  <div class="meta-strip">
+    <div class="meta-chip"><i class="sw" style="background:#0a0b0d"></i>背景 #0a0b0d</div>
+    <div class="meta-chip"><i class="sw" style="background:#121316"></i>卡片 #121316</div>
+    <div class="meta-chip"><i class="sw" style="background:#17181c"></i>浮层 #17181c</div>
+    <div class="meta-chip"><i class="sw" style="background:#32f08c"></i>强调 #32f08c</div>
+    <div class="meta-chip"><i class="sw" style="background:#4da3ff"></i>运行 #4da3ff</div>
+    <div class="meta-chip"><i class="sw" style="background:#ffb224"></i>待操作 #ffb224</div>
+    <div class="meta-chip"><i class="sw" style="background:#ff5d5d"></i>危险 #ff5d5d</div>
+    <div class="meta-chip"><i class="sw" style="background:#c792ff"></i>能力/轨迹 #c792ff</div>
+    <div class="meta-chip">圆角 8 / 12 / 16 · 间距 8px 栅格 · 触控目标 ≥44px · 文字对比度 ≥4.5:1</div>
+  </div>
+</header>
+
+<!-- 导航结构图 -->
+<div class="nav-map">
+  <div class="nav-map-inner">
+    <div class="token-card" style="background:transparent;border:none;padding:0">
+      <h3 style="margin-bottom:14px">导航模型：4 Tab 根 → 三层压栈（看板 → 会话 → 全屏 Diff/产物）+ 底部模态 Sheet</h3>
+    </div>
+    <div class="nav-cols">
+      <div class="nav-col">
+        <h4><span class="dot" style="background:var(--accent)"></span>Tab 1 · 任务（根）</h4>
+        <div class="nav-item"><b>任务看板（屏 02）</b><span>状态分组卡片流</span></div>
+        <div class="nav-item"><b>↥ 新建任务 Sheet（屏 03）</b><span>底部模态 · 键盘态折叠</span></div>
+        <div class="nav-item"><b>→ 会话页（屏 05）</b><span>Push · 右滑返回</span></div>
+        <div class="nav-item"><b>→ 输出/预览（屏 07·09）</b><span>Push L3 全屏</span></div>
+        <div class="nav-item"><b>↥ 审批 Sheet（屏 06）</b><span>批准/拒绝/追问/稍后</span></div>
+      </div>
+      <div class="nav-col">
+        <h4><span class="dot" style="background:var(--blue)"></span>Tab 2 · 对话（根）</h4>
+        <div class="nav-item"><b>最近会话流（屏 04）</b><span>置顶 + 时间线倒序</span></div>
+        <div class="nav-item"><b>→ 会话详情（屏 05）</b><span>常驻输入栏</span></div>
+        <div class="nav-item"><b>→ 通知中心（屏 10）</b><span>三类聚合 + Live Activity</span></div>
+        <div class="nav-item"><b>→ 执行输出（屏 07）</b><span>后台 bash / 轨迹</span></div>
+      </div>
+      <div class="nav-col">
+        <h4><span class="dot" style="background:var(--orange)"></span>Tab 3 · 审查（根）</h4>
+        <div class="nav-item"><b>待审 Diff 聚合（屏 08）</b><span>按文件 / 按 hunk</span></div>
+        <div class="nav-item"><b>→ 文件 ⋯ 菜单回退</b><span>历史快照 · 不与横滚冲突</span></div>
+        <div class="nav-item"><b>→ 产物预览（屏 09）</b><span>Push L3 全屏</span></div>
+        <div class="nav-item"><b>空态</b><span>见屏 13-②</span></div>
+      </div>
+      <div class="nav-col">
+        <h4><span class="dot" style="background:#c792ff"></span>Tab 4 · 我的（根）</h4>
+        <div class="nav-item"><b>账号 / 套餐额度（屏 12）</b><span>Coding Plan</span></div>
+        <div class="nav-item"><b>→ 设置二级页</b><span>模型 / 外观 / 语言</span></div>
+        <div class="nav-item"><b>→ 设备与配对（屏 11）</b><span>扫码 · 文件夹级授权</span></div>
+        <div class="nav-item"><b>主题</b><span>跟随系统 · 样张见屏 14</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<main class="boards">
+
+<!-- ============================================================
+     屏 01 · 登录与扫码配对
+     ============================================================ -->
+<section class="board" id="s01">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">01</span><h2>登录与扫码配对</h2><span class="lvl push">Push · 未登录拦截页</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nb-side"></div>
+        <div class="nb-title">登录 BiuZ</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:24px 24px 0;gap:14px">
+        <!-- 品牌区 -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:28px 0 12px">
+          <div style="width:84px;height:84px;display:flex;align-items:center;justify-content:center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960" width="100%" height="100%">
+<defs>
+<linearGradient id="biuz-fade" gradientUnits="userSpaceOnUse" x1="0" y1="242" x2="0" y2="690"><stop offset="0" stop-color="#32f08c" stop-opacity=".44"/><stop offset=".45" stop-color="#32f08c" stop-opacity=".66"/><stop offset="1" stop-color="#32f08c" stop-opacity=".97"/></linearGradient>
+<radialGradient id="biuz-head" cx="36%" cy="32%" r="78%"><stop offset="0" stop-color="#eafff4"/><stop offset=".22" stop-color="#8ff8c0"/><stop offset=".55" stop-color="#32f08c"/><stop offset="1" stop-color="#1ba968"/></radialGradient>
+<filter id="biuz-blurS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="12"/></filter>
+<filter id="biuz-blurXS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="2.5"/></filter>
+<filter id="biuz-blurL" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="34"/></filter>
+</defs>
+<g transform="translate(-11,-29)">
+<g fill="none" stroke="#32f08c" stroke-linecap="round"><path d="M150 242 L182 242" stroke-width="16" stroke-opacity="0.13"/><path d="M214 242 L262 242" stroke-width="22" stroke-opacity="0.22"/><path d="M300 242 L360 242" stroke-width="28" stroke-opacity="0.32"/></g>
+<path d="M398 257 L688 259.9 L686.1 259.8 L684.3 259.5 L682.5 259.1 L680.8 258.4 L679.1 257.6 L677.5 256.5 L676.1 255.4 L674.7 254.1 L673.6 252.6 L672.5 251.1 L671.7 249.4 L671 247.7 L670.5 245.9 L670.2 244 L670.1 242.2 L670.2 240.3 L670.4 238.5 L670.9 236.7 L671.5 234.9 L672.4 233.2 L673.4 231.7 L674.5 230.2 L270 667.3 L220.1 721.2 L700 742 L705.4 741.7 L710.8 740.9 L716.1 739.5 L721.2 737.5 L726 735 L730.6 732.1 L734.8 728.6 L738.6 724.8 L742.1 720.6 L745 716 L747.5 711.2 L749.5 706.1 L750.9 700.8 L751.7 695.4 L752 690 L751.7 684.6 L750.9 679.2 L749.5 673.9 L747.5 668.8 L745 664 L742.1 659.4 L738.6 655.2 L734.8 651.4 L730.6 647.9 L726 645 L721.2 642.5 L716.1 640.5 L710.8 639.1 L705.4 638.3 L700 638 L700 638 L296 655.5 L299.6 655.7 L303.1 656.2 L306.6 657.1 L310 658.4 L313.2 660 L316.2 662 L319 664.2 L321.5 666.8 L323.8 669.5 L325.8 672.5 L327.4 675.7 L328.8 679.1 L329.7 682.5 L330.3 686.1 L330.5 689.7 L330.4 693.3 L329.8 696.8 L329 700.3 L327.7 703.7 L326.1 706.9 L324.2 709.9 L322 712.7 L726.4 223.7 L688 224.1 L398 227 L399.6 227.1 L401.1 227.3 L402.6 227.7 L404.1 228.3 L405.5 229 L406.8 229.9 L408 230.9 L409.1 232 L410.1 233.2 L411 234.5 L411.7 235.9 L412.3 237.4 L412.7 238.9 L412.9 240.4 L413 242 L412.9 243.6 L412.7 245.1 L412.3 246.6 L411.7 248.1 L411 249.5 L410.1 250.8 L409.1 252 L408 253.1 L406.8 254.1 L405.5 255 L404.1 255.7 L402.6 256.3 L401.1 256.7 L399.6 256.9 L398 257 Z" fill="url(#biuz-fade)"/>
+<circle cx="736" cy="690" r="140" fill="#32f08c" opacity=".38" filter="url(#biuz-blurL)"/>
+<circle cx="736" cy="690" r="104" fill="url(#biuz-head)"/>
+<circle cx="700" cy="644" r="24" fill="#ffffff" opacity=".2" filter="url(#biuz-blurS)"/>
+<circle cx="700" cy="644" r="10" fill="#ffffff" opacity=".85" filter="url(#biuz-blurXS)"/>
+</g>
+</svg></div>
+          <div style="text-align:center">
+            <div style="font-size:24px;font-weight:800;letter-spacing:.02em">BiuZ</div>
+            <div style="font-size:13px;color:var(--text-2);margin-top:4px">AI 编程智能体 · 移动工作台</div>
+          </div>
+        </div>
+        <!-- OAuth 主按钮 -->
+        <button data-testid="01-login-oauth" class="btn btn-primary"><svg class="ic"><use href="#i-key"/></svg>通过 Coding Plan 登录</button>
+        <button data-testid="01-login-apikey" class="btn btn-ghost"><svg class="ic"><use href="#i-code"/></svg>使用 API Key 登录</button>
+        <!-- 分隔 -->
+        <div style="display:flex;align-items:center;gap:12px;color:var(--text-3);font-size:11.5px;padding:4px 0">
+          <div style="flex:1;height:1px;background:var(--border)"></div>或<div style="flex:1;height:1px;background:var(--border)"></div>
+        </div>
+        <!-- 扫码配对卡 -->
+        <div data-testid="01-login-scan" class="card" style="padding:16px;display:flex;gap:14px;align-items:center;background:var(--bg-elevated)">
+          <div style="width:52px;height:52px;border-radius:14px;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic ic-l"><use href="#i-scan"/></svg></div>
+          <div style="flex:1">
+            <div style="font-size:14.5px;font-weight:700">扫码配对桌面端</div>
+            <div style="font-size:11.5px;color:var(--text-3);margin-top:3px;line-height:1.5">在桌面端「设置 → 配对设备」出示二维码，手机接管审批与消息</div>
+          </div>
+          <svg class="ic" style="color:var(--text-3)"><use href="#i-chev-r"/></svg>
+        </div>
+        <div style="flex:1"></div>
+        <!-- Provider 说明 + 协议 -->
+        <div style="text-align:center;font-size:11px;color:var(--text-3);line-height:1.8;padding-bottom:calc(var(--safe-bot) + 12px)">
+          支持 ZAI · BigModel 等 Provider，凭据仅存于本机安全区<br>
+          登录即代表同意 <span style="color:var(--accent-text);padding:12px 0;margin:-12px 0;display:inline-block">《用户协议》</span> 与 <span style="color:var(--accent-text);padding:12px 0;margin:-12px 0;display:inline-block">《隐私政策》</span>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>转场与手势</h5>
+      <ul>
+        <li>冷启动未登录时<b>整屏拦截</b>；登录成功 → 看板页 crossfade + 轻微上移（250ms）。</li>
+        <li>OAuth 跳转系统浏览器完成，回跳<b>深链回调</b>；取消返回时保留表单态。</li>
+        <li>扫码打开<b>内嵌相机取景器</b>（模态全屏），识别成功震动 + 自动进入配对流程。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>主按钮高 <b>48px ≥ 44px</b>，按钮间距 14px 防误触。</li>
+        <li>顶部安全区 <b>54px</b>（灵动岛）；底部 Home 指示条 <b>34px</b>。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>次级路径</h5>
+      <ul>
+        <li>「使用 API Key 登录」→ <b>Push 全屏表单页</b>（LoginApiKeyForm 移动形态）：Provider 选择 → Key 输入（16px，粘贴）→「凭据仅存于本机安全区」说明 → 保存；样张见屏 13-⑥。</li>
+        <li>《用户协议》《隐私政策》→ <b>内嵌 WebView</b> 打开（左上关闭返回），不跳系统浏览器。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>WelcomeScreen</b> OAuth + API Key 双入口；<b>LoginApiKeyForm</b> 为次级表单页；<b>扫码配对</b>对应 WebRemoteControlDialog 与 web-remote-replayable 链路，手机复用桌面 Host。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 02 · 任务看板（Tab 1 根）
+     ============================================================ -->
+<section class="board" id="s02">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">02</span><h2>任务看板 · 会话列表</h2><span class="lvl root">Tab 1 根</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <!-- 头部 -->
+      <div style="flex:none;display:flex;align-items:center;padding:6px 16px 0;gap:10px">
+        <div style="flex:1">
+          <div style="font-size:22px;font-weight:800;letter-spacing:.01em">晚上好，Mac</div>
+          <div style="font-size:12px;color:var(--text-2);margin-top:2px">2 个任务进行中 · 1 个待你处理</div>
+        </div>
+        <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative;color:var(--text-2)">
+          <svg class="ic ic-l"><use href="#i-bell"/></svg>
+          <i style="position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--orange);border:2px solid var(--bg)"></i>
+        </div>
+        <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center">
+          <div style="width:38px;height:38px;border-radius:50%;background:var(--grad-avatar);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">M</div>
+        </div>
+      </div>
+      <!-- 搜索 -->
+      <div style="flex:none;padding:12px 16px 2px">
+        <div data-testid="02-search-input" class="input" style="display:flex;align-items:center;gap:8px;height:44px;border-radius:12px;padding:0 12px;color:var(--text-3);font-size:16px">
+          <svg class="ic ic-s"><use href="#i-search"/></svg>搜索任务、工作目录…
+        </div>
+      </div>
+      <!-- 列表 -->
+      <div class="content" style="padding-top:12px;gap:18px">
+        <!-- 待操作（置顶：需要用户动作） -->
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="sec-title"><span class="d" style="background:var(--orange)"></span>待操作 · 1<span class="more">需要你审批</span></div>
+          <div class="card task-card" style="border-color:rgba(255,178,36,.35)">
+            <div class="tc-top">
+              <h4 style="flex:1">升级依赖并回归测试</h4>
+              <span class="pill wait"><span class="d"></span>待批准</span>
+            </div>
+            <div class="tc-sum" style="color:var(--orange)">npm install 需要批准后才会继续执行</div>
+            <div style="display:flex;gap:10px">
+              <div data-testid="02-taskcard-approve" class="btn" style="height:44px;flex:1;background:var(--orange);color:var(--on-orange);font-size:14px">去审批</div>
+              <div class="btn" style="height:44px;width:44px;border:1px solid var(--border-strong);border-radius:12px;padding:0;color:var(--text-2)"><svg class="ic"><use href="#i-chat"/></svg></div>
+            </div>
+          </div>
+        </div>
+        <!-- 进行中 -->
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="sec-title"><span class="d" style="background:var(--blue)"></span>进行中 · 2</div>
+          <div class="card task-card">
+            <div class="tc-top">
+              <h4 style="flex:1">重构会话持久层</h4>
+              <span class="pill run"><span class="d"></span>运行中</span>
+            </div>
+            <div class="tc-ws">⌘ zcode_mobile · GLM-5.3-Flash</div>
+            <div class="tc-sum">正在把 SessionStore 迁移到 SQLite，旧 JSON 数据自动兼容，回归测试已跑通 12 项…</div>
+            <div class="todo-mini"><div class="bar"><i style="width:60%"></i></div><span>todo 3/5</span><span>·</span><span>12 分钟</span></div>
+            <div class="tc-meta">
+              <span class="tool-chip"><svg class="ic ic-s"><use href="#i-term"/></svg>bash</span>
+              <span class="tool-chip"><svg class="ic ic-s"><use href="#i-edit"/></svg>store.ts</span>
+              <span style="margin-left:auto">2 分钟前</span>
+            </div>
+          </div>
+          <div class="card task-card">
+            <div class="tc-top">
+              <h4 style="flex:1">修复移动端输入防缩放</h4>
+              <span class="pill run"><span class="d"></span>运行中</span>
+            </div>
+            <div class="tc-ws">⌘ zcode/packages/ui · GLM-5.3-Flash</div>
+            <div class="tc-sum">已定位 iOS 输入 16px token，正在补充视觉回归用例…</div>
+            <div class="todo-mini"><div class="bar"><i style="width:70%"></i></div><span>todo 7/10</span><span>·</span><span>刚刚</span></div>
+          </div>
+        </div>
+        <!-- 已完成 -->
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="sec-title"><span class="d" style="background:var(--accent)"></span>已完成 · 12<span class="more">查看全部 ›</span></div>
+          <div class="card task-card" style="opacity:.88">
+            <div class="tc-top">
+              <h4 style="flex:1">设计稿：移动端导航</h4>
+              <span class="pill done"><svg class="ic ic-s"><use href="#i-check"/></svg>已完成</span>
+            </div>
+            <div class="tc-meta"><span>昨天 18:32</span><span>·</span><span>+86 −12</span><span>·</span><span>3 个文件</span></div>
+          </div>
+        </div>
+      </div>
+      <!-- FAB -->
+      <div data-testid="02-fab-newtask" class="fab"><svg class="ic ic-l" style="stroke-width:2.4"><use href="#i-plus"/></svg></div>
+      <!-- Tab -->
+      <div class="tabbar">
+        <div data-testid="02-tab-tasks" class="tab active"><span class="badge blue">2</span><svg class="ic ic-l"><use href="#i-inbox"/></svg>任务</div>
+        <div data-testid="02-tab-chat" class="tab"><span class="badge">1</span><svg class="ic ic-l"><use href="#i-chat"/></svg>对话</div>
+        <div data-testid="02-tab-review" class="tab"><span class="badge">2</span><svg class="ic ic-l"><use href="#i-diff"/></svg>审查</div>
+        <div data-testid="02-tab-me" class="tab"><svg class="ic ic-l"><use href="#i-user"/></svg>我的</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>信息组织</h5>
+      <ul>
+        <li>Qoder My Quests 式<b>状态三分组</b>：待操作（橙，置顶）/ 进行中（蓝）/ 已完成（绿），按紧急度排序，已完成默认折叠近 3 条。</li>
+        <li>右上<b>铃铛 → Push 通知中心</b>（屏 10），角标=待处理通知数；头像 → 我的（屏 12）。</li>
+        <li>任务失败态卡片（红胶囊 + 重试/查看日志）见<b>屏 13-④</b>；离线态见屏 13-③。</li>
+        <li>卡片直接露出<b>状态胶囊 + 最近一条 Agent 摘要 + todo 进度</b>，进入详情前可判断，降低跳转成本。</li>
+        <li>分组按 置顶 → 归档前 的时间线倒序（对应桌面 TaskList 分组）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>手势与转场</h5>
+      <ul>
+        <li>点卡片 → <b>Push 会话页</b>（右缘入栈）；iOS 右滑边缘返回。</li>
+        <li>卡片<b>左滑</b> → 置顶 / 归档 / 重命名（对应右键菜单能力）；<b>下拉刷新</b>。</li>
+        <li>点 FAB → 底部升起「新建任务」Sheet。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>卡片整卡可点，高度 ≥ 88px；左滑操作按钮 <b>44px 宽</b>。</li>
+        <li>Tab 图标区 <b>≥64×48px</b>；「审查」角标显示待审数（橙）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>TaskList / TaskListItem</b>、<b>WorkspacePinnedTasksSection</b> 置顶、<b>WorkspaceTimelineTasksSection</b> 时间线、<b>sidebar.newTask</b>；任务=会话单位，一任务一 workspace。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 03 · 新建任务 Sheet
+     ============================================================ -->
+<section class="board" id="s03">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">03</span><h2>新建任务 · 分发</h2><span class="lvl sheet">底部模态 Sheet</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <!-- 背景看板（被遮罩压暗） -->
+      <div style="position:absolute;inset:0;background:var(--bg);opacity:.32;pointer-events:none"></div>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;z-index:10">
+        <div class="statusbar" style="height:20px;opacity:0"><span></span></div>
+        <!-- Sheet 主体（键盘弹起：自动收起「建议提示词」与「执行端」，Sheet 上缘对齐键盘顶；头部 sticky 常驻，内容区可滚） -->
+        <div style="background:var(--bg-elevated);border-radius:24px 24px 0 0;box-shadow:var(--sh-sheet);display:flex;flex-direction:column;max-height:800px">
+          <div style="padding:8px 0 2px;display:flex;justify-content:center"><i style="width:38px;height:5px;border-radius:3px;background:var(--border-strong)"></i></div>
+          <div style="display:flex;align-items:center;padding:6px 16px 10px">
+            <div style="flex:1;font-size:17px;font-weight:800">新建任务</div>
+            <div data-testid="03-btn-cancel" style="font-size:14px;color:var(--text-3);width:44px;height:44px;display:flex;align-items:center;justify-content:center">取消</div>
+          </div>
+          <div style="overflow-y:auto;padding:0 16px;display:flex;flex-direction:column;gap:12px;min-height:0">
+            <!-- 提示词输入 -->
+            <div class="input" style="border-radius:var(--r-l);padding:14px 14px 6px;min-height:118px;display:flex;flex-direction:column;border-color:var(--border-strong)">
+              <div style="font-size:16px;color:var(--text-3);line-height:1.55">描述你的任务，例如：为会话列表增加下拉刷新，并保持手势与 diff 滑动不冲突<span class="caret"></span></div>
+              <div style="margin-top:auto;display:flex;align-items:center;gap:2px">
+                <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg class="ic"><use href="#i-at"/></svg></div>
+                <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg class="ic"><use href="#i-clip"/></svg></div>
+                <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg data-testid="03-composer-mic" class="ic"><use href="#i-mic"/></svg></div>
+                <span style="margin-left:auto;font-size:10.5px;color:var(--text-3)">语音按住说话 · 松开转文字</span>
+              </div>
+            </div>
+            <!-- 上下文 chips -->
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <span data-testid="03-chip-ctx-1" class="tool-chip chip-btn" style="color:var(--text)">@ store/session.ts</span>
+              <span data-testid="03-chip-ctx-2" class="tool-chip chip-btn" style="color:var(--text)">@ packages/ui</span>
+              <span data-testid="03-chip-ctx-add" class="tool-chip chip-btn" style="color:var(--text-3)">+ 引用上下文</span>
+            </div>
+            <!-- 执行端 -->
+            <div>
+              <div class="sec-title" style="margin-bottom:8px">执行端</div>
+              <div style="display:flex;gap:8px">
+                <div class="card" style="flex:1;padding:12px;border-color:rgba(50,240,140,.5);background:var(--accent-dim)">
+                  <div style="display:flex;align-items:center;gap:6px;color:var(--accent);font-size:13px;font-weight:700"><svg data-testid="03-exec-cloud" class="ic ic-s"><use href="#i-cloud"/></svg>云端沙盒</div>
+                  <div style="font-size:10.5px;color:var(--text-3);margin-top:4px">适合长任务 · 不占本机</div>
+                </div>
+                <div class="card" style="flex:1;padding:12px">
+                  <div style="display:flex;align-items:center;gap:6px;color:var(--text);font-size:13px;font-weight:700"><svg data-testid="03-exec-mac" class="ic ic-s"><use href="#i-monitor"/></svg>我的 Mac</div>
+                  <div style="font-size:10.5px;color:var(--text-3);margin-top:4px">在线 · 复用桌面 Host</div>
+                </div>
+              </div>
+            </div>
+            <!-- 工作目录 + 模型 -->
+            <div class="card" style="background:var(--bg-card)">
+              <div class="grow" style="min-height:48px">
+                <div class="g-ic"><svg class="ic ic-s"><use href="#i-folder"/></svg></div>
+                <div class="g-main"><div style="font-size:13.5px">工作目录</div></div>
+                <div class="g-val mono" style="font-size:11px">~/projects/zcode_mobile</div>
+                <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+              </div>
+              <div class="grow" style="min-height:48px">
+                <div class="g-ic"><svg class="ic ic-s"><use href="#i-sliders"/></svg></div>
+                <div class="g-main"><div style="font-size:13.5px">模型与思考等级</div></div>
+                <div class="g-val">GLM-5.3-Flash</div>
+                <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+              </div>
+            </div>
+            <!-- 建议提示词 -->
+            <div>
+              <div class="sec-title" style="margin-bottom:8px">试试这些</div>
+              <div style="display:flex;gap:8px;overflow:hidden">
+                <span class="tool-chip chip-btn" style="color:var(--text-2);white-space:nowrap">审查未提交的变更</span>
+                <span class="tool-chip chip-btn" style="color:var(--text-2);white-space:nowrap">为 store 写单元测试</span>
+                <span class="tool-chip chip-btn" style="color:var(--text-2);white-space:nowrap">解释仓库结构</span>
+              </div>
+            </div>
+            <div style="height:6px"></div>
+            <!-- 主按钮 -->
+            <button data-testid="03-submit-start" class="btn btn-primary" style="margin-bottom:calc(var(--safe-bot) + 10px)"><svg class="ic"><use href="#i-send"/></svg>开始任务</button>
+          </div>
+        </div>
+      </div>
+      <div class="home-indicator" style="z-index:20"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>转场与手势</h5>
+      <ul>
+        <li>自看板 FAB / Tab「对话」空态 / 分享落地页示例提示词进入，<b>底部上滑 Sheet</b>，背景看板压暗并轻微缩小。</li>
+        <li>抓手条<b>下拉关闭</b>；「开始任务」→ Sheet 收起并 <b>Push 会话页</b>，提示词预填发送（商店示例提示词仅预填不自动发送）。</li>
+        <li><b>键盘态折叠策略</b>：键盘弹起时自动收起「试试这些」建议提示词与「执行端」两区，Sheet 上缘对齐键盘顶；头部（新建任务/取消）sticky 常驻，内容区<b>可滚动</b>，输入框与主按钮始终可见。「取消」随键盘态变为「收起键盘」。</li>
+        <li>配对电脑<b>离线</b>时，对应执行端卡置灰禁用，仅云端沙盒可选（样张见屏 13-③/⑥）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与防误触</h5>
+      <ul>
+        <li>输入框字号 <b>16px</b>，防 iOS 聚焦自动放大（对齐仓库 iOS 输入防缩放 token）。</li>
+        <li>输入区 @/附件/语音图标 <b>44×44px</b>；建议/引用 chips 视觉高 <b>44px</b>（chip-btn）；按钮 48px。</li>
+        <li>语音为<b>按住说话</b>，与左滑手势隔离。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>NewTaskButtonGroup</b>、<b>DirectoryBrowser</b> 选目录（移动端降为只读+更换入口）、<b>ModelConfigSelect</b> 模型、<b>ThoughtLevelCycleControl</b> 思考等级；执行端=云端沙盒 / 配对电脑（web-remote 复用桌面 Host）。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 04 · 会话列表（Tab 2 根）
+     ============================================================ -->
+<section class="board" id="s04">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">04</span><h2>会话列表 · 最近会话</h2><span class="lvl root">Tab 2 根</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <!-- 头部 -->
+      <div style="flex:none;display:flex;align-items:center;padding:6px 16px 0;gap:10px">
+        <div style="flex:1;font-size:22px;font-weight:800">对话</div>
+        <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg data-testid="04-btn-newchat" class="ic ic-l"><use href="#i-plus"/></svg></div>
+      </div>
+      <!-- 搜索 -->
+      <div style="flex:none;padding:12px 16px 2px">
+        <div data-testid="04-search-input" class="input" style="display:flex;align-items:center;gap:8px;height:44px;border-radius:12px;padding:0 12px;color:var(--text-3);font-size:16px">
+          <svg class="ic ic-s"><use href="#i-search"/></svg>搜索会话内容…
+        </div>
+      </div>
+      <!-- 会话列表 -->
+      <div class="content" style="padding-top:12px;gap:16px">
+        <!-- 置顶 -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="sec-title"><svg class="ic ic-s" style="color:var(--accent)"><use href="#i-pin"/></svg>置顶</div>
+          <div class="card grow" style="padding:12px;border-radius:var(--r-m)">
+            <div class="msg-avatar" style="width:40px;height:40px;border-radius:12px;font-size:14px">Z</div>
+            <div class="g-main">
+              <div style="display:flex;align-items:center;gap:6px"><span style="font-size:14.5px;font-weight:700">重构会话持久层</span><span class="pill run" style="padding:1px 7px;font-size:10px"><span class="d"></span>运行中</span></div>
+              <div class="g-sub">正在分析测试结果，回归已通过 12 项…</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+              <span style="font-size:10.5px;color:var(--text-3)">刚刚</span>
+              <span class="pill run" style="min-width:17px;height:17px;font-size:10px;padding:0 5px;justify-content:center">2</span>
+            </div>
+          </div>
+        </div>
+        <!-- 今天 -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="sec-title">今天</div>
+          <div class="card grow" style="padding:12px;border-radius:var(--r-m)">
+            <div style="width:40px;height:40px;border-radius:12px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;color:var(--text-2);flex:none"><svg class="ic"><use href="#i-term"/></svg></div>
+            <div class="g-main">
+              <div style="font-size:14.5px;font-weight:700">修复移动端输入防缩放</div>
+              <div class="g-sub">todo 7/10 · 已定位 iOS 输入 16px token</div>
+            </div>
+            <span style="font-size:10.5px;color:var(--text-3);flex:none">10:24</span>
+          </div>
+          <div class="card grow" style="padding:12px;border-radius:var(--r-m)">
+            <div style="width:40px;height:40px;border-radius:12px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;color:var(--text-2);flex:none"><svg class="ic"><use href="#i-file"/></svg></div>
+            <div class="g-main">
+              <div style="font-size:14.5px;font-weight:700">API Key 表单迁移</div>
+              <div class="g-sub">你：好的，按这个方案提交</div>
+            </div>
+            <span style="font-size:10.5px;color:var(--text-3);flex:none">09:02</span>
+          </div>
+        </div>
+        <!-- 昨天 -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="sec-title">昨天</div>
+          <div class="card grow" style="padding:10px 12px;border-radius:var(--r-m);opacity:.88">
+            <div style="width:40px;height:40px;border-radius:12px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;color:var(--accent-text);flex:none"><svg class="ic"><use href="#i-check"/></svg></div>
+            <div class="g-main">
+              <div style="font-size:14.5px;font-weight:700;color:var(--text-2)">设计稿：移动端导航</div>
+              <div class="g-sub">已完成 · +86 −12 · 3 个文件</div>
+            </div>
+            <span style="font-size:10.5px;color:var(--text-3);flex:none">昨天</span>
+          </div>
+          <div class="card grow" style="padding:10px 12px;border-radius:var(--r-m);opacity:.88">
+            <div style="width:40px;height:40px;border-radius:12px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;color:var(--text-2);flex:none"><svg class="ic"><use href="#i-folder"/></svg></div>
+            <div class="g-main">
+              <div style="font-size:14.5px;font-weight:700;color:var(--text-2)">工作区文件搜索优化</div>
+              <div class="g-sub">已归档 · 支持忽略 .zcodeignore</div>
+            </div>
+            <span style="font-size:10.5px;color:var(--text-3);flex:none">昨天</span>
+          </div>
+        </div>
+      </div>
+      <!-- Tab -->
+      <div class="tabbar">
+        <div data-testid="04-tab-tasks" class="tab"><span class="badge blue">2</span><svg class="ic ic-l"><use href="#i-inbox"/></svg>任务</div>
+        <div data-testid="04-tab-chat" class="tab active"><span class="badge">1</span><svg class="ic ic-l"><use href="#i-chat"/></svg>对话</div>
+        <div data-testid="04-tab-review" class="tab"><span class="badge">2</span><svg class="ic ic-l"><use href="#i-diff"/></svg>审查</div>
+        <div data-testid="04-tab-me" class="tab"><svg class="ic ic-l"><use href="#i-user"/></svg>我的</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>信息组织</h5>
+      <ul>
+        <li>补齐导航图定义的 <b>Tab 2 根页</b>：置顶 → 今天 → 昨天 时间线倒序（对应桌面 TaskList 时间线分组）。</li>
+        <li>会话行 = 头像/工具类型图标 + 任务标题 + 最近一条消息摘要 + 时间 + 未读数；运行中行带蓝色胶囊。</li>
+        <li>空态（无会话）见<b>屏 13-①</b> 变体。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>手势与转场</h5>
+      <ul>
+        <li>点行 → <b>Push 会话详情</b>（屏 05）；右滑边缘返回。</li>
+        <li>行<b>左滑</b> → 置顶 / 归档 / 重命名；下拉刷新。</li>
+        <li>右上 + → 屏 03 新建任务 Sheet。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>行高 ≥64px，整行可点；未读徽章 17px（非触控目标）。</li>
+        <li>搜索框 44px；Tab 栏与安全区同屏 02。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>TaskList / WorkspaceTimelineTasksSection</b> 时间线、置顶<b>WorkspacePinnedTasksSection</b>；数据源与看板同源，一个任务一条会话主线。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 05 · Agent 会话流
+     ============================================================ -->
+<section class="board" id="s05">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">05</span><h2>Agent 对话 · 会话流</h2><span class="lvl push">Push L2</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <!-- 导航 -->
+      <div class="navbar" style="padding-top:2px">
+        <div class="nb-side"><div class="nav-btn"><svg class="ic ic-l"><use href="#i-chev-l"/></svg></div></div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px">
+          <div style="font-size:16px;font-weight:700;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">重构会话持久层</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--text-3)">
+            <span class="pill run" style="padding:1px 7px"><span class="d"></span>运行中</span>
+            <span class="mono">todo 3/5 · 12 分钟</span>
+          </div>
+        </div>
+        <div class="nb-side" style="justify-content:flex-end"><div class="nav-btn"><svg class="ic ic-l"><use href="#i-more"/></svg></div></div>
+      </div>
+      <!-- 进度细条 -->
+      <div style="flex:none;height:3px;background:var(--bg-input);margin:0 16px;border-radius:2px;overflow:hidden"><i style="display:block;width:60%;height:100%;background:linear-gradient(90deg,var(--blue),var(--accent))"></i></div>
+      <!-- 消息流 -->
+      <div class="content" style="padding-top:14px;gap:12px">
+        <!-- 用户消息 -->
+        <div class="msg-user">把 SessionStore 迁移到 SQLite，注意保持旧 JSON 数据兼容</div>
+        <!-- Agent 文本 -->
+        <div style="display:flex;gap:8px">
+          <div class="msg-avatar">Z</div>
+          <div class="msg-agent">好，我先查看 <b>src/session</b> 的现有实现，再设计迁移方案。</div>
+        </div>
+        <!-- 工具卡 bash -->
+        <div class="toolcard">
+          <div data-testid="05-toolcard-head-bash" class="t-head">
+            <span class="t-kind">bash</span><span class="t-path">ls src/session</span>
+            <span class="t-right"><svg class="ic ic-s" style="color:var(--accent)"><use href="#i-check"/></svg>0.8s<svg class="ic ic-s"><use href="#i-chev-d"/></svg></span>
+          </div>
+          <div data-testid="05-toolcard-body-bash" class="t-body">store.ts  types.ts  migrate.ts</div>
+        </div>
+        <!-- 工具卡 edit + diff -->
+        <div class="toolcard">
+          <div data-testid="05-toolcard-head-edit" class="t-head">
+            <span class="t-kind">edit</span><span class="t-path">src/session/store.ts</span>
+            <span class="t-right"><svg class="ic ic-s" style="color:var(--accent)"><use href="#i-check"/></svg><span style="color:var(--add)">+42</span> <span style="color:var(--del)">−8</span><svg class="ic ic-s"><use href="#i-chev-d"/></svg></span>
+          </div>
+          <div class="diff-inline"><span data-testid="05-diffrow-hunk-1" class="ln hunk"><span class="no">@@</span>export class SessionStore {</span><span data-testid="05-diffrow-del-1" class="ln del"><span class="no">12</span>-  private file: string;</span><span data-testid="05-diffrow-add-1" class="ln add"><span class="no">12</span>+  private db: Database;</span><span data-testid="05-diffrow-ctx-1" class="ln ctx"><span class="no">13</span>   constructor(path: string) {</span></div>
+          <div style="display:flex;align-items:center;gap:8px;padding:12px;border-top:1px solid var(--border);font-size:12px;color:var(--accent-text);min-height:44px">
+            <svg data-testid="05-toolcard-open-diff" class="ic ic-s"><use href="#i-diff"/></svg>查看完整 Diff<span style="margin-left:auto;color:var(--text-3)">在桌面端继续 ›</span>
+          </div>
+        </div>
+        <!-- todo 卡 -->
+        <div class="card todo-card">
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-3);font-weight:600">任务拆解 <span class="mono" style="margin-left:auto;color:var(--blue)">3/5</span></div>
+          <div data-testid="05-todo-row-done-1" class="todo-row done"><span class="todo-box done"><svg class="ic ic-s" style="stroke-width:3"><use href="#i-check"/></svg></span>阅读现有实现</div>
+          <div data-testid="05-todo-row-done-2" class="todo-row done"><span class="todo-box done"><svg class="ic ic-s" style="stroke-width:3"><use href="#i-check"/></svg></span>设计 SQLite schema</div>
+          <div data-testid="05-todo-row-now" class="todo-row now"><span class="todo-box now"></span>运行回归测试</div>
+        </div>
+        <!-- Agent 提问 -->
+        <div class="toolcard" style="border-color:rgba(77,163,255,.4)">
+          <div class="t-head" style="color:var(--blue)">
+            <svg class="ic ic-s"><use href="#i-alert"/></svg><b style="font-size:12.5px">Agent 提问</b><span class="t-right">等待输入</span>
+          </div>
+          <div style="padding:0 12px 10px;font-size:13px;color:var(--text)">需要同步更新 <span class="mono">CHANGELOG.md</span> 吗？</div>
+          <div style="display:flex;gap:8px;padding:0 12px 12px">
+            <span data-testid="05-ask-chip-1" class="tool-chip chip-btn" style="color:var(--accent-text);border-color:rgba(50,240,140,.4)">是，一并更新</span>
+            <span data-testid="05-ask-chip-2" class="tool-chip chip-btn" style="color:var(--text-2)">跳过</span>
+          </div>
+        </div>
+        <!-- 流式中 -->
+        <div style="display:flex;gap:8px">
+          <div class="msg-avatar">Z</div>
+          <div class="msg-agent" style="display:flex;align-items:center;gap:8px"><span class="spin"></span>正在分析测试结果<span class="caret"></span></div>
+        </div>
+      </div>
+      <!-- 输入栏 -->
+      <div class="composer">
+        <div class="c-tools">
+          <span class="c-pill"><svg class="ic ic-s"><use href="#i-sliders"/></svg>GLM-5.3-Flash</span>
+          <span class="c-pill">思考 · 高</span>
+          <span class="ctx-meter"><span style="font-size:10px">上下文 64%</span><span class="bar"><i></i></span></span>
+        </div>
+        <div class="c-input">
+          <div data-testid="05-composer-input" class="c-field">继续，也更新一下文档…</div>
+          <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg data-testid="05-composer-mic" class="ic"><use href="#i-mic"/></svg></div>
+          <div data-testid="05-composer-send" class="c-send"><svg class="ic"><use href="#i-send"/></svg></div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>转场与手势</h5>
+      <ul>
+        <li>自看板卡片 Push；<b>右滑边缘返回</b>需与输入区横滑隔离（输入区手势优先）。</li>
+        <li>流式输出<b>自动滚底</b>；用户上滑即停止跟随，出现「↓ 回到底部」浮标。</li>
+        <li>工具卡<b>点击展开/收起</b>（输出、diff 摘要）；点 diff 行进全屏 Diff 页（屏 08）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>发送键 <b>44×44px</b> 圆形；工具 pill 高 24px 但外扩热区 44px。</li>
+        <li>输入栏常驻底部并<b>避让键盘</b>；含 Home 指示条 34px 安全区。</li>
+        <li>@ 弹出<b>文件选择器</b>（替代桌面 MentionPlugin 全键盘流）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>SessionPane / V4ChatPane / ConversationTimeline</b> 消息流；<b>LexicalChatInput</b> 输入（@提及/附件/斜杠命令）；<b>ToolCallBlocks</b> 工具卡；<b>todo</b> 拆解卡；<b>contextUsage</b> 上下文条。Agent 提问对应 ElicitationDialog。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 05 · 审批请求 Sheet
+     ============================================================ -->
+<section class="board" id="s06">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">06</span><h2>审批请求弹层</h2><span class="lvl sheet">模态 Sheet · 关键操作</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <!-- 背景：会话页压暗 -->
+      <div style="position:absolute;inset:0;background:var(--bg);opacity:.35;pointer-events:none"></div>
+      <!-- 顶部提示胶囊 -->
+      <div style="position:absolute;top:calc(var(--safe-top) + 6px);left:50%;transform:translateX(-50%);z-index:30;display:flex;align-items:center;gap:8px;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:999px;padding:8px 14px;font-size:12px;color:var(--text-2);box-shadow:var(--sh-card)">
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--orange);animation:blink 1.2s steps(1) infinite"></span>任务在等待你的批准
+      </div>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;z-index:10">
+        <div style="background:var(--bg-elevated);border-radius:24px 24px 0 0;box-shadow:var(--sh-sheet)">
+          <div style="padding:8px 0 2px;display:flex;justify-content:center"><i style="width:38px;height:5px;border-radius:3px;background:var(--border-strong)"></i></div>
+          <div style="padding:6px 20px 0;display:flex;flex-direction:column;gap:14px">
+            <!-- 标题 -->
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:44px;height:44px;border-radius:14px;background:var(--orange-dim);color:var(--orange);display:flex;align-items:center;justify-content:center"><svg class="ic ic-l"><use href="#i-shield"/></svg></div>
+              <div style="flex:1">
+                <div style="font-size:17px;font-weight:800">需要你的批准</div>
+                <div style="font-size:11.5px;color:var(--text-3)">重构会话持久层 · 1 项关键操作</div>
+              </div>
+              <span class="pill wait"><span class="d"></span>待批准</span>
+            </div>
+            <!-- 命令卡 -->
+            <div class="card" style="overflow:hidden;background:var(--bg-card)">
+              <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-2)">
+                <svg class="ic ic-s"><use href="#i-term"/></svg><b style="font-weight:700">执行命令</b><span class="mono" style="margin-left:auto;color:var(--text-3);font-size:10.5px">bash · cwd ~/projects/zcode_mobile</span>
+              </div>
+              <div data-testid="06-perm-cmd" class="t-body" style="border:none;padding:12px 14px;font-size:11.5px;line-height:1.7">npm install better-sqlite3 &amp;&amp;<br>node scripts/migrate.js</div>
+              <div style="display:flex;gap:14px;padding:9px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3)">
+                <span>影响 12 个依赖包</span><span>·</span><span>0 个文件改动</span><span>·</span><span>预计 40s</span>
+              </div>
+            </div>
+            <!-- 授权范围（整行 52px 可点，防误授权） -->
+            <div>
+              <div class="sec-title" style="margin-bottom:8px;font-size:12px">授权范围</div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div data-testid="06-choice-once" class="choice-row selected"><i class="radio"></i>仅本次<div style="margin-left:auto;font-size:10.5px;color:var(--accent-text)">推荐</div></div>
+                <div data-testid="06-choice-task" class="choice-row"><i class="radio"></i>本任务内允许</div>
+                <div data-testid="06-choice-always" class="choice-row"><i class="radio"></i>本工作区始终允许<div style="margin-left:auto;font-size:10.5px;color:var(--red)">需谨慎</div></div>
+              </div>
+            </div>
+            <!-- 动作栏 -->
+            <div style="display:flex;gap:10px">
+              <button data-testid="06-act-reject" class="btn btn-danger" style="flex:1"><svg class="ic"><use href="#i-x"/></svg>拒绝</button>
+              <button data-testid="06-act-approve" class="btn btn-primary" style="flex:1.6"><svg class="ic"><use href="#i-check"/></svg>批准执行</button>
+            </div>
+            <div data-testid="06-act-followup" style="display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;font-size:13px;color:var(--accent-text)">追问 Agent，再决定</div>
+            <div data-testid="06-act-later" style="display:flex;align-items:center;justify-content:center;min-height:44px;font-size:13px;color:var(--text-3);padding-bottom:2px">稍后处理<span style="font-size:10.5px;margin-left:6px;color:var(--text-3);opacity:.8">保留在待操作列表</span></div>
+          </div>
+          <div style="height:calc(var(--safe-bot) + 12px)"></div>
+        </div>
+      </div>
+      <div class="home-indicator" style="z-index:20"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>触发与转场</h5>
+      <ul>
+        <li>Agent 关键操作（执行命令 / 写文件 / 网络请求）→ <b>系统推送</b> → 点入<b>直达本卡</b>，不埋在消息流里。</li>
+        <li>Sheet 自底部弹出，背景压暗；<b>下拉抓手不关闭</b>（必须显式批准/拒绝，防误滑）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>防误触</h5>
+      <ul>
+        <li>「批准/拒绝」高 <b>48px</b>，分列两端、间距 10px；拒绝为红色描边（非填充），降低误触概率。</li>
+        <li>授权范围为<b>三行 52px 独立卡片单选</b>（非紧凑文字行），默认「仅本次」；「始终允许」行尾标红「需谨慎」提示。</li>
+        <li>「追问」「稍后处理」均 <b>44px</b> 整行热区。</li>
+        <li>常驻能力：iOS <b>Live Activity / 锁屏实时活动</b>显示任务状态与快捷入口（视觉见屏 10）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>退出路径</h5>
+      <ul>
+        <li><b>下拉抓手不可关闭</b>（必须显式决定），但提供「稍后处理」出口：收起 Sheet，任务回到看板「待操作」分组与通知中心，可再次唤起。</li>
+        <li><b>Android 系统返回 = 稍后处理</b>（不产生批准/拒绝，弹出一次 toast「已保留在待操作」）；不会无提示关闭。</li>
+        <li>批准/拒绝后：Sheet 收起 → <b>返回会话页</b>，顶部 toast「已批准 · 继续执行」/「已拒绝 · Agent 已停止」，结果写入会话流。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>PermissionDialog / ElicitationDialog / V4InteractionDialogs</b>；移动端把桌面的居中对话框降维为底部动作栏 Sheet，并叠加推送 + 灵动岛常驻（对齐 Qoder 审批范式）。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 06 · 任务 / 终端输出
+     ============================================================ -->
+<section class="board" id="s07">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">07</span><h2>任务执行输出 · 终端</h2><span class="lvl l3">Push L3 全屏</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar" style="padding-top:2px">
+        <div class="nb-side"><div class="nav-btn"><svg class="ic ic-l"><use href="#i-chev-l"/></svg></div></div>
+        <div class="nb-title">执行输出</div>
+        <div class="nb-side" style="justify-content:flex-end"><div class="nav-btn"><svg class="ic ic-l"><use href="#i-share"/></svg></div></div>
+      </div>
+      <!-- 分段控件 -->
+      <div style="flex:none;margin:4px 16px 0;background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:3px;display:flex">
+        <div data-testid="07-seg-bash" style="flex:1;text-align:center;padding:11px 0;min-height:44px;border-radius:10px;background:var(--bg-elevated);font-size:13px;font-weight:700;color:var(--text);box-shadow:var(--sh-card)">后台 Bash</div>
+        <div data-testid="07-seg-traj" style="flex:1;text-align:center;padding:11px 0;min-height:44px;font-size:13px;color:var(--text-3);font-weight:600">模型轨迹</div>
+      </div>
+      <div class="content" style="padding-top:12px;gap:12px">
+        <!-- 状态条 -->
+        <div class="card" style="padding:12px 14px;display:flex;align-items:center;gap:10px">
+          <span class="spin"></span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;font-weight:700">migrate.js · 回归测试</div>
+            <div class="mono" style="font-size:10.5px;color:var(--text-3)">后台 bash · 已运行 00:42</div>
+          </div>
+          <span class="pill run"><span class="d"></span>运行中</span>
+        </div>
+        <!-- 终端卡 -->
+        <div style="background:var(--bg-term);border:1px solid var(--border);border-radius:var(--r-m);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid var(--border);min-height:44px">
+            <i style="width:9px;height:9px;border-radius:50%;background:#ff5f57"></i><i style="width:9px;height:9px;border-radius:50%;background:#febc2e"></i><i style="width:9px;height:9px;border-radius:50%;background:#28c840"></i>
+            <span class="mono" style="margin-left:6px;font-size:10.5px;color:var(--text-3)">zcode · bash</span>
+            <span style="margin-left:auto;width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg data-testid="07-term-copy" class="ic ic-s"><use href="#i-copy"/></svg></span>
+          </div>
+          <div data-testid="07-term-body" class="t-body" style="border:none;padding:12px 14px;line-height:1.75;overflow-x:auto;white-space:pre;color:var(--text-2)"><span style="color:var(--accent)">$</span> npm install better-sqlite3
+added 1 package in 6s
+<span style="color:var(--accent)">$</span> node scripts/migrate.js
+<span style="color:var(--code-lab)">[migrate]</span> found legacy sessions.json
+<span style="color:var(--code-lab)">[migrate]</span> 128 sessions → sqlite ✓
+<span style="color:var(--code-lab)">[migrate]</span> running regression…
+<span style="color:var(--add)">✓</span> session.persist   (32ms)
+<span style="color:var(--add)">✓</span> session.restore   (41ms)
+<span style="color:var(--add)">✓</span> session.migrate   (18ms)
+<span style="color:var(--accent)">▌</span></div>
+        </div>
+        <!-- 操作 -->
+        <div style="display:flex;gap:10px">
+          <div data-testid="07-act-copyall" class="btn btn-ghost" style="flex:1;height:44px;font-size:14px"><svg class="ic"><use href="#i-copy"/></svg>复制全部</div>
+          <div data-testid="07-act-stop" class="btn btn-danger" style="flex:1;height:44px;font-size:14px"><svg class="ic"><use href="#i-stop"/></svg>停止任务</div>
+        </div>
+        <!-- 轨迹入口 -->
+        <div class="toolcard">
+          <div data-testid="07-toolcard-head-trajectory" class="t-head">
+            <svg class="ic ic-s" style="color:var(--violet)"><use href="#i-layers"/></svg>
+            <span style="font-size:12.5px;color:var(--text-2)">模型轨迹 · 42 步推理 / 17 次工具调用</span>
+            <span class="t-right">展开<svg class="ic ic-s"><use href="#i-chev-r"/></svg></span>
+          </div>
+          <div data-testid="07-toolcard-head-subagent" class="t-head" style="border-top:1px solid var(--border);color:var(--text-3);font-size:11.5px">
+            <svg class="ic ic-s"><use href="#i-db"/></svg>
+            <span>子智能体 explore · 已完成 · 8 个文件</span>
+            <span class="t-right">查看<svg class="ic ic-s"><use href="#i-chev-r"/></svg></span>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="text-align:center;font-size:10.5px;color:var(--text-3);padding-bottom:calc(var(--safe-bot) + 10px)">长按终端文本可选中复制 · 输出自动滚底</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>转场与手势</h5>
+      <ul>
+        <li>自会话页工具卡「后台 bash」/「模型轨迹」<b>Push L3 全屏</b>；右滑边缘返回。</li>
+        <li>「停止任务」触发<b>二次确认</b>（ActionSheet），防误停。</li>
+        <li>终端区横向滚动查看长行，<b>禁止折行</b>。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与排版</h5>
+      <ul>
+        <li>终端等宽 <b>12px</b>，行高 1.75；复制/停止按钮高 <b>44px</b>。</li>
+        <li>长按进入<b>原生文本选择</b>；输出自动滚底可被上滑打断。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>BackgroundBashOutputSidePane</b> 后台输出、<b>ModelTrajectory*</b> 可展开/搜索轨迹、<b>SubagentSessionSidePane</b> 子智能体；交互式终端（Terminal.tsx 多标签）移动端<b>不做</b>，仅保留只读输出。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 07 · Diff 审查（Tab 3）
+     ============================================================ -->
+<section class="board" id="s08">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">08</span><h2>Diff 审查 · 文件变更</h2><span class="lvl root">Tab 3 根</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <!-- 头部 -->
+      <div style="flex:none;display:flex;align-items:center;padding:6px 16px 0;gap:10px">
+        <div style="flex:1">
+          <div style="font-size:22px;font-weight:800">审查</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+            <span data-testid="08-branch-switcher" class="pill" style="color:var(--text-2);background:var(--bg-input)"><svg class="ic ic-s"><use href="#i-branch"/></svg><span class="mono" style="font-size:10.5px">feat/session-sqlite</span><svg class="ic ic-s" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+          </div>
+        </div>
+        <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg data-testid="08-btn-search" class="ic ic-l"><use href="#i-search"/></svg></div>
+      </div>
+      <!-- 统计 -->
+      <div style="flex:none;margin:10px 16px 0;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-3)">
+        <span><b style="color:var(--text)">3</b> 个文件变更</span><span>·</span>
+        <span class="mono" style="color:var(--add)">+86</span>
+        <span class="mono" style="color:var(--del)">−12</span>
+        <span class="pill wait" style="margin-left:auto"><span class="d"></span>待审 2</span>
+      </div>
+      <!-- 文件列表 -->
+      <div class="content" style="padding-top:12px;gap:12px">
+        <!-- 文件 1 展开 -->
+        <div class="card" style="overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;min-height:44px">
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-file"/></svg>
+            <span class="mono" style="font-size:11.5px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">src/session/store.ts</span>
+            <span class="mono" style="font-size:10.5px;color:var(--add)">+42</span><span class="mono" style="font-size:10.5px;color:var(--del)">−8</span>
+            <span style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-3)"><svg class="ic ic-s"><use href="#i-more"/></svg></span>
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-u"/></svg>
+          </div>
+          <div class="diff-inline"><span data-testid="08-diffrow-hunk-1" class="ln hunk"><span class="no">@@</span>-12,7 +12,9 @@ export class SessionStore {</span><span data-testid="08-diffrow-del-1" class="ln del"><span class="no">12</span>-  private file: string;</span><span data-testid="08-diffrow-add-1" class="ln add"><span class="no">12</span>+  private db: Database;</span><span data-testid="08-diffrow-ctx-1" class="ln ctx"><span class="no">13</span>   constructor(path: string) {</span><span data-testid="08-diffrow-del-2" class="ln del"><span class="no">14</span>-    this.file = path;</span><span data-testid="08-diffrow-add-2" class="ln add"><span class="no">14</span>+    this.db = new Database(path);</span><span data-testid="08-diffrow-add-3" class="ln add"><span class="no">15</span>+    this.migrate();</span><span data-testid="08-diffrow-ctx-2" class="ln ctx"><span class="no">16</span>   }</span><span data-testid="08-diffrow-ctx-3" class="ln ctx"><span class="no">17</span>   async load(id: string) {</span></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--border)">
+            <div data-testid="08-filecard-approve" class="btn btn-primary" style="height:44px;flex:1;font-size:13.5px"><svg class="ic ic-s"><use href="#i-check"/></svg>批准此文件</div>
+            <div data-testid="08-filecard-reject" class="btn btn-danger" style="height:44px;flex:1;font-size:13.5px"><svg class="ic ic-s"><use href="#i-x"/></svg>拒绝</div>
+          </div>
+        </div>
+        <!-- 文件 2 折叠 -->
+        <div class="card" style="overflow:hidden;opacity:.92">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;min-height:44px">
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-file"/></svg>
+            <span class="mono" style="font-size:11.5px;color:var(--text-2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">src/session/types.ts</span>
+            <span class="mono" style="font-size:10.5px;color:var(--add)">+31</span><span class="mono" style="font-size:10.5px;color:var(--del)">−4</span>
+            <span style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-3)"><svg class="ic ic-s"><use href="#i-more"/></svg></span>
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-d"/></svg>
+          </div>
+        </div>
+        <!-- 文件 3 折叠 -->
+        <div class="card" style="overflow:hidden;opacity:.92">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;min-height:44px">
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-file"/></svg>
+            <span class="mono" style="font-size:11.5px;color:var(--text-2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">packages/ui/TaskCard.tsx</span>
+            <span class="mono" style="font-size:10.5px;color:var(--add)">+13</span><span class="mono" style="font-size:10.5px;color:var(--del)">−0</span>
+            <span style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-3)"><svg class="ic ic-s"><use href="#i-more"/></svg></span>
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-d"/></svg>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <!-- 底部动作栏（叠于 Tab 栏之上） -->
+        <div style="flex:none;display:flex;gap:10px;padding:10px 0 12px">
+          <div data-testid="08-act-approve-all" class="btn btn-primary" style="flex:1.8;height:48px"><svg class="ic"><use href="#i-check"/></svg>全部批准</div>
+          <div data-testid="08-act-desktop" class="btn btn-ghost" style="flex:1;height:48px;font-size:13.5px"><svg class="ic"><use href="#i-monitor"/></svg>桌面端继续</div>
+        </div>
+      </div>
+      <!-- Tab 栏（Tab 3 根必带） -->
+      <div class="tabbar">
+        <div data-testid="08-tab-tasks" class="tab"><span class="badge blue">2</span><svg class="ic ic-l"><use href="#i-inbox"/></svg>任务</div>
+        <div data-testid="08-tab-chat" class="tab"><span class="badge">1</span><svg class="ic ic-l"><use href="#i-chat"/></svg>对话</div>
+        <div data-testid="08-tab-review" class="tab active"><span class="badge">2</span><svg class="ic ic-l"><use href="#i-diff"/></svg>审查</div>
+        <div data-testid="08-tab-me" class="tab"><svg class="ic ic-l"><use href="#i-user"/></svg>我的</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>小屏 Diff 呈现</h5>
+      <ul>
+        <li><b>Unified 单列</b>（新增绿 / 删除红的 10% 弱底，色值见令牌表），正文等宽 <b>12px</b>、行号 10.5px，横滚不折行。</li>
+        <li><b>文件级折叠 + 按 hunk 分块</b>；长 diff 支持「按文件 / 按 hunk」过滤与 diff 内查找。</li>
+        <li>分支切换胶囊对应 <b>GitBranchSwitcher</b>；顶部统计先给量级再下钻。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>审批与手势</h5>
+      <ul>
+        <li><b>逐文件批准/拒绝</b>为 44px 独立按钮（非胶囊样式），+ 底部「全部批准」主操作，动作栏替代悬浮按钮。</li>
+        <li><b>手势冲突消解</b>：diff 横滚区接管水平手势，<b>diff 展开态禁用整卡左滑</b>；「回退此文件」（ConversationFileRewindDialog）收进文件头 <b>⋯ 菜单</b>（回退此文件 / 在桌面端打开 / 复制路径），不再与横滚同轴。</li>
+        <li>折叠态文件卡<b>左滑</b>仍可直接回退（无横滚冲突）。</li>
+        <li>复杂 review 引导<b>「桌面端继续」</b>（跨端接力）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>GitPane / GitPaneChangeCard</b> 懒加载 diff、<b>GitActionMenu</b> 操作、git-graph 提交历史（移动端精简为分支切换 + 提交列表）。diff 新增/删除色对齐仓库 DESIGN.md diff token 语义。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 08 · 产物预览
+     ============================================================ -->
+<section class="board" id="s09">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">09</span><h2>产物预览 · 文件浏览</h2><span class="lvl l3">Push L3 全屏</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar" style="padding-top:2px">
+        <div class="nb-side"><div class="nav-btn"><svg class="ic ic-l"><use href="#i-chev-l"/></svg></div></div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0">
+          <div style="font-size:15.5px;font-weight:700;display:flex;align-items:center;gap:5px">DESIGN.md<svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-d"/></svg></div>
+          <div class="mono" style="font-size:10px;color:var(--text-3)">docs · 12.4 KB</div>
+        </div>
+        <div class="nb-side" style="justify-content:flex-end"><div class="nav-btn"><svg class="ic ic-l"><use href="#i-share"/></svg></div></div>
+      </div>
+      <!-- 分段 -->
+      <div style="flex:none;margin:4px 16px 0;background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:3px;display:flex">
+        <div style="flex:1;text-align:center;padding:11px 0;min-height:44px;border-radius:10px;background:var(--bg-elevated);font-size:13px;font-weight:700;color:var(--text);box-shadow:var(--sh-card);display:flex;align-items:center;justify-content:center;gap:6px"><svg data-testid="09-seg-preview" class="ic ic-s"><use href="#i-eye"/></svg>预览</div>
+        <div style="flex:1;text-align:center;padding:11px 0;min-height:44px;font-size:13px;color:var(--text-3);font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px"><svg data-testid="09-seg-source" class="ic ic-s"><use href="#i-code"/></svg>源码</div>
+      </div>
+      <!-- markdown 预览 -->
+      <div class="content" style="padding:16px 20px;gap:10px;display:block;overflow:hidden">
+        <div style="font-size:21px;font-weight:800;letter-spacing:.01em;margin-bottom:8px">会话持久层设计</div>
+        <div style="font-size:13.5px;color:var(--text-2);line-height:1.75">将 <span class="mono" style="font-size:12px;color:var(--text)">sessions.json</span> 迁移至 SQLite，支撑 <b style="color:var(--text)">置顶 / 归档 / 时间线</b> 三种分组查询，旧数据首次启动自动迁移。</div>
+        <div style="height:1px;background:var(--border);margin:12px 0"></div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:6px">数据模型</div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text-2);line-height:1.7">
+          <div style="display:flex;gap:8px"><i style="width:5px;height:5px;border-radius:50%;background:var(--accent);margin-top:8px;flex:none"></i>session 表：id · workspace · pinned · archived_at</div>
+          <div style="display:flex;gap:8px"><i style="width:5px;height:5px;border-radius:50%;background:var(--accent);margin-top:8px;flex:none"></i>消息表按 (session_id, seq) 建索引</div>
+          <div style="display:flex;gap:8px"><i style="width:5px;height:5px;border-radius:50%;background:var(--accent);margin-top:8px;flex:none"></i>快照表支撑文件回退</div>
+        </div>
+        <!-- 代码块 -->
+        <div class="card" style="overflow:hidden;margin-top:12px;background:var(--bg-code)">
+          <div style="display:flex;align-items:center;padding:4px 12px;border-bottom:1px solid var(--border);min-height:44px">
+            <span class="mono" style="font-size:10.5px;color:var(--text-3)">schema.sql</span>
+            <span style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-2);height:44px;padding:0 8px"><svg data-testid="09-code-copy" class="ic ic-s"><use href="#i-copy"/></svg>复制</span>
+          </div>
+          <div class="t-body" style="border:none;line-height:1.8"><span class="tok-kw">CREATE TABLE</span> sessions (
+  id <span class="tok-ty">TEXT PRIMARY KEY</span>,
+  workspace <span class="tok-ty">TEXT</span>,
+  pinned <span class="tok-ty">INTEGER DEFAULT</span> 0
+);</div>
+        </div>
+        <!-- 提示卡 -->
+        <div class="card" style="margin-top:12px;padding:12px 14px;display:flex;gap:10px;background:var(--accent-dim);border-color:rgba(50,240,140,.3)">
+          <svg class="ic" style="color:var(--accent);flex:none"><use href="#i-alert"/></svg>
+          <div style="font-size:12px;color:var(--text-2);line-height:1.65"><b style="color:var(--text)">迁移提示</b>：legacy sessions.json 将重命名为 .bak，保留 30 天。</div>
+        </div>
+      </div>
+      <!-- 文件树抽屉入口 -->
+      <div style="flex:none;margin:0 16px calc(var(--safe-bot) + 10px)">
+        <div data-testid="09-drawer-filetree" class="card" style="display:flex;align-items:center;gap:10px;padding:13px 14px;background:var(--bg-elevated)">
+          <svg class="ic" style="color:var(--text-2)"><use href="#i-folder"/></svg>
+          <span style="font-size:13.5px;font-weight:600;flex:1">浏览工作区文件</span>
+          <span style="font-size:11px;color:var(--text-3)">236 个文件</span>
+          <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-u"/></svg>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>转场与手势</h5>
+      <ul>
+        <li>自文件树抽屉 / 工具产物 chips <b>Push L3 全屏</b>；「预览 / 源码」分段切换，源码态为等宽只读视图。</li>
+        <li>底部「浏览工作区文件」<b>向上抽屉</b>打开文件树（取代桌面左栏 WorkspaceFileTree），支持搜索（.zcodeignore 范围）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>多格式与触控</h5>
+      <ul>
+        <li>覆盖桌面 PreviewPane 能力：<b>markdown / 代码 / 图片 / 音视频 / PDF / PPTX / Office</b>（docx/xlsx/pptx）。</li>
+        <li>代码块「复制」热区 <b>≥44px</b>；图片支持双指缩放；PDF 横屏提示。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>PreviewPane + previewPane*Content</b> 系列；<b>workspace-file-search</b> 支撑抽屉内搜索；产物 chips 对应 WorkflowRunSidePane 的 artifacts。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 10 · 通知中心 + Live Activity
+     ============================================================ -->
+<section class="board" id="s10">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">10</span><h2>通知中心 + Live Activity</h2><span class="lvl push">Push · 三类消息聚合</span></div>
+    <!-- Live Activity / 锁屏实时活动 -->
+    <div class="live-activity">
+      <div style="width:40px;height:40px;border-radius:12px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:var(--on-accent);font-family:var(--font-mono);flex:none">Z</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;font-weight:700;color:var(--text)">重构会话持久层</span><span class="pill run" style="padding:1px 7px;font-size:10px"><span class="d"></span>运行中 60%</span></div>
+        <div style="font-size:11px;color:var(--text-2);margin-top:2px">下一步：运行回归测试 · 已 12 分钟</div>
+      </div>
+      <div style="display:flex;gap:6px;flex:none">
+        <div style="height:32px;padding:0 12px;display:flex;align-items:center;border-radius:999px;background:var(--accent);color:var(--on-accent);font-size:12px;font-weight:700">批准</div>
+        <div style="height:32px;padding:0 12px;display:flex;align-items:center;border-radius:999px;background:var(--bg-input);color:var(--text);font-size:12px;font-weight:600">查看</div>
+      </div>
+    </div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar" style="padding-top:2px">
+        <div class="nb-side"><div class="nav-btn"><svg class="ic ic-l"><use href="#i-chev-l"/></svg></div></div>
+        <div class="nb-title">通知</div>
+        <div class="nb-side" style="justify-content:flex-end"><div class="nav-btn" style="font-size:13px;color:var(--accent-text)">全部已读</div></div>
+      </div>
+      <!-- 分段 -->
+      <div style="flex:none;margin:4px 16px 0;background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:3px;display:flex">
+        <div style="flex:1;text-align:center;padding:11px 0;min-height:44px;border-radius:10px;background:var(--bg-elevated);font-size:13px;font-weight:700;color:var(--text);box-shadow:var(--sh-card)">全部</div>
+        <div style="flex:1;text-align:center;padding:11px 0;min-height:44px;font-size:13px;color:var(--text-3);font-weight:600">待办 · 2</div>
+      </div>
+      <div class="content" style="padding-top:14px;gap:16px">
+        <!-- 需要处理 -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="sec-title"><span class="d" style="background:var(--orange)"></span>需要处理 · 1</div>
+          <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:10px;border-color:rgba(255,178,36,.35)">
+            <div style="display:flex;gap:10px">
+              <div style="width:36px;height:36px;border-radius:10px;background:var(--orange-dim);color:var(--orange);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic ic-s"><use href="#i-shield"/></svg></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13.5px;font-weight:700">npm install 需要批准</div>
+                <div style="font-size:11.5px;color:var(--text-3);margin-top:2px">升级依赖并回归测试 · 2 分钟前</div>
+              </div>
+            </div>
+            <div data-testid="10-card-goto-approve" class="btn" style="height:44px;background:var(--orange);color:var(--on-orange);font-size:13.5px">去审批</div>
+          </div>
+        </div>
+        <!-- Agent 提问 -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="sec-title"><span class="d" style="background:var(--blue)"></span>Agent 提问 · 1</div>
+          <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:10px;border-color:rgba(77,163,255,.35)">
+            <div style="display:flex;gap:10px">
+              <div style="width:36px;height:36px;border-radius:10px;background:var(--blue-dim);color:var(--blue);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic ic-s"><use href="#i-alert"/></svg></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13.5px;font-weight:700">需要同步更新 CHANGELOG.md 吗？</div>
+                <div style="font-size:11.5px;color:var(--text-3);margin-top:2px">重构会话持久层 · 8 分钟前</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <div class="btn" style="height:44px;flex:1;background:var(--bg-input);color:var(--text);font-size:13px;border-radius:10px">回复「是」</div>
+              <div class="btn" style="height:44px;flex:1;background:var(--bg-input);color:var(--text-2);font-size:13px;border-radius:10px">去会话回复</div>
+            </div>
+          </div>
+        </div>
+        <!-- 已完成 -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="sec-title"><span class="d" style="background:var(--accent)"></span>已完成 · 2</div>
+          <div class="card grow" style="padding:12px;border-radius:var(--r-m)">
+            <div style="width:36px;height:36px;border-radius:10px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;color:var(--accent-text);flex:none"><svg class="ic ic-s"><use href="#i-check"/></svg></div>
+            <div class="g-main">
+              <div style="font-size:13.5px;font-weight:700">「设计稿：移动端导航」已完成</div>
+              <div class="g-sub">+86 −12 · 3 个文件 · 待你审查</div>
+            </div>
+            <span style="font-size:10.5px;color:var(--text-3);flex:none">18:32</span>
+          </div>
+          <div class="card grow" style="padding:12px;border-radius:var(--r-m)">
+            <div style="width:36px;height:36px;border-radius:10px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;color:var(--accent-text);flex:none"><svg class="ic ic-s"><use href="#i-check"/></svg></div>
+            <div class="g-main">
+              <div style="font-size:13.5px;font-weight:700">「工作区文件搜索优化」已完成</div>
+              <div class="g-sub">回归测试全部通过</div>
+            </div>
+            <span style="font-size:10.5px;color:var(--text-3);flex:none">15:07</span>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="text-align:center;font-size:10.5px;color:var(--text-3);padding-bottom:calc(var(--safe-bot) + 10px)">推送路由：审批 → 屏 06 · 提问 → 会话回复 · 完成 → 审查</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>信息组织</h5>
+      <ul>
+        <li><b>三类消息聚合</b>（对齐参考要点⑪）：需要处理（橙，权限/审批）、Agent 提问（蓝）、已完成（绿，附变更统计）。</li>
+        <li>每类卡片<b>内联快捷动作</b>（去审批 / 快捷回复），不用跳转即可闭环。</li>
+        <li>入口：屏 02 右上铃铛（角标=待处理数）；「待办」分段过滤橙+蓝两类。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>Live Activity / 锁屏</h5>
+      <ul>
+        <li>手机框上方为<b>锁屏实时活动卡</b>：任务名 + 进度 + 下一步 + 「批准/查看」直达；任务结束自动收起。</li>
+        <li>灵动岛挤压态显示进度百分比；长按展开本卡（对齐 Qoder 已验证的常驻任务状态范式）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与转场</h5>
+      <ul>
+        <li>卡片主按钮 44px；行高 ≥56px；「全部已读」44px 热区。</li>
+        <li>自 Tab 根 push 进入（隐藏底部 Tab 栏），左上返回。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line">桌面对应能力分散在 <b>V4InteractionDialogs</b>（提问/审批）与会话完成事件；移动端聚合为独立收件箱，配合系统推送与 Live Activity。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 11 · 设备与配对管理
+     ============================================================ -->
+<section class="board" id="s11">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">11</span><h2>设备与配对管理</h2><span class="lvl push">Push · 文件夹级授权</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar" style="padding-top:2px">
+        <div class="nb-side"><div class="nav-btn"><svg class="ic ic-l"><use href="#i-chev-l"/></svg></div></div>
+        <div class="nb-title">设备与配对</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding-top:12px;gap:14px;overflow:hidden">
+        <!-- 云端沙盒 -->
+        <div data-testid="11-card-cloud" class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:40px;height:40px;border-radius:12px;background:var(--blue-dim);color:var(--blue);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic"><use href="#i-cloud"/></svg></div>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:14.5px;font-weight:700">云端沙盒</span><span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text-2)"><i style="width:6px;height:6px;border-radius:50%;background:var(--accent)"></i>在线</span></div>
+              <div style="font-size:11px;color:var(--text-3);margin-top:2px">区域 cn-east-1 · 本月已用 3.2 小时</div>
+            </div>
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-r"/></svg>
+          </div>
+          <div style="display:flex;gap:8px">
+            <div class="btn" style="height:44px;flex:1;background:var(--bg-input);color:var(--text);font-size:12.5px;border-radius:10px">用量与账单</div>
+            <div class="btn" style="height:44px;flex:1;background:var(--bg-input);color:var(--text);font-size:12.5px;border-radius:10px">新建沙盒</div>
+          </div>
+        </div>
+        <!-- 配对电脑 -->
+        <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:40px;height:40px;border-radius:12px;background:var(--accent-dim);color:var(--accent-text);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic"><use href="#i-monitor"/></svg></div>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:14.5px;font-weight:700">MacBook Pro 16″</span><span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text-2)"><i style="width:6px;height:6px;border-radius:50%;background:var(--accent)"></i>在线</span></div>
+              <div style="font-size:11px;color:var(--text-3);margin-top:2px">复用桌面 Host · ZCode 1.2.0 · 电量 82%</div>
+            </div>
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-r"/></svg>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-3);margin-bottom:6px">已授权目录（文件夹级）</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <span class="tool-chip" style="padding:6px 10px;font-size:11px;color:var(--text)">~/projects/zcode_mobile · 读写</span>
+              <span class="tool-chip" style="padding:6px 10px;font-size:11px;color:var(--text)">~/docs · 只读</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <div class="btn" style="height:44px;flex:1.4;background:var(--bg-input);color:var(--text);font-size:12.5px;border-radius:10px">管理文件夹授权</div>
+            <div class="btn" style="height:44px;flex:1;border:1px solid var(--red-line);color:var(--red);font-size:12.5px;border-radius:10px;padding:0">解除配对</div>
+          </div>
+        </div>
+        <!-- 添加 -->
+        <button data-testid="11-btn-scan" class="btn btn-primary" style="width:100%"><svg class="ic"><use href="#i-scan"/></svg>扫码配对新设备</button>
+        <!-- IM Bot -->
+        <div class="glist">
+          <div data-testid="11-row-bot" class="grow">
+            <div class="g-ic"><svg class="ic ic-s"><use href="#i-chat"/></svg></div>
+            <div class="g-main"><div>IM Bot 远控</div><div class="g-sub">微信 / 飞书 / Lark / Telegram · 已绑定飞书</div></div>
+            <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="text-align:center;font-size:10.5px;color:var(--text-3);padding-bottom:calc(var(--safe-bot) + 10px)">设备离线时，新建任务的执行端自动置灰（见屏 13-③）</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>信息组织</h5>
+      <ul>
+        <li>两类执行端并列：<b>云端沙盒</b>（在线状态/区域/用量）与<b>配对电脑</b>（在线、Host 版本、电量）。</li>
+        <li><b>文件夹级授权</b>：以 chips 列出目录与读写级别，「管理文件夹授权」进入逐目录开关页（对应桌面工作区目录选择）。</li>
+        <li>「解除配对」红字描边，需二次确认（ActionSheet）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与转场</h5>
+      <ul>
+        <li>主按钮/行操作均 ≥44px；授权 chips 为标签（非触控目标），点击整卡进入管理页。</li>
+        <li>自屏 12「配对设备」行 push 进入；扫码打开内嵌相机取景器（同屏 01）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>WebRemoteControlDialog</b> 配对二维码、<b>BotsDialog</b> IM Bot、server/src/remote（ssh/wsl/docker-backend）远程资源；移动端定位为<b>查看 + 授权管理</b>，SSH/WSL 向导仍留在桌面端。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 12 · 我的 / 设置（Tab 4）
+     ============================================================ -->
+<section class="board" id="s12">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">12</span><h2>我的 · 设置与设备</h2><span class="lvl root">Tab 4 根</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div style="flex:none;padding:6px 16px 0;font-size:22px;font-weight:800">我的</div>
+      <div class="content" style="padding-top:12px;gap:11px;overflow:hidden">
+        <!-- 用户卡 -->
+        <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--grad-usercard)">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:48px;height:48px;border-radius:50%;background:var(--grad-avatar);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:#fff">M</div>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:16.5px;font-weight:800">Mac</span><span class="pill done" style="padding:2px 8px">Coding Plan</span></div>
+              <div style="font-size:11.5px;color:var(--text-3);margin-top:2px">GLM-5.3-Flash · 本周期至 10/31</div>
+            </div>
+            <svg class="ic" style="color:var(--text-3)"><use href="#i-chev-r"/></svg>
+          </div>
+          <!-- 额度条 -->
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin-bottom:5px"><span>套餐剩余额度</span><span class="mono" style="color:var(--accent)">68%</span></div>
+            <div style="height:6px;border-radius:3px;background:var(--bg-input);overflow:hidden"><i style="display:block;width:68%;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),#1f9e5f)"></i></div>
+          </div>
+        </div>
+        <!-- 设备 -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">设备与远控</div>
+          <div class="glist">
+            <div data-testid="12-row-pairing" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-monitor"/></svg></div>
+              <div class="g-main"><div>配对设备</div><div class="g-sub"><i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:5px"></i>MacBook Pro · 在线 · 已授权 2 个目录</div></div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="12-row-bot" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-chat"/></svg></div>
+              <div class="g-main"><div>IM Bot 远控</div><div class="g-sub">微信 / 飞书 / Lark / Telegram</div></div>
+              <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text-2);background:var(--bg-input);border-radius:999px;padding:2px 8px"><i style="width:6px;height:6px;border-radius:50%;background:var(--accent)"></i>已绑定 1</span>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+          </div>
+        </div>
+        <!-- 基础设置 -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">基础设置</div>
+          <div class="glist">
+            <div data-testid="12-row-model" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-sliders"/></svg></div>
+              <div class="g-main"><div>模型设置</div></div>
+              <div class="g-val">GLM-5.3-Flash</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="12-row-appearance" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-moon"/></svg></div>
+              <div class="g-main"><div>外观</div></div>
+              <div class="g-val">深色 · 跟随系统</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="12-row-language" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-globe"/></svg></div>
+              <div class="g-main"><div>语言</div></div>
+              <div class="g-val">简体中文</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="12-row-notify" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-bell"/></svg></div>
+              <div class="g-main"><div>通知</div><div class="g-sub">审批 · 完成 · Agent 提问</div></div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+          </div>
+        </div>
+        <!-- 数据与统计 -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">数据与统计</div>
+          <div class="glist">
+            <div data-testid="12-row-usage" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-chart"/></svg></div>
+              <div class="g-main"><div>用量统计</div><div class="g-sub">近 30 天 · 1,284 次请求</div></div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="12-row-memory" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-db"/></svg></div>
+              <div class="g-main"><div>记忆</div><div class="g-sub">128 条跨会话记忆</div></div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+          </div>
+        </div>
+        <!-- Agent 能力 -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">Agent 能力</div>
+          <div class="glist">
+            <div data-testid="12-row-skills" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-layers"/></svg></div>
+              <div class="g-main"><div>技能</div></div>
+              <div class="g-val">12 个已启用</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="12-row-mcp" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-server"/></svg></div>
+              <div class="g-main"><div>MCP 服务器</div></div>
+              <div class="g-val">3 个在线</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="12-row-plugins" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-box"/></svg></div>
+              <div class="g-main"><div>插件商店</div></div>
+              <span class="pill tag" style="padding:2px 8px;font-size:10px">New</span>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="12-row-automation" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-zap"/></svg></div>
+              <div class="g-main"><div>自动化</div></div>
+              <span class="pill tag" style="padding:2px 8px;font-size:10px">Beta</span>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+          </div>
+        </div>
+        <div style="text-align:center;font-size:10.5px;color:var(--text-3);padding:2px 0 calc(var(--safe-bot) + 4px)">BiuZ 1.0.0 (1) · 主题与偏好跨窗口同步</div>
+      </div>
+      <!-- Tab -->
+      <div class="tabbar">
+        <div data-testid="12-tab-tasks" class="tab"><span class="badge blue">2</span><svg class="ic ic-l"><use href="#i-inbox"/></svg>任务</div>
+        <div data-testid="12-tab-chat" class="tab"><span class="badge">1</span><svg class="ic ic-l"><use href="#i-chat"/></svg>对话</div>
+        <div data-testid="12-tab-review" class="tab"><span class="badge">2</span><svg class="ic ic-l"><use href="#i-diff"/></svg>审查</div>
+        <div data-testid="12-tab-me" class="tab active"><svg class="ic ic-l"><use href="#i-user"/></svg>我的</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>信息组织</h5>
+      <ul>
+        <li>分组对齐桌面 <b>settingsPageConfig 三组</b>（基础设置 / Agent 能力 / 数据与统计），移动端增补「设备与远控」组。</li>
+        <li>额度条对应 <b>SidebarFooterPlanBadge / CodingPlanUsageRemainingPanel</b>；用量报表对应 UsageStatsSection（近 30 天）。</li>
+        <li>二级页全部 <b>Push</b>；模型切换（Provider 端点/密钥）收在「模型设置」二级页。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与主题</h5>
+      <ul>
+        <li>列表行高 <b>48px</b>（≥44px 触控底线），图标 30px、右箭头热区并入整行；分组按使用频率排序，低频组允许滚动裁切。</li>
+        <li>主题三档：<b>跟随系统 / Zai Light / Zai Dark</b>，两套齐全（dark-first），偏好跨窗口同步防回环。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应桌面模块</h5>
+      <div class="flow-line"><b>SettingsPage</b>、<b>model-provider-section</b>、<b>BotsDialog</b>（IM Bot）、<b>SkillsSection / MCP / 插件 / 自动化</b>、<b>记忆</b>；快捷键、电脑控制、终端设置等桌面项<b>不出现</b>在移动端。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     屏 13 · 状态与次级页样张（空态 / 失败态 / 离线态 / 次级页）
+     ============================================================ -->
+<section class="board" id="s13" style="display:block;width:100%;max-width:1560px;margin:0 auto">
+  <div class="board-tag" style="margin-bottom:20px"><span class="num">13</span><h2>状态与次级页样张</h2><span class="lvl l3">组件级 · 空/失败/离线态全覆盖</span></div>
+  <div class="state-grid">
+    <!-- ① 看板空态 -->
+    <div class="state-card">
+      <h4><span class="tag-no">①</span>看板空态（首次使用）</h4>
+      <div class="state-demo" style="min-height:190px">
+        <div style="width:56px;height:56px;border-radius:18px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;color:var(--text-3)"><svg class="ic ic-l" style="width:26px;height:26px"><use href="#i-inbox"/></svg></div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)">还没有任务</div>
+        <div style="font-size:11.5px;color:var(--text-3);line-height:1.6">创建第一个任务，或从桌面端 /<br>插件商店分享提示词过来</div>
+        <div data-testid="13-btn-newtask" class="btn btn-primary" style="height:44px;width:180px;font-size:13.5px"><svg class="ic ic-s"><use href="#i-plus"/></svg>新建任务</div>
+      </div>
+      <div class="sc-desc">出现条件：任务数为 0。恢复路径：CTA → 屏 03；桌面分享的示例提示词预填但不自动发送。</div>
+    </div>
+    <!-- ② 审查空态 -->
+    <div class="state-card">
+      <h4><span class="tag-no">②</span>审查 Tab 空态</h4>
+      <div class="state-demo" style="min-height:190px">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;color:var(--accent-text)"><svg class="ic ic-l" style="width:26px;height:26px"><use href="#i-check"/></svg></div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)">没有待审查的变更</div>
+        <div style="font-size:11.5px;color:var(--text-3);line-height:1.6">任务产生的 diff 批准后会归档，<br>可按分支回看历史</div>
+      </div>
+      <div class="sc-desc">出现条件：Git 工作区 clean 或全部已审。Tab 角标同时消失；不显示空白页骨架。</div>
+    </div>
+    <!-- ③ 离线 -->
+    <div class="state-card">
+      <h4><span class="tag-no">③</span>桌面端离线 / 无网络</h4>
+      <div class="state-demo" style="min-height:190px;align-items:stretch">
+        <div style="display:flex;align-items:center;gap:8px;background:var(--orange-dim);border:1px solid rgba(255,178,36,.35);border-radius:10px;padding:10px 12px">
+          <svg class="ic ic-s" style="color:var(--orange)"><use href="#i-alert"/></svg>
+          <span style="font-size:12px;color:var(--orange);font-weight:600;flex:1">桌面端已断开 · 配对任务暂停上报</span>
+          <span style="font-size:12px;color:var(--accent-text);font-weight:700;flex:none;padding:13px 10px;margin:-13px -10px">重试</span>
+        </div>
+        <div class="card grow" style="opacity:.5;border-radius:var(--r-m);padding:10px 12px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-monitor"/></svg>
+            <span data-testid="13-exec-mac-offline" style="font-size:13.5px;font-weight:700;color:var(--text-3)">我的 Mac</span>
+            <span class="pill err" style="margin-left:auto;padding:1px 7px;font-size:10px">离线</span>
+          </div>
+          <div style="font-size:10.5px;color:var(--text-3);margin-top:4px">执行端不可用 · 断线期间已完成的步骤已在本地缓存</div>
+        </div>
+      </div>
+      <div class="sc-desc">出现条件：配对电脑断连 / 手机无网络。恢复路径：自动重连（指数退避）后横幅消失；离线执行端在屏 03 中置灰禁用，仅云端沙盒可选。</div>
+    </div>
+    <!-- ④ 任务失败 -->
+    <div class="state-card">
+      <h4><span class="tag-no">④</span>任务失败态（pill.err 语义）</h4>
+      <div class="state-demo" style="min-height:190px;align-items:stretch">
+        <div class="card task-card" style="border-color:rgba(255,93,93,.35);padding:12px">
+          <div class="tc-top"><h4 style="flex:1;font-size:14px">升级依赖并回归测试</h4><span class="pill err"><span class="d"></span>失败</span></div>
+          <div class="t-body" style="border:none;border-radius:8px;padding:8px 10px;font-size:12px">npm ERR! code ELIFECYCLE<br>npm ERR! errno 1 · scripts/migrate.js</div>
+          <div style="display:flex;gap:8px">
+            <div class="btn" style="height:44px;flex:1;background:var(--bg-input);color:var(--text);font-size:12.5px;border-radius:10px">查看日志</div>
+            <div data-testid="13-btn-retry" class="btn btn-primary" style="height:44px;flex:1;font-size:12.5px;border-radius:10px">重试任务</div>
+          </div>
+        </div>
+      </div>
+      <div class="sc-desc">出现条件：agent 退出码非 0 / 审批被拒后终止 / 沙盒崩溃。重试从最后快照续跑；失败任务也进入通知中心「需要处理」。</div>
+    </div>
+    <!-- ⑤ OAuth 失败 -->
+    <div class="state-card">
+      <h4><span class="tag-no">⑤</span>OAuth 回调失败</h4>
+      <div class="state-demo" style="min-height:190px;align-items:stretch">
+        <div style="display:flex;align-items:center;gap:8px;background:var(--red-dim);border:1px solid var(--red-line);border-radius:10px;padding:10px 12px">
+          <svg class="ic ic-s" style="color:var(--red)"><use href="#i-alert"/></svg>
+          <span style="font-size:12px;color:var(--red);font-weight:600;flex:1">登录失败：回调超时（超过 5 分钟未返回）</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <div class="btn btn-ghost" style="height:44px;flex:1;font-size:12.5px;border-radius:10px">重试登录</div>
+          <div class="btn" style="height:44px;flex:1;background:var(--bg-input);color:var(--text);font-size:12.5px;border-radius:10px">改用 API Key</div>
+        </div>
+      </div>
+      <div class="sc-desc">出现条件：浏览器回调丢失 / 授权被拒 / 网络中断。表单态保留；「改用 API Key」直达屏 01 次级表单页（⑥）。</div>
+    </div>
+    <!-- ⑥ API Key 表单 -->
+    <div class="state-card">
+      <h4><span class="tag-no">⑥</span>API Key 表单页（次级页）</h4>
+      <div class="state-demo" style="min-height:190px;align-items:stretch">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:8px">
+            <span class="tool-chip chip-btn" style="color:var(--accent-text);border-color:rgba(50,240,140,.4)">ZAI</span>
+            <span class="tool-chip chip-btn" style="color:var(--text-2)">BigModel</span>
+          </div>
+          <div class="input" style="height:44px;border-radius:10px;padding:0 12px;font-size:16px;color:var(--text-3)">粘贴 API Key（16px 字号）…</div>
+          <div style="font-size:10.5px;color:var(--text-3);line-height:1.6;display:flex;gap:6px"><svg class="ic ic-s" style="color:var(--accent-text)"><use href="#i-shield"/></svg>凭据写入本机安全区（Keychain），不上传</div>
+          <div data-testid="13-btn-save-key" class="btn btn-primary" style="height:44px;font-size:13px;border-radius:10px">保存并登录</div>
+        </div>
+      </div>
+      <div class="sc-desc">对应桌面 LoginApiKeyForm；输入 16px 防缩放，Provider 端点在屏 12「模型设置」二级页维护。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     屏 14 · Light 主题样张（跟随系统档 · 与深色同构映射）
+     ============================================================ -->
+<section class="board" id="s14" style="display:block;width:100%;max-width:1560px;margin:0 auto">
+  <div class="board-tag" style="margin-bottom:20px"><span class="num">14</span><h2>Light 主题样张</h2><span class="lvl root">跟随系统档 · 两套齐全</span></div>
+  <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+    <div class="board-col">
+      <div class="board-tag"><span class="num">L1</span><h2>任务看板 · Light</h2><span class="lvl root">对应屏 02</span></div>
+      <div class="phone"><div class="screen theme-light">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+        <div style="flex:none;display:flex;align-items:center;padding:6px 16px 0;gap:10px">
+          <div style="flex:1">
+            <div style="font-size:22px;font-weight:800;letter-spacing:.01em">早上好，Mac</div>
+            <div style="font-size:12px;color:var(--text-2);margin-top:2px">1 个任务进行中 · 1 个待你处理</div>
+          </div>
+          <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative;color:var(--text-2)">
+            <svg class="ic ic-l"><use href="#i-bell"/></svg>
+            <i style="position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--orange);border:2px solid var(--bg)"></i>
+          </div>
+          <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="width:38px;height:38px;border-radius:50%;background:var(--grad-avatar);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">M</div>
+          </div>
+        </div>
+        <div style="flex:none;padding:12px 16px 2px">
+          <div class="input" style="display:flex;align-items:center;gap:8px;height:44px;border-radius:12px;padding:0 12px;color:var(--text-3);font-size:16px">
+            <svg class="ic ic-s"><use href="#i-search"/></svg>搜索任务、工作目录…
+          </div>
+        </div>
+        <div class="content" style="padding-top:12px;gap:18px">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="sec-title"><span class="d" style="background:var(--orange)"></span>待操作 · 1<span class="more">需要你审批</span></div>
+            <div class="card task-card" style="border-color:rgba(154,82,0,.35)">
+              <div class="tc-top"><h4 style="flex:1">升级依赖并回归测试</h4><span class="pill wait"><span class="d"></span>待批准</span></div>
+              <div class="tc-sum" style="color:var(--orange)">npm install 需要批准后才会继续执行</div>
+              <div style="display:flex;gap:10px">
+                <div class="btn" style="height:44px;flex:1;background:var(--orange);color:var(--on-orange);font-size:14px">去审批</div>
+                <div class="btn" style="height:44px;width:44px;border:1px solid var(--border-strong);border-radius:12px;padding:0;color:var(--text-2)"><svg class="ic"><use href="#i-chat"/></svg></div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="sec-title"><span class="d" style="background:var(--blue)"></span>进行中 · 1</div>
+            <div class="card task-card">
+              <div class="tc-top"><h4 style="flex:1">重构会话持久层</h4><span class="pill run"><span class="d"></span>运行中</span></div>
+              <div class="tc-ws">⌘ zcode_mobile · GLM-5.3-Flash</div>
+              <div class="tc-sum">正在把 SessionStore 迁移到 SQLite，回归测试已跑通 12 项…</div>
+              <div class="todo-mini"><div class="bar"><i style="width:60%"></i></div><span>todo 3/5</span><span>·</span><span>12 分钟</span></div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="sec-title"><span class="d" style="background:var(--accent)"></span>已完成 · 12<span class="more">查看全部 ›</span></div>
+            <div class="card task-card" style="opacity:.88">
+              <div class="tc-top"><h4 style="flex:1">设计稿：移动端导航</h4><span class="pill done"><svg class="ic ic-s"><use href="#i-check"/></svg>已完成</span></div>
+              <div class="tc-meta"><span>昨天 18:32</span><span>·</span><span>+86 −12</span><span>·</span><span>3 个文件</span></div>
+            </div>
+          </div>
+        </div>
+        <div data-testid="14-l1-fab-newtask" class="fab"><svg class="ic ic-l" style="stroke-width:2.4"><use href="#i-plus"/></svg></div>
+        <div class="tabbar">
+          <div data-testid="14-l1-tab-tasks" class="tab active"><span class="badge blue">1</span><svg class="ic ic-l"><use href="#i-inbox"/></svg>任务</div>
+          <div data-testid="14-l1-tab-chat" class="tab"><span class="badge">1</span><svg class="ic ic-l"><use href="#i-chat"/></svg>对话</div>
+          <div data-testid="14-l1-tab-review" class="tab"><span class="badge">2</span><svg class="ic ic-l"><use href="#i-diff"/></svg>审查</div>
+          <div data-testid="14-l1-tab-me" class="tab"><svg class="ic ic-l"><use href="#i-user"/></svg>我的</div>
+        </div>
+        <div class="home-indicator"></div>
+      </div></div>
+    </div>
+    <div class="board-col">
+      <div class="board-tag"><span class="num">L2</span><h2>Diff 审查 · Light</h2><span class="lvl root">对应屏 08</span></div>
+      <div class="phone"><div class="screen theme-light">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+        <div style="flex:none;display:flex;align-items:center;padding:6px 16px 0;gap:10px">
+          <div style="flex:1">
+            <div style="font-size:22px;font-weight:800">审查</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+              <span data-testid="14-l2-branch-switcher" class="pill" style="color:var(--text-2);background:var(--bg-input)"><svg class="ic ic-s"><use href="#i-branch"/></svg><span class="mono" style="font-size:10.5px">feat/session-sqlite</span><svg class="ic ic-s" style="width:10px;height:10px"><use href="#i-chev-d"/></svg></span>
+            </div>
+          </div>
+          <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-2)"><svg class="ic ic-l"><use href="#i-search"/></svg></div>
+        </div>
+        <div style="flex:none;margin:10px 16px 0;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-3)">
+          <span><b style="color:var(--text)">3</b> 个文件变更</span><span>·</span>
+          <span class="mono" style="color:var(--add)">+86</span>
+          <span class="mono" style="color:var(--del)">−12</span>
+          <span class="pill wait" style="margin-left:auto"><span class="d"></span>待审 2</span>
+        </div>
+        <div class="content" style="padding-top:12px;gap:12px">
+          <div class="card" style="overflow:hidden">
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;min-height:44px">
+              <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-file"/></svg>
+              <span class="mono" style="font-size:11.5px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">src/session/store.ts</span>
+              <span class="mono" style="font-size:10.5px;color:var(--add)">+42</span><span class="mono" style="font-size:10.5px;color:var(--del)">−8</span>
+              <span style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-3)"><svg class="ic ic-s"><use href="#i-more"/></svg></span>
+              <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-u"/></svg>
+            </div>
+            <div class="diff-inline"><span data-testid="14-l2-diffrow-hunk-1" class="ln hunk"><span class="no">@@</span>-12,7 +12,9 @@ export class SessionStore {</span><span data-testid="14-l2-diffrow-del-1" class="ln del"><span class="no">12</span>-  private file: string;</span><span data-testid="14-l2-diffrow-add-1" class="ln add"><span class="no">12</span>+  private db: Database;</span><span data-testid="14-l2-diffrow-ctx-1" class="ln ctx"><span class="no">13</span>   constructor(path: string) {</span><span data-testid="14-l2-diffrow-del-2" class="ln del"><span class="no">14</span>-    this.file = path;</span><span data-testid="14-l2-diffrow-add-2" class="ln add"><span class="no">14</span>+    this.db = new Database(path);</span><span data-testid="14-l2-diffrow-add-3" class="ln add"><span class="no">15</span>+    this.migrate();</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--border)">
+              <div data-testid="14-l2-filecard-approve" class="btn btn-primary" style="height:44px;flex:1;font-size:13.5px"><svg class="ic ic-s"><use href="#i-check"/></svg>批准此文件</div>
+              <div data-testid="14-l2-filecard-reject" class="btn btn-danger" style="height:44px;flex:1;font-size:13.5px"><svg class="ic ic-s"><use href="#i-x"/></svg>拒绝</div>
+            </div>
+          </div>
+          <div class="card" style="overflow:hidden;opacity:.92">
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;min-height:44px">
+              <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-file"/></svg>
+              <span class="mono" style="font-size:11.5px;color:var(--text-2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">src/session/types.ts</span>
+              <span class="mono" style="font-size:10.5px;color:var(--add)">+31</span><span class="mono" style="font-size:10.5px;color:var(--del)">−4</span>
+              <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-d"/></svg>
+            </div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="flex:none;display:flex;gap:10px;padding:10px 0 12px">
+            <div data-testid="14-l2-act-approve-all" class="btn btn-primary" style="flex:1.8;height:48px"><svg class="ic"><use href="#i-check"/></svg>全部批准</div>
+            <div class="btn btn-ghost" style="flex:1;height:48px;font-size:13.5px"><svg class="ic"><use href="#i-monitor"/></svg>桌面端继续</div>
+          </div>
+        </div>
+        <!-- Tab 栏（Tab 3 根必带） -->
+        <div class="tabbar">
+          <div data-testid="14-l2-tab-tasks" class="tab"><span class="badge blue">2</span><svg class="ic ic-l"><use href="#i-inbox"/></svg>任务</div>
+          <div data-testid="14-l2-tab-chat" class="tab"><span class="badge">1</span><svg class="ic ic-l"><use href="#i-chat"/></svg>对话</div>
+          <div data-testid="14-l2-tab-review" class="tab active"><span class="badge">2</span><svg class="ic ic-l"><use href="#i-diff"/></svg>审查</div>
+          <div data-testid="14-l2-tab-me" class="tab"><svg class="ic ic-l"><use href="#i-user"/></svg>我的</div>
+        </div>
+        <div class="home-indicator"></div>
+      </div></div>
+    </div>
+    <aside class="notes">
+      <div class="note-block">
+        <h5>主题机制</h5>
+        <ul>
+          <li>与深色为<b>同一结构令牌映射</b>（CSS 变量整体覆盖），实现时按 token 表切换，不维护两套布局。</li>
+          <li>「跟随系统」为默认档：监听系统深浅切换即时换肤，偏好经跨窗口广播同步（防回环）。</li>
+          <li>主按钮保持<b>绿底深字</b>范式：深色 12.7:1、Light 6.7:1，均超 AA。</li>
+        </ul>
+      </div>
+      <div class="note-block">
+        <h5>Light 对比度（AA 验证值）</h5>
+        <div class="flow-line">正文 #17181c/白 15.9:1 · 次级 #4b5563 7.5:1 · 说明 #5f6673 5.78:1 · 强调文字 #0a7f45 5.08:1 · 运行蓝 #1a6fd4 4.6:1 · 待操作 #9a5200 5.5:1 · 危险红 #c53030 5.1:1 · diff 增 #0a7340 4.94:1 / 删 #b32e20 5.26:1（按最差复合底实算，AA 线 4.5，均通过）。</div>
+      </div>
+      <div class="note-block">
+        <h5>范围说明</h5>
+        <div class="flow-line">本板给出<b>最高频两屏</b>的 Light 实渲样张（看板/Diff）验证分层与 diff 双色；其余屏的 Light 呈现由令牌表（spec 2.1/2.7）驱动，结构不变。</div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+</main>
+
+<!-- 页脚 -->
+<footer style="max-width:1560px;margin:0 auto;padding:0 40px 80px;color:var(--text-3);font-size:12px;line-height:1.9">
+  <div style="height:1px;background:var(--border);margin-bottom:24px"></div>
+  BiuZ 移动端高保真设计稿 · 390×844 基准 · 深色优先 + Light 同构令牌（屏 14 样张） · 单文件自包含，系统字体栈 + 内联 SVG，无外部依赖。<br>
+  屏幕流向：01 登录 → 02 任务看板 → 03 新建 Sheet → 04 会话列表 → 05 会话流 → 06 审批 Sheet → 07 执行输出 → 08 Diff 审查 → 09 产物预览 → 10 通知中心+Live Activity → 11 设备与配对 → 12 我的；屏 13 状态与次级页样张、屏 14 Light 主题样张。<br>
+  状态语义：运行中=蓝 · 待操作=橙 · 已完成=绿 · 失败=红 · 能力/轨迹=紫（非任务状态）。可读色值均经验证 ≥ WCAG AA（4.5:1），触控目标 ≥44px，可聚焦输入 ≥16px。
+</footer>
+
+</body>
+</html>

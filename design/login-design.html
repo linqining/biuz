@@ -1,0 +1,1949 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BiuZ 移动端客户端 · 登录与连接 高保真设计稿</title>
+<style>
+/* ============================================================
+   BiuZ Mobile · 设计令牌（与基准稿 zcode-mobile-design.html 完全一致 · v2.4 只增不改）
+   ============================================================ */
+:root{
+  --bg:#0a0b0d;            /* 页面背景 L≈4.5% */
+  --bg-card:#121316;       /* 卡片 L≈6.5% */
+  --bg-elevated:#17181c;   /* 浮层/侧栏 L≈8% */
+  --bg-input:#1a1c21;
+  --bg-code:#0d0e10;       /* 代码块底 */
+  --bg-term:#050607;       /* 终端底 */
+  --border:#26282e;
+  --border-strong:#34373f;
+  --text:#f5f9fe;
+  --text-2:#a6aab5;
+  --text-3:#8a8f9b;        /* 最小说字 · #121316 上 5.79:1 / #0a0b0d 上 5.93:1（AA ✓） */
+  --accent:#32f08c;        /* 强调亮绿（按钮底，深字 12.7:1） */
+  --accent-text:#32f08c;   /* 强调文字（深底上 12.7:1） */
+  --accent-press:#28c974;
+  --accent-dim:rgba(50,240,140,.12);
+  --blue:#4da3ff;          /* Running · #121316 上 7.1:1 */
+  --blue-dim:rgba(77,163,255,.14);
+  --orange:#ffb224;        /* Waiting / 待操作 · #121316 上 9.8:1 */
+  --orange-dim:rgba(255,178,36,.14);
+  --red:#ff5d5d;           /* 危险 · #121316 上 6.1:1 */
+  --red-dim:rgba(255,93,93,.12);
+  --red-line:rgba(255,93,93,.55);
+  --violet:#c792ff;        /* 能力/生态标签、轨迹/工作流语义（非任务状态） */
+  --violet-dim:rgba(199,146,255,.12);
+  --add:#3ddc84;           /* diff 新增 */
+  --add-bg:rgba(50,240,140,.10);
+  --del:#ff7a7a;           /* diff 删除 */
+  --del-bg:rgba(255,93,93,.10);
+  --code-kw:#c792ff;       /* 代码关键字 */
+  --code-lab:#8f9bdd;      /* 代码类型/日志标签 */
+  --code-lab-dim:rgba(125,139,221,.08);
+  --tabbar-bg:rgba(13,14,16,.92);
+  --grad-avatar:linear-gradient(135deg,#4da3ff,#7d8bdd);
+  --grad-bubble:linear-gradient(135deg,#1d2a23,#152019);
+  --grad-usercard:linear-gradient(160deg,#131a16,var(--bg-card));
+  --home-bg:rgba(245,249,254,.85);
+  --sb-fg-dim:rgba(245,249,254,.5);
+  --badge-fg:#0d1500;      /* 徽章前景（橙/蓝亮底上深字 ≥7:1） */
+  --on-orange:#1a0f00;     /* 橙色按钮前景（#ffb224 底上 10.5:1） */
+  --on-accent:#04120a;     /* 强调绿底前景（深/浅两档均深字：12.7 / 6.7:1） */
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","HarmonyOS Sans SC","MiSans","Segoe UI","Microsoft YaHei",sans-serif;
+  --font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --r-s:8px; --r-m:12px; --r-l:16px;
+  --sh-card:0 8px 24px rgba(0,0,0,.45);
+  --sh-sheet:0 -12px 48px rgba(0,0,0,.6);
+  --safe-top:54px;   /* 灵动岛安全区 */
+  --safe-bot:34px;   /* Home 指示条安全区 */
+}
+/* ---------- Light 主题（跟随系统切换；与深色为同一结构令牌映射，对比度均经验证 ≥4.5:1） ---------- */
+.theme-light{
+  --bg:#f4f5f7;
+  --bg-card:#ffffff;
+  --bg-elevated:#ffffff;
+  --bg-input:#eceef2;
+  --bg-code:#f6f7f9;
+  --bg-term:#fbfbfc;
+  --border:#e3e5e9;
+  --border-strong:#d2d5db;
+  --text:#17181c;
+  --text-2:#4b5563;
+  --text-3:#5f6673;        /* #ffffff 上 5.78:1（AA ✓，实算） */
+  --accent:#17b26a;        /* 按钮底，深字 #04120a 上 6.7:1 */
+  --accent-text:#0a7f45;   /* 白底文字 5.08:1（实算） */
+  --accent-press:#0e9f58;
+  --accent-dim:rgba(23,178,106,.12);
+  --blue:#1a6fd4;          /* #ffffff 上 4.6:1 */
+  --blue-dim:rgba(26,111,212,.10);
+  --orange:#9a5200;        /* #ffffff 上 5.5:1 */
+  --orange-dim:rgba(154,82,0,.10);
+  --red:#c53030;           /* #ffffff 上 5.1:1 */
+  --red-dim:rgba(197,48,48,.08);
+  --red-line:rgba(197,48,48,.45);
+  --violet:#7c3aed;
+  --violet-dim:rgba(124,58,237,.10);
+  --add:#0a7340;           /* 最差复合底（code底+add-bg）4.94:1，全场景 ≥4.5 */
+  --add-bg:rgba(10,160,80,.10);
+  --del:#b32e20;           /* 最差复合底（code底+del-bg）5.26:1 */
+  --del-bg:rgba(200,60,50,.08);
+  --code-kw:#7c3aed;
+  --code-lab:#1a6fd4;
+  --code-lab-dim:rgba(26,111,212,.08);
+  --tabbar-bg:rgba(255,255,255,.92);
+  --grad-avatar:linear-gradient(135deg,#1a6fd4,#7d8bdd);
+  --grad-bubble:linear-gradient(135deg,#e8f7ef,#e2f3ea);
+  --grad-usercard:linear-gradient(160deg,#ecf9f2,#ffffff);
+  --home-bg:rgba(23,24,28,.85);
+  --sb-fg-dim:rgba(23,24,28,.5);
+  --badge-fg:#ffffff;      /* Light 深色徽章底上白字（#9a5200 5.5:1 / #1a6fd4 4.6:1） */
+  --on-orange:#ffffff;     /* Light 橙色按钮前景（#9a5200 底上 5.5:1） */
+  --on-accent:#04120a;
+  --sh-card:0 4px 16px rgba(23,25,35,.08);
+  --sh-sheet:0 -12px 48px rgba(23,25,35,.16);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html{-webkit-font-smoothing:antialiased;text-size-adjust:100%;}
+body{background:#060708;color:var(--text);font-family:var(--font-ui);font-size:14px;line-height:1.5;}
+::selection{background:var(--accent-dim);}
+
+/* ---------- 图标 ---------- */
+.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;display:block;}
+.ic-s{width:14px;height:14px;}
+.ic-l{width:22px;height:22px;}
+
+/* ---------- 画布整体 ---------- */
+.canvas-head{max-width:1560px;margin:0 auto;padding:56px 40px 8px;}
+.canvas-head .kicker{color:var(--accent);font-size:12px;font-weight:600;letter-spacing:.28em;text-transform:uppercase;}
+.canvas-head h1{font-size:34px;font-weight:700;letter-spacing:.01em;margin:12px 0 10px;}
+.canvas-head p{color:var(--text-2);font-size:14px;max-width:860px;}
+.canvas-head p b{color:var(--text);}
+.meta-strip{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;}
+.meta-chip{display:flex;align-items:center;gap:8px;background:var(--bg-card);border:1px solid var(--border);border-radius:999px;padding:7px 14px;font-size:12px;color:var(--text-2);}
+.meta-chip .sw{width:12px;height:12px;border-radius:4px;flex:none;}
+
+/* ---------- 流程模型图 ---------- */
+.flow-map{max-width:1560px;margin:16px auto 0;padding:0 40px;}
+.flow-map-inner{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-l);padding:22px 24px;}
+.flow-cols{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;}
+.flow-step{flex:1;min-width:176px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-m);padding:11px 13px;display:flex;flex-direction:column;gap:4px;}
+.flow-step-hl{border-color:rgba(50,240,140,.4);} /* 强调描边（A1 起点步）· 收进类避免内联，Light 映射见下 */
+.theme-light .flow-step-hl{border-color:rgba(23,178,106,.4);}
+.flow-step .fs-no{display:inline-flex;align-self:flex-start;font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-dim);border-radius:5px;padding:1px 6px;}
+.flow-step .fs-name{font-size:12.5px;font-weight:700;}
+.flow-step .fs-desc{font-size:10.5px;color:var(--text-3);line-height:1.55;}
+.flow-step .fs-endpoint{font-family:var(--font-mono);font-size:10px;color:var(--code-lab);overflow-wrap:anywhere;line-height:1.5;}
+.flow-arrow{align-self:center;color:var(--text-3);flex:none;}
+
+/* ---------- 屏幕分区 ---------- */
+.boards{display:flex;flex-wrap:wrap;gap:64px 48px;justify-content:center;padding:56px 40px 120px;}
+.board{display:flex;gap:24px;align-items:flex-start;}
+.board-col{display:flex;flex-direction:column;gap:12px;}
+.board-tag{display:flex;align-items:center;gap:10px;}
+.board-tag .num{font-family:var(--font-mono);font-size:12px;color:var(--on-accent);background:var(--accent);border-radius:6px;padding:2px 8px;font-weight:700;}
+.board-tag h2{font-size:16px;font-weight:700;}
+.lvl{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:999px;border:1px solid var(--border-strong);color:var(--text-2);letter-spacing:.04em;}
+.lvl.root{color:var(--accent);border-color:rgba(50,240,140,.4);background:var(--accent-dim);}
+.lvl.push{color:var(--blue);border-color:rgba(77,163,255,.4);background:var(--blue-dim);}
+
+/* 手机外壳 */
+.phone{width:406px;background:#1c1d21;border:1px solid #3a3c43;border-radius:56px;padding:8px;box-shadow:0 24px 80px rgba(0,0,0,.7),inset 0 0 0 2px #000;}
+.screen{position:relative;width:390px;height:844px;background:var(--bg);color:var(--text);border-radius:48px;overflow:hidden;display:flex;flex-direction:column;}
+.notch{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:122px;height:35px;background:#000;border-radius:20px;z-index:60;}
+.statusbar{position:relative;z-index:50;height:var(--safe-top);flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 6px;font-size:14.5px;font-weight:600;color:var(--text);}
+.statusbar .sb-icons{display:flex;align-items:center;gap:6px;}
+.sb-batt{width:24px;height:12px;border:1px solid var(--sb-fg-dim);border-radius:4px;position:relative;}
+.sb-batt::before{content:"";position:absolute;inset:2px;right:6px;background:var(--text);border-radius:2px;}
+.sb-batt::after{content:"";position:absolute;right:-4px;top:3px;width:2px;height:5px;background:var(--sb-fg-dim);border-radius:1px;}
+.home-indicator{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:134px;height:5px;border-radius:3px;background:var(--home-bg);z-index:70;}
+
+/* 导航栏 */
+.navbar{flex:none;display:flex;align-items:center;gap:10px;padding:8px 12px;min-height:52px;}
+.navbar .nb-title{flex:1;text-align:center;font-size:16.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.navbar .nb-side{width:64px;display:flex;}
+.nav-btn{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:12px;color:var(--text-2);}
+
+/* 内容区 */
+.content{flex:1;overflow:hidden;padding:0 16px;display:flex;flex-direction:column;gap:12px;}
+
+/* ---------- 通用组件 ---------- */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-m);box-shadow:var(--sh-card);}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+.pill .d{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.pill.run{color:var(--blue);background:var(--blue-dim);}
+.pill.wait{color:var(--orange);background:var(--orange-dim);}
+.pill.done{color:var(--accent);background:var(--accent-dim);}
+.pill.err{color:var(--red);background:var(--red-dim);}
+.pill.tag{color:var(--violet);background:var(--violet-dim);} /* 能力/生态标签（非任务状态） */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;height:48px;border-radius:var(--r-m);font-size:15.5px;font-weight:600;border:none;font-family:inherit;cursor:default;}
+.btn-primary{background:var(--accent);color:var(--on-accent);}
+.btn-ghost{background:transparent;border:1px solid var(--border-strong);color:var(--text);}
+.btn-danger{background:transparent;border:1px solid rgba(255,93,93,.55);color:var(--red);}
+.input{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-m);color:var(--text);font-family:inherit;font-size:16px;/* ≥16px 防 iOS 聚焦缩放 */}
+.sec-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--text-2);letter-spacing:.02em;}
+.sec-title .d{width:7px;height:7px;border-radius:50%;}
+.mono{font-family:var(--font-mono);}
+
+/* Tab 栏（顶内边距 7px + Tab 热区 48px + 底内边距 6px + 安全区 34px ≈ 总高 95px，390 基准实测） */
+.tabbar{flex:none;display:flex;align-items:flex-start;justify-content:space-around;padding:7px 8px calc(var(--safe-bot) + 6px);background:var(--tabbar-bg);backdrop-filter:blur(20px);border-top:1px solid var(--border);}
+.tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:64px;min-height:48px;color:var(--text-3);font-size:10.5px;font-weight:600;position:relative;}
+.tab.active{color:var(--accent);}
+.tab .badge{position:absolute;top:-2px;right:16px;min-width:16px;height:16px;border-radius:9px;background:var(--orange);color:var(--badge-fg);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;}
+.tab .badge.blue{background:var(--blue);}
+
+/* spinner / cursor 动画 */
+.spin{width:13px;height:13px;border-radius:50%;border:2px solid rgba(77,163,255,.28);border-top-color:var(--blue);animation:spin 1s linear infinite;flex:none;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.caret{display:inline-block;width:7px;height:14px;background:var(--accent);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(1) infinite;}
+@keyframes blink{50%{opacity:0;}}
+
+/* 列表行（设置） */
+.glist{border-radius:var(--r-l);overflow:hidden;border:1px solid var(--border);background:var(--bg-card);}
+.grow{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 14px;border-bottom:1px solid var(--border);font-size:14.5px;}
+.grow:last-child{border-bottom:none;}
+.grow .g-ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:none;background:var(--bg-elevated);color:var(--text-2);}
+.grow .g-main{flex:1;min-width:0;}
+.grow .g-sub{font-size:11.5px;color:var(--text-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.grow .g-val{font-size:12.5px;color:var(--text-3);display:flex;align-items:center;gap:4px;}
+.grow .chev{color:var(--text-3);}
+
+/* 标注面板 */
+.notes{width:262px;flex:none;display:flex;flex-direction:column;gap:12px;position:sticky;top:32px;}
+.note-block{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-m);padding:14px 16px;}
+.note-block h5{font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.note-block ul{list-style:none;display:flex;flex-direction:column;gap:7px;}
+.note-block li{font-size:12px;color:var(--text-2);padding-left:14px;position:relative;line-height:1.55;}
+.note-block li::before{content:"";position:absolute;left:0;top:7px;width:6px;height:6px;border-radius:2px;background:var(--border-strong);}
+.note-block li b{color:var(--text);font-weight:600;}
+.note-block li code{font-family:var(--font-mono);font-size:10.5px;color:var(--violet);background:var(--violet-dim);padding:0 4px;border-radius:4px;}
+.flow-line{font-size:11.5px;color:var(--text-3);line-height:1.7;}
+.flow-line b{color:var(--text-2);font-weight:600;}
+
+/* ============================================================
+   登录与连接 · 新增组件（v2.4，仅增不改 · 令牌全部复用上表）
+   ============================================================ */
+/* 连接步骤行（L2 五步进度） */
+.step-row{display:flex;align-items:center;gap:11px;min-height:44px;padding:0 14px;border-bottom:1px solid var(--border);}
+.step-row:last-child{border-bottom:none;}
+.step-ic{width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;}
+.step-ic.done{background:var(--accent-dim);color:var(--accent-text);}
+.step-ic.run{color:var(--blue);}
+.step-ic.pend{border:1.5px dashed var(--border-strong);color:var(--text-3);}
+.step-main{flex:1;min-width:0;}
+.step-name{font-size:13.5px;font-weight:600;}
+.step-name.pend{color:var(--text-3);font-weight:500;}
+.step-endpoint{font-family:var(--font-mono);font-size:10.5px;color:var(--text-3);margin-top:1px;overflow-wrap:anywhere;word-break:break-all;line-height:1.45;white-space:normal;} /* 允许换行：WS 步骤须完整回显 web-remote-replayable，禁 ellipsis 截断（规范 9.3 ④） */
+.step-meta{font-size:10.5px;font-family:var(--font-mono);color:var(--text-3);flex:none;}
+/* 连接进度条（与基准稿 .todo-mini 同构；专项稿自包含定义，单开本文件不破版） */
+.todo-mini{display:flex;align-items:center;gap:8px;}
+.todo-mini .bar{flex:1;height:4px;border-radius:2px;background:var(--bg-input);overflow:hidden;}
+.todo-mini .bar i{display:block;height:100%;border-radius:2px;background:var(--blue);}
+/* 错误卡描边（走 --red-line 令牌，深色 rgba(255,93,93,.55) / Light rgba(197,48,48,.45) 自动映射） */
+.card-err{border-color:var(--red-line);}
+/* 选中工作区行描边（强调绿，深浅两档显式映射，禁内联 hex） */
+.row-selected{border-bottom-color:rgba(50,240,140,.5);}
+.theme-light .row-selected{border-bottom-color:rgba(23,178,106,.5);}
+/* 表单校验态（内联提示，令牌驱动） */
+.field-err{border-color:var(--red-line);}
+.f-err{font-size:11px;color:var(--red);line-height:1.55;margin-top:6px;display:flex;gap:6px;align-items:flex-start;}
+.f-ok{font-size:11px;color:var(--accent-text);line-height:1.55;margin-top:6px;display:flex;gap:6px;align-items:flex-start;}
+/* 校验态样例卡（L1-K 标注性质，同基准稿 state-card 语言） */
+.sample-card{background:var(--bg-card);border:1px dashed var(--border-strong);border-radius:var(--r-m);padding:12px 14px;display:flex;flex-direction:column;gap:9px;}
+.sample-card .s-tag{align-self:flex-start;font-family:var(--font-mono);font-size:10.5px;font-weight:700;color:var(--text-3);background:var(--bg-input);border-radius:5px;padding:1px 6px;letter-spacing:.06em;} /* 10.5px = 2.3 Footnote 下限 */
+/* 剪贴板检测横幅（L1 通用剪贴板一键填充） */
+.banner-clip{display:flex;align-items:center;gap:10px;background:var(--accent-dim);border:1px solid rgba(50,240,140,.35);border-radius:var(--r-m);padding:8px 8px 8px 12px;}
+.theme-light .banner-clip{border-color:rgba(23,178,106,.35);}
+/* 表单字段（手动连接） */
+.f-label{font-size:12px;font-weight:700;color:var(--text-2);letter-spacing:.02em;margin-bottom:6px;display:flex;align-items:center;gap:6px;}
+.f-field{display:flex;align-items:center;gap:8px;background:var(--bg-input);border:1px solid var(--border-strong);border-radius:var(--r-m);padding:0 12px;height:48px;font-size:16px;/* ≥16px 防缩放 */font-family:var(--font-mono);color:var(--text);}
+.f-field .ph{color:var(--text-3);}
+.f-caption{font-size:10.5px;color:var(--text-3);line-height:1.6;margin-top:6px;display:flex;gap:6px;align-items:flex-start;}
+/* 键盘（示意，设备级外观：灰阶键位 + 系统蓝「前往」键，同手机外壳做法，不占 UI 令牌、不随主题切换） */
+.kb{position:absolute;left:0;right:0;bottom:0;background:#2b2c2f;border-top:1px solid #3a3c43;padding:0 3px calc(var(--safe-bot) - 20px);z-index:45;}
+.kb-sug{display:flex;align-items:stretch;height:44px;border-bottom:1px solid #3a3c43;margin:0 3px;}
+.kb-sug span{flex:1;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#dfe3e8;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.kb-sug span.on{background:#3a3c43;border-radius:6px;margin:5px 4px;padding:0 8px;}
+.kb-sug span + span{border-left:1px solid #3a3c43;}
+.kb-sug span.on + span{border-left:none;}
+.kb-row{display:flex;gap:6px;justify-content:center;margin-top:8px;}
+.kb-key{flex:1;max-width:33px;height:42px;border-radius:6px;background:#6b6d74;color:#f5f9fe;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 1px 0 rgba(0,0,0,.55);}
+.kb-key.wide{max-width:44px;flex:1.4;background:#46484f;font-size:11px;}
+.kb-key.sp{max-width:none;flex:5;}
+.kb-key.go{max-width:88px;flex:2.4;background:#0a84ff;color:#ffffff;font-size:13px;font-weight:700;} /* iOS 系统蓝（URL 键盘「前往」键真实外观），非主题令牌 */
+/* 中性连接状态点（非任务状态胶囊，同 5.1 解耦规则） */
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;vertical-align:1px;}
+.dot.on{background:var(--accent);}
+.dot.off{background:var(--text-3);}
+.dot.probe{background:var(--text-3);opacity:.6;}
+/* 错误详情行（L3） */
+.err-code{font-family:var(--font-mono);font-size:11px;color:var(--red);background:var(--red-dim);border-radius:6px;padding:3px 8px;display:inline-block;}
+/* OAuth 授权参数卡（O2：mono 逐行端点参数） */
+.oauth-params{background:var(--bg-code);border:1px solid var(--border);border-radius:var(--r-m);padding:11px 13px;font-family:var(--font-mono);font-size:11px;line-height:1.85;color:var(--text-2);overflow-wrap:anywhere;}
+.oauth-params .k{color:var(--code-lab);}
+.oauth-params .v{color:var(--text-2);}
+.oauth-params .v.mask{color:var(--text-3);}
+.oauth-params .v.ok{color:var(--accent-text);}
+/* 高级选项折叠卡（O1：BigModel 入口） */
+.adv-head{display:flex;align-items:center;gap:8px;min-height:44px;font-size:12.5px;font-weight:600;color:var(--text-2);}
+/* 应用内授权 Sheet（O2-A · 用户已决策：OAuth 应用内完成，不跳系统浏览器；Sheet 容器/chrome 走 UI 令牌，页内为远端授权页示意——真实外观由授权服务器决定、App 不可控） */
+.oauth-sheet{position:absolute;left:0;right:0;bottom:0;top:96px;background:var(--bg-elevated);border-radius:24px 24px 0 0;box-shadow:var(--sh-sheet);display:flex;flex-direction:column;overflow:hidden;z-index:55;}
+.sheet-grab{width:36px;height:5px;border-radius:999px;background:var(--border-strong);margin:8px auto 2px;flex:none;}
+.wv-bar{display:flex;align-items:center;gap:8px;padding:4px 10px 6px;flex:none;}
+.wv-domain{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:var(--bg-input);border:1px solid var(--border-strong);border-radius:9px;height:36px;padding:0 12px;font-family:var(--font-mono);font-size:11px;color:var(--text-2);overflow:hidden;white-space:nowrap;}
+.wv-progress{height:2.5px;background:var(--bg-input);flex:none;} /* 内嵌视图加载进度条：页面加载期显示，随加载推进、完成后淡出（ASWebAuthenticationSession 由系统提供） */
+.wv-progress i{display:block;height:100%;background:var(--accent);border-radius:0 2px 2px 0;}
+.wv-mock-note{align-self:center;flex:none;font-size:10.5px;font-weight:600;color:var(--text-3);background:var(--bg-input);border:1px dashed var(--border-strong);border-radius:999px;padding:4px 12px;} /* 远端页面示意标注（非 App 自绘 UI 声明） */
+.wv-page{flex:1;overflow-y:auto;padding:12px 20px calc(var(--safe-bot) + 14px);display:flex;flex-direction:column;align-items:center;gap:10px;}
+.perm-row{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:8px 12px;} /* 授权 scope 行（远端页面元素示意，信息型不可点） */
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);z-index:40;} /* 模态遮罩：纯黑半透明为设备级外观（深浅两档通用，非主题令牌；收进类避免内联） */
+/* 头像（avatarUrl 渲染位；无图时渐变+首字母兜底，同基准稿头像做法） */
+.avatar{border-radius:50%;background:var(--grad-avatar);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;flex:none;}
+</style>
+</head>
+<body>
+
+<!-- ================= SVG 图标库（内联 sprite，无外部依赖；含 v2.4 新增符号） ================= -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-diff" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="12" r="1.6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><line x1="4" y1="18" x2="4" y2="14"/><line x1="9" y1="18" x2="9" y2="10"/><line x1="14" y1="18" x2="14" y2="6"/><line x1="19" y1="18" x2="19" y2="2"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>
+  <!-- v2.4 新增符号（登录与连接） -->
+  <symbol id="i-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></symbol>
+</svg>
+
+<!-- ================= 画布头部 ================= -->
+<header class="canvas-head">
+  <div class="kicker">BiuZ Mobile · Login &amp; Connect · v2.4</div>
+  <h1>BiuZ 移动端客户端 · 登录与连接 高保真设计稿</h1>
+  <p>本专项稿承接设计规范 <b>v2.4 第 9 章「登录与连接」</b>，设计<b>两条登录路径</b>：<b>路径 A · 账号 OAuth</b>（O1–O3）——「使用 Z.ai 账号登录」为主按钮，点击后在<b>应用内授权 Sheet</b>（内嵌浏览器视图：顶部关闭按钮 + 加载进度条 + 授权页内容；页内为远端授权页示意，外观跟随系统）打开 <code style="font-family:var(--font-mono);color:var(--accent)">chat.z.ai/api/oauth/authorize</code>，<b>不跳系统浏览器</b>；redirect 导航在视图内被拦截（<span class="mono">code + state</span>，state 必填缺失即报错），<b>POST /api/v1/oauth/token</b> 交换 <span class="mono">tokenSet{accessToken, zcodeJwtToken, expiresAt}</span> 与 <span class="mono">userInfo{displayName, avatarUrl}</span>，凭据仅存 Keychain，后续请求 <span class="mono">Authorization: Bearer</span>；<b>BigModel 智能体平台登录</b>为高级选项（<span class="mono">{origin}/login?appId=zcode</span>）。<b>路径 B · 桌面配对</b>（L1–L5）——「连接桌面端」为次入口：iOS 连接对端是桌面机上运行的 <b>zcode-server 进程</b>（<code style="font-family:var(--font-mono);color:var(--accent)">zcode --web --host 0.0.0.0</code>，默认端口 3030，非 loopback 自动生成访问令牌），而非桌面 Electron App 本身。凭据传递 = <b>扫描连接二维码 / 通用剪贴板一键填充 / 手动输入 host:port + token</b>；随后 <b>GET /api/server-info</b> 发现与鉴权 → <b>WS /ws?token=…</b>（web-remote-replayable）→ <b>v4 握手</b>（clientKind=mobileApp）→ 以 <b>workspaces[0]</b> 载入工作区。服务器令牌即「服务器密码」：仅存 Keychain、无过期撤销，401 即引导重扫。全部令牌、组件与基准稿（zcode-mobile-design.html 屏 01–14）完全一致，只增不改。</p>
+  <div class="meta-strip">
+    <div class="meta-chip"><i class="sw" style="background:#0a0b0d"></i>背景 #0a0b0d</div>
+    <div class="meta-chip"><i class="sw" style="background:#32f08c"></i>强调 #32f08c</div>
+    <div class="meta-chip"><i class="sw" style="background:#4da3ff"></i>进行中 #4da3ff</div>
+    <div class="meta-chip"><i class="sw" style="background:#ff5d5d"></i>危险 #ff5d5d</div>
+    <div class="meta-chip mono">OAuth · POST /api/v1/oauth/token · Bearer</div>
+    <div class="meta-chip mono">端口 3030 · remote v1 / v4 wire v3</div>
+    <div class="meta-chip mono">GET /api/server-info · WS /ws?token=…</div>
+    <div class="meta-chip">凭据仅存 Keychain · 可信局域网</div>
+    <div class="meta-chip">触控 ≥44px · 输入 16px · 对比度 ≥4.5:1</div>
+  </div>
+</header>
+
+<!-- 双路径流程模型 -->
+<div class="flow-map">
+  <div class="flow-map-inner">
+    <div class="sec-title" style="margin-bottom:14px">登录与连接 · 双路径流程模型（对应 O 板与 L 板）</div>
+    <div class="flow-cols" style="margin-bottom:10px">
+      <div class="flow-step flow-step-hl">
+        <span class="fs-no">A1</span><span class="fs-name">登录主页 · 发起 OAuth</span>
+        <span class="fs-desc">「使用 Z.ai 账号登录」主按钮；BigModel 登录为高级选项</span>
+        <span class="fs-endpoint">O1 → 应用内授权 Sheet</span>
+      </div>
+      <svg class="ic flow-arrow"><use href="#i-chev-r"/></svg>
+      <div class="flow-step">
+        <span class="fs-no">A2</span><span class="fs-name">应用内授权 Sheet</span>
+        <span class="fs-desc">内嵌浏览器视图打开授权页（✕ + 加载进度条 + 远端授权页示意，外观跟随系统）；ZAI 默认入口 /api/oauth/authorize，BigModel 走 /login?appId=zcode；state 一次性防伪</span>
+        <span class="fs-endpoint">{origin}/api/oauth/authorize?redirect_uri=…&amp;response_type=code&amp;client_id=…&amp;state=…</span>
+      </div>
+      <svg class="ic flow-arrow"><use href="#i-chev-r"/></svg>
+      <div class="flow-step">
+        <span class="fs-no">A3</span><span class="fs-name">回调拦截校验</span>
+        <span class="fs-desc">视图内拦截 redirect 导航；code（或 authCode）+ state 必填校验；error 参数即失败分支</span>
+        <span class="fs-endpoint">zcode://oauth/callback?code=…&amp;state=…</span>
+      </div>
+      <svg class="ic flow-arrow"><use href="#i-chev-r"/></svg>
+      <div class="flow-step">
+        <span class="fs-no">A4</span><span class="fs-name">交换令牌</span>
+        <span class="fs-desc">响应 data.token（zcode JWT）+ zai/bigmodel access_token + user</span>
+        <span class="fs-endpoint">POST /api/v1/oauth/token {provider, code, redirect_uri, state}</span>
+      </div>
+      <svg class="ic flow-arrow"><use href="#i-chev-r"/></svg>
+      <div class="flow-step">
+        <span class="fs-no">A5</span><span class="fs-name">凭据落地</span>
+        <span class="fs-desc">tokenSet{accessToken, zcodeJwtToken, expiresAt} + userInfo{displayName, avatarUrl} 入 Keychain；后续 Bearer</span>
+        <span class="fs-endpoint">Authorization: Bearer {accessToken}</span>
+      </div>
+    </div>
+    <div class="sec-title" style="margin-bottom:14px;font-size:11.5px;color:var(--text-3)">路径 B · 桌面配对（账户层就绪与否均可走；对应 L2 五步进度与失败矩阵）</div>
+    <div class="flow-cols">
+      <div class="flow-step">
+        <span class="fs-no">B1</span><span class="fs-name">桌面启动</span>
+        <span class="fs-desc">终端运行 zcode --web 开启局域网服务；令牌自动生成或 --token 指定</span>
+        <span class="fs-endpoint">zcode --web --host 0.0.0.0 [--port 3030]</span>
+      </div>
+      <svg class="ic flow-arrow"><use href="#i-chev-r"/></svg>
+      <div class="flow-step">
+        <span class="fs-no">B2</span><span class="fs-name">凭据传递</span>
+        <span class="fs-desc">终端打印 URL；扫码 / 通用剪贴板 / 手动输入三通道</span>
+        <span class="fs-endpoint">http://&lt;LAN-IP&gt;:3030/?token=…</span>
+      </div>
+      <svg class="ic flow-arrow"><use href="#i-chev-r"/></svg>
+      <div class="flow-step">
+        <span class="fs-no">B3</span><span class="fs-name">发现与鉴权</span>
+        <span class="fs-desc">返回 serverId / 版本 / authRequired / workspaces / capabilities</span>
+        <span class="fs-endpoint">GET /api/server-info</span>
+      </div>
+      <svg class="ic flow-arrow"><use href="#i-chev-r"/></svg>
+      <div class="flow-step">
+        <span class="fs-no">B4</span><span class="fs-name">建立 WS</span>
+        <span class="fs-desc">固定 clientMode=web-remote-replayable · role=terminal-client</span>
+        <span class="fs-endpoint">GET /ws?token=…（升级）</span>
+      </div>
+      <svg class="ic flow-arrow"><use href="#i-chev-r"/></svg>
+      <div class="flow-step">
+        <span class="fs-no">B5</span><span class="fs-name">v4 握手</span>
+        <span class="fs-desc">ClientHello.clientKind="mobileApp"；capabilities 单向宣告严格校验</span>
+        <span class="fs-endpoint">helloConversationV4 → initializeConversationV4</span>
+      </div>
+      <svg class="ic flow-arrow"><use href="#i-chev-r"/></svg>
+      <div class="flow-step">
+        <span class="fs-no">B6</span><span class="fs-name">工作区就绪</span>
+        <span class="fs-desc">默认取 workspaces[0]，多工作区可在服务器详情切换</span>
+        <span class="fs-endpoint">workspaces[0] → 会话/任务频道 RPC</span>
+      </div>
+    </div>
+    <div class="flow-line" style="margin-top:14px">两条路径<b>互相独立、可任选</b>：OAuth 为<b>账户层</b>（云端分享 / Coding Plan 额度，凭据 = tokenSet），桌面配对为<b>连接层</b>（局域网 zcode-server，凭据 = 访问令牌）；两套凭据各自独立存 Keychain。OAuth 成功后仍需完成配对才能遥控桌面；只配对不登录亦可使用连接功能。</div>
+  </div>
+</div>
+
+<main class="boards">
+
+<!-- ============================================================
+     板 O1 · 登录主页（双路径入口：OAuth 主按钮 + 连接桌面端次入口）
+     ============================================================ -->
+<section class="board" id="o1">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">O1</span><h2>登录主页 · 双路径入口</h2><span class="lvl push">Push · 未登录拦截页</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nb-side"></div>
+        <div class="nb-title">登录 BiuZ</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:24px 24px 0;gap:14px"><!-- 登录页左右边距 24px（品牌页同基准稿屏 01），连接域为 16px -->
+        <!-- 品牌区 -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:28px 0 12px">
+          <div style="width:84px;height:84px;display:flex;align-items:center;justify-content:center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960" width="100%" height="100%">
+<defs>
+<linearGradient id="biuz-fade" gradientUnits="userSpaceOnUse" x1="0" y1="242" x2="0" y2="690"><stop offset="0" stop-color="#32f08c" stop-opacity=".44"/><stop offset=".45" stop-color="#32f08c" stop-opacity=".66"/><stop offset="1" stop-color="#32f08c" stop-opacity=".97"/></linearGradient>
+<radialGradient id="biuz-head" cx="36%" cy="32%" r="78%"><stop offset="0" stop-color="#eafff4"/><stop offset=".22" stop-color="#8ff8c0"/><stop offset=".55" stop-color="#32f08c"/><stop offset="1" stop-color="#1ba968"/></radialGradient>
+<filter id="biuz-blurS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="12"/></filter>
+<filter id="biuz-blurXS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="2.5"/></filter>
+<filter id="biuz-blurL" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="34"/></filter>
+</defs>
+<g transform="translate(-11,-29)">
+<g fill="none" stroke="#32f08c" stroke-linecap="round"><path d="M150 242 L182 242" stroke-width="16" stroke-opacity="0.13"/><path d="M214 242 L262 242" stroke-width="22" stroke-opacity="0.22"/><path d="M300 242 L360 242" stroke-width="28" stroke-opacity="0.32"/></g>
+<path d="M398 257 L688 259.9 L686.1 259.8 L684.3 259.5 L682.5 259.1 L680.8 258.4 L679.1 257.6 L677.5 256.5 L676.1 255.4 L674.7 254.1 L673.6 252.6 L672.5 251.1 L671.7 249.4 L671 247.7 L670.5 245.9 L670.2 244 L670.1 242.2 L670.2 240.3 L670.4 238.5 L670.9 236.7 L671.5 234.9 L672.4 233.2 L673.4 231.7 L674.5 230.2 L270 667.3 L220.1 721.2 L700 742 L705.4 741.7 L710.8 740.9 L716.1 739.5 L721.2 737.5 L726 735 L730.6 732.1 L734.8 728.6 L738.6 724.8 L742.1 720.6 L745 716 L747.5 711.2 L749.5 706.1 L750.9 700.8 L751.7 695.4 L752 690 L751.7 684.6 L750.9 679.2 L749.5 673.9 L747.5 668.8 L745 664 L742.1 659.4 L738.6 655.2 L734.8 651.4 L730.6 647.9 L726 645 L721.2 642.5 L716.1 640.5 L710.8 639.1 L705.4 638.3 L700 638 L700 638 L296 655.5 L299.6 655.7 L303.1 656.2 L306.6 657.1 L310 658.4 L313.2 660 L316.2 662 L319 664.2 L321.5 666.8 L323.8 669.5 L325.8 672.5 L327.4 675.7 L328.8 679.1 L329.7 682.5 L330.3 686.1 L330.5 689.7 L330.4 693.3 L329.8 696.8 L329 700.3 L327.7 703.7 L326.1 706.9 L324.2 709.9 L322 712.7 L726.4 223.7 L688 224.1 L398 227 L399.6 227.1 L401.1 227.3 L402.6 227.7 L404.1 228.3 L405.5 229 L406.8 229.9 L408 230.9 L409.1 232 L410.1 233.2 L411 234.5 L411.7 235.9 L412.3 237.4 L412.7 238.9 L412.9 240.4 L413 242 L412.9 243.6 L412.7 245.1 L412.3 246.6 L411.7 248.1 L411 249.5 L410.1 250.8 L409.1 252 L408 253.1 L406.8 254.1 L405.5 255 L404.1 255.7 L402.6 256.3 L401.1 256.7 L399.6 256.9 L398 257 Z" fill="url(#biuz-fade)"/>
+<circle cx="736" cy="690" r="140" fill="#32f08c" opacity=".38" filter="url(#biuz-blurL)"/>
+<circle cx="736" cy="690" r="104" fill="url(#biuz-head)"/>
+<circle cx="700" cy="644" r="24" fill="#ffffff" opacity=".2" filter="url(#biuz-blurS)"/>
+<circle cx="700" cy="644" r="10" fill="#ffffff" opacity=".85" filter="url(#biuz-blurXS)"/>
+</g>
+</svg></div>
+          <div style="text-align:center">
+            <div style="font-size:24px;font-weight:800;letter-spacing:.02em">BiuZ</div>
+            <div style="font-size:13px;color:var(--text-2);margin-top:4px">AI 编程智能体 · 移动工作台</div>
+          </div>
+        </div>
+        <!-- 路径 A · OAuth 主按钮（48px 绿） -->
+        <button data-testid="o1-btn-oauth" class="btn btn-primary"><svg class="ic"><use href="#i-user"/></svg>使用 Z.ai 账号登录</button>
+        <!-- 路径 B · 连接桌面端次入口（48px 描边） -->
+        <button data-testid="o1-btn-connect" class="btn btn-ghost"><svg class="ic"><use href="#i-monitor"/></svg>连接桌面端</button>
+        <!-- 高级选项（折叠卡 · 默认收起态：chev-d 朝下表示待展开，展开后露出 BigModel 行） -->
+        <div data-testid="o1-card-adv" class="card" style="background:var(--bg-elevated);overflow:hidden">
+          <div data-testid="o1-adv-toggle" class="adv-head" style="padding:0 14px">
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-sliders"/></svg>
+            <span style="flex:1">高级选项</span>
+            <span style="font-size:10.5px;color:var(--text-3);font-weight:500">BigModel · 其他登录方式</span>
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-d"/></svg>
+          </div>
+        </div>
+        <!-- 展开态样例（标注性质：点击上方头行后展开为下卡形态，露出 BigModel 行） -->
+        <div class="sample-card">
+          <span class="s-tag">展开态样例 · 点「高级选项」后</span>
+          <div data-testid="o1-row-bigmodel" class="grow" style="min-height:44px;border:1px solid var(--border);border-radius:10px;padding:0 12px">
+            <div class="g-ic" style="width:26px;height:26px;border-radius:8px"><svg class="ic ic-s"><use href="#i-key"/></svg></div>
+            <div class="g-main"><div style="font-size:13px;font-weight:600">通过 BigModel 智能体平台登录</div><div class="g-sub">高级入口 · <span class="mono">/login?appId=zcode</span> · 默认无需改动</div></div>
+            <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <!-- Provider 说明 + 协议（距底 --safe-bot + 12px） -->
+        <div style="text-align:center;font-size:11px;color:var(--text-3);line-height:1.8;padding-bottom:calc(var(--safe-bot) + 12px)">
+          Z.ai 账号登录在应用内授权 Sheet 中完成，凭据仅存本机 Keychain<br>
+          也可跳过登录直接<span style="color:var(--accent-text);padding:13px 0;margin:-13px 0;display:inline-block">连接局域网桌面端</span> · 登录即同意 <span style="color:var(--accent-text);padding:13px 0;margin:-13px 0;display:inline-block">《用户协议》</span>与<span style="color:var(--accent-text);padding:13px 0;margin:-13px 0;display:inline-block">《隐私政策》</span><!-- 11px×1.8 行高 + 26px padding = 45.8px 热区（≥44） -->
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>双路径信息组织</h5>
+      <ul>
+        <li><b>路径 A（主按钮）</b>：「使用 Z.ai 账号登录」= OAuth 账户层（云端分享 / Coding Plan 额度），对应 web 端 <code>zaiWebOAuthProvider</code>；ZAI 为默认 Provider。</li>
+        <li><b>路径 B（次入口）</b>：「连接桌面端」= 局域网配对连接层，点击 → L1 连接页；<b>跳过登录亦可使用</b>（两路径互相独立，见流程模型注）。</li>
+        <li>转场：冷启动未登录<b>整屏拦截</b>；登录成功 → crossfade + 轻微上移 250ms（同基准稿屏 01）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>OAuth 机制（接口调研转引）</h5>
+      <ul>
+        <li><b>授权入口（ZAI，默认）</b>：<code>{origin}/api/oauth/authorize?redirect_uri=…&amp;response_type=code&amp;client_id=…&amp;state=…</code>，origin 缺省 <code>chat.z.ai</code>（webZaiOAuthConfig.ts:26-29、54-56；源码注释：ZAI 走 <span class="mono">/api/oauth</span> 前缀，<span class="mono">/auth/oauth</span> 是旧入口）。</li>
+        <li><b>授权入口（BigModel，高级选项）</b>：<code>{origin}/login?redirect=…&amp;appId=…&amp;state=…</code>，appId 缺省 <span class="mono">"zcode"</span>（webZaiOAuthConfig.ts:39-47、59-61，buildAuthorizeUrl 分支）。</li>
+        <li><b>state</b>：一次性随机值，发起时生成并本地暂存；回调时<b>必填校验，缺失即报错</b>（parseCallbackParams）——防 CSRF。</li>
+        <li><b>绑定假设（gaps）</b>：①移动端 <span class="mono">redirect_uri</span> 需自定义回调 scheme（如 <span class="mono">zcode://oauth/callback</span>），web 端用 webShareCallbackUrl（webZaiOAuthConfig.ts:62），移动端注册名为绑定假设；②<code>client_id</code> 来自部署环境变量 <span class="mono">VITE_ZAI_OAUTH_CLIENT_ID</span>，移动端缺省值与可配置性为绑定假设。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>主/次按钮 <b>48px</b>，间距 14px 防误触；高级选项头行与 BigModel 行热区 <b>≥44px</b>。</li>
+        <li>顶部 54px（灵动岛）/ 底部 34px；协议脚注距底 <code>--safe-bot + 12px</code>，协议链接 padding 外扩 44px 热区。</li>
+        <li>协议/隐私 → <b>内嵌 WebView 页</b>（左上关闭，同基准稿屏 01）；账号授权 → <b>应用内授权 Sheet</b>（板 O2-A）——全程不离开 App，不跳系统浏览器。</li>
+      </ul>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     板 O2 · OAuth 授权流程（A 应用内授权 Sheet / B 回调拦截与授权中）
+     ============================================================ -->
+<section class="board" id="o2">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">O2-A</span><h2>应用内授权 Sheet · 内嵌浏览器视图</h2><span class="lvl push">O1 主按钮 → Sheet 升起（不跳系统浏览器）</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nb-side"></div>
+        <div class="nb-title">登录 BiuZ</div>
+        <div class="nb-side"></div>
+      </div>
+      <!-- 背景页：sheet 升起转场（2.7 spring：背景压暗 + 缩放 0.96，品牌区暗示） -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:13px;padding:6px 24px 0;opacity:.32;transform:scale(.96);transform-origin:50% 0">
+        <div style="width:84px;height:84px;display:flex;align-items:center;justify-content:center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960" width="100%" height="100%">
+<defs>
+<linearGradient id="biuz-fade" gradientUnits="userSpaceOnUse" x1="0" y1="242" x2="0" y2="690"><stop offset="0" stop-color="#32f08c" stop-opacity=".44"/><stop offset=".45" stop-color="#32f08c" stop-opacity=".66"/><stop offset="1" stop-color="#32f08c" stop-opacity=".97"/></linearGradient>
+<radialGradient id="biuz-head" cx="36%" cy="32%" r="78%"><stop offset="0" stop-color="#eafff4"/><stop offset=".22" stop-color="#8ff8c0"/><stop offset=".55" stop-color="#32f08c"/><stop offset="1" stop-color="#1ba968"/></radialGradient>
+<filter id="biuz-blurS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="12"/></filter>
+<filter id="biuz-blurXS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="2.5"/></filter>
+<filter id="biuz-blurL" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="34"/></filter>
+</defs>
+<g transform="translate(-11,-29)">
+<g fill="none" stroke="#32f08c" stroke-linecap="round"><path d="M150 242 L182 242" stroke-width="16" stroke-opacity="0.13"/><path d="M214 242 L262 242" stroke-width="22" stroke-opacity="0.22"/><path d="M300 242 L360 242" stroke-width="28" stroke-opacity="0.32"/></g>
+<path d="M398 257 L688 259.9 L686.1 259.8 L684.3 259.5 L682.5 259.1 L680.8 258.4 L679.1 257.6 L677.5 256.5 L676.1 255.4 L674.7 254.1 L673.6 252.6 L672.5 251.1 L671.7 249.4 L671 247.7 L670.5 245.9 L670.2 244 L670.1 242.2 L670.2 240.3 L670.4 238.5 L670.9 236.7 L671.5 234.9 L672.4 233.2 L673.4 231.7 L674.5 230.2 L270 667.3 L220.1 721.2 L700 742 L705.4 741.7 L710.8 740.9 L716.1 739.5 L721.2 737.5 L726 735 L730.6 732.1 L734.8 728.6 L738.6 724.8 L742.1 720.6 L745 716 L747.5 711.2 L749.5 706.1 L750.9 700.8 L751.7 695.4 L752 690 L751.7 684.6 L750.9 679.2 L749.5 673.9 L747.5 668.8 L745 664 L742.1 659.4 L738.6 655.2 L734.8 651.4 L730.6 647.9 L726 645 L721.2 642.5 L716.1 640.5 L710.8 639.1 L705.4 638.3 L700 638 L700 638 L296 655.5 L299.6 655.7 L303.1 656.2 L306.6 657.1 L310 658.4 L313.2 660 L316.2 662 L319 664.2 L321.5 666.8 L323.8 669.5 L325.8 672.5 L327.4 675.7 L328.8 679.1 L329.7 682.5 L330.3 686.1 L330.5 689.7 L330.4 693.3 L329.8 696.8 L329 700.3 L327.7 703.7 L326.1 706.9 L324.2 709.9 L322 712.7 L726.4 223.7 L688 224.1 L398 227 L399.6 227.1 L401.1 227.3 L402.6 227.7 L404.1 228.3 L405.5 229 L406.8 229.9 L408 230.9 L409.1 232 L410.1 233.2 L411 234.5 L411.7 235.9 L412.3 237.4 L412.7 238.9 L412.9 240.4 L413 242 L412.9 243.6 L412.7 245.1 L412.3 246.6 L411.7 248.1 L411 249.5 L410.1 250.8 L409.1 252 L408 253.1 L406.8 254.1 L405.5 255 L404.1 255.7 L402.6 256.3 L401.1 256.7 L399.6 256.9 L398 257 Z" fill="url(#biuz-fade)"/>
+<circle cx="736" cy="690" r="140" fill="#32f08c" opacity=".38" filter="url(#biuz-blurL)"/>
+<circle cx="736" cy="690" r="104" fill="url(#biuz-head)"/>
+<circle cx="700" cy="644" r="24" fill="#ffffff" opacity=".2" filter="url(#biuz-blurS)"/>
+<circle cx="700" cy="644" r="10" fill="#ffffff" opacity=".85" filter="url(#biuz-blurXS)"/>
+</g>
+</svg></div>
+        <div style="font-size:24px;font-weight:800">BiuZ</div>
+        <div style="width:100%;height:48px;border-radius:12px;background:var(--accent);margin-top:10px"></div>
+        <div style="width:100%;height:48px;border-radius:12px;border:1px solid var(--border-strong)"></div>
+      </div>
+      <!-- 应用内授权 Sheet（内嵌浏览器视图：关闭/进度等 chrome 由载体提供；页内为远端授权页示意，非 App 自绘 UI） -->
+      <div class="oauth-sheet" data-testid="o2-sheet">
+        <div class="sheet-grab"></div>
+        <!-- 内嵌视图工具行：✕ 关闭（视觉 40×40 · 命中区外扩 ≥44）+ 域名 + 刷新 -->
+        <div class="wv-bar">
+          <button data-testid="o2-act-close" class="nav-btn" style="width:40px;height:40px"><svg class="ic"><use href="#i-x"/></svg></button>
+          <div class="wv-domain"><svg class="ic ic-s" style="color:var(--accent-text)"><use href="#i-shield"/></svg>chat.z.ai · Z.ai 账号授权</div>
+          <button class="nav-btn" style="width:40px;height:40px;opacity:.45"><svg class="ic"><use href="#i-refresh"/></svg></button>
+        </div>
+        <!-- 加载进度条：随页面加载推进，完成后淡出 -->
+        <div class="wv-progress" data-testid="o2-wv-progress"><i style="width:68%"></i></div>
+        <!-- 授权页内容：远端页面示意——真实页面由 chat.z.ai/BigModel 渲染，外观与按钮 App 不可控（示意仅表达信息层级：站点标识 + scope + 授权/取消） -->
+        <div class="wv-page">
+          <div class="wv-mock-note">示意 · 真实授权页由 chat.z.ai 提供，外观与按钮不可控</div>
+          <div style="width:56px;height:56px;display:flex;align-items:center;justify-content:center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960" width="100%" height="100%">
+<defs>
+<linearGradient id="biuz-fade" gradientUnits="userSpaceOnUse" x1="0" y1="242" x2="0" y2="690"><stop offset="0" stop-color="#32f08c" stop-opacity=".44"/><stop offset=".45" stop-color="#32f08c" stop-opacity=".66"/><stop offset="1" stop-color="#32f08c" stop-opacity=".97"/></linearGradient>
+<radialGradient id="biuz-head" cx="36%" cy="32%" r="78%"><stop offset="0" stop-color="#eafff4"/><stop offset=".22" stop-color="#8ff8c0"/><stop offset=".55" stop-color="#32f08c"/><stop offset="1" stop-color="#1ba968"/></radialGradient>
+<filter id="biuz-blurS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="12"/></filter>
+<filter id="biuz-blurXS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="2.5"/></filter>
+<filter id="biuz-blurL" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="34"/></filter>
+</defs>
+<g transform="translate(-11,-29)">
+<g fill="none" stroke="#32f08c" stroke-linecap="round"><path d="M150 242 L182 242" stroke-width="16" stroke-opacity="0.13"/><path d="M214 242 L262 242" stroke-width="22" stroke-opacity="0.22"/><path d="M300 242 L360 242" stroke-width="28" stroke-opacity="0.32"/></g>
+<path d="M398 257 L688 259.9 L686.1 259.8 L684.3 259.5 L682.5 259.1 L680.8 258.4 L679.1 257.6 L677.5 256.5 L676.1 255.4 L674.7 254.1 L673.6 252.6 L672.5 251.1 L671.7 249.4 L671 247.7 L670.5 245.9 L670.2 244 L670.1 242.2 L670.2 240.3 L670.4 238.5 L670.9 236.7 L671.5 234.9 L672.4 233.2 L673.4 231.7 L674.5 230.2 L270 667.3 L220.1 721.2 L700 742 L705.4 741.7 L710.8 740.9 L716.1 739.5 L721.2 737.5 L726 735 L730.6 732.1 L734.8 728.6 L738.6 724.8 L742.1 720.6 L745 716 L747.5 711.2 L749.5 706.1 L750.9 700.8 L751.7 695.4 L752 690 L751.7 684.6 L750.9 679.2 L749.5 673.9 L747.5 668.8 L745 664 L742.1 659.4 L738.6 655.2 L734.8 651.4 L730.6 647.9 L726 645 L721.2 642.5 L716.1 640.5 L710.8 639.1 L705.4 638.3 L700 638 L700 638 L296 655.5 L299.6 655.7 L303.1 656.2 L306.6 657.1 L310 658.4 L313.2 660 L316.2 662 L319 664.2 L321.5 666.8 L323.8 669.5 L325.8 672.5 L327.4 675.7 L328.8 679.1 L329.7 682.5 L330.3 686.1 L330.5 689.7 L330.4 693.3 L329.8 696.8 L329 700.3 L327.7 703.7 L326.1 706.9 L324.2 709.9 L322 712.7 L726.4 223.7 L688 224.1 L398 227 L399.6 227.1 L401.1 227.3 L402.6 227.7 L404.1 228.3 L405.5 229 L406.8 229.9 L408 230.9 L409.1 232 L410.1 233.2 L411 234.5 L411.7 235.9 L412.3 237.4 L412.7 238.9 L412.9 240.4 L413 242 L412.9 243.6 L412.7 245.1 L412.3 246.6 L411.7 248.1 L411 249.5 L410.1 250.8 L409.1 252 L408 253.1 L406.8 254.1 L405.5 255 L404.1 255.7 L402.6 256.3 L401.1 256.7 L399.6 256.9 L398 257 Z" fill="url(#biuz-fade)"/>
+<circle cx="736" cy="690" r="140" fill="#32f08c" opacity=".38" filter="url(#biuz-blurL)"/>
+<circle cx="736" cy="690" r="104" fill="url(#biuz-head)"/>
+<circle cx="700" cy="644" r="24" fill="#ffffff" opacity=".2" filter="url(#biuz-blurS)"/>
+<circle cx="700" cy="644" r="10" fill="#ffffff" opacity=".85" filter="url(#biuz-blurXS)"/>
+</g>
+</svg></div>
+          <div style="font-size:16.5px;font-weight:800">BiuZ 请求获得授权</div>
+          <div style="font-size:11.5px;color:var(--text-3);text-align:center;line-height:1.6">使用你的 Z.ai 账号登录并授权访问<br>完成后自动返回 BiuZ 应用</div>
+          <!-- 授权 scope 列表（信息型，不可点；行高 ≥44 仅为可读性） -->
+          <div style="width:100%;display:flex;flex-direction:column;gap:8px;margin-top:6px">
+            <div class="perm-row">
+              <div style="width:28px;height:28px;border-radius:9px;background:var(--accent-dim);color:var(--accent-text);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic ic-s"><use href="#i-user"/></svg></div>
+              <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">读取你的账号信息</div><div style="font-size:10.5px;color:var(--text-3);margin-top:1px">昵称、头像、用户 ID</div></div>
+            </div>
+            <div class="perm-row">
+              <div style="width:28px;height:28px;border-radius:9px;background:var(--violet-dim);color:var(--violet);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic ic-s"><use href="#i-layers"/></svg></div>
+              <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">使用 Coding Plan 额度</div><div style="font-size:10.5px;color:var(--text-3);margin-top:1px">创建与管理云端任务</div></div>
+            </div>
+          </div>
+          <div style="flex:1"></div>
+          <button data-testid="o2-act-approve" class="btn btn-primary" style="width:100%;flex:none">授权并继续</button>
+          <button data-testid="o2-act-cancel" class="btn btn-ghost" style="width:100%;height:44px;font-size:13.5px;flex:none">取消</button>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">O2-B</span><h2>回调拦截与授权中</h2><span class="lvl push">授权 Sheet 关闭后 · 交换令牌</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nb-side"></div>
+        <div class="nb-title">正在完成登录</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:8px 16px 0;gap:12px">
+        <!-- 回调接收横幅 -->
+        <div style="display:flex;align-items:center;gap:13px;padding:4px 0">
+          <div style="width:52px;height:52px;border-radius:16px;background:var(--blue-dim);color:var(--blue);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic ic-l"><use href="#i-link"/></svg></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:16.5px;font-weight:800">已拦截授权回调</div>
+            <div style="font-size:11px;color:var(--text-3);margin-top:3px">redirect 拦截 · 正在校验授权结果</div>
+          </div>
+          <!-- 「授权中」为本页主流程进行态（.pill run 蓝色），非任务状态、非设备在线状态（口径声明见规范 9.5） -->
+          <span class="pill run"><span class="d"></span>授权中</span>
+        </div>
+        <!-- 回调参数卡 -->
+        <div class="oauth-params" data-testid="o2-params-callback">
+<span class="k">zcode://oauth/callback?</span>
+<span class="k">code</span>=<span class="v mask">4cK9…****</span>  <span style="color:var(--text-3)">// 或 authCode，双兼容</span>
+<span class="k">state</span>=<span class="v ok">a1b2c3d4e5f6</span>  <span style="color:var(--text-3)">// 与发起值一致 ✓</span>
+        </div>
+        <!-- 四步进度 -->
+        <div data-testid="o2-card-steps" class="card" style="overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border)">
+            <span class="sec-title" style="flex:1"><span class="d" style="background:var(--blue)"></span>登录进度 · 3/4</span>
+            <div class="todo-mini" style="width:110px"><div class="bar"><i style="width:75%"></i></div></div>
+          </div>
+          <div data-testid="o2-step-callback" class="step-row">
+            <span class="step-ic done"><svg class="ic ic-s"><use href="#i-check"/></svg></span>
+            <span class="step-main"><span class="step-name">接收回调</span><div class="step-endpoint">code 已提取 · error 参数未出现</div></span>
+            <span class="step-meta">12ms</span>
+          </div>
+          <div data-testid="o2-step-state" class="step-row">
+            <span class="step-ic done"><svg class="ic ic-s"><use href="#i-check"/></svg></span>
+            <span class="step-main"><span class="step-name">校验 state</span><div class="step-endpoint">与发起值一致 · 防伪通过</div></span>
+            <span class="step-meta">通过</span>
+          </div>
+          <div data-testid="o2-step-exchange" class="step-row">
+            <span class="step-ic run"><i class="spin"></i></span>
+            <span class="step-main"><span class="step-name">交换令牌</span><div class="step-endpoint">POST /api/v1/oauth/token · provider=zai</div></span>
+            <span class="step-meta">…</span>
+          </div>
+          <div data-testid="o2-step-keychain" class="step-row">
+            <span class="step-ic pend"><i style="width:6px;height:6px;border-radius:50%;background:var(--border-strong);display:block"></i></span>
+            <span class="step-main"><span class="step-name pend">凭据写入 Keychain</span><div class="step-endpoint">tokenSet + userInfo · 仅存本机</div></span>
+          </div>
+        </div>
+        <!-- 交换日志 -->
+        <div class="card" style="background:var(--bg-term);border-radius:12px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border)">
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-term"/></svg>
+            <span class="mono" style="font-size:10.5px;color:var(--text-3)">oauth.log</span>
+            <i class="spin" style="margin-left:auto"></i>
+          </div>
+          <div data-testid="o2-log-term" class="mono" style="padding:10px 12px;font-size:12px;line-height:1.75;color:var(--text-2);white-space:pre-wrap">
+<span style="color:var(--accent)">[ok]</span>  callback received · state match
+<span style="color:var(--code-lab)">[..]</span>  POST /api/v1/oauth/token · provider=zai · token=***<span class="caret"></span></div>
+        </div>
+        <!-- 无回调兜底：授权页长时间无进展（加载失败/卡住，非用户主动取消——主动 ✕/取消直接转 O3-B）超过 60s 出现此引导 -->
+        <div data-testid="o2-card-nocallback" class="card" style="padding:8px 8px 8px 12px;display:flex;align-items:center;gap:10px">
+          <svg class="ic ic-s" style="color:var(--text-3);flex:none"><use href="#i-clock"/></svg>
+          <div style="flex:1;min-width:0;font-size:11.5px;color:var(--text-2);line-height:1.5">授权页未响应？<span style="color:var(--text-3)">检查网络后关闭并重新发起</span></div>
+          <div data-testid="o2-act-restart" class="btn btn-ghost" style="height:44px;padding:0 14px;font-size:12.5px;border-radius:10px;flex:none"><svg class="ic ic-s"><use href="#i-refresh"/></svg>关闭并重新发起</div>
+        </div>
+        <div style="flex:1"></div>
+        <button data-testid="o2-act-cancel-flow" class="btn btn-ghost" style="margin-bottom:calc(var(--safe-bot) + 12px)"><svg class="ic"><use href="#i-x"/></svg>取消登录</button>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">O2-A-M</span><h2>BigModel 高级入口 · Sheet 变体</h2><span class="lvl push">O1 高级选项 → 同一 Sheet 容器 · 域名不同</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nb-side"></div>
+        <div class="nb-title">登录 BiuZ</div>
+        <div class="nb-side"></div>
+      </div>
+      <!-- 背景页：与 O2-A 同款转场 -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:13px;padding:6px 24px 0;opacity:.32;transform:scale(.96);transform-origin:50% 0">
+        <div style="width:84px;height:84px;display:flex;align-items:center;justify-content:center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960" width="100%" height="100%">
+<defs>
+<linearGradient id="biuz-fade" gradientUnits="userSpaceOnUse" x1="0" y1="242" x2="0" y2="690"><stop offset="0" stop-color="#32f08c" stop-opacity=".44"/><stop offset=".45" stop-color="#32f08c" stop-opacity=".66"/><stop offset="1" stop-color="#32f08c" stop-opacity=".97"/></linearGradient>
+<radialGradient id="biuz-head" cx="36%" cy="32%" r="78%"><stop offset="0" stop-color="#eafff4"/><stop offset=".22" stop-color="#8ff8c0"/><stop offset=".55" stop-color="#32f08c"/><stop offset="1" stop-color="#1ba968"/></radialGradient>
+<filter id="biuz-blurS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="12"/></filter>
+<filter id="biuz-blurXS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="2.5"/></filter>
+<filter id="biuz-blurL" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="34"/></filter>
+</defs>
+<g transform="translate(-11,-29)">
+<g fill="none" stroke="#32f08c" stroke-linecap="round"><path d="M150 242 L182 242" stroke-width="16" stroke-opacity="0.13"/><path d="M214 242 L262 242" stroke-width="22" stroke-opacity="0.22"/><path d="M300 242 L360 242" stroke-width="28" stroke-opacity="0.32"/></g>
+<path d="M398 257 L688 259.9 L686.1 259.8 L684.3 259.5 L682.5 259.1 L680.8 258.4 L679.1 257.6 L677.5 256.5 L676.1 255.4 L674.7 254.1 L673.6 252.6 L672.5 251.1 L671.7 249.4 L671 247.7 L670.5 245.9 L670.2 244 L670.1 242.2 L670.2 240.3 L670.4 238.5 L670.9 236.7 L671.5 234.9 L672.4 233.2 L673.4 231.7 L674.5 230.2 L270 667.3 L220.1 721.2 L700 742 L705.4 741.7 L710.8 740.9 L716.1 739.5 L721.2 737.5 L726 735 L730.6 732.1 L734.8 728.6 L738.6 724.8 L742.1 720.6 L745 716 L747.5 711.2 L749.5 706.1 L750.9 700.8 L751.7 695.4 L752 690 L751.7 684.6 L750.9 679.2 L749.5 673.9 L747.5 668.8 L745 664 L742.1 659.4 L738.6 655.2 L734.8 651.4 L730.6 647.9 L726 645 L721.2 642.5 L716.1 640.5 L710.8 639.1 L705.4 638.3 L700 638 L700 638 L296 655.5 L299.6 655.7 L303.1 656.2 L306.6 657.1 L310 658.4 L313.2 660 L316.2 662 L319 664.2 L321.5 666.8 L323.8 669.5 L325.8 672.5 L327.4 675.7 L328.8 679.1 L329.7 682.5 L330.3 686.1 L330.5 689.7 L330.4 693.3 L329.8 696.8 L329 700.3 L327.7 703.7 L326.1 706.9 L324.2 709.9 L322 712.7 L726.4 223.7 L688 224.1 L398 227 L399.6 227.1 L401.1 227.3 L402.6 227.7 L404.1 228.3 L405.5 229 L406.8 229.9 L408 230.9 L409.1 232 L410.1 233.2 L411 234.5 L411.7 235.9 L412.3 237.4 L412.7 238.9 L412.9 240.4 L413 242 L412.9 243.6 L412.7 245.1 L412.3 246.6 L411.7 248.1 L411 249.5 L410.1 250.8 L409.1 252 L408 253.1 L406.8 254.1 L405.5 255 L404.1 255.7 L402.6 256.3 L401.1 256.7 L399.6 256.9 L398 257 Z" fill="url(#biuz-fade)"/>
+<circle cx="736" cy="690" r="140" fill="#32f08c" opacity=".38" filter="url(#biuz-blurL)"/>
+<circle cx="736" cy="690" r="104" fill="url(#biuz-head)"/>
+<circle cx="700" cy="644" r="24" fill="#ffffff" opacity=".2" filter="url(#biuz-blurS)"/>
+<circle cx="700" cy="644" r="10" fill="#ffffff" opacity=".85" filter="url(#biuz-blurXS)"/>
+</g>
+</svg></div>
+        <div style="font-size:24px;font-weight:800">BiuZ</div>
+        <div style="width:100%;height:48px;border-radius:12px;background:var(--accent);margin-top:10px"></div>
+        <div style="width:100%;height:48px;border-radius:12px;border:1px solid var(--border-strong)"></div>
+      </div>
+      <!-- BigModel 入口：同一 Sheet 容器与 chrome，仅域名行与远端页面不同（{origin}/login?redirect=…&appId=zcode&state=…，参数名 redirect ≠ redirect_uri；交换 provider=bigmodel，响应取 data.bigmodel.access_token） -->
+      <div class="oauth-sheet" data-testid="o2-sheet-bigmodel">
+        <div class="sheet-grab"></div>
+        <div class="wv-bar">
+          <button data-testid="o2-act-close" class="nav-btn" style="width:40px;height:40px"><svg class="ic"><use href="#i-x"/></svg></button>
+          <div class="wv-domain"><svg class="ic ic-s" style="color:var(--blue)"><use href="#i-shield"/></svg>{origin}/login · BigModel 智能体平台</div>
+          <button class="nav-btn" style="width:40px;height:40px;opacity:.45"><svg class="ic"><use href="#i-refresh"/></svg></button>
+        </div>
+        <div class="wv-progress" data-testid="o2-wv-progress"><i style="width:41%"></i></div>
+        <div class="wv-page">
+          <div class="wv-mock-note">示意 · 真实授权页由 BigModel 提供，外观与按钮不可控</div>
+          <div style="width:56px;height:56px;border-radius:17px;background:var(--blue-dim);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:var(--blue);font-family:var(--font-mono);margin-top:2px">B</div>
+          <div style="font-size:16.5px;font-weight:800">BigModel 智能体平台 · 登录授权</div>
+          <div style="font-size:11.5px;color:var(--text-3);text-align:center;line-height:1.6">使用 BigModel 账号登录并授权访问<br>完成后自动返回 BiuZ 应用</div>
+          <div style="width:100%;display:flex;flex-direction:column;gap:8px;margin-top:6px">
+            <div class="perm-row">
+              <div style="width:28px;height:28px;border-radius:9px;background:var(--blue-dim);color:var(--blue);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic ic-s"><use href="#i-key"/></svg></div>
+              <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">BigModel 模型调用凭据</div><div style="font-size:10.5px;color:var(--text-3);margin-top:1px">appId=zcode · 高级选项，默认无需改动</div></div>
+            </div>
+          </div>
+          <div style="flex:1"></div>
+          <button data-testid="o2-act-approve" class="btn btn-primary" style="width:100%;flex:none">授权并继续</button>
+          <button data-testid="o2-act-cancel" class="btn btn-ghost" style="width:100%;height:44px;font-size:13.5px;flex:none">取消</button>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>应用内授权 Sheet（O2-A · 用户已决策）</h5>
+      <ul>
+        <li><b>应用内完成，不跳系统浏览器</b>：点击 O1 主按钮 → 授权 Sheet spring 升起（2.7：背景压暗 + 缩放 0.96）；授权页由 <span class="mono">chat.z.ai</span>（或 BigModel）在<b>内嵌浏览器视图</b>中渲染。</li>
+        <li><b>稿内页内区域是「远端页面示意」</b>：授权同意页由<b>授权服务器渲染</b>，App 只在回调拿到 <span class="mono">code/state</span>——<span class="mono">.wv-page</span> 内的站点标识、scope 行、授权/取消按钮均为<b>该远端页面的信息层级示意</b>（帧内虚线胶囊已标注），<b>不是 App 自绘 UI</b>；E2E 与视觉验收只针对 Sheet 容器与 <span class="mono">.wv-bar/.wv-progress</span>，不得按稿断言授权页内部外观。</li>
+        <li><b>载体与注入边界</b>：建议 <span class="mono">ASWebAuthenticationSession</span> 优先——关闭按钮/进度/取消等 <b>chrome 由系统提供</b>，页面即 chat.z.ai 真实网页，与 Safari 共享会话 Cookie；<b>无外观控制 API</b>，禁止注入自绘同意页（伪造授权页=钓鱼反模式）。WKWebView 备选：仅做<b>容器 + redirect 拦截</b>，同样禁止注入或改写授权页内容。</li>
+        <li><b>外观跟随系统（非 App 设置）</b>：授权页深浅由授权服务器页面与系统决定——屏 12 用户强制 Zai Dark/Light 时<b>此页不随应用设置</b>，以真机实测为准；App 内可保证的只有 Sheet 容器底色与状态栏（顶部 <code>--safe-top</code> 区域）。</li>
+        <li><b>关闭手势</b>：✕ 点击（视觉 40×40、命中区外扩 ≥44）/ Sheet 下拉抓手关闭（本 Sheet 允许下拉关闭，不同于审批 Sheet 3.3 裁定）/ 页内「取消」——三者等价，均按<b>用户取消</b>处理（O3-B 中性结果，非故障；ASWebAuthenticationSession 载体下页内「取消」即系统 chrome 的 Cancel）。</li>
+      </ul>
+    </div>
+    <!-- 发起请求参数（O2-A 机制可核性：mono 逐行，ZAI 默认 + BigModel 高级） -->
+    <div class="sample-card" style="gap:7px">
+      <span class="s-tag">发起请求参数 · 逐行可核（O2-A）</span>
+      <div class="oauth-params" data-testid="o2-params-authorize">
+<span class="k">GET</span>  <span class="v">https://chat.z.ai/api/oauth/authorize</span>
+<span class="k">redirect_uri</span>=<span class="v">zcode://oauth/callback</span>
+<span class="k">response_type</span>=<span class="v">code</span>
+<span class="k">client_id</span>=<span class="v mask">client_P8X5CMW…****</span>
+<span class="k">state</span>=<span class="v">a1b2c3d4e5f6</span>  <span style="color:var(--text-3)">// 一次性，本地暂存</span>
+<span style="color:var(--text-3)">── 高级 · BigModel 分支（O1 高级选项）──</span>
+<span class="k">GET</span>  <span class="v">{origin}/login</span><span class="k">?redirect=</span><span class="v">zcode://oauth/callback</span><span class="k">&amp;appId=</span><span class="v">zcode</span><span class="k">&amp;state=</span><span class="v">a1b2c3d4e5f6</span>
+<span style="color:var(--text-3)">// 参数名 redirect ≠ redirect_uri；交换时 provider=bigmodel，响应取 data.bigmodel.access_token</span>
+      </div>
+      <div style="font-size:10.5px;color:var(--text-3);line-height:1.6">client_id 来自部署配置（<span class="mono">VITE_ZAI_OAUTH_CLIENT_ID</span>，移动端缺省值为绑定假设）；回调 scheme <span class="mono">zcode://</span> 需在 App 注册（绑定假设，见规范 9.7）。</div>
+    </div>
+    <div class="note-block">
+      <h5>回调拦截与授权中（O2-B 四步）</h5>
+      <ul>
+        <li><b>回调拦截</b>：「授权并继续」后授权服务器 302 到 <span class="mono">zcode://oauth/callback</span>，<b>redirect 导航在内嵌视图内被拦截</b>（不真正加载、不离开 App）；解析 <span class="mono">code</span>（或 <span class="mono">authCode</span>，双兼容，parseCallbackParams）与 <span class="mono">error</span>；出现 <span class="mono">error</span> 参数 → 直接转 O3-B 失败态。</li>
+        <li><b>校验 state</b>：与发起时本地暂存值<b>严格一致</b>；<b>state 必填，缺失即报错</b>——不匹配/缺失转 O3-B（防 CSRF，不接受静默降级）。</li>
+        <li><b>交换令牌</b>：<span class="mono">POST /api/v1/oauth/token</span>，JSON body <span class="mono">{provider, code, redirect_uri, state}</span>；响应 <span class="mono">{code:0, msg, data:{token(zcode JWT), zai:{access_token}, bigmodel:{access_token}, expires_in, user}}</span>（exchangeToken/normalizeTokenResponse，tokenUrl 见 webZaiOAuthConfig.ts:56）。</li>
+        <li><b>凭据落地</b>：tokenSet{accessToken, zcodeJwtToken, expiresAt} + userInfo 入 <b>Keychain</b>（web 端对应 localStorage/sessionStorage，browserOAuthCredentialRepo.ts:40-76，转引）。</li>
+        <li><b>无回调兜底</b>：授权页长时间无进展（加载失败/卡住）超过 <b>60s</b> 出现「授权页未响应？」引导条（<code>o2-card-nocallback</code>）+ 44px「关闭并重新发起」（<code>o2-act-restart</code>，重置一次性 state 再走一遍 O1→O2-A）；用户主动 ✕/取消属<b>有意退出</b>，直接转 O3-B，不出 60s 引导；「取消登录」始终可用。</li>
+        <li>日志掩码：code/token/jwt 一律 <b>***</b>，不回显完整凭据。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>进度与触控</h5>
+      <ul>
+        <li>四步进度与 L2 同构（<span class="mono">.step-row</span>）：完成=绿勾+耗时、进行中=蓝 spinner、未到=灰虚圈；计数含进行中（2 完成 + 1 进行中 = 3/4、条宽 75%）。</li>
+        <li>遵循 5.9 加载口径：分步清单 + 单点 spinner，<b>无骨架屏</b>；「取消登录」48px（热区 ≥44），立即中断交换并清除暂存 state。</li>
+        <li>顶部 54 / 底部 <code>--safe-bot</code>；授权 Sheet 内动作「授权并继续」48px、「取消」44px；✕/刷新热区 40×40（视觉）含外扩 ≥44 命中区；成功收尾 → O3-A（crossfade 250ms）。</li>
+      </ul>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     板 O3 · OAuth 结果（A 成功 / B 失败·用户取消与重试）
+     ============================================================ -->
+<section class="board" id="o3">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">O3</span><h2>OAuth 结果 · 登录成功</h2><span class="lvl push">displayName / avatarUrl / tokenSet</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nb-side"></div>
+        <div class="nb-title">登录成功</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:16px 24px 0;gap:14px">
+        <!-- 成功标识 -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0 4px">
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--accent-dim);color:var(--accent-text);display:flex;align-items:center;justify-content:center"><svg class="ic" style="width:26px;height:26px"><use href="#i-check"/></svg></div>
+          <div style="font-size:17px;font-weight:800">已使用 Z.ai 账号登录</div>
+        </div>
+        <!-- 用户卡（displayName + avatarUrl） -->
+        <div class="card" style="padding:16px;display:flex;align-items:center;gap:14px">
+          <!-- avatarUrl 渲染位；无图时渐变+首字母兜底（toUserInfo 兼容 avatar/avatarUrl 与 data:image base64） -->
+          <div class="avatar" style="width:56px;height:56px;font-size:22px">M</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:17px;font-weight:800">Mac</div>
+            <div style="font-size:12px;color:var(--text-3);margin-top:2px"><span class="mono">@mac</span> · <span class="mono">user_9f2c81</span></div>
+            <div style="display:flex;gap:6px;margin-top:7px">
+              <span class="pill done" style="padding:2px 8px">ZAI · chat.z.ai</span>
+              <span class="pill tag" style="padding:2px 8px">Coding Plan</span>
+            </div>
+          </div>
+        </div>
+        <!-- tokenSet 摘要 -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">凭据摘要 · tokenSet<span style="font-weight:500;color:var(--text-3);font-size:10.5px">仅存 Keychain</span></div>
+          <div class="glist">
+            <div class="grow" style="min-height:44px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-key"/></svg></div>
+              <div class="g-main"><div style="font-size:13px">accessToken</div><div class="g-sub mono">zai access_token · ••••••••qK2m</div></div>
+              <span class="mono" style="font-size:10.5px;color:var(--text-3)">掩码</span>
+            </div>
+            <div class="grow" style="min-height:44px">
+              <div class="g-ic" style="color:var(--accent-text)"><svg class="ic ic-s"><use href="#i-check"/></svg></div>
+              <div class="g-main"><div style="font-size:13px">zcodeJwtToken</div><div class="g-sub mono">data.token · zcode JWT · 已签发</div></div>
+            </div>
+            <div class="grow" style="min-height:44px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-clock"/></svg></div>
+              <div class="g-main"><div style="font-size:13px">expiresAt</div><div class="g-sub">有效期至 2026-10-03 09:41 · 由 <span class="mono">expires_in</span> 换算</div></div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--text-3);line-height:1.6">
+          <svg class="ic ic-s" style="color:var(--text-3);flex:none"><use href="#i-code"/></svg>
+          <span>后续请求携带 <span class="mono" style="color:var(--text-2)">Authorization: Bearer {accessToken}</span>（conversationSharePreviewClient.ts:145，转引）</span>
+        </div>
+        <div style="flex:1"></div>
+        <!-- 主按钮 -->
+        <button data-testid="o3-btn-continue" class="btn btn-primary" style="margin-bottom:calc(var(--safe-bot) + 12px)">开始使用<svg class="ic"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">O3-B</span><h2>OAuth 失败 / 用户取消 · 重试</h2><span class="lvl push">错误态 · 主路径可重试</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nav-btn"><svg class="ic"><use href="#i-chev-l"/></svg></div>
+        <div class="nb-title">登录未完成</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:8px 16px 0;gap:12px">
+        <!-- 错误主卡（5.9 失败态统一模式） -->
+        <div class="card card-err" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="width:44px;height:44px;border-radius:13px;background:var(--red-dim);color:var(--red);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic"><use href="#i-alert"/></svg></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:15.5px;font-weight:700">你取消了本次授权</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:5px;flex-wrap:wrap">
+                <span data-testid="o3-err-code" class="mono" style="font-size:11px;color:var(--text-2);background:var(--bg-input);border-radius:6px;padding:3px 8px;display:inline-block">未产生 code · 未产生 error</span>
+                <span class="mono" style="font-size:10.5px;color:var(--text-3)">state=a1b2c3d4e5f6</span>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:12.5px;color:var(--text-2);line-height:1.65">你在授权 Sheet 中取消了授权（✕ / 下拉抓手 / 页内「取消」等价），未产生 code 亦无 error 参数。<b style="color:var(--text)">重新登录</b>即可再次发起，登录状态不受影响；<span class="mono" style="font-size:11px">error=access_denied</span> 属「授权服务器返回 error」分支（见下方对照第 2 行），不在本态出现。</div>
+        </div>
+        <!-- 恢复动作 -->
+        <button data-testid="o3-btn-retry" class="btn btn-primary"><svg class="ic"><use href="#i-refresh"/></svg>重新登录</button>
+        <div style="display:flex;gap:10px">
+          <button data-testid="o3-btn-switch-provider" class="btn btn-ghost" style="flex:1;height:44px;font-size:13.5px"><svg class="ic ic-s"><use href="#i-key"/></svg>改用 BigModel 登录</button>
+          <button data-testid="o3-btn-skip" class="btn btn-ghost" style="flex:1;height:44px;font-size:13.5px"><svg class="ic ic-s"><use href="#i-monitor"/></svg>跳过 · 连接桌面端</button>
+        </div>
+        <!-- 错误对照（4 态） -->
+        <div style="display:flex;flex-direction:column;gap:7px;padding-top:2px">
+          <div class="sec-title">常见登录失败对照 · 5 态</div>
+          <div class="glist">
+            <div data-testid="o3-row-cancel" class="grow">
+              <div class="g-ic" style="color:var(--text-2)"><svg class="ic ic-s"><use href="#i-x"/></svg></div>
+              <div class="g-main"><div style="font-size:13.5px;font-weight:600">用户取消 / Sheet 关闭</div><div class="g-sub">✕ / 下拉 / 页内取消 → 未产生 code → 重新登录</div></div>
+            </div>
+            <div data-testid="o3-row-error-param" class="grow">
+              <div class="g-ic" style="color:var(--red)"><svg class="ic ic-s"><use href="#i-alert"/></svg></div>
+              <div class="g-main"><div style="font-size:13.5px;font-weight:600">授权服务器返回 error</div><div class="g-sub">按 error 值展示原因（如 access_denied）→ 重试或换 Provider</div></div>
+            </div>
+            <div data-testid="o3-row-state" class="grow">
+              <div class="g-ic" style="color:var(--orange)"><svg class="ic ic-s"><use href="#i-shield"/></svg></div>
+              <div class="g-main"><div style="font-size:13.5px;font-weight:600">state 缺失或不匹配</div><div class="g-sub">防伪校验失败（<span class="mono">state 必填，缺失即报错</span>）→ 重新发起，不接受降级</div></div>
+            </div>
+            <div data-testid="o3-row-exchange" class="grow">
+              <div class="g-ic" style="color:var(--blue)"><svg class="ic ic-s"><use href="#i-wifi"/></svg></div>
+              <div class="g-main"><div style="font-size:13.5px;font-weight:600">令牌交换失败</div><div class="g-sub"><span class="mono">POST /api/v1/oauth/token</span> 超时或响应 <span class="mono">code≠0</span> → 检查网络后重试</div></div>
+            </div>
+            <div data-testid="o3-row-keychain" class="grow">
+              <div class="g-ic" style="color:var(--orange)"><svg class="ic ic-s"><use href="#i-shield"/></svg></div>
+              <div class="g-main"><div style="font-size:13.5px;font-weight:600">Keychain 写入失败</div><div class="g-sub">交换成功但凭据落地失败 → 就地错误态（5.9 模式），重试登录</div></div>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="text-align:center;font-size:10.5px;color:var(--text-3);line-height:1.7;padding-bottom:calc(var(--safe-bot) + 10px)">重试保留发起参数（client_id / redirect_uri）并重置一次性 state<br>登录非使用前提：可跳过登录直接连接局域网桌面端</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>成功态（O3-A）</h5>
+      <ul>
+        <li><b>userInfo 直出</b>：<span class="mono">displayName</span>（主标题）+ <span class="mono">username / id</span>（次级）+ <span class="mono">avatarUrl</span> 头像位（toUserInfo 兼容 <span class="mono">user.id/user_id</span>、<span class="mono">name/email</span>、<span class="mono">avatar/avatarUrl</span> 与 <span class="mono">data:image</span> base64——无图时渐变+首字母兜底，同基准稿头像做法）。</li>
+        <li><b>tokenSet 摘要</b>：accessToken（Provider access_token，掩码）、zcodeJwtToken（<span class="mono">data.token</span>，zcode JWT）、expiresAt（由 <span class="mono">expires_in</span> 换算）——全部仅存 Keychain。</li>
+        <li>Provider 徽章：ZAI 用 <code>.pill done</code>（绿·渠道来源语义），Coding Plan 用 <code>.pill tag</code>（紫·能力标签语义）。</li>
+        <li>「开始使用」→ L1 连接页（未配对）或任务看板（已配对，crossfade 250ms）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>失败 / 取消态（O3-B）</h5>
+      <ul>
+        <li>遵循 <b>5.9 失败态统一模式</b>：错误卡（图标 + 一句结论 + mono <span class="mono">error=…</span>）+ <b>唯一主 CTA（重新登录）</b> + 次级动作；用户取消为<b>中性结果非故障</b>——文案不指责、状态可恢复。</li>
+        <li>失败分支五态：①用户取消（Sheet ✕ / 下拉 / 页内取消，无 code 亦无 error）②<span class="mono">error</span> 参数（授权服务器拒绝）③state 缺失/不匹配（必填缺失即报错）④交换失败（超时 / <span class="mono">code≠0</span>）⑤Keychain 写入失败（交换成功但凭据落地失败）。</li>
+        <li><b>次级路径不死路</b>：「改用 BigModel 登录」（换 Provider 重发起，<span class="mono">{origin}/login?appId=zcode</span>）与「跳过 · 连接桌面端」（转 L1，登录非使用前提）均 44px。</li>
+        <li>重试时<b>重置一次性 state</b>，保留 client_id / redirect_uri 等静态发起参数；错误回显不含 code/token 明文。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>主按钮 <b>48px</b>；换 Provider / 跳过 <b>44px</b>；错误对照行信息型不可点。</li>
+        <li>顶部 54 / 底部 <code>--safe-bot</code>；O3-A 凭据摘要行高 ≥44px（信息型）。</li>
+      </ul>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     板 L1 · 默认连接页（A 默认态 / B 键盘态·手动输入）
+     ============================================================ -->
+<section class="board" id="l1" style="flex-wrap:wrap"><!-- 5 帧板：允许 L1-H 帧换行（其余板单行） -->
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L1</span><h2>默认连接页 · 回连 / 扫码 / 手动</h2><span class="lvl root">独立拦截栈 · 未连接根页</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nb-side"></div>
+        <div class="nb-title">连接桌面端</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:6px 16px 0;gap:12px"><!-- 页面左右边距统一 16px（2.5 sp-4） -->
+        <!-- 剪贴板检测：通用剪贴板从 Mac 拷贝连接链接后自动出现 -->
+        <div data-testid="l1-banner-clipboard" class="banner-clip">
+          <svg class="ic ic-s" style="color:var(--accent-text)"><use href="#i-link"/></svg>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12.5px;font-weight:700;color:var(--text)">检测到剪贴板中的连接链接</div>
+            <div class="mono" style="font-size:10.5px;color:var(--text-3);margin-top:1px">192.168.1.24:3030 · token 已就绪</div>
+          </div>
+          <div data-testid="l1-act-paste-fill" class="btn btn-primary" style="height:44px;padding:0 16px;font-size:13px;border-radius:10px;flex:none">一键填充</div>
+        </div>
+        <!-- 品牌区（压缩版：连接优先） -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px 0 4px">
+          <div style="width:76px;height:76px;display:flex;align-items:center;justify-content:center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960" width="100%" height="100%">
+<defs>
+<linearGradient id="biuz-fade" gradientUnits="userSpaceOnUse" x1="0" y1="242" x2="0" y2="690"><stop offset="0" stop-color="#32f08c" stop-opacity=".44"/><stop offset=".45" stop-color="#32f08c" stop-opacity=".66"/><stop offset="1" stop-color="#32f08c" stop-opacity=".97"/></linearGradient>
+<radialGradient id="biuz-head" cx="36%" cy="32%" r="78%"><stop offset="0" stop-color="#eafff4"/><stop offset=".22" stop-color="#8ff8c0"/><stop offset=".55" stop-color="#32f08c"/><stop offset="1" stop-color="#1ba968"/></radialGradient>
+<filter id="biuz-blurS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="12"/></filter>
+<filter id="biuz-blurXS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="2.5"/></filter>
+<filter id="biuz-blurL" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="34"/></filter>
+</defs>
+<g transform="translate(-11,-29)">
+<g fill="none" stroke="#32f08c" stroke-linecap="round"><path d="M150 242 L182 242" stroke-width="16" stroke-opacity="0.13"/><path d="M214 242 L262 242" stroke-width="22" stroke-opacity="0.22"/><path d="M300 242 L360 242" stroke-width="28" stroke-opacity="0.32"/></g>
+<path d="M398 257 L688 259.9 L686.1 259.8 L684.3 259.5 L682.5 259.1 L680.8 258.4 L679.1 257.6 L677.5 256.5 L676.1 255.4 L674.7 254.1 L673.6 252.6 L672.5 251.1 L671.7 249.4 L671 247.7 L670.5 245.9 L670.2 244 L670.1 242.2 L670.2 240.3 L670.4 238.5 L670.9 236.7 L671.5 234.9 L672.4 233.2 L673.4 231.7 L674.5 230.2 L270 667.3 L220.1 721.2 L700 742 L705.4 741.7 L710.8 740.9 L716.1 739.5 L721.2 737.5 L726 735 L730.6 732.1 L734.8 728.6 L738.6 724.8 L742.1 720.6 L745 716 L747.5 711.2 L749.5 706.1 L750.9 700.8 L751.7 695.4 L752 690 L751.7 684.6 L750.9 679.2 L749.5 673.9 L747.5 668.8 L745 664 L742.1 659.4 L738.6 655.2 L734.8 651.4 L730.6 647.9 L726 645 L721.2 642.5 L716.1 640.5 L710.8 639.1 L705.4 638.3 L700 638 L700 638 L296 655.5 L299.6 655.7 L303.1 656.2 L306.6 657.1 L310 658.4 L313.2 660 L316.2 662 L319 664.2 L321.5 666.8 L323.8 669.5 L325.8 672.5 L327.4 675.7 L328.8 679.1 L329.7 682.5 L330.3 686.1 L330.5 689.7 L330.4 693.3 L329.8 696.8 L329 700.3 L327.7 703.7 L326.1 706.9 L324.2 709.9 L322 712.7 L726.4 223.7 L688 224.1 L398 227 L399.6 227.1 L401.1 227.3 L402.6 227.7 L404.1 228.3 L405.5 229 L406.8 229.9 L408 230.9 L409.1 232 L410.1 233.2 L411 234.5 L411.7 235.9 L412.3 237.4 L412.7 238.9 L412.9 240.4 L413 242 L412.9 243.6 L412.7 245.1 L412.3 246.6 L411.7 248.1 L411 249.5 L410.1 250.8 L409.1 252 L408 253.1 L406.8 254.1 L405.5 255 L404.1 255.7 L402.6 256.3 L401.1 256.7 L399.6 256.9 L398 257 Z" fill="url(#biuz-fade)"/>
+<circle cx="736" cy="690" r="140" fill="#32f08c" opacity=".38" filter="url(#biuz-blurL)"/>
+<circle cx="736" cy="690" r="104" fill="url(#biuz-head)"/>
+<circle cx="700" cy="644" r="24" fill="#ffffff" opacity=".2" filter="url(#biuz-blurS)"/>
+<circle cx="700" cy="644" r="10" fill="#ffffff" opacity=".85" filter="url(#biuz-blurXS)"/>
+</g>
+</svg></div>
+          <div style="text-align:center">
+            <div style="font-size:22px;font-weight:800;letter-spacing:.02em">BiuZ</div>
+            <div style="font-size:12.5px;color:var(--text-2);margin-top:3px">连接桌面机上的 zcode 服务，开始遥控与审批</div>
+          </div>
+        </div>
+        <!-- 最近连接（回连主路径） -->
+        <div data-testid="l1-card-recent" class="card" style="padding:14px;display:flex;align-items:center;gap:12px">
+          <div style="width:44px;height:44px;border-radius:13px;background:var(--bg-input);color:var(--text-2);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic"><use href="#i-monitor"/></svg></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14.5px;font-weight:700"><span class="dot probe"></span>MacBook Pro</div>
+            <div class="mono" style="font-size:11px;color:var(--text-3);margin-top:2px">192.168.1.24:3030</div>
+            <div style="font-size:10.5px;color:var(--text-3);margin-top:1px">上次连接 · 昨天 22:41</div>
+          </div>
+          <div data-testid="l1-act-reconnect" class="btn btn-primary" style="height:44px;padding:0 20px;font-size:13.5px;border-radius:12px;flex:none">连接</div>
+        </div>
+        <!-- 主/次 CTA -->
+        <button data-testid="l1-btn-scan" class="btn btn-primary"><svg class="ic"><use href="#i-scan"/></svg>扫码连接桌面端</button>
+        <button data-testid="l1-btn-manual" class="btn btn-ghost"><svg class="ic"><use href="#i-server"/></svg>手动输入地址连接</button>
+        <!-- 帮助行（44px 热区） -->
+        <div data-testid="l1-row-help" class="card" style="padding:12px 14px;display:flex;align-items:center;gap:12px;min-height:44px;background:var(--bg-elevated)">
+          <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-term"/></svg>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12.5px;font-weight:600">如何在桌面端开启？</div>
+            <div class="mono" style="font-size:10.5px;color:var(--text-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">$ zcode --web --host 0.0.0.0</div>
+          </div>
+          <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-chev-r"/></svg>
+        </div>
+        <div style="flex:1"></div>
+        <!-- 安全脚注 -->
+        <div style="text-align:center;font-size:11px;color:var(--text-3);line-height:1.8;padding-bottom:calc(var(--safe-bot) + 12px)">
+          访问令牌即服务器密码，仅存本机 Keychain<br>
+          服务无加密（ws://），请仅在<span style="color:var(--accent-text);padding:13px 0;margin:-13px 0;display:inline-block">可信局域网</span>使用 · <span style="color:var(--accent-text);padding:13px 0;margin:-13px 0;display:inline-block">连接安全说明</span>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L1-K</span><h2>手动连接 · 键盘态</h2><span class="lvl push">Push 表单 · 键盘弹起</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nav-btn"><svg class="ic"><use href="#i-chev-l"/></svg></div>
+        <div class="nb-title">手动连接</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:4px 16px 0;gap:14px">
+        <!-- 地址：支持粘贴完整连接链接，自动拆解（scheme ∈ http/https/ws/wss） -->
+        <div>
+          <div class="f-label">服务器地址<span data-testid="l1-field-kbd-host" class="pill" style="color:var(--text-3);background:var(--bg-input);font-size:10.5px;padding:1px 7px">URL 键盘</span></div>
+          <div data-testid="l1-field-host" class="f-field"><span>http://192.168.1.24:3030</span><span class="caret"></span></div>
+          <div data-testid="l1-parse-ok" class="f-ok"><svg class="ic ic-s" style="flex:none;margin-top:1px"><use href="#i-check"/></svg><span>已从粘贴的链接自动拆解：<span class="mono">?token=</span> 段已填入令牌栏</span></div>
+          <div class="f-caption"><svg class="ic ic-s" style="color:var(--text-3);flex:none;margin-top:1px"><use href="#i-term"/></svg><span>可粘贴完整链接（<span class="mono">http/https/ws/wss</span>）；端口默认 3030，仅输 <span class="mono">host:port</span> 时补 <span class="mono">http://</span></span></div>
+        </div>
+        <!-- 令牌：可选（桌面端 --no-token 时留空即免鉴权） -->
+        <div>
+          <div class="f-label">访问令牌<span data-testid="l1-field-kbd-token" class="pill" style="color:var(--text-3);background:var(--bg-input);font-size:10.5px;padding:1px 7px">安全输入 · 可选</span></div>
+          <div data-testid="l1-field-token" class="f-field">
+            <span>••••••••••••••qK2m</span>
+            <span data-testid="l1-act-eye" style="margin-left:auto;width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-3)"><svg class="ic ic-s"><use href="#i-eye"/></svg></span>
+          </div>
+          <div class="f-caption"><svg class="ic ic-s" style="color:var(--accent-text);flex:none;margin-top:1px"><use href="#i-shield"/></svg><span>即 URL 中 <span class="mono">token=</span> 段；桌面端 <span class="mono">--no-token</span> 启动时<b style="color:var(--text)">留空即可</b>（authRequired=false）。仅存 Keychain，掩码展示（末 4 位）</span></div>
+        </div>
+        <!-- 主按钮：键盘态仍常驻可见 -->
+        <button data-testid="l1-submit-connect" class="btn btn-primary" style="margin-top:2px"><svg class="ic"><use href="#i-link"/></svg>连接</button>
+        <!-- 表单校验态样例（标注性质：错误字段套 .field-err 红描边 + .f-err 内联红字，提交前即时提示不打断输入；令牌在 authRequired=true 时必填） -->
+        <div class="sample-card">
+          <span class="s-tag">校验态样例 · 提交前内联提示</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="f-field field-err" style="width:150px;height:36px;font-size:12.5px;flex:none"><span class="ph">192.168.1.24</span></div>
+            <div class="f-err" style="margin-top:0;flex:1">无法识别的地址：请粘贴完整链接或输入 <span class="mono">host:port</span>（缺 scheme/端口）</div>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+      </div>
+      <!-- 键盘（示意 · 设备级灰阶） -->
+      <div class="kb" aria-hidden="true">
+        <div class="kb-sug"><span>zcode</span><span class="on">192.168.1.24:3030</span><span>localhost</span></div>
+        <div class="kb-row"><i class="kb-key">q</i><i class="kb-key">w</i><i class="kb-key">e</i><i class="kb-key">r</i><i class="kb-key">t</i><i class="kb-key">y</i><i class="kb-key">u</i><i class="kb-key">i</i><i class="kb-key">o</i><i class="kb-key">p</i></div>
+        <div class="kb-row" style="padding:0 14px"><i class="kb-key">a</i><i class="kb-key">s</i><i class="kb-key">d</i><i class="kb-key">f</i><i class="kb-key">g</i><i class="kb-key">h</i><i class="kb-key">j</i><i class="kb-key">k</i><i class="kb-key">l</i></div>
+        <div class="kb-row" style="padding:0 30px"><i class="kb-key wide">⇧</i><i class="kb-key">z</i><i class="kb-key">x</i><i class="kb-key">c</i><i class="kb-key">v</i><i class="kb-key">b</i><i class="kb-key">n</i><i class="kb-key">m</i><i class="kb-key wide">⌫</i></div>
+        <div class="kb-row" style="padding:0 3px 10px"><i class="kb-key wide">123</i><i class="kb-key sp"></i><i class="kb-key go">前往</i></div>
+      </div>
+      <div class="home-indicator" style="z-index:70"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L1-S</span><h2>扫码 · 相机取景器</h2><span class="lvl push">全屏模态 · 正常态 + 识别失败内联</span></div>
+    <div class="phone"><div class="screen" style="background:var(--bg-term)">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <!-- 模态头部：关闭 + 标题（44px 热区） -->
+      <div data-testid="l1-s-frame" style="flex:none;display:flex;align-items:center;gap:8px;padding:4px 12px">
+        <div data-testid="l1-s-act-close" class="nav-btn" style="color:var(--text)"><svg class="ic"><use href="#i-x"/></svg></div>
+        <div style="flex:1;text-align:center;font-size:16px;font-weight:700;color:var(--text)">扫描连接二维码</div>
+        <div style="width:44px"></div>
+      </div>
+      <!-- 取景区（全屏相机：暗底 + 取景框四角括号 + 扫描线示意） -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:0 24px;position:relative">
+        <!-- 取景框 -->
+        <div style="position:relative;width:216px;height:216px">
+          <i style="position:absolute;top:0;left:0;width:30px;height:30px;border-top:3px solid var(--accent);border-left:3px solid var(--accent);border-top-left-radius:12px"></i>
+          <i style="position:absolute;top:0;right:0;width:30px;height:30px;border-top:3px solid var(--accent);border-right:3px solid var(--accent);border-top-right-radius:12px"></i>
+          <i style="position:absolute;bottom:0;left:0;width:30px;height:30px;border-bottom:3px solid var(--accent);border-left:3px solid var(--accent);border-bottom-left-radius:12px"></i>
+          <i style="position:absolute;bottom:0;right:0;width:30px;height:30px;border-bottom:3px solid var(--accent);border-right:3px solid var(--accent);border-bottom-right-radius:12px"></i>
+          <i style="position:absolute;left:8px;right:8px;top:50%;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.7"></i>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">对准桌面端出示的连接二维码</div>
+          <div class="mono" style="font-size:10.5px;color:var(--text-3);margin-top:5px">识别 http(s)://&lt;host&gt;:&lt;port&gt;/?token=…</div>
+          <!-- 识别失败态：取景框下内联红字（不弹系统弹窗；此行仅在识别失败时出现） -->
+          <div data-testid="l1-s-err-inline" class="f-err" style="justify-content:center;margin-top:10px"><svg class="ic ic-s" style="flex:none;margin-top:1px"><use href="#i-alert"/></svg><span>未识别到有效连接链接，请对准二维码后重试</span></div>
+        </div>
+      </div>
+      <!-- 底部逃生口：主 CTA 不死路 -->
+      <div style="flex:none;display:flex;flex-direction:column;gap:10px;padding:0 24px calc(var(--safe-bot) + 14px)">
+        <button data-testid="l1-s-btn-manual" class="btn btn-ghost" style="height:44px;font-size:13.5px;border-color:var(--border-strong)"><svg class="ic ic-s"><use href="#i-server"/></svg>改用手动输入连接</button>
+        <div style="text-align:center;font-size:10.5px;color:var(--text-3)">桌面端未出码？先在终端运行 <span class="mono">zcode --web</span> 获取链接</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L1-S-D</span><h2>扫码 · 相机权限拒绝</h2><span class="lvl push">引导态 · 主 CTA 不死路</span></div>
+    <div class="phone"><div class="screen" style="background:var(--bg-term)">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div style="flex:none;display:flex;align-items:center;gap:8px;padding:4px 12px">
+        <div class="nav-btn" style="color:var(--text)"><svg class="ic"><use href="#i-x"/></svg></div>
+        <div style="flex:1;text-align:center;font-size:16px;font-weight:700;color:var(--text)">扫描连接二维码</div>
+        <div style="width:44px"></div>
+      </div>
+      <!-- 权限拒绝引导卡（取景区中央） -->
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:0 24px">
+        <div data-testid="l1-s-card-denied" class="card" style="width:100%;padding:20px 16px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center">
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--orange-dim);color:var(--orange);display:flex;align-items:center;justify-content:center"><svg class="ic ic-l"><use href="#i-scan"/></svg></div>
+          <div>
+            <div style="font-size:15px;font-weight:700">相机权限已关闭</div>
+            <div style="font-size:11.5px;color:var(--text-3);margin-top:5px;line-height:1.6">扫码需要在 系统设置 → BiuZ 中开启相机；<br>也可以不扫码，直接输入桌面端地址连接</div>
+          </div>
+          <button data-testid="l1-s-btn-settings" class="btn btn-primary" style="height:44px;font-size:13.5px;width:100%"><svg class="ic ic-s"><use href="#i-shield"/></svg>去系统设置开启</button>
+          <button data-testid="l1-s-btn-manual" class="btn btn-ghost" style="height:44px;font-size:13.5px;width:100%"><svg class="ic ic-s"><use href="#i-server"/></svg>改用手动输入连接</button>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L1-H</span><h2>连接帮助 · 内嵌说明页</h2><span class="lvl push">L1 帮助行 → 内嵌 Push 页 · 右滑返回</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nav-btn"><svg class="ic"><use href="#i-chev-l"/></svg></div>
+        <div class="nb-title">连接帮助</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:4px 16px 0;gap:12px">
+        <!-- 桌面端启动命令卡（mono + 44px 复制热区） -->
+        <div class="card" style="background:var(--bg-term);border-radius:12px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border)">
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-term"/></svg>
+            <span class="mono" style="font-size:10.5px;color:var(--text-3)">桌面端终端</span>
+            <button data-testid="l1-h-act-copy" class="nav-btn" style="width:44px;height:44px;margin:-8px -8px -8px auto;border-radius:12px"><svg class="ic ic-s"><use href="#i-copy"/></svg></button><!-- 44px 复制热区（负 margin 贴合头部行） -->
+          </div>
+          <div class="mono" style="padding:10px 12px;font-size:12px;line-height:1.75;color:var(--text-2)">
+<span style="color:var(--accent)">$</span> zcode --web --host 0.0.0.0 <span style="color:var(--text-3)">[--port 3030]</span>
+<span style="color:var(--code-lab)">[ok]</span> LAN → http://192.168.1.24:3030/?token=****</div>
+        </div>
+        <!-- 三步说明 -->
+        <div class="glist">
+          <div class="grow" style="min-height:48px"><span class="mono" style="font-size:11px;color:var(--accent-text);background:var(--accent-dim);border-radius:6px;padding:2px 7px;flex:none">1</span><div class="g-main"><div style="font-size:13px;font-weight:600">桌面机启动局域网服务</div><div class="g-sub mono">zcode --web --host 0.0.0.0 · Core 版仅 loopback，须走 --web 分发</div></div></div>
+          <div class="grow" style="min-height:48px"><span class="mono" style="font-size:11px;color:var(--accent-text);background:var(--accent-dim);border-radius:6px;padding:2px 7px;flex:none">2</span><div class="g-main"><div style="font-size:13px;font-weight:600">终端打印带令牌的连接链接</div><div class="g-sub mono">http://&lt;LAN-IP&gt;:3030/?token=… · 令牌随进程存活</div></div></div>
+          <div class="grow" style="min-height:48px"><span class="mono" style="font-size:11px;color:var(--accent-text);background:var(--accent-dim);border-radius:6px;padding:2px 7px;flex:none">3</span><div class="g-main"><div style="font-size:13px;font-weight:600">手机扫码 / 复制粘贴 / 手动输入</div><div class="g-sub">识别成功自动进入连接流程（L2）</div></div></div>
+        </div>
+        <!-- 二维码指引（仓库外包装 gaps） -->
+        <div class="card" style="padding:10px 12px;display:flex;gap:10px;align-items:flex-start">
+          <svg class="ic ic-s" style="color:var(--violet);flex:none;margin-top:1px"><use href="#i-scan"/></svg>
+          <div style="font-size:11px;color:var(--text-2);line-height:1.6">桌面端<b style="color:var(--text)">出示二维码</b>为后续版本能力（仓库暂无二维码渲染）；当前请复制终端打印的链接，回本页用「手动输入」粘贴或依赖剪贴板横幅。</div>
+        </div>
+        <!-- 本地网络权限预说明（iOS 14+ 首次请求必弹） -->
+        <div class="card" style="padding:10px 12px;display:flex;gap:10px;align-items:flex-start">
+          <svg class="ic ic-s" style="color:var(--orange);flex:none;margin-top:1px"><use href="#i-shield"/></svg>
+          <div style="font-size:11px;color:var(--text-2);line-height:1.6">首次连接系统将询问<b style="color:var(--text)">本地网络</b>权限（用于查找并连接同一局域网内的桌面端 Agent 服务（ZCode 社区版桌面端））——<b style="color:var(--text)">拒绝后请求将静默失败</b>，可随时在 设置 → 隐私与安全性 → 本地网络 中开启。</div>
+        </div>
+        <div style="flex:1"></div>
+        <button data-testid="l1-h-btn-done" class="btn btn-primary" style="margin-bottom:calc(var(--safe-bot) + 12px)">知道了</button>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>扫码取景器（L1-S / L1-S-D · 三态）</h5>
+      <ul>
+        <li><b>入口</b>：L1 主按钮「扫码连接桌面端」（<code>l1-btn-scan</code>）→ <b>全屏相机模态</b>（非 Push，无 Tab 栏）；左上 ✕ 关闭 44px。</li>
+        <li><b>正常取景态（L1-S）</b>：四角括号取景框 + 扫描线 + 目标格式 mono 提示（<code>http(s)://host:port/?token=…</code>）；识别成功震动 + 自动转 L2。</li>
+        <li><b>识别失败态</b>：取景框下<b>内联红字</b>（<code>l1-s-err-inline</code>，.f-err 令牌驱动），<b>不弹系统弹窗</b>；修正姿势即重试，不打断取景。</li>
+        <li><b>相机权限拒绝态（L1-S-D）</b>：取景器转中央引导卡——「去系统设置开启」44px 主按钮 + <b>「改用手动输入连接」44px 逃生口，主 CTA 不死路</b>；两态共用底部手输按钮（<code>l1-s-btn-manual</code>）。</li>
+        <li>桌面端二维码属<b>仓库外包装</b>（gaps：仓库无二维码渲染），稿内以取景框 + 格式提示约定扫描对象。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>默认连接页 · 信息组织</h5>
+      <ul>
+        <li><b>回连优先</b>：已有服务器时「最近连接」卡置顶（点「连接」以 Keychain 令牌直接发起，转 L2）；首启无服务器时隐藏该卡。</li>
+        <li><b>三通道凭据</b>：① 扫码（对准桌面端出示的连接二维码）② 通用剪贴板一键填充（Mac 拷贝 URL → 本页自动出横幅，解析后直接转 L2）③ 手动输入（L1-K）。</li>
+        <li>调研事实：仓库<b>无二维码渲染 / mDNS 发现</b>，桌面端仅向终端打印 <code>http://&lt;LAN-IP&gt;:3030/?token=…</code>（runner.mjs:121-147，转引）——扫码为「有码可扫」主路径，剪贴板/手输为 MVP 兜底（取舍见规范 9.5）。</li>
+        <li>在线点为<b>中性探测点</b>：进入页面后台探测 server-info（1.5s 超时）→ 绿点在线 / 灰点离线；未探测前灰点半透明 + 上次连接时间（无 mDNS，不做常驻在线态）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>键盘与输入（L1-K）</h5>
+      <ul>
+        <li>键盘 250ms 与系统同轨上移（规范 2.7）；表单区对齐键盘顶可滚，「连接」主按钮<b>常驻键盘上方可见</b>。</li>
+        <li><b>完整链接拆解</b>：地址栏可直接粘贴终端打印的完整 URL——解析 <span class="mono">scheme://host:port</span> 填地址栏、<span class="mono">?token=</span> 段自动剥离填令牌栏（绿色 <span class="mono">f-ok</span> 提示）；scheme 支持 <b>http/https/ws/wss</b>（https/wss 走反向代理），仅输 <span class="mono">host:port</span> 时缺省补 <span class="mono">http://</span>——不再固定前缀，反代地址可手动输入。</li>
+        <li><b>令牌可选</b>：桌面端 <span class="mono">--no-token</span> 部署（authRequired=false）时令牌<b>留空合法</b>（pill 标注「安全输入 · 可选」）；authRequired=true 时必填。</li>
+        <li><b>校验态</b>：提交前内联提示，错误字段套 <span class="mono">.field-err</span> 红描边 + <span class="mono">.f-err</span> 红字（必填 / 无法识别的地址 / 缺端口三种文案，样例见卡内）；错误不打断输入，修正即清。</li>
+        <li>地址栏唤起 <b>URL 键盘</b>、令牌栏为<b>安全输入</b>（secure entry，眼睛 44px 切明文）；输入字号均 <b>16px</b> 防聚焦缩放。</li>
+        <li>键盘 QuickType 条出现剪贴板 URL 建议（与主页横幅同源机制，iOS 16+ 受「允许粘贴」约束，见系统权限块）；键盘为示意绘制（设备级灰阶，不占 UI 令牌）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>主/次按钮 <b>48px</b>；一键填充 / 连接 / 眼睛 / 帮助行热区均 <b>≥44px</b>；剪贴板横幅整条可点。</li>
+        <li>顶部安全区 <b>54px</b>（灵动岛）、底部 <b>34px</b>；脚注距底 <code>--safe-bot + 12px</code>；L1-K 键盘替身覆盖底部，Home 指示条置顶渲染。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>系统权限与降级（真机第一闸）</h5>
+      <ul>
+        <li><b>本地网络权限（iOS 14+）</b>：首次对 <span class="mono">192.168.x.x</span> 发起请求必触发系统弹窗，用途文案「用于查找并连接同一局域网内的桌面端 Agent 服务（ZCode 社区版桌面端）」；<b>拒绝后所有请求静默失败、与超时不可区分</b> → L3 超时对照行固定引导「设置 → 隐私与安全性 → 本地网络」；帮助页首屏预说明，避免用户按网络思路空排查。</li>
+        <li><b>相机权限（扫码）</b>：首次扫码弹窗；<b>拒绝后取景器转引导态</b>——「相机权限已关闭」+ 44px「去系统设置开启」+ 44px「改用手动输入连接」，主 CTA 不死路。</li>
+        <li><b>剪贴板（iOS 16+）</b>：进页读取跨 App 剪贴板弹系统「允许粘贴」；<b>拒绝后横幅不出现</b>——降级路径 = 手动输入页 QuickType 建议 / 长按地址栏粘贴（表单含完整链接拆解，见 L1-K）；横幅为增强路径，非唯一路径。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>转场与次级路径</h5>
+      <ul>
+        <li><b>入口</b>：登录主页（O1）「连接桌面端」次按钮 → 本板；OAuth 登录成功（O3-A）「开始使用」→ 本板（未配对）或任务看板（已配对）；已用用户亦可从 L4「添加服务器」回达。</li>
+        <li>扫码 → <b>全屏相机取景器</b>（模态），识别 URL 校验格式后自动转 L2；识别失败取景器内联红字提示（不弹系统弹窗）。</li>
+        <li>手动 → <b>Push 表单页</b>（L1-K），右滑返回；帮助 → <b>内嵌说明页</b>（板 L1-H：mono 命令卡 + 44px 复制 + 三步说明 + 本地网络权限预说明 +「知道了」；桌面端出示二维码为后续能力——仓库无二维码渲染，见 gaps）。</li>
+        <li>OAuth 为<b>账户层</b>（O1 主按钮 / L4 账户行），与配对连接层互相独立：连接功能不依赖登录，登录不产生连接。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>接口依据（转引）</h5>
+      <div class="flow-line">保护路径 <b>/ws、/ws/*、/api/*</b>（http.ts:239-241）；首次带 <b>?token=</b> 即种会话 cookie，原生客户端<b>每次请求 query 携带 token</b>（http.ts:227-237,308-318）；令牌 randomBytes(24).base64url 自动生成、<b>无过期无撤销</b>（runner.mjs:105-107）→ 按「服务器密码」管理。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     板 L2 · 连接中（五步进度）
+     ============================================================ -->
+<section class="board" id="l2">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L2</span><h2>连接中 · 分步进度</h2><span class="lvl push">L1 同栈 · 进行态</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nb-side"></div>
+        <div class="nb-title">连接中</div>
+        <div class="nb-side" style="justify-content:flex-end">
+          <div data-testid="l2-act-close" class="nav-btn"><svg class="ic"><use href="#i-x"/></svg></div>
+        </div>
+      </div>
+      <div class="content" style="padding:8px 16px 0;gap:14px">
+        <!-- 目标服务器头 -->
+        <div style="display:flex;align-items:center;gap:13px;padding:4px 0">
+          <div style="width:52px;height:52px;border-radius:16px;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic ic-l"><use href="#i-monitor"/></svg></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:16.5px;font-weight:800">正在连接 <span class="mono" style="font-size:14.5px">192.168.1.24:3030</span></div>
+            <div style="font-size:11px;color:var(--text-3);margin-top:3px">首次连接 · 名称待 server-info 返回后显示</div>
+          </div>
+          <!-- 「连接中」为本页主流程进行态（.pill run 蓝色），非任务状态、非设备在线状态（口径声明见规范 9.5） -->
+          <span class="pill run"><span class="d"></span>连接中</span>
+        </div>
+        <!-- 五步进度 -->
+        <div data-testid="l2-card-steps" class="card" style="overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border)">
+            <span class="sec-title" style="flex:1"><span class="d" style="background:var(--blue)"></span>连接进度 · 3/5</span>
+            <div class="todo-mini" style="width:120px"><div class="bar"><i style="width:60%"></i></div></div>
+          </div>
+          <div data-testid="l2-step-discover" class="step-row">
+            <span class="step-ic done"><svg class="ic ic-s"><use href="#i-check"/></svg></span>
+            <span class="step-main"><span class="step-name">发现服务</span><div class="step-endpoint">GET /api/server-info</div></span>
+            <span class="step-meta">200 · 41ms</span>
+          </div>
+          <div data-testid="l2-step-auth" class="step-row">
+            <span class="step-ic done"><svg class="ic ic-s"><use href="#i-check"/></svg></span>
+            <span class="step-main"><span class="step-name">校验访问令牌</span><div class="step-endpoint">?token=*** · authRequired=true</div></span>
+            <span class="step-meta">通过</span>
+          </div>
+          <!-- authRequired=false（--no-token 部署）时本步显示「免鉴权 · authRequired=false」直接打勾，不出现「校验通过」字样 -->
+          <div data-testid="l2-step-ws" class="step-row">
+            <span class="step-ic run"><i class="spin"></i></span>
+            <span class="step-main"><span class="step-name">建立 WebSocket</span><div class="step-endpoint">ws://192.168.1.24:3030/ws · web-remote-replayable</div></span>
+            <span class="step-meta">…</span>
+          </div>
+          <div data-testid="l2-step-handshake" class="step-row">
+            <span class="step-ic pend"><i style="width:6px;height:6px;border-radius:50%;background:var(--border-strong);display:block"></i></span>
+            <span class="step-main"><span class="step-name pend">协议握手 v4</span><div class="step-endpoint">helloConversationV4 · clientKind=mobileApp</div></span>
+          </div>
+          <div data-testid="l2-step-workspace" class="step-row">
+            <span class="step-ic pend"><i style="width:6px;height:6px;border-radius:50%;background:var(--border-strong);display:block"></i></span>
+            <span class="step-main"><span class="step-name pend">载入工作区</span><div class="step-endpoint">workspaces[0] · ~/projects/zcode_mobile</div></span>
+          </div>
+        </div>
+        <!-- 连接日志（终端样式） -->
+        <div class="card" style="background:var(--bg-term);border-radius:12px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border)">
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-term"/></svg>
+            <span class="mono" style="font-size:10.5px;color:var(--text-3)">connect.log</span>
+            <i class="spin" style="margin-left:auto"></i>
+          </div>
+          <div data-testid="l2-log-term" class="mono" style="padding:10px 12px;font-size:12px;line-height:1.75;color:var(--text-2);white-space:pre-wrap">
+<span style="color:var(--accent)">[ok]</span>  GET /api/server-info → 200 · 41ms
+<span style="color:var(--accent)">[ok]</span>  serverId=srv_9f2c81ab · v0.14.2 · protocolVersion=1
+<span style="color:var(--accent)">[ok]</span>  token 校验通过 · authRequired=true
+<span style="color:var(--code-lab)">[..]</span>  WS 升级 ws://192.168.1.24:3030/ws?token=***<span class="caret"></span></div>
+        </div>
+        <div style="flex:1"></div>
+        <!-- 取消 -->
+        <button data-testid="l2-act-cancel" class="btn btn-ghost" style="margin-bottom:calc(var(--safe-bot) + 12px)"><svg class="ic"><use href="#i-x"/></svg>取消连接</button>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L2-N</span><h2>连接中 · 免鉴权变体</h2><span class="lvl push">--no-token 部署 · authRequired=false</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nav-btn"></div>
+        <div class="nb-title mono" style="font-size:15px">192.168.1.50:3030</div>
+        <button data-testid="l2-act-cancel" class="nav-btn"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="content" style="padding:8px 16px 0;gap:12px">
+        <div style="display:flex;align-items:center;gap:13px;padding:4px 0">
+          <div style="width:52px;height:52px;border-radius:16px;background:var(--blue-dim);color:var(--blue);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic ic-l"><use href="#i-server"/></svg></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15.5px;font-weight:700">正在连接</div>
+            <div style="font-size:11px;color:var(--text-3);margin-top:3px">server-info 已返回 · 正在建立会话</div>
+          </div>
+          <span class="pill run"><span class="d"></span>连接中</span>
+        </div>
+        <div data-testid="l2-n-card-steps" class="card" style="overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border)">
+            <span class="sec-title" style="flex:1"><span class="d" style="background:var(--blue)"></span>连接进度 · 3/5</span>
+            <div class="todo-mini" style="width:120px"><div class="bar"><i style="width:60%"></i></div></div>
+          </div>
+          <div class="step-row">
+            <span class="step-ic done"><svg class="ic ic-s"><use href="#i-check"/></svg></span>
+            <span class="step-main"><span class="step-name">发现服务</span><div class="step-endpoint">GET /api/server-info</div></span>
+            <span class="step-meta">200 · 38ms</span>
+          </div>
+          <!-- 免鉴权第二态：--no-token 部署时本步直接打勾，文案「免鉴权」——不出现「校验通过」字样，也不要求令牌 -->
+          <div data-testid="l2-n-step-auth" class="step-row">
+            <span class="step-ic done"><svg class="ic ic-s"><use href="#i-check"/></svg></span>
+            <span class="step-main"><span class="step-name">免鉴权</span><div class="step-endpoint">--no-token · authRequired=false · 不校验令牌</div></span>
+            <span class="step-meta">免鉴权</span>
+          </div>
+          <div class="step-row">
+            <span class="step-ic run"><i class="spin"></i></span>
+            <span class="step-main"><span class="step-name">建立 WebSocket</span><div class="step-endpoint">ws://192.168.1.50:3030/ws · web-remote-replayable</div></span>
+            <span class="step-meta">…</span>
+          </div>
+          <div class="step-row">
+            <span class="step-ic pend"><i style="width:6px;height:6px;border-radius:50%;background:var(--border-strong);display:block"></i></span>
+            <span class="step-main"><span class="step-name pend">协议握手 v4</span><div class="step-endpoint">helloConversationV4 · clientKind=mobileApp</div></span>
+          </div>
+          <div class="step-row">
+            <span class="step-ic pend"><i style="width:6px;height:6px;border-radius:50%;background:var(--border-strong);display:block"></i></span>
+            <span class="step-main"><span class="step-name pend">载入工作区</span><div class="step-endpoint">workspaces[0] · ~/projects/zcode_mobile</div></span>
+          </div>
+        </div>
+        <div class="card" style="background:var(--bg-term);border-radius:12px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border)">
+            <svg class="ic ic-s" style="color:var(--text-3)"><use href="#i-term"/></svg>
+            <span class="mono" style="font-size:10.5px;color:var(--text-3)">connect.log</span>
+            <i class="spin" style="margin-left:auto"></i>
+          </div>
+          <div class="mono" style="padding:10px 12px;font-size:12px;line-height:1.75;color:var(--text-2);white-space:pre-wrap">
+<span style="color:var(--accent)">[ok]</span>  GET /api/server-info → 200 · 38ms
+<span style="color:var(--accent)">[ok]</span>  authRequired=false · --no-token（免鉴权）
+<span style="color:var(--code-lab)">[..]</span>  WS 升级 ws://192.168.1.50:3030/ws（无 token 段）<span class="caret"></span></div>
+        </div>
+        <div style="flex:1"></div>
+        <button data-testid="l2-act-cancel" class="btn btn-ghost" style="margin-bottom:calc(var(--safe-bot) + 12px)"><svg class="ic"><use href="#i-x"/></svg>取消连接</button>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>步骤模型（与接口一一对应）</h5>
+      <ul>
+        <li>五步 = 流程模型 03–06（见画布顶部）：发现 → 鉴权 → WS → v4 握手 → 工作区；每步完成打绿勾 + 耗时（mono），进行中蓝 spinner，未到灰虚线圈。</li>
+        <li><b>头部时序</b>：首次连接（扫码/剪贴板/手输）进本板时 name? 未知，标题以 <span class="mono">host:port</span> 占位，第 1 步返回后升级为「MacBook Pro」等名称；回连（已存名称）直接显示名称。</li>
+        <li><b>进度口径</b>：计数含「进行中」——2 完成 + 1 进行中 = 3/5，条宽 = 3÷5 = 60%；与 todo-mini 同构（蓝色进度令牌）。</li>
+        <li><b>免鉴权口径</b>：桌面端 <span class="mono">--no-token</span> 部署（authRequired=false）时，第 2 步显示「免鉴权 · authRequired=false」直接打勾——不出现「校验通过」字样；对应 L1-K 令牌栏留空合法。</li>
+        <li><b>超时阈值</b>：server-info 3s / WS 升级 5s / v4 握手 5s；超时自动重试 <b>1 次（指数退避）</b>，仍失败转 L3 对应错误行；超时排查必查<b>本地网络权限</b>（被拒时静默失败，见 L1「系统权限与降级」）。</li>
+        <li><b>严格校验</b>：server-info protocolVersion=1、v4 wire protocolVersion=3，不符即失败态「协议版本不匹配」（不静默降级，core.ts 声明协议未冻结）；第 5 步 workspaces 为空 → L3「工作区列表为空」第四态。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>加载态与取消</h5>
+      <ul>
+        <li>遵循规范 <b>5.9 加载态统一口径</b>：分步清单 + 单点 spinner，<b>不用骨架屏</b>；spinner 复用运行中蓝令牌（2.7，1s 线性）。</li>
+        <li>右上 ✕ 与底部「取消连接」均 <b>44px</b>，语义一致：立即中断并关闭 WS，<b>不留半开连接</b>；返回已保存服务器列表。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>安全与文案</h5>
+      <ul>
+        <li>日志与端点回显中令牌一律 <b>***</b> 掩码，不回显完整 token。</li>
+        <li>日志标签用 <code>--code-lab</code>、成功行用强调绿（对齐 5.8 终端口径：标签蓝紫 / ✓ 绿 / 光标闪烁）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>步骤行高 <b>≥44px</b>（信息型，不可点）；取消按钮 48px≥44；顶部 54 / 底部 <code>--safe-bot</code>。</li>
+        <li>成功收尾：第 5 步打勾后 250ms crossfade 进任务看板（屏 02），服务器写入「最近连接」与设置分组（L4）。</li>
+      </ul>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     板 L3 · 连接失败 / 错误态与重试
+     ============================================================ -->
+<section class="board" id="l3">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L3</span><h2>连接失败 · 错误与重试</h2><span class="lvl">L2 失败态 · 401 样张</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nav-btn"><svg class="ic"><use href="#i-chev-l"/></svg></div>
+        <div class="nb-title">连接失败</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:8px 16px 0;gap:12px">
+        <!-- 错误主卡（5.9 失败态统一模式） -->
+        <div class="card card-err" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="width:44px;height:44px;border-radius:13px;background:var(--red-dim);color:var(--red);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic"><use href="#i-alert"/></svg></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:15.5px;font-weight:700">无法验证访问令牌</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:5px;flex-wrap:wrap">
+                <span data-testid="l3-err-code" class="err-code">HTTP 401 · /api/server-info</span>
+                <span class="mono" style="font-size:10.5px;color:var(--text-3)">token=***qK2m</span>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:12.5px;color:var(--text-2);line-height:1.65">桌面端重启后令牌会重新生成（自动生成模式，无过期与撤销接口），旧令牌随即失效。<b style="color:var(--text)">重新扫码或粘贴新链接</b>即可更新。</div>
+        </div>
+        <!-- 恢复动作 -->
+        <button data-testid="l3-btn-rescan" class="btn btn-primary"><svg class="ic"><use href="#i-scan"/></svg>重新扫码更新令牌</button>
+        <div style="display:flex;gap:10px">
+          <button data-testid="l3-btn-retry" class="btn btn-ghost" style="flex:1;height:44px;font-size:13.5px"><svg class="ic ic-s"><use href="#i-refresh"/></svg>原配置重试</button>
+          <button data-testid="l3-btn-update-token" class="btn btn-ghost" style="flex:1.2;height:44px;font-size:13.5px"><svg class="ic ic-s"><use href="#i-key"/></svg>手动更新令牌</button>
+        </div>
+        <!-- 错误类型对照（四态） -->
+        <div style="display:flex;flex-direction:column;gap:7px;padding-top:2px">
+          <div class="sec-title">常见错误对照 · 4 态</div>
+          <div class="glist">
+            <div data-testid="l3-row-401" class="grow">
+              <div class="g-ic" style="color:var(--red)"><svg class="ic ic-s"><use href="#i-key"/></svg></div>
+              <div class="g-main"><div style="font-size:13.5px;font-weight:600">401 · 令牌不匹配</div><div class="g-sub">桌面重启后自动令牌轮换 → 重新扫码 / 粘贴新链接</div></div>
+            </div>
+            <div data-testid="l3-row-timeout" class="grow">
+              <div class="g-ic" style="color:var(--orange)"><svg class="ic ic-s"><use href="#i-wifi"/></svg></div>
+              <div class="g-main"><div style="font-size:13.5px;font-weight:600">超时 · 无法连接</div><div class="g-sub">同一局域网？<span class="mono">zcode --web</span> 运行中（端口 3030）？本地网络权限已允许（<b style="color:var(--text-2)">设置 → 隐私与安全性 → 本地网络</b>，被拒时请求静默失败）→ 重试</div></div>
+            </div>
+            <div data-testid="l3-row-protocol" class="grow">
+              <div class="g-ic" style="color:var(--violet)"><svg class="ic ic-s"><use href="#i-layers"/></svg></div>
+              <div class="g-main"><div style="font-size:13.5px;font-weight:600">协议版本不匹配</div><div class="g-sub">需 remote v1 / v4 wire v3 · 本端 v0.14.2 ↔ 服务端 v0.11.0 → 升级一端</div></div>
+            </div>
+            <div data-testid="l3-row-empty-ws" class="grow">
+              <div class="g-ic" style="color:var(--text-2)"><svg class="ic ic-s"><use href="#i-folder"/></svg></div>
+              <div class="g-main"><div style="font-size:13.5px;font-weight:600">工作区列表为空</div><div class="g-sub">在桌面端检查 <span class="mono">--workspace</span> / <span class="mono">ZCODE_SERVER_WORKSPACE</span> 配置 → 重试</div></div>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <!-- 危险动作 + 安全脚注 -->
+        <button data-testid="l3-btn-delete" class="btn btn-danger" style="height:44px;font-size:13.5px"><svg class="ic ic-s"><use href="#i-trash"/></svg>删除此服务器</button>
+        <div style="text-align:center;font-size:10.5px;color:var(--text-3);line-height:1.7;padding-bottom:calc(var(--safe-bot) + 10px)">令牌随桌面进程存活 · 删除将同时清除 Keychain 中的令牌<br>请仅在可信局域网使用 · wss:// 需自备反向代理</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>失败态统一模式（5.9）</h5>
+      <ul>
+        <li>结构 = 错误卡（图标 + 一句结论 + mono 错误码）+ <b>唯一主 CTA（重新扫码）</b> + 次级动作；不叠加超时重试动画。</li>
+        <li>主 CTA 按错误类型切换：<b>401 → 重新扫码</b>；超时 → 原配置重试为主；协议不符 → 升级指引为主（按钮文案与序位随错误类型重排）。</li>
+        <li>错误详情<b>掩码 token</b>（末 4 位），不回显完整凭据、不进日志。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>恢复矩阵</h5>
+      <ul>
+        <li><b>401</b>：桌面端重启后自动生成令牌轮换（runner.mjs:105-107，无撤销接口）→ 重扫即换新，无需删除服务器。</li>
+        <li><b>超时</b>：先提示自查三件事（同一局域网 / <span class="mono">zcode --web</span> 进程在跑 / <b>本地网络权限已允许</b>——iOS 拒绝权限后请求静默失败，与超时不可区分），再重试；重试保留凭据与表单态。</li>
+        <li><b>协议不符</b>：mono 并列两端版本；客户端按规范做严格校验 + 失败提示，不静默降级。</li>
+        <li><b>工作区列表为空</b>（L2 第 5 步失败落点）：server-info workspaces 为空 → 引导在桌面端检查 <span class="mono">--workspace</span> / <span class="mono">ZCODE_SERVER_WORKSPACE</span> 后重试（对应规范 9.1 步骤⑥）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>主按钮 <b>48px</b>；重试 / 更新令牌 / 删除 <b>44px</b>；删除走<b>二次确认 Sheet</b>（视觉样张见板 L5-S，selector <code>l5-sheet-del / l5-sheet-act-confirm / l5-sheet-act-cancel</code>）。</li>
+        <li>顶部 54 / 底部 <code>--safe-bot</code>；脚注距底 safe-bot+10。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>与其他屏的关系</h5>
+      <div class="flow-line">L2 任一步失败 → 携错误类型进入本板；「重新扫码」走相机模态（同 L1）；「手动更新令牌」→ L1-K 表单（仅令牌栏聚焦）；删除后回到 L1 首屏并移除最近连接卡。401 亦会出现在<b>已连接使用中</b>的断线重连场景（屏 13-③ 离线横幅的重连失败分支）。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     板 L4 · 设置 · 服务器与账户（我的页新增分组）
+     ============================================================ -->
+<section class="board" id="l4">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L4</span><h2>我的 · 服务器与账户分组</h2><span class="lvl root">Tab 4 根 · 屏 12 增量</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div style="flex:none;padding:6px 16px 0;font-size:22px;font-weight:800">我的</div>
+      <div class="content" style="padding-top:12px;gap:11px;overflow:hidden">
+        <!-- 用户卡（与屏 12 同构） -->
+        <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--grad-usercard)">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:48px;height:48px;border-radius:50%;background:var(--grad-avatar);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:#fff">M</div>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:16.5px;font-weight:800">Mac</span><span class="pill done" style="padding:2px 8px">Coding Plan</span></div>
+              <div style="font-size:11.5px;color:var(--text-3);margin-top:2px">GLM-5.3-Flash · 本周期至 10/31</div>
+            </div>
+            <svg class="ic" style="color:var(--text-3)"><use href="#i-chev-r"/></svg>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin-bottom:5px"><span>套餐剩余额度</span><span class="mono" style="color:var(--accent)">68%</span></div>
+            <div style="height:6px;border-radius:3px;background:var(--bg-input);overflow:hidden"><i style="display:block;width:68%;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent-press),var(--accent))"></i></div><!-- 渐变端点走令牌（Light 档随 2.2 映射；基准稿屏 12 为内联 #1f9e5f，本稿按 9.6 令牌纪律收编） -->
+          </div>
+        </div>
+        <!-- ★ v2.4 新增分组：服务器与账户 -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">服务器与账户<span class="pill tag" style="padding:2px 8px;font-size:10px">v2.4 新增</span></div>
+          <div class="glist">
+            <div data-testid="l4-row-server" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-monitor"/></svg></div>
+              <div class="g-main"><div>服务器</div><div class="g-sub"><i class="dot on"></i>MacBook Pro · 192.168.1.24:3030 · 在线<!-- 多台时副标题=最近连接一台，值列显示 N --> </div></div>
+              <div class="g-val">已连接 1</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="l4-row-token" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-key"/></svg></div>
+              <div class="g-main"><div>访问令牌</div><div class="g-sub mono">Keychain · ••••••••qK2m</div></div>
+              <div class="g-val">更新</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="l4-row-account" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-user"/></svg></div>
+              <div class="g-main"><div>账户</div><div class="g-sub">Coding Plan · Mac · 云端分享与额度<!-- 两态：已登录（本样张）/ 未登录（副标题「连接桌面端无需登录」，点击仍进 L4-B） --></div></div>
+              <div class="g-val">已登录</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="l4-row-add" class="grow" style="min-height:48px">
+              <div class="g-ic" style="color:var(--accent-text)"><svg class="ic ic-s"><use href="#i-plus"/></svg></div>
+              <div class="g-main"><div>添加服务器</div><div class="g-sub">扫码 / 剪贴板 / 手动输入</div></div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+          </div>
+        </div>
+        <!-- 设备与远控（沿用屏 12 分组，此处为上下文背景） -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">设备与远控</div>
+          <div class="glist">
+            <div class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-monitor"/></svg></div>
+              <div class="g-main"><div>配对设备</div><div class="g-sub"><i class="dot on"></i>MacBook Pro · 在线 · 已授权 2 个目录</div></div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-chat"/></svg></div>
+              <div class="g-main"><div>IM Bot 远控</div><div class="g-sub">微信 / 飞书 / Lark / Telegram</div></div>
+              <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text-2);background:var(--bg-input);border-radius:999px;padding:2px 8px"><i class="dot on"></i>已绑定 1</span>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+          </div>
+        </div>
+        <!-- 基础设置（低频组，滚动裁切示意） -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">基础设置</div>
+          <div class="glist">
+            <div class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-sliders"/></svg></div>
+              <div class="g-main"><div>模型设置</div></div>
+              <div class="g-val">GLM-5.3-Flash</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-moon"/></svg></div>
+              <div class="g-main"><div>外观</div></div>
+              <div class="g-val">深色 · 跟随系统</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Tab 栏（Tab 4 根必带；复用组件选择器单源：正式 testid 以主稿 12-tab-* 为准，专项稿不另标） -->
+      <div class="tabbar">
+        <div class="tab"><span class="badge blue">2</span><svg class="ic ic-l"><use href="#i-inbox"/></svg>任务</div>
+        <div class="tab"><span class="badge">1</span><svg class="ic ic-l"><use href="#i-chat"/></svg>对话</div>
+        <div class="tab"><span class="badge">2</span><svg class="ic ic-l"><use href="#i-diff"/></svg>审查</div>
+        <div class="tab active"><svg class="ic ic-l"><use href="#i-user"/></svg>我的</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L4-B</span><h2>服务器与账户 · 配置区</h2><span class="lvl push">Push · 自「服务器 / 账户」行进入</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nav-btn"><svg class="ic"><use href="#i-chev-l"/></svg></div>
+        <div class="nb-title">服务器与账户</div>
+        <div class="nb-side"></div>
+      </div>
+      <div class="content" style="padding:4px 16px 0;gap:12px">
+        <!-- 已登录账号（OAuth 账户层） -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">账户<span style="font-weight:500;color:var(--text-3);font-size:10.5px">OAuth · tokenSet 仅存 Keychain</span></div>
+          <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div class="avatar" style="width:48px;height:48px;font-size:19px">M</div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:15.5px;font-weight:800">Mac</span><span class="pill done" style="padding:2px 8px">ZAI</span></div>
+                <div style="font-size:11.5px;color:var(--text-3);margin-top:2px"><span class="mono">@mac</span> · Coding Plan · 剩余额度 68%</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px">
+              <button data-testid="l4-b-act-logout" class="btn btn-danger" style="flex:1;height:44px;font-size:13.5px"><svg class="ic ic-s"><use href="#i-x"/></svg>退出登录</button>
+              <button data-testid="l4-b-act-refresh" class="btn btn-ghost" style="flex:1;height:44px;font-size:13.5px"><svg class="ic ic-s"><use href="#i-refresh"/></svg>刷新额度</button>
+            </div>
+          </div>
+          <!-- 未登录形态（只配对不登录）：账户区整块保留但切换为登录引导卡；退出登录/刷新额度两按钮对该形态不渲染 -->
+          <div class="sample-card">
+            <span class="s-tag">未登录形态样例 · 只配对不登录</span>
+            <div data-testid="l4-b-card-login" style="display:flex;align-items:center;gap:12px">
+              <div style="width:48px;height:48px;border-radius:50%;background:var(--bg-input);color:var(--text-3);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic"><use href="#i-user"/></svg></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:14px;font-weight:700">未登录</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:2px">连接桌面端无需登录 · 登录仅用于云端分享与额度</div>
+              </div>
+              <div class="btn btn-primary" style="height:44px;padding:0 16px;font-size:13px;border-radius:12px;flex:none">使用 Z.ai 账号登录</div>
+            </div>
+          </div>
+          <!-- 已过期形态样例：expiresAt 已过 / 后续请求 401 —— 仅账户层失效，要求重新登录（9.5：过期不做静默续期）；已保存服务器与连接令牌不受影响 -->
+          <div class="sample-card">
+            <span class="s-tag">已过期形态样例 · expiresAt 已过 / 请求 401</span>
+            <div data-testid="l4-b-card-expired" style="display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:center;gap:12px">
+                <div class="avatar" style="width:48px;height:48px;font-size:19px;opacity:.55">M</div>
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px"><span style="font-size:14px;font-weight:700">Mac</span><span class="pill wait" style="padding:2px 8px">登录已过期</span></div>
+                  <div style="font-size:11px;color:var(--text-3);margin-top:2px"><span class="mono">expiresAt=2026-10-01 09:41</span> · 后续请求 401 → 引导重登</div>
+                </div>
+              </div>
+              <div class="btn btn-primary" style="height:44px;font-size:13.5px;border-radius:12px"><svg class="ic ic-s"><use href="#i-refresh"/></svg>重新登录</div>
+              <div style="font-size:10.5px;color:var(--text-3);line-height:1.6">仅清除/失效账户层 tokenSet，连接功能与已保存服务器不受影响；重登走 O1 主按钮（重置一次性 state），不做静默续期</div>
+            </div>
+          </div>
+        </div>
+        <!-- 服务地址与令牌编辑（连接层） -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">服务地址与令牌<span style="font-weight:500;color:var(--text-3);font-size:10.5px">服务器密码 · Keychain</span></div>
+          <div class="glist">
+            <div data-testid="l4-b-row-host" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-server"/></svg></div>
+              <div class="g-main"><div>服务地址</div><div class="g-sub mono">http://192.168.1.24:3030 · MacBook Pro</div></div>
+              <div class="g-val">编辑</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div data-testid="l4-b-row-token" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-key"/></svg></div>
+              <div class="g-main"><div>访问令牌</div><div class="g-sub mono">••••••••••••qK2m · 无过期，随桌面进程存活</div></div>
+              <div class="g-val">更新</div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+          </div>
+        </div>
+        <!-- 连接测试 -->
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="sec-title">连接测试<span style="font-weight:500;color:var(--text-3);font-size:10.5px">GET /api/server-info · 1.5s 超时</span></div>
+          <div class="card" style="overflow:hidden">
+            <div data-testid="l4-b-test-result" class="grow" style="min-height:44px;border-bottom:1px solid var(--border)">
+              <div class="g-ic" style="color:var(--accent-text)"><svg class="ic ic-s"><use href="#i-check"/></svg></div>
+              <div class="g-main">
+                <div style="font-size:13px;font-weight:600">可达 · 200 OK · 42ms</div>
+                <div class="g-sub mono">srv_9f2c81ab… · v0.14.2 · authRequired=true · protocolVersion=1</div>
+              </div>
+            </div>
+            <div data-testid="l4-b-act-test" class="grow" style="min-height:44px;color:var(--accent-text);font-weight:600;font-size:13.5px;justify-content:center">
+              <svg class="ic ic-s" style="margin-right:6px"><use href="#i-refresh"/></svg>重新测试
+            </div>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="text-align:center;font-size:10.5px;color:var(--text-3);line-height:1.7;padding-bottom:calc(var(--safe-bot) + 10px)">退出登录仅清除账户层凭据（tokenSet），不影响已保存的服务器与令牌<br>删除服务器请前往服务器详情（L5）</div>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>分组位置与信息组织</h5>
+      <ul>
+        <li>「服务器与账户」<b>插于用户卡后第一组</b>：连接是本 App 的根依赖（无服务器 = 空态），使用频率高于其余分组；其余分组顺延，低频组允许滚动裁切（同屏 12 规则）。</li>
+        <li><b>服务器行</b>：副标题 = 名称 + mono 地址 + 中性绿点在线态（5.1 解耦规则：在线≠任务状态）；值列「已连接 1」；点击 → L5 服务器详情。<b>多服务器落点（MVP 口径）</b>：N&gt;1 时本行跳转<b>最近连接的一台</b>（副标题地址即该台），无独立列表页——多台管理以「L4-B 配置区 / L5 详情」单台维度承载，服务器列表页列为后续扩展（规范 9.7）。</li>
+        <li><b>访问令牌行</b>：mono 掩码（末 4 位）+ 存储位置；点击 → 更新（重新扫码或手动粘贴，同 L1-K 表单）。</li>
+        <li><b>账户行</b>：Coding Plan（OAuth）账户层管理入口——登录主页（O1）OAuth 主按钮完成首次登录后，账户管理收拢于此行 → L4-B 配置区（头像 / 昵称 / 退出登录）。<b>两态</b>：已登录（值列「已登录」，本样张）/ <b>未登录</b>（值列「未登录」，副标题「连接桌面端无需登录」，点击仍进 L4-B 见未登录形态样例卡——本稿核心模型为两路径独立，只配对不登录亦可使用）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>行高 <b>48px</b>（≥44px 底线）、左 30px 图标位、右 16px 箭头，<b>整行可点</b>（5.7 设置行规格）。</li>
+        <li>Tab 栏总高 <b>95px</b>（390 基准实测：7 + 48 + 6 + 安全区 34）；Tab 热区 ≥64×48px。</li>
+        <li>顶部 54 / 底部 <code>--safe-bot</code>，Tab 栏自带安全区内边距。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>选择器与数据</h5>
+      <ul>
+        <li>新增元素按 5.10 三段式标注 <code>l4-row-server / l4-row-token / l4-row-account / l4-row-add</code>；<b>Tab 栏为复用组件，选择器单源</b>——正式 testid 以主稿 <code>12-tab-*</code> 为准，专项稿不另标；其余沿用屏 12 的既有行（配对设备 / IM Bot / 基础设置）在本板为背景上下文，正式选择器仍以主设计稿 <code>12-row-*</code> 为准。</li>
+        <li>服务器数据源：server-info 的 serverId/name/version/workspaces；在线点为探测结果（同 L1），不冒充长连状态。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>配置区（L4-B）· 职责与语义</h5>
+      <ul>
+        <li><b>已登录账号</b>：displayName + <span class="mono">@username</span> + avatarUrl 头像位（同 O3-A 渲染规则）；<b>退出登录</b>红描边 44px + <b>二次确认 Sheet</b>（同构复用板 L5-S 样张，标题/说明换为账户口径，selector <code>l4-b-sheet-logout / l4-b-sheet-act-confirm / l4-b-sheet-act-cancel</code>）：仅清除账户层 tokenSet，<b>不影响已保存服务器与连接令牌</b>——两层凭据独立，见 9.3。下拉不可关闭，必须显式二选一（不可逆操作）。</li>
+        <li><b>服务地址与令牌编辑</b>：服务地址行 → L1-K 表单（仅地址栏聚焦）；令牌行 → 更新（重扫 / 粘贴新链接）；均整行 48px 可点。</li>
+        <li><b>连接测试</b>：后台 <span class="mono">GET /api/server-info</span>（1.5s 超时，同在线点探测口径）——结果行展示可达性 / 延迟 / serverId / 版本 / authRequired / protocolVersion；「重新测试」44px。<b>测试仅探测，不建立 WS 会话</b>。</li>
+        <li>选择器：<code>l4-b-act-logout / l4-b-act-refresh / l4-b-row-host / l4-b-row-token / l4-b-test-result / l4-b-act-test</code>。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>对应接口（转引）</h5>
+      <div class="flow-line">ServerRemoteInfo{serverId, name?, version, protocolVersion:1, authRequired, workspaces[{path,label,workspaceIdentity}], capabilities}（server-remote.ts:19-38）；初始工作区取 <b>workspaces[0]</b>（与桌面 Web 端 main.tsx:370-388 同款逻辑）。</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ============================================================
+     板 L5 · 服务器详情（Push 二级页）
+     ============================================================ -->
+<section class="board" id="l5">
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L5</span><h2>服务器详情 · 连接确认</h2><span class="lvl push">Push L2 · 右滑返回</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <div class="navbar">
+        <div class="nav-btn"><svg class="ic"><use href="#i-chev-l"/></svg></div>
+        <div class="nb-title">MacBook Pro</div>
+        <div class="nb-side" style="justify-content:flex-end">
+          <div data-testid="l5-act-more" class="nav-btn"><svg class="ic"><use href="#i-more"/></svg></div>
+        </div>
+      </div>
+      <div class="content" style="padding-top:4px;gap:10px;overflow:hidden">
+        <!-- 连接信息卡（server-info 只读回显；字段行 4 行压缩口径，整卡 ≤160px） -->
+        <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:40px;height:40px;border-radius:12px;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic"><use href="#i-monitor"/></svg></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:15.5px;font-weight:800"><span class="dot on"></span>MacBook Pro</div>
+              <div style="font-size:11px;color:var(--text-3);margin-top:1px">上次连接 · 昨天 22:41</div>
+            </div>
+            <!-- 在线状态仅用中性绿点（5.1 解耦规则），不叠加任务状态胶囊 -->
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;border-top:1px solid var(--border);padding-top:8px">
+            <div style="display:flex;justify-content:space-between;gap:10px;font-size:11px"><span style="color:var(--text-3)">地址</span><span class="mono" style="color:var(--text-2)">http://192.168.1.24:3030</span></div>
+            <div style="display:flex;justify-content:space-between;gap:10px;font-size:11px"><span style="color:var(--text-3)">serverId</span><span class="mono" style="color:var(--text-2)">srv_9f2c81ab…</span></div>
+            <div style="display:flex;justify-content:space-between;gap:10px;font-size:11px"><span style="color:var(--text-3)">版本</span><span class="mono" style="color:var(--text-2)">v0.14.2</span></div>
+            <div style="display:flex;justify-content:space-between;gap:10px;font-size:11px"><span style="color:var(--text-3)">协议 · 鉴权</span><span class="mono" style="color:var(--text-2)">remote v1 · v4 v3 · authReq=true</span></div>
+          </div>
+        </div>
+        <!-- 工作区 -->
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div class="sec-title">工作区 · 2<span style="font-weight:500;color:var(--text-3);font-size:11px">默认取 server-info workspaces[0]</span></div>
+          <div class="glist">
+            <div data-testid="l5-row-ws-0" class="grow row-selected" style="min-height:48px">
+              <div style="width:20px;height:20px;border-radius:50%;border:6px solid var(--accent);flex:none"></div>
+              <div class="g-main"><div class="mono" style="font-size:12.5px">~/projects/zcode_mobile</div><div class="g-sub">zcode_mobile · 当前 · workspaces[0]</div></div>
+              <svg class="ic ic-s" style="color:var(--accent-text)"><use href="#i-check"/></svg>
+            </div>
+            <div data-testid="l5-row-ws-1" class="grow" style="min-height:48px">
+              <div style="width:20px;height:20px;border-radius:50%;border:1.5px solid var(--border-strong);flex:none"></div>
+              <div class="g-main"><div class="mono" style="font-size:12.5px;color:var(--text-2)">~/projects/zcode</div><div class="g-sub">zcode</div></div>
+            </div>
+          </div>
+        </div>
+        <!-- 能力 chips（标题与 chips 同行、注释压为一行，详细双源口径见本板标注与规范 9.3 ⑤） -->
+        <div class="card" style="padding:10px 14px;display:flex;flex-direction:column;gap:7px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="sec-title" style="font-size:12px">服务端能力</span>
+            <span class="pill tag">websocketRpc</span>
+            <span class="pill tag">desktopContinuous</span>
+            <span class="pill tag">processResourceTelemetry</span>
+          </div>
+          <div style="font-size:10.5px;color:var(--text-3);line-height:1.5">chips = <span class="mono">server-info.capabilities</span>（仅展示）；<span class="mono">clientHello</span> 口径另源，见下标注</div>
+        </div>
+        <!-- 令牌与安全 -->
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div class="sec-title">令牌与安全</div>
+          <div class="glist">
+            <div data-testid="l5-row-token-update" class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-key"/></svg></div>
+              <div class="g-main"><div>更新令牌</div><div class="g-sub mono">Keychain · ••••••••qK2m · 401 时重扫</div></div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+            <div class="grow" style="min-height:48px">
+              <div class="g-ic"><svg class="ic ic-s"><use href="#i-shield"/></svg></div>
+              <div class="g-main"><div>传输安全</div><div class="g-sub">当前 ws:// 无加密 · 可信局域网 / 反向代理启用 wss</div></div>
+              <svg class="ic ic-s chev"><use href="#i-chev-r"/></svg>
+            </div>
+          </div>
+        </div>
+        <!-- 危险动作 -->
+        <div class="glist">
+          <div data-testid="l5-act-del" class="grow" style="min-height:48px;color:var(--red);font-weight:600">
+            <div class="g-ic" style="color:var(--red)"><svg class="ic ic-s"><use href="#i-trash"/></svg></div>
+            <div class="g-main"><div>删除此服务器</div><div class="g-sub">二次确认后清除 Keychain 令牌</div></div>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <!-- 主按钮 -->
+        <button data-testid="l5-btn-connect" class="btn btn-primary" style="margin-bottom:calc(var(--safe-bot) + 10px)"><svg class="ic"><use href="#i-link"/></svg>立即连接</button>
+      </div>
+      <div class="home-indicator"></div>
+    </div></div>
+  </div>
+  <div class="board-col">
+    <div class="board-tag"><span class="num">L5-S</span><h2>危险操作二次确认 Sheet</h2><span class="lvl push">模态 · 删除服务器样张（退出登录同构）</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb-icons"><svg class="ic ic-s" style="stroke-width:2.4"><use href="#i-signal"/></svg><svg class="ic ic-s" style="stroke-width:2.2"><use href="#i-wifi"/></svg><i class="sb-batt"></i></span></div>
+      <!-- 背景页压暗 + 缩放 0.96（2.7 Sheet 规范；此处以遮罩呈现） -->
+      <div class="scrim"></div>
+      <div class="navbar" style="position:relative;z-index:41;opacity:.55">
+        <div class="nav-btn"><svg class="ic"><use href="#i-chev-l"/></svg></div>
+        <div class="nb-title">MacBook Pro</div>
+        <div class="nb-side"></div>
+      </div>
+      <!-- 底部确认 Sheet（升起 250ms spring；下拉不可关闭——删除为不可逆操作，必须显式二选一） -->
+      <div data-testid="l5-sheet-del" style="position:absolute;left:0;right:0;bottom:0;z-index:50;background:var(--bg-elevated);border-radius:24px 24px 0 0;box-shadow:var(--sh-sheet);padding:8px 16px calc(var(--safe-bot) + 12px);display:flex;flex-direction:column;gap:12px">
+        <div style="width:36px;height:4px;border-radius:2px;background:var(--border-strong);margin:0 auto"></div>
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="width:44px;height:44px;border-radius:13px;background:var(--red-dim);color:var(--red);display:flex;align-items:center;justify-content:center;flex:none"><svg class="ic"><use href="#i-trash"/></svg></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:16px;font-weight:800">删除「MacBook Pro」？</div>
+            <div style="font-size:12px;color:var(--text-2);margin-top:4px;line-height:1.6">将清除本机 Keychain 中的访问令牌与最近连接记录；桌面端服务不受影响，可随时重新扫码添加。</div>
+          </div>
+        </div>
+        <button data-testid="l5-sheet-act-confirm" class="btn btn-danger" style="width:100%"><svg class="ic ic-s"><use href="#i-trash"/></svg>删除服务器</button>
+        <button data-testid="l5-sheet-act-cancel" class="btn btn-ghost" style="width:100%;height:48px">取消</button>
+      </div>
+      <div class="home-indicator" style="z-index:60"></div>
+    </div></div>
+  </div>
+  <aside class="notes">
+    <div class="note-block">
+      <h5>导航与层级</h5>
+      <ul>
+        <li>自 L4「服务器」行 / 首次连接确认进入；<b>Push L2</b>：隐藏 Tab 栏 + 右缘滑入 + iOS 右滑返回；返回键 44px、右上 ⋯ 菜单 44px（编辑名称 / 复制地址 44px 项）。</li>
+        <li><b>Android 面包屑</b>（3.2）：标题下 12px 可点细条 <span class="mono">我的 › 服务器与账户 › MacBook Pro</span>；iOS 不渲染。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>连接确认职责（调研绑定建议）</h5>
+      <ul>
+        <li>用 <b>serverId + version 做连接确认</b>：字段卡为 server-info 只读回显，帮助用户核对「连的是哪台机、哪个版本」。</li>
+        <li><b>工作区单选</b>：按 workspaces 顺序渲染，默认 <b>workspaces[0]</b>；切换即改本机偏好（不上传）。</li>
+        <li>能力 chips 用 <code>.pill tag</code>（紫 = 能力/生态语义，非任务状态）；<b>双源口径</b>：chips=server-info.capabilities（展示），clientHello.capabilities=按握手 HelloMessage.capabilities 宣告键取子集（agentV4ConnectionHandshake.ts:42-67 单向规则，转引）。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>触控与安全区</h5>
+      <ul>
+        <li>工作区行 / 令牌行 / 安全行 / 删除行高 <b>48px</b> 整行可点；「立即连接」主按钮 <b>48px</b>，距底 <code>--safe-bot + 12px</code>。</li>
+        <li>删除需<b>二次确认 Sheet</b>（本板第二帧 L5-S 样张：<code>l5-sheet-del / l5-sheet-act-confirm / l5-sheet-act-cancel</code>）——底部升起、背景压暗 + 缩放 0.96（2.7 Sheet 规范）；<b>下拉不可关闭</b>，必须显式二选一；红描边确认钮 + 说明文案（清除 Keychain 令牌 + 最近连接记录，桌面端不受影响）。<b>L4-B「退出登录」同构复用本 Sheet</b>（文案换为账户口径）。</li>
+        <li><b>几何口径</b>：主帧内容按 390×844 实测压缩（状态栏 54 + 导航 52 → content 738px）——信息卡 4 字段行、能力卡标题与 chips 同行、注释压一行，全内容 ≤738px，「删除此服务器」与「立即连接」<b>不裁切</b>；实现允许本页纵向滚动兜底。</li>
+      </ul>
+    </div>
+    <div class="note-block">
+      <h5>已知边界（如实标注）</h5>
+      <div class="flow-line">本板不提供「切换 relay / 桌面会话复用」入口：/ws/host + rpc-host-capability 的桌面侧客户端不在开源仓库（gaps），MVP 不出 UI；协议同构，后续接入仅替换发现/鉴权层。Bot 绑定码（6 位 HEX/30s TTL）为聊天账号↔工作区绑定，<b>不作为 WS 接入凭据</b>，本板不出现。</div>
+    </div>
+  </aside>
+</section>
+
+</main>
+
+<!-- 页脚 -->
+<footer style="max-width:1560px;margin:0 auto;padding:0 40px 80px;color:var(--text-3);font-size:12px;line-height:1.9">
+  <div style="height:1px;background:var(--border);margin-bottom:24px"></div>
+  BiuZ 移动端 · 登录与连接专项稿（v2.4）· 390×844 基准 · 与基准稿 zcode-mobile-design.html（屏 01–14）同令牌、同组件，只增不改。<br>
+  双路径板流向：<b>O1 登录主页（OAuth 主按钮 + 连接桌面端次入口 + BigModel 高级选项）→ O2 OAuth 授权（应用内授权 Sheet / 回调拦截与令牌交换）→ O3 OAuth 结果（成功 displayName·avatarUrl / 失败取消重试）</b>；<b>L1 默认连接页（含 L1-K 键盘态）→ L2 连接中（五步进度）→ L3 失败/重试（401 · 超时 · 协议 · 空工作区四态）→ L4 设置「服务器与账户」（分组 + 配置区：退出登录 / 地址令牌编辑 / 连接测试）→ L5 服务器详情（server-info 确认 + workspaces[0]）</b>。两路径互相独立：登录为账户层、配对为连接层。<br>
+  状态语义沿用：进行中=蓝 · 已完成=绿 · 失败/危险=红 · 能力/生态=紫（非任务状态）；连接在线点为中性绿点（5.1 解耦）。触控 ≥44px、可聚焦输入 16px、可读文字 ≥4.5:1；账户凭据（tokenSet）与服务器令牌（访问令牌）均仅存 Keychain，无 TLS 仅限可信局域网。
+</footer>
+
+</body>
+</html>

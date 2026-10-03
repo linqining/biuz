@@ -1,0 +1,98 @@
+name: ZCodeMobile
+options:
+  bundleIdPrefix: cn.biuz
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+
+targets:
+  ZCodeMobile:
+    type: application
+    platform: iOS
+    sources:
+      - path: ZCodeMobileApp/Sources
+      - path: ZCodeMobileApp/Resources/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cn.biuz.mobile
+        PRODUCT_NAME: ZCodeMobile
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: "NO"
+        ENABLE_PREVIEWS: "YES"
+        SWIFT_EMIT_LOC_STRINGS: "YES"
+    info:
+      path: ZCodeMobileApp/Info.plist
+      properties:
+        CFBundleDisplayName: BiuZ
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIUserInterfaceStyle: Automatic
+        ITSAppUsesNonExemptEncryption: false
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        # OAuth 回调（绑定假设 9.7.7：redirect_uri = zcode://oauth/callback）
+        CFBundleURLTypes:
+          - CFBundleURLName: cn.biuz.mobile.oauth
+            CFBundleURLSchemes:
+              - zcode
+        # 系统权限（L1「系统权限三闸」：本地网络 / 相机；剪贴板为系统级「允许粘贴」无 Info 键）
+        NSLocalNetworkUsageDescription: 用于查找并连接同一局域网内的桌面端 Agent 服务（ZCode 社区版桌面端）
+        NSCameraUsageDescription: 扫描桌面端出示的连接二维码，用于配对连接
+        # ATS 例外：局域网 http（zcode --web 无 TLS）；OAuth 令牌端点保持 https 不受影响
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+
+  ZCodeMobileUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: ZCodeMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cn.biuz.mobile.uitests
+        GENERATE_INFOPLIST_FILE: "YES"
+        TEST_TARGET_NAME: ZCodeMobile
+
+  # 只读边界纯函数单测（@testable 需 unit-test bundle 链接 host app；UI-test bundle 链接不可行）
+  ZCodeMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: UnitTests
+    dependencies:
+      - target: ZCodeMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cn.biuz.mobile.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+
+schemes:
+  ZCodeMobile:
+    build:
+      targets:
+        ZCodeMobile: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - ZCodeMobileUITests
+        - ZCodeMobileTests

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960" width="960" height="960">
+  <!-- BiuZ 单标(透明底, 正方形画布内容居中): 一道 biu 彗星划出 Z。用于登录页 84px 品牌位、README、启动图。
+       彗星主体为单一填充路径 + 垂直透明度渐变, 无叠印, 深浅底均可读 -->
+  <defs>
+    <linearGradient id="m-fade" gradientUnits="userSpaceOnUse" x1="0" y1="242" x2="0" y2="690">
+      <stop offset="0" stop-color="#32f08c" stop-opacity=".44"/>
+      <stop offset=".45" stop-color="#32f08c" stop-opacity=".66"/>
+      <stop offset="1" stop-color="#32f08c" stop-opacity=".97"/>
+    </linearGradient>
+    <radialGradient id="m-head" cx="36%" cy="32%" r="78%">
+      <stop offset="0" stop-color="#eafff4"/>
+      <stop offset=".22" stop-color="#8ff8c0"/>
+      <stop offset=".55" stop-color="#32f08c"/>
+      <stop offset="1" stop-color="#1ba968"/>
+    </radialGradient>
+    <filter id="m-blurS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="12"/></filter>
+    <filter id="m-blurXS" x="-160%" y="-160%" width="420%" height="420%"><feGaussianBlur stdDeviation="2.5"/></filter>
+    <filter id="m-blurL" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="34"/></filter>
+  </defs>
+
+  <g transform="translate(-11,-29)">
+    <!-- 尾迹断点: 速度线 -->
+    <g fill="none" stroke="#32f08c" stroke-linecap="round">
+      <path d="M150 242 L182 242" stroke-width="16" stroke-opacity="0.13"/>
+      <path d="M214 242 L262 242" stroke-width="22" stroke-opacity="0.22"/>
+      <path d="M300 242 L360 242" stroke-width="28" stroke-opacity="0.32"/>
+    </g>
+    <!-- 彗星主体: 连续锥形轮廓 -->
+    <path d="M398 257 L688 259.9 L686.1 259.8 L684.3 259.5 L682.5 259.1 L680.8 258.4 L679.1 257.6 L677.5 256.5 L676.1 255.4 L674.7 254.1 L673.6 252.6 L672.5 251.1 L671.7 249.4 L671 247.7 L670.5 245.9 L670.2 244 L670.1 242.2 L670.2 240.3 L670.4 238.5 L670.9 236.7 L671.5 234.9 L672.4 233.2 L673.4 231.7 L674.5 230.2 L270 667.3 L220.1 721.2 L700 742 L705.4 741.7 L710.8 740.9 L716.1 739.5 L721.2 737.5 L726 735 L730.6 732.1 L734.8 728.6 L738.6 724.8 L742.1 720.6 L745 716 L747.5 711.2 L749.5 706.1 L750.9 700.8 L751.7 695.4 L752 690 L751.7 684.6 L750.9 679.2 L749.5 673.9 L747.5 668.8 L745 664 L742.1 659.4 L738.6 655.2 L734.8 651.4 L730.6 647.9 L726 645 L721.2 642.5 L716.1 640.5 L710.8 639.1 L705.4 638.3 L700 638 L700 638 L296 655.5 L299.6 655.7 L303.1 656.2 L306.6 657.1 L310 658.4 L313.2 660 L316.2 662 L319 664.2 L321.5 666.8 L323.8 669.5 L325.8 672.5 L327.4 675.7 L328.8 679.1 L329.7 682.5 L330.3 686.1 L330.5 689.7 L330.4 693.3 L329.8 696.8 L329 700.3 L327.7 703.7 L326.1 706.9 L324.2 709.9 L322 712.7 L726.4 223.7 L688 224.1 L398 227 L399.6 227.1 L401.1 227.3 L402.6 227.7 L404.1 228.3 L405.5 229 L406.8 229.9 L408 230.9 L409.1 232 L410.1 233.2 L411 234.5 L411.7 235.9 L412.3 237.4 L412.7 238.9 L412.9 240.4 L413 242 L412.9 243.6 L412.7 245.1 L412.3 246.6 L411.7 248.1 L411 249.5 L410.1 250.8 L409.1 252 L408 253.1 L406.8 254.1 L405.5 255 L404.1 255.7 L402.6 256.3 L401.1 256.7 L399.6 256.9 L398 257 Z" fill="url(#m-fade)"/>
+    <!-- biu 亮核 -->
+    <circle cx="736" cy="690" r="140" fill="#32f08c" opacity=".38" filter="url(#m-blurL)"/>
+    <circle cx="736" cy="690" r="104" fill="url(#m-head)"/>
+    <circle cx="700" cy="644" r="24" fill="#ffffff" opacity=".2" filter="url(#m-blurS)"/>
+    <circle cx="700" cy="644" r="10" fill="#ffffff" opacity=".85" filter="url(#m-blurXS)"/>
+  </g>
+</svg>
