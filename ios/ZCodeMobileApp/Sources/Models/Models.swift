@@ -139,11 +139,15 @@ struct WorkflowActorSummary: Identifiable, Equatable {
     var phaseName: String?
     /// G-021：子代理会话 id（桌面 workflowRunActorSchema.sessionId；nil = 无下钻入口）
     var sessionId: String?
+    /// 任务计数（桌面 actor 行「N 个任务」；字段宽容解析，nil = 不展示计数）
+    var tasksTotal: Int?
+    var tasksSettled: Int?
 
     var status: WorkflowStepStatus {
         switch rawStatus {
-        case "running": return .running
-        case "completed": return .done
+        case "running", "active", "executing", "dispatched": return .running
+        case "completed", "done", "settled", "finished", "succeeded": return .done
+        case "errored", "failed", "cancelled", "aborted": return .failed
         default: return .pending
         }
     }
@@ -151,7 +155,7 @@ struct WorkflowActorSummary: Identifiable, Equatable {
 
 /// 会话 workflow run 只读投影（UI 不新增发送命令）。
 /// resumable/truncated 为 CLI 算好透传的字段（桌面基准：UI 绝不自推导），只读展示。
-struct WorkflowRunSummary: Equatable {
+struct WorkflowRunSummary: Identifiable, Equatable {
     var id: String
     var name: String
     /// 桌面五态原词（pending|running|completed|errored|stopped）
@@ -165,6 +169,12 @@ struct WorkflowRunSummary: Equatable {
     var pendingQuestionsCount: Int = 0
     var concurrency: Int?
     var concurrencyCeiling: Int?
+    /// 子代理模型（桌面 amendWorkflowRunSettings 的 subagentModel 同名透传；nil = 跟随主模型）
+    var subagentModel: String?
+    /// 运行取消（桌面 workflow 卡 cancellable → cancelBackgroundWork）
+    var cancellable: Bool = false
+    /// 控制/设置命令的定位键（run 对象自带 workId；缺席时以 runId 充当，web 同构）
+    var workId: String?
 
     /// 站点灯四态映射（stopped→pending，UI 另以文案区分「已停止」）
     var status: WorkflowStepStatus { WorkflowStepStatus.mapRunStatus(rawStatus) }
@@ -172,6 +182,56 @@ struct WorkflowRunSummary: Equatable {
 
     /// 进度点计数（done 节点 / 总节点）
     var doneCount: Int { nodes.filter { $0.status == .done }.count }
+}
+
+// MARK: - 会话面板投影（goal / plan / btw 后台工作 / side 子代理；桌面 state.* 同名宽容解析）
+// 数据边界：桌面 state schema 字段未完整取证（压缩混淆），按多形态宽容解析；缺数据不渲染。
+
+/// state.goal 投影：目标文本 + 暂停态（pauseGoal/resumeGoal 命令面的只读回显）
+struct RemoteGoalSummary: Equatable {
+    var text: String
+    var rawStatus: String?
+    var isPaused: Bool
+}
+
+/// state.plan 投影：计划正文只读卡（计划审批仍走 pendingInteractions 审批卡，不在此重复）
+struct PlanPanelSummary: Equatable {
+    var title: String?
+    var content: String
+    var rawStatus: String?
+}
+
+/// state.backgroundWorks 投影（btw 面板）：后台工作条目，cancel/resume 命令面
+struct BackgroundWorkSummary: Identifiable, Equatable {
+    var id: String { workId }
+    var workId: String
+    var title: String?
+    var kind: String?
+    var rawStatus: String?
+    var cancellable: Bool
+    var resumable: Bool
+    /// 关联 run / 子会话（下钻入口；nil = 无）
+    var runId: String?
+    var sessionId: String?
+}
+
+/// state.subagents 投影（side 面板）：子代理会话实例，只读转录下钻
+struct SubagentSessionSummary: Identifiable, Equatable {
+    var id: String { childSessionId }
+    var childSessionId: String
+    var agentId: String?
+    var agentType: String?
+    var name: String?
+    var rawStatus: String?
+
+    var status: WorkflowStepStatus {
+        switch rawStatus {
+        case "running", "active": return .running
+        case "completed", "stopped": return .done
+        case "errored", "failed": return .failed
+        default: return .running
+        }
+    }
 }
 
 /// 连接态待处理交互投影（conversation state.pendingInteractions 的移动端映射）：
@@ -236,6 +296,8 @@ struct Conversation: Identifiable, Equatable {
     var isPinned: Bool = false
     var isRunning: Bool = false
     var isArchived: Bool = false
+    /// 失败任务（phase=completedError 族；桌面侧栏失败任务带「清理」动作）
+    var isFailed: Bool = false
     var taskProgress: Double?
     var todoSummary: String?
     /// 会话来源（项 5 来源过滤 chips 数据口径）："mac" = 已配对桌面端（局域网/云中继均属

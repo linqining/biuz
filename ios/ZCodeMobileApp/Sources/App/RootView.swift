@@ -59,6 +59,16 @@ struct RootView: View {
                 await refreshDiffBadge()
             }
         }
+        // mock→remote 换源后重绑观察器（否则角标停留在 mock 假数据——用户实测
+        // 文件角标恒为 3 即 mock 的 3 条假 diff 残留）
+        .task(id: ObjectIdentifier(conversationStore)) { await observeConversationBadge() }
+        .task(id: ObjectIdentifier(taskStore)) { await observeTaskBadge() }
+        .task(id: ObjectIdentifier(fileStore)) {
+            await refreshDiffBadge()
+            for await _ in fileStore.observeFileTreeChanges() {
+                await refreshDiffBadge()
+            }
+        }
     }
 
     private var chatTab: some View {

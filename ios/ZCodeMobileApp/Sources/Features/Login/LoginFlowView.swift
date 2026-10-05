@@ -228,7 +228,7 @@ struct LoginFlowView: View {
                 step = .failure
                 return
             }
-            Task { await exchange(code: code, state: params.state) }
+            Task { exchange(code: code, state: params.state) }
         }
     }
 

@@ -243,12 +243,12 @@ struct ApprovalSheetView: View {
         VStack(spacing: 0) {
             // G-025：追问接真——文本输入后经会话通道 sendText 下发（桌面会话流出现
             // 该追问；不 resolveInteraction，任务保持待操作）。发送失败给错误提示。
-            TextActionButton(title: "追问 Agent，再决定", tint: T.text2, identifier: "06-act-followup") {
+            TextActionButton(title: "追问 Agent，再决定", tint: T.text2, action: {
                 showFollowupInput = true
-            }
-            TextActionButton(title: "稍后处理", tint: T.text3, identifier: "06-act-later") {
+            }, identifier: "06-act-followup")
+            TextActionButton(title: "稍后处理", tint: T.text3, action: {
                 dismiss()
-            }
+            }, identifier: "06-act-later")
         }
         .padding(.bottom, T.sp3)
         .alert("追问 Agent", isPresented: $showFollowupInput) {

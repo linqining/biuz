@@ -182,9 +182,10 @@ struct TaskBoardView: View {
                     if done.count > 3 {
                         TextActionButton(
                             title: showAllDone ? "收起" : "查看全部 \(done.count) 个已完成",
-                            identifier: "02-act-see-all-done") {
-                            withAnimation { showAllDone.toggle() }
-                        }
+                            action: {
+                                withAnimation { showAllDone.toggle() }
+                            },
+                            identifier: "02-act-see-all-done")
                     }
                 }
                 // 底部滚动余量：需盖住 FAB(56) + 其底部间距(16) + TabBar(≈87)，
@@ -316,6 +317,11 @@ struct TaskCardView: View {
         .onTapGesture {
             router.pushTask(taskID: task.id, task: task)
         }
+        // 透明容器：卡片可定位（02-taskcard-<id>），「去审批」等子元素保留各自
+        // identifier——onTapGesture+identifier 会把整卡折叠成单一 a11y 元素吞掉后代
+        // （症状：去审批按钮可见而 02-taskcard-approve 查询失败，同 05-approval-card /
+        // o3-card-autolink 处理），children: .contain 让容器不吞后代
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("02-taskcard-\(task.id)")
     }
 

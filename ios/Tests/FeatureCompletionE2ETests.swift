@@ -137,18 +137,22 @@ final class FeatureCompletionE2ETests: XCTestCase {
     }
 
     /// 长链接输入（URL 键盘 typeText 长串存在丢字偶发，套件已知家族）：
-    /// 输入后回读校验，不一致则退格清空重输（有界重试）
+    /// 输入后回读校验，不一致则退格清空重输（有界重试）。
+    /// 先退格清空：二次进入手动页会回填上次的 LAN 地址，直接追加会让字段变成
+    /// 「127.0.0.1:51434https://…」——hasSuffix 校验被骗过而解析永远失败（门禁实测），
+    /// 故清空后输入并以整串相等作回读校验。
     @discardableResult
     private func typeLink(_ field: XCUIElement, text: String) -> Bool {
         guard field.waitForExistence(timeout: 8) else { return false }
         for _ in 0..<3 {
             field.tap()
             _ = app.keyboards.firstMatch.waitForExistence(timeout: 2)
+            field.typeText(String(repeating: "\u{8}", count: 120))
             field.typeText(text)
-            if (field.value as? String ?? "").hasSuffix(text) { return true }
+            if let value = field.value as? String, value == text { return true }
             field.typeText(String(repeating: "\u{8}", count: text.count + 8))
         }
-        return (field.value as? String ?? "").hasSuffix(text)
+        return (field.value as? String) == text
     }
 
     /// 关键界面截图附件（keepAlways；验收检查点经 xcresulttool 导出后逐张复核）
@@ -304,6 +308,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
     private func openTargetMenu(_ trigger: XCUIElement, candidate: XCUIElementQuery,
                                 timeout: TimeInterval = 12) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
+        var labelsDump = ""
         while Date() < deadline {
             if candidate.count >= 1 { return true }
             if trigger.exists, trigger.isHittable {
@@ -313,6 +318,13 @@ final class FeatureCompletionE2ETests: XCTestCase {
             while Date() < presentDeadline, candidate.count == 0 {
                 Thread.sleep(forTimeInterval: 0.1)
             }
+            // 诊断：菜单打开/未开时都可转储当前按钮 label 集合（判定「菜单未弹出」
+            // 还是「弹出但候选缺失/label 不符」）
+            labelsDump = app.buttons.allElementsBoundByIndex.prefix(18)
+                .map { "\($0.label)|\($0.identifier)" }.joined(separator: " ; ")
+        }
+        if candidate.count == 0 {
+            NSLog("openTargetMenu 诊断 labels=\(labelsDump)")
         }
         return candidate.count >= 1
     }
@@ -494,6 +506,9 @@ final class FeatureCompletionE2ETests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 25, "替身应接受令牌并完成 WS 升级") {
             stub.lastAcceptedPairingToken == stub.pairingToken && stub.websocketUpgrades >= 1
         })
+        // 连接流程收起后停在打开它的设置 Tab（test07 断言「回到设置 Tab」为预期行为）；
+        // 会话行在会话 Tab 的视图树内——先切到会话 Tab 再断言替身行
+        element(application, "04-tab-chat").tap()
         XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 15),
                       "连接成功后列表应呈现替身会话行")
 
@@ -726,8 +741,11 @@ final class FeatureCompletionE2ETests: XCTestCase {
         // ③ 目标选择器弹出两项：云端沙盒 + 我的 Mac（E2E-Relay-Mac）。
         // 菜单项以 label 精确匹配（菜单 identifier 不保证透出，不做存在性断言）；
         // 点击时刻胶囊标签尚未等于候选名（初始云端沙盒），firstMatch 即菜单项；
-        // 「云端沙盒」命中数 ≥2（胶囊 + 菜单项）证明两项候选同屏
-        let trigger = element(app, "05-act-target")
+        // 「云端沙盒」命中数 ≥2（胶囊 + 菜单项）证明两项候选同屏。
+        // trigger 用 BEGINSWITH：SwiftUI Menu 历史上会把 label identifier 逐层拼接
+        // （05-act-target-05-act-target-…），精确匹配可能命中惰性子元素
+        let trigger = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH '05-act-target'")).firstMatch
         XCTAssertTrue(trigger.waitForExistence(timeout: 8), "Composer 应常驻执行目标选择器")
         let macItems = app.buttons.matching(NSPredicate(format: "label == 'E2E-Relay-Mac'"))
         let cloudItems = app.buttons.matching(NSPredicate(format: "label == '云端沙盒'"))
@@ -741,15 +759,26 @@ final class FeatureCompletionE2ETests: XCTestCase {
                   "点击「我的 Mac」应选中（胶囊回显设备名，菜单收起）")
 
         // ④ 切换后发送仍真实到达替身（替身计数断言；目标为 UI+持久化面，
-        //    v4 下发通道不变——客户端发命令、桌面代执行边界）
+        //    v4 下发通道不变——客户端发命令、桌面代执行边界）。
+        //    菜单选中后的收起动画可能吞掉首次 send tap：有界重发（文本保持在
+        //    输入框，无需重敲），以替身 sendText 计数增长为送达判据
         let composerInput = element(app, "05-composer-input")
         tapAndWaitKeyboard(composerInput, application: app)
         composerInput.typeText("target-mac-send-e2e")
         let sendCountBefore = stub.sendTextCount
-        element(app, "05-composer-send").tap()
-        XCTAssertTrue(waitUntil(timeout: 10, "切换目标后发送应真实到达替身（sendText 计数 >0）") {
-            stub.sendTextCount >= sendCountBefore + 1
-        }, "sendText 应到达替身；实测 sendTextCount=\(stub.sendTextCount)")
+        let sendButton = element(app, "05-composer-send")
+        var delivered = false
+        for _ in 0..<4 where !delivered {
+            if sendButton.exists, sendButton.isHittable {
+                sendButton.tap()
+            }
+            let deadline = Date().addingTimeInterval(2.5)
+            while Date() < deadline {
+                if stub.sendTextCount >= sendCountBefore + 1 { delivered = true; break }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+        XCTAssertTrue(delivered, "切换目标后发送应真实到达替身（sendText 计数 >0）；实测 sendTextCount=\(stub.sendTextCount)")
 
         // ⑤ 选中态持久化：返回再进入同会话（per-conversation）与另一会话（全局默认回退）均回显 Mac
         app_navigationBack(app)

@@ -14,17 +14,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private weak var connection: ZCodeServerConnection?
     private let workspace: ServerWorkspaceInfo
 
-    /// v4 会话域 RPC 的 workspace 信封（桌面 Zod 强校验：`workspace.workspacePath` /
-    /// `workspace.workspaceKey` 缺一即拒 ZCodeProtocolClientError；identity 缺席以 path 兜底）。
-    /// 网关 2026-10 起强制——此前仅 sessionId 的调用被拒（订阅/历史/命令/附件全断）。
+    /// v4 会话域 RPC 的 workspace 目标（对齐 Web 客户端 wire 形状：扁平
+    /// `workspacePath` + `workspaceIdentity?`；桌面端代理派生
+    /// `workspaceKey = identity || path` 并自行组装信封——嵌套 `workspace:{...}`
+    /// 会被参数规范化丢弃，触发 ZCodeProtocolClientError）。
     private func applySessionTarget(_ builder: inout JSONObjectBuilder, sessionID: String?) {
         if let sessionID {
             builder.set("sessionId", sessionID)
         }
-        builder.set("workspace", .object([
-            "workspacePath": .string(workspace.path),
-            "workspaceKey": .string(workspace.workspaceIdentity ?? workspace.path),
-        ]))
+        builder.set("workspacePath", workspace.path)
+        if let identity = workspace.workspaceIdentity, !identity.isEmpty {
+            builder.set("workspaceIdentity", identity)
+        }
     }
 
     nonisolated var isReadOnly: Bool { true }
@@ -36,10 +37,100 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private var rows: [String: [Int: RowRecord]] = [:]
     private var messages: [String: [ChatMessage]] = [:]
     private var snapshotState: [String: JSONValue] = [:] // state.updated patch 合并目标
+    /// 会话 state revision（快照/state.updated 各自携带；switchModelConfig/pauseGoal 等
+    /// CAS 类命令信封必须携带，缺失被桌面端拒收 "CAS command require base revision"）
+    private var conversationStateRevisions: [String: Int] = [:]
     /// 桌面 workflow run 最新负载（要求 5：快照/workflowRun.updated 带内事件双通道；
     /// workflowRunFetched 记录 RPC 兜底已尝试，失败不重复请求）
     private var workflowRunStates: [String: JSONValue] = [:]
     private var workflowRunFetched: Set<String> = []
+    /// 产物/计划 API 取证一次性门槛（diag 专用）
+    private var workflowApiDiagDone: Set<String> = []
+    /// state.workflowRuns 间歇缺席的一次性全量 resync 门槛
+    private var workflowResyncTriggered: Set<String> = []
+
+    /// 按 Web 构造取证缺失 API 的真实响应（conversationWorkflowRunArtifactsV4 /
+    /// ArtifactDataV4 / conversationPlansV4；Web: {...workspace, sessionId, runId}）。
+    /// runId 为空时退化为 RPC limit 变体 + workflow 工具卡行样本取证
+    private func workflowApiDiagDump(conversationID: String, runId: String) async {
+        guard let connection else { return }
+        if runId.isEmpty {
+            // ① RPC limit 变体（不带 limit 返回空 → 怀疑服务端缺省 0）
+            for (tag, extra) in [("nolimit", false), ("limit50", true)] {
+                var b = JSONObjectBuilder()
+                applySessionTarget(&b, sessionID: conversationID)
+                if extra { b.set("limit", 50) }
+                if let r = try? await connection.call(
+                    "zcode-agent", "conversationWorkflowRunsV4", .json(.object(b.fields))) {
+                    UserDefaults.standard.set(
+                        "\(tag): \(String(describing: r.jsonValue).prefix(1600))",
+                        forKey: "diag.wf.rpc.\(tag)")
+                }
+            }
+            // ② 消息行里的 workflow 工具卡样本（Web 对齐渲染的数据源候选）
+            let table = rows[conversationID] ?? [:]
+            let wfRow = table.values.sorted { $0.rowId < $1.rowId }.first { record in
+                guard let d = record.json.objectValue,
+                      d["kind"]?.stringValue == "toolCall" else { return false }
+                let name = (d["toolName"]?.stringValue ?? "") + (d["inputText"]?.stringValue ?? "")
+                    + (d["display"]?.objectValue?["title"]?.stringValue ?? "")
+                return name.localizedCaseInsensitiveContains("workflow") || name.contains("工作流")
+            }
+            if let wfRow {
+                UserDefaults.standard.set(
+                    "workflow toolCall 行: \(String(describing: wfRow.json).prefix(2400))",
+                    forKey: "diag.wf.toolrow")
+            } else {
+                UserDefaults.standard.set("行内无 workflow toolCall（table=\(table.count)）", forKey: "diag.wf.toolrow")
+            }
+            // ③ plans 取证
+            var pb = JSONObjectBuilder()
+            applySessionTarget(&pb, sessionID: conversationID)
+            if let rp = try? await connection.call(
+                "zcode-agent", "conversationPlansV4", .json(.object(pb.fields))) {
+                UserDefaults.standard.set(
+                    String(describing: rp.jsonValue).prefix(2200), forKey: "diag.wf.plans")
+            } else {
+                UserDefaults.standard.set("RPC 失败", forKey: "diag.wf.plans")
+            }
+            return
+        }
+        var b = JSONObjectBuilder()
+        applySessionTarget(&b, sessionID: conversationID)
+        b.set("runId", runId)
+        if let result = try? await connection.call(
+            "zcode-agent", "conversationWorkflowRunArtifactsV4", .json(.object(b.fields))) {
+            UserDefaults.standard.set(
+                String(describing: result.jsonValue).prefix(2200), forKey: "diag.wf.artifacts")
+            let arts = result.jsonValue?["artifacts"]?.arrayValue
+                ?? result.jsonValue?["result"]?.objectValue?["artifacts"]?.arrayValue ?? []
+            if let first = arts.first?.objectValue,
+               let artId = first["artifactId"]?.stringValue ?? first["id"]?.stringValue {
+                var b2 = JSONObjectBuilder()
+                applySessionTarget(&b2, sessionID: conversationID)
+                b2.set("runId", runId)
+                b2.set("artifactId", artId)
+                b2.set("limit", 3)
+                if let r2 = try? await connection.call(
+                    "zcode-agent", "conversationWorkflowRunArtifactDataV4", .json(.object(b2.fields))) {
+                    UserDefaults.standard.set(
+                        "artifactId=\(artId) · \(String(describing: r2.jsonValue).prefix(1400))",
+                        forKey: "diag.wf.artdata")
+                }
+            }
+        } else {
+            UserDefaults.standard.set("RPC 失败", forKey: "diag.wf.artifacts")
+        }
+        var pb = JSONObjectBuilder()
+        applySessionTarget(&pb, sessionID: conversationID)
+        if let rp = try? await connection.call(
+            "zcode-agent", "conversationPlansV4", .json(.object(pb.fields))) {
+            UserDefaults.standard.set(
+                String(describing: rp.jsonValue).prefix(2200), forKey: "diag.wf.plans")
+        } else {
+            UserDefaults.standard.set("RPC 失败", forKey: "diag.wf.plans")
+        }
+    }
     /// G-008 通路 B：conversation state.workflowRuns（workflowRunsStateSchema {revision, runs[]}）。
     /// 冷快照必带（snapshot.ts:497-499）、state.updated 键级整体替换（delta.ts:50）、
     /// workflowRun.updated/removed 增量（delta.ts:122/140，header/条目整替换，绝无字段级深合并）
@@ -69,6 +160,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private var localArchivedCache: [String: Conversation] = [:]
     /// workspace-config / model-selection 只读投影（连接态数据源）
     private var workspaceConfigState = WorkspaceConfigInfo()
+    /// 模型 → 可用思考档（workspace-config configOptions 的对象形态 values；
+    /// web 端 _ce schema 同源，chips 思考菜单词表）
+    private var workspaceConfigThoughtByModel: [String: [String]] = [:]
     private var workspaceConfigHandlerRegistered = false
     private var modelSelectionCache: ModelSelectionInfo?
     private var modelSelectionSubscribed = false
@@ -108,12 +202,84 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     func conversations() async -> [Conversation] {
         await ensureSessionsIndexSubscribed()
+        await mergeGlobalTaskIndex()
         let list = sortedConversations()
         // 诊断：会话清单（完整 id+标题前缀）转储，供 -ZCodeOpenConversationId 取 id
         let dump = list.prefix(12).map { "\($0.id)=\($0.title.prefix(16))" }
             .joined(separator: " | ")
         UserDefaults.standard.set(dump, forKey: "diag.sessions")
         return list
+    }
+
+    /// 多 workspace 合并（用户实测：sessions-index 只推当前连接 workspace 的会话，
+    /// 项目组只剩一个）。zcode-task.listTaskList(kind:"timeline") 为桌面全局任务索引
+    /// （桌面任务列表同源，行带 workspacePath）——scope 变体依次尝试：
+    /// ① 父目录（桌面 scope 若为前缀匹配即可覆盖同级全部项目）② 当前 workspace（基线）。
+    /// 行的 workspacePath 为归属权威（分组用它，与连接的 workspace 无关）。
+    /// 失败静默（保持 sessions-index 单 workspace 面不劣化）。
+    private func mergeGlobalTaskIndex() async {
+        guard let connection else { return }
+        let connected = workspace.path
+        let parent = (connected as NSString).deletingLastPathComponent
+        var variants: [[String: JSONValue]] = []
+        if !parent.isEmpty, parent != connected, parent.hasPrefix("/") {
+            variants.append(["workspacePath": .string(parent)])
+        }
+        variants.append(["workspacePath": .string(connected)])
+        for scope in variants {
+            var builder = JSONObjectBuilder()
+            builder.set("kind", "timeline")
+            builder.set("workspaceScopes", .array([.object(scope)]))
+            do {
+                let result = try await connection.call(
+                    "zcode-task", "listTaskList", .json(.object(builder.fields)))
+                let items = result.jsonValue?["items"]?.arrayValue
+                    ?? result.jsonValue?.arrayValue ?? []
+                var workspaces = Set<String>()
+                var parsed: [(String, SessionSummary)] = []
+                for item in items {
+                    guard var d = item.objectValue else { continue }
+                    // 任务行主键是 taskId；统一成 sessions-index 的 sessionId 口径
+                    if d["sessionId"] == nil, let taskId = d["taskId"]?.stringValue {
+                        d["sessionId"] = .string(taskId)
+                    }
+                    if let ws = d["workspacePath"]?.stringValue {
+                        workspaces.insert(ws)
+                    }
+                    guard let summary = SessionSummary.parse(.object(d)) else { continue }
+                    parsed.append((summary.sessionId, summary))
+                }
+                // 非 baseline 变体一无所获 → 试下一个；有收获即采用
+                if parsed.isEmpty, scope["workspacePath"]?.stringValue != connected {
+                    continue
+                }
+                var merged = 0
+                for (sessionId, summary) in parsed {
+                    if sessions[sessionId] == nil {
+                        sessions[sessionId] = summary
+                        merged += 1
+                    } else if sessions[sessionId]?.workspacePath == nil,
+                              let ws = summary.workspacePath {
+                        // 已有 index 行：仅补 workspace 归属（index 行可能缺 workspaceId）
+                        sessions[sessionId]?.workspacePath = ws
+                    }
+                }
+                if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                    UserDefaults.standard.set(
+                        "scope=\(scope["workspacePath"]?.stringValue ?? "?") items=\(items.count) merged=\(merged) totalSessions=\(sessions.count) workspaces=\(workspaces.sorted().joined(separator: ","))",
+                        forKey: "diag.tasks.merge")
+                    UserDefaults.standard.synchronize()
+                }
+                return
+            } catch {
+                if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                    UserDefaults.standard.set(
+                        "scope=\(scope["workspacePath"]?.stringValue ?? "?") err=\(String(describing: error).prefix(300))",
+                        forKey: "diag.tasks.merge")
+                    UserDefaults.standard.synchronize()
+                }
+            }
+        }
     }
 
     func observeConversations() -> AsyncStream<ConversationEvent> {
@@ -144,6 +310,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     directory: summary.workspacePath ?? "",
                     updatedAt: summary.lastActivityAt ?? Date.distantPast)
                 conversation.isRunning = summary.phase == "running" || summary.phase == "prewarming"
+                // 失败任务（桌面侧栏失败任务带「清理」；phase 词表 completedError 族宽容）
+                conversation.isFailed = summary.phase.lowercased().contains("error")
+                    || summary.phase.lowercased().contains("failed")
                 // G-007 通路 A：行迷你轨道数据（无 run 时 nil，行不渲染占位）
                 conversation.workflowActivity = Self.parseWorkflowActivity(summary.workflowActivity)
                 // 来源过滤（G-006）数据口径：连接态会话均来自当前桌面端（局域网/云中继
@@ -319,7 +488,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     @discardableResult
     func loadOlder(conversationID: String) async -> Bool {
         guard let oldest = rows[conversationID]?.keys.min() else { return false }
-        let hasMore = await loadHistory(conversationID: conversationID, beforeRowId: oldest)
+        let beforeCount = rows[conversationID]?.count ?? 0
+        var hasMore = await loadHistory(conversationID: conversationID, beforeRowId: oldest)
+        // 中继瞬断会让单页拉取静默失败（表未增长且报无更多）：退避重试一次
+        if !hasMore, (rows[conversationID]?.count ?? 0) == beforeCount {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            hasMore = await loadHistory(conversationID: conversationID, beforeRowId: oldest)
+        }
         rebuildMessages(conversationID)
         yieldToAll(.messagesReplaced(
             conversationID: conversationID, messages: messages[conversationID] ?? []))
@@ -327,7 +502,17 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     }
 
     private func ensureConversationSubscribed(_ conversationID: String) async {
-        guard conversationSubscriptions[conversationID] == nil, let connection else { return }
+        guard conversationSubscriptions[conversationID] == nil, let connection else {
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                UserDefaults.standard.set(
+                    "guard 拦截 already=\(conversationSubscriptions[conversationID] != nil) connection=\(connection != nil)",
+                    forKey: "diag.sub.entry")
+            }
+            return
+        }
+        if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+            UserDefaults.standard.set("进入", forKey: "diag.sub.entry")
+        }
         let topic = "conversation/\(conversationID)"
         do {
             // 服务端签名要求 topic + sessionId + workspace 信封（zcodeAgent.ts:144-146）
@@ -335,8 +520,26 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 builder.set("topic", topic)
                 applySessionTarget(&builder, sessionID: conversationID)
             }
+            UserDefaults.standard.set(
+                String(describing: arg.jsonValue).prefix(600),
+                forKey: "diag.wire.sub.\(conversationID.prefix(14))")
             let reply = try await connection.call("zcode-agent", "subscribeConversationV4", arg)
-            conversationSubscriptionIds[conversationID] = reply.jsonValue?["subscriptionId"]?.stringValue
+            // 回执形状取证（临时无条件；定位 ack 包裹解析问题后移除）。
+            // synchronize：simctl terminate=SIGKILL 不冲洗 cfprefsd，不 sync 则取证值丢失
+            UserDefaults.standard.set(
+                String(describing: reply.jsonValue).prefix(400), forKey: "diag.sub.reply")
+            UserDefaults.standard.synchronize()
+            // 回执形态：{ack:{subscriptionId,mode,logEpoch}}（中继桥实测，同 sessions-index）；
+            // 顶层兼容局域网直连。取不到 → resync/丢帧自愈全链路失效（曾致快照状态丢失后无法恢复）
+            let ack = reply.jsonValue?.objectValue?["ack"]?.objectValue
+            conversationSubscriptionIds[conversationID] =
+                ack?["subscriptionId"]?.stringValue
+                ?? reply.jsonValue?["subscriptionId"]?.stringValue
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                UserDefaults.standard.set(
+                    "subId=\(conversationSubscriptionIds[conversationID] ?? "nil") reply=\(String(describing: reply.jsonValue).prefix(280))",
+                    forKey: "diag.sub.reply")
+            }
             await connection.setFrameHandler(topic: topic) { [weak self] frame in
                 Task { await self?.handleConversationFrame(conversationID, frame: frame) }
             }
@@ -446,6 +649,15 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             for record in pageRows { table[record.rowId] = record }
             rows[conversationID] = table
             rebuildMessages(conversationID)
+            // 诊断：向上分页取证（游标/页行数/页行号范围/表总量/hasMore）
+            let pageIds = pageRows.map(\.rowId).sorted()
+            UserDefaults.standard.set(
+                "cursor=\(beforeRowId.map(String.init) ?? "nil") page=\(pageRows.count)"
+                    + (pageIds.isEmpty ? "" : " range=[\(pageIds.first!)..\(pageIds.last!)]")
+                    + " table=\(table.count)"
+                    + " hasMoreField=\(dict["hasMore"]?.boolValue.map(String.init) ?? "absent")"
+                    + " respKeys=\(dict.keys.sorted().prefix(8))",
+                forKey: "diag.rowsrange.ok")
             // hasMore 显式字段优先；缺席时非空页视为可能还有更早数据（loadOlder 再探一页）
             return dict["hasMore"]?.boolValue ?? (!pageRows.isEmpty)
         } catch {
@@ -478,6 +690,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         )
         if let snapshot = frame.snapshot {
             if let dict = snapshot.objectValue {
+                // 快照顶层 revision（会话快照可能无 state 键但带顶层 revision——CAS 用）
+                if let revision = dict["revision"]?.intValue {
+                    conversationStateRevisions[conversationID] = revision
+                }
                 if let rowsArray = dict["rows"]?.arrayValue {
                     var table = rows[conversationID] ?? [:]
                     for row in rowsArray {
@@ -489,12 +705,31 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 }
                 if let state = dict["state"] {
                     snapshotState[conversationID] = state
+                    if let revision = state.objectValue?["revision"]?.intValue {
+                        conversationStateRevisions[conversationID] = revision
+                    }
+                    // 一次性取证：CAS baseRevision 的真实来源（快照顶层/state/帧序号；验收后移除）
+                    if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
+                       UserDefaults.standard.string(forKey: "diag.rev.dump") == nil {
+                        let revisionLike = dict.filter { key, _ in
+                            key.lowercased().contains("revision") || key.lowercased().contains("epoch") || key.lowercased().contains("seq")
+                        }.map { "\($0)=\(String(describing: $1).prefix(40))" }.joined(separator: " ")
+                        let stateRevisionLike = state.objectValue?.filter { key, _ in
+                            key.lowercased().contains("revision") || key.lowercased().contains("epoch")
+                        }.map { "\($0)=\(String(describing: $1).prefix(40))" }.joined(separator: " ")
+                        UserDefaults.standard.set(
+                            "frameSeq=\(frame.toSeq) top[\(revisionLike)] state[\(stateRevisionLike ?? "nil")]",
+                            forKey: "diag.rev.dump")
+                        UserDefaults.standard.synchronize()
+                    }
                     refreshPendingInteractions(conversationID, state: state)
                     // G-008：冷快照必带 workflowRuns（snapshot.ts:497-499——漏这一处，
                     // 刷新/重连后正在跑的 run 会静默消失）；键级整体替换
                     if let runsState = state.objectValue?["workflowRuns"] {
                         applyWorkflowRunsState(conversationID, runsState)
                     }
+                    // 面板态（goal/plan/backgroundWorks/subagents）随快照到达
+                    yieldPanelState(conversationID)
                 }
                 // 要求 5：快照内 workflowRun 单数键（旧实现兼容；缺席保持既有缓存）
                 if let run = Self.extractWorkflowRun(dict) {
@@ -539,10 +774,19 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             }
             let merged = JSONValue.object(current)
             snapshotState[conversationID] = merged
+            if let revision = patch["revision"]?.intValue {
+                conversationStateRevisions[conversationID] = revision
+            }
             refreshPendingInteractions(conversationID, state: merged)
             // G-008：state.updated 的 workflowRuns 键（delta.ts:50；键级整体替换，无深合并）
             if let runsState = patch["workflowRuns"] {
                 applyWorkflowRunsState(conversationID, runsState)
+            }
+            // 面板键（goal/plan/backgroundWorks/subagents/queue）任一到达即广播面板刷新
+            if patch["goal"] != nil || patch["plan"] != nil
+                || patch["backgroundWorks"] != nil || patch["subagents"] != nil
+                || patch["queue"] != nil {
+                yieldPanelState(conversationID)
             }
             // state.patch 内也可能携带 workflowRun 单数键（旧实现兼容）
             if let run = patch["workflowRun"] {
@@ -779,11 +1023,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     private func yieldMessageEvents(_ conversationID: String, latest: [ChatMessage]) {
         let previous = lastYieldedMessages[conversationID] ?? []
-        // 简化事件语义：首帧 replaced，其后逐条 append/update（ChatViewModel 幂等去重）
-        if previous.isEmpty {
-            for message in latest {
-                yieldToAll(.messageAppended(conversationID: conversationID, message: message))
-            }
+        // 首帧 / 头部插入（loadOlder 前置历史）/ 收缩：尾部 append 语义表达不了，发全量 replaced
+        if previous.isEmpty || previous.first?.id != latest.first?.id || latest.count < previous.count {
+            yieldToAll(.messagesReplaced(conversationID: conversationID, messages: latest))
         } else {
             for (index, message) in latest.enumerated() where index >= previous.count {
                 yieldToAll(.messageAppended(conversationID: conversationID, message: message))
@@ -895,21 +1137,82 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     // MARK: 命令面（v3 纠偏口径：客户端发命令、桌面代执行）
 
-    /// sendConversationCommandV4 信封构造
-    private func sendCommand(_ type: String, sessionId: String?, payload: JSONValue) async -> JSONValue? {
+    /// sendConversationCommandV4 信封构造：web 端精确形态优先——
+    /// {workspacePath, workspaceIdentity?, envelope:{commandId, clientId, type, payload,
+    /// issuedAt(epoch ms), revision?}}（bundle: sendConversationCommandV4({...workspace, envelope: t})）。
+    /// 实证：envelope.clientId 必须等于连接握手注册值（否则 fault.command.clientMismatch）、
+    /// issuedAt 必须 epoch 毫秒数（否则 proto.invalidPayload）、平铺形态服务端直接 TypeError、
+    /// CAS 类命令（pauseGoal/switchModelConfig 等）必须携带当前 state revision（否则
+    /// "CAS command require base revision"）。平铺形态仅作旧版本兜底重试。
+    private func sendCommand(
+        _ type: String, sessionId: String?, payload: JSONValue,
+        casRevision: Bool = false) async -> JSONValue? {
         guard let connection else { return nil }
-        let envelope = RPCValue.jsonObject { builder in
-            builder.set("commandId", UUID().uuidString)
-            builder.set("clientId", "zcode-mobile")
-            applySessionTarget(&builder, sessionID: sessionId)
-            builder.set("type", type)
-            builder.set("payload", payload)
-            builder.set("issuedAt", ISO8601DateFormatter().string(from: Date()))
+        let clientID = connection.registeredClientId
+        let issuedAt = Int(Date().timeIntervalSince1970 * 1000)
+        // CAS 类命令携当前 state 定位：baseRevision（state.revision）+
+        // baseLogEpoch（订阅水位，桌面校验两者必须同时在场）
+        var baseRevision: Int?
+        var baseLogEpoch: String?
+        if casRevision {
+            baseRevision = conversationStateRevisions[sessionId ?? ""]
+            baseLogEpoch = conversationWatermarks[sessionId ?? ""]?.logEpoch
+        }
+        var envelope: [String: JSONValue] = [
+            "commandId": .string(UUID().uuidString),
+            "clientId": .string(clientID),
+            "type": .string(type),
+            "payload": payload,
+            "issuedAt": .int(issuedAt),
+        ]
+        if let sessionId { envelope["sessionId"] = .string(sessionId) }
+        if let baseRevision { envelope["baseRevision"] = .int(baseRevision) }
+        if let baseLogEpoch { envelope["baseLogEpoch"] = .string(baseLogEpoch) }
+        var outer: [String: JSONValue] = ["envelope": .object(envelope)]
+        outer["workspacePath"] = .string(workspace.path)
+        if let identity = workspace.workspaceIdentity, !identity.isEmpty {
+            outer["workspaceIdentity"] = .string(identity)
         }
         do {
-            let ack = try await connection.call("zcode-agent", "sendConversationCommandV4", envelope)
+            let ack = try await connection.call(
+                "zcode-agent", "sendConversationCommandV4", .json(.object(outer)))
+            if let json = ack.jsonValue {
+                // 回执 revisionAtDecision 回填为最新 state revision（CAS 后续命令用）
+                if let sessionId, let decided = json["revisionAtDecision"]?.intValue, decided > 0 {
+                    conversationStateRevisions[sessionId] = decided
+                }
+                if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                    UserDefaults.standard.set("type=\(type) envelope 形态成功", forKey: "diag.cmd.shape")
+                }
+            }
             return ack.jsonValue
         } catch {
+            // 兜底：平铺形态（旧实现；sendText 曾实证可用）
+            let flat = RPCValue.jsonObject { builder in
+                builder.set("commandId", UUID().uuidString)
+                builder.set("clientId", clientID)
+                applySessionTarget(&builder, sessionID: sessionId)
+                builder.set("type", type)
+                builder.set("payload", payload)
+                builder.set("issuedAt", issuedAt)
+                if let baseRevision { builder.set("baseRevision", baseRevision) }
+                if let baseLogEpoch { builder.set("baseLogEpoch", baseLogEpoch) }
+            }
+            if let ack = try? await connection.call(
+                "zcode-agent", "sendConversationCommandV4", flat) {
+                if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                    UserDefaults.standard.set(
+                        "type=\(type) envelope 失败后平铺成功", forKey: "diag.cmd.shape")
+                    UserDefaults.standard.synchronize()
+                }
+                return ack.jsonValue
+            }
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                UserDefaults.standard.set(
+                    "type=\(type) envErr=\(String(describing: error).prefix(300))",
+                    forKey: "diag.cmd.err")
+                UserDefaults.standard.synchronize()
+            }
             return nil
         }
     }
@@ -1113,15 +1416,24 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     }
 
     /// 已归档会话（P1-6）：listArchivedTasks 只读拉取 + 本地归档动作缓存合并。
-    /// 失败时以本地缓存呈现（本次会话内归档的行不丢）。
+    /// 失败时以本地缓存呈现（本次会话内归档的行不丢）。取证口：diag.archived。
     func archivedConversations() async -> [Conversation] {
         var result: [String: Conversation] = localArchivedCache
         if let connection {
             var builder = JSONObjectBuilder()
             builder.set("workspacePath", workspace.path)
-            if let result0 = try? await connection.call(
-                "zcode-task", "listArchivedTasks", .json(.object(builder.fields))),
-               let items = result0.jsonValue?["items"]?.arrayValue ?? result0.jsonValue?.arrayValue {
+            do {
+                let result0 = try await connection.call(
+                    "zcode-task", "listArchivedTasks", .json(.object(builder.fields)))
+                let dict = result0.jsonValue?.objectValue ?? [:]
+                if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                    UserDefaults.standard.set(
+                        "topKeys=\(dict.keys.sorted().joined(separator: "|")) items=\(dict["items"]?.arrayValue?.count ?? (dict["tasks"]?.arrayValue?.count ?? -1)) raw=\(String(describing: result0.jsonValue).prefix(600))",
+                        forKey: "diag.archived")
+                    UserDefaults.standard.synchronize()
+                }
+                let items = dict["items"]?.arrayValue ?? dict["tasks"]?.arrayValue
+                    ?? result0.jsonValue?.arrayValue ?? []
                 for item in items {
                     guard let taskId = item.objectValue?["taskId"]?.stringValue ?? item.objectValue?["sessionId"]?.stringValue else { continue }
                     let summary = SessionSummary.parse(item)
@@ -1129,14 +1441,40 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                         id: taskId,
                         title: summary?.title ?? item.objectValue?["title"]?.stringValue ?? "已归档会话",
                         summary: summary?.lastAssistantPreview ?? item.objectValue?["lastAssistantPreview"]?.stringValue ?? String(localized: "已归档"),
-                        directory: workspace.path,
+                        directory: summary?.workspacePath ?? workspace.path,
                         updatedAt: summary?.lastActivityAt ?? Date.distantPast,
                         isArchived: true)
                     result[taskId] = conversation
                 }
+            } catch {
+                if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                    UserDefaults.standard.set(
+                        "err=\(String(describing: error).prefix(400)) cached=\(localArchivedCache.count)",
+                        forKey: "diag.archived")
+                    UserDefaults.standard.synchronize()
+                }
             }
         }
         return result.values.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// 删除任务（桌面失败任务「清理」同口径：zcode-task.deleteTask {taskId, workspacePath,
+    /// workspaceIdentity?}；归档区删除同款。桌面代执行写，ReadOnlyGate 已放行）
+    func deleteTask(_ conversationID: String) async -> Bool {
+        guard let connection else { return false }
+        var builder = JSONObjectBuilder()
+        builder.set("taskId", conversationID)
+        builder.set("workspacePath", workspace.path)
+        if let identity = workspace.workspaceIdentity, !identity.isEmpty {
+            builder.set("workspaceIdentity", identity)
+        }
+        do {
+            _ = try await connection.call(
+                "zcode-task", "deleteTask", .json(.object(builder.fields)))
+            return true
+        } catch {
+            return false
+        }
     }
 
     // MARK: 交互辅助
@@ -1267,15 +1605,114 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     // 旧兼容——workflowRun 单数键（上轮要求 5 实现）与 conversationWorkflowRunsV4 只读兜底。
     // resumable/truncated 等 CLI 算好字段只透传展示，绝不自推导（桌面基准纪律）。
 
-    func workflowRun(in conversationID: String) async -> WorkflowRunSummary? {
-        // ① 通路 B 表（live run 优先，其后按表序）
+    /// 会话全部 workflow run（多 run 面板数据源；活 run 优先、stale 仲裁降级）。
+    // 数据源合并：通路 B 表（主）+ sessions-index activity 补表外 run（A' 摘要投影/事件重建）。
+    // stale 仲裁（实测案例）：表内 run 可能滞留「运行中」而 sessions-index 已遗忘（被取代/
+    // 清理）——activity 非空且不含该 id → 降级为 stopped，取消不再打到死 workId
+    // （background_task_not_found）。多 run 场景手机端此前只显示第一个（用户实测反馈）。
+    func workflowRuns(in conversationID: String) async -> [WorkflowRunSummary] {
+        let wfDiag = UserDefaults.standard.string(forKey: "diag.wf.mode") != nil
+        // ⓪ 镜像水合：快照尚未到/本次缺席时，用上次落盘的 run 状态先渲染（有真数据即被覆盖）
+        if workflowRunTables[conversationID]?.runs.isEmpty ?? true,
+           let mirror = loadWorkflowMirror(conversationID) {
+            workflowRunTables[conversationID] = (revision: 0, runs: mirror)
+        }
+        var results: [WorkflowRunSummary] = []
         if let table = workflowRunTables[conversationID], !table.runs.isEmpty {
-            let parsed = table.runs.compactMap(Self.parseWorkflowRun)
-            return parsed.first { $0.isLive } ?? parsed.first
+            results = table.runs.compactMap(Self.parseWorkflowRun)
+        }
+        let tableIds = Set(results.map(\.id))
+        let activity = Self.parseWorkflowActivity(sessions[conversationID]?.workflowActivity)
+        let activityIds = Set(activity?.runs.map(\.id) ?? [])
+        // 表外 run 补充：activity 有而表没有（新 run 尚未随 state 快照/增量到达）
+        if let activity {
+            let firstLiveIndex = activity.runs.firstIndex(where: { $0.isLive })
+            for (index, run) in activity.runs.enumerated() where !tableIds.contains(run.id) {
+                // 首个活 run 走事件重建（通路 C，完整节点/actors）；其余降级摘要投影
+                if index == firstLiveIndex, run.isLive, results.allSatisfy({ !$0.isLive }),
+                   let rebuilt = await rebuildWorkflowRunFromEvents(conversationID, runId: run.id) {
+                    results.append(rebuilt)
+                    continue
+                }
+                results.append(Self.projectActivityRun(run))
+            }
+        }
+        // stale 仲裁（doc 见函数头）
+        if activity != nil, !activityIds.isEmpty {
+            results = results.map { run in
+                guard run.isLive, !activityIds.contains(run.id) else { return run }
+                var demoted = run
+                demoted.rawStatus = "stopped"
+                return demoted
+            }
+        }
+        // 活优先（分区内保序）
+        let sorted = results.filter(\.isLive) + results.filter { !$0.isLive }
+        if wfDiag {
+            UserDefaults.standard.set(
+                "multi 表=\(tableIds.count) activity=\(activityIds.count) → \(sorted.map { "\($0.id.prefix(14)):\($0.rawStatus)" }.joined(separator: ", "))",
+                forKey: "diag.wf.multi")
+            if !workflowApiDiagDone.contains(conversationID),
+               let primary = sorted.first(where: \.isLive) ?? sorted.first {
+                workflowApiDiagDone.insert(conversationID)
+                Task { await self.workflowApiDiagDump(conversationID: conversationID, runId: primary.id) }
+            }
+        }
+        return sorted
+    }
+
+    /// 通路 A 摘要投影（阶段链 only；列表内 activity-only run 用）
+    nonisolated static func projectActivityRun(_ run: SessionWorkflowRunSummary) -> WorkflowRunSummary {
+        WorkflowRunSummary(
+            id: run.id,
+            name: run.name ?? String(localized: "工作流"),
+            rawStatus: run.rawStatus,
+            stopReason: nil,
+            resumable: false,
+            truncated: false,
+            nodes: run.phases.map {
+                WorkflowNodeSummary(id: $0.id, label: $0.name, status: $0.status)
+            },
+            actors: [])
+    }
+
+    func workflowRun(in conversationID: String) async -> WorkflowRunSummary? {
+        let wfDiag = UserDefaults.standard.string(forKey: "diag.wf.mode") != nil
+        // 多源列表命中 → 首个（活优先）即为主 run
+        if let primary = await workflowRuns(in: conversationID).first {
+            if wfDiag {
+                UserDefaults.standard.set(
+                    "path1 命中 → name=\(primary.name) status=\(primary.rawStatus) nodes=\(primary.nodes.count) actors=\(primary.actors.count)",
+                    forKey: "diag.wf.path")
+            }
+            return primary
+        }
+        if wfDiag {
+            UserDefaults.standard.set(
+                "path1 空 · 表=\(workflowRunTables[conversationID]?.runs.count ?? 0)",
+                forKey: "diag.wf.path")
         }
         // ② 单数键旧兼容
         if let cached = workflowRunStates[conversationID] {
             return Self.parseWorkflowRun(cached)
+        }
+        // ②.5 终极自愈：表空 + 无缓存（快照 state.workflowRuns 间歇缺席）→ 一次性发
+        // resync(base:null) 重取全量快照（含 state），帧到后经 applyWorkflowRunsState
+        // 填表+落镜像；2.5s 后 nudge 一次 UI 刷新让 observe 重查。置于 ③ 之前：
+        // RPC 抛错/空表/解析失败等一切后续路径都能被兜住
+        if !workflowResyncTriggered.contains(conversationID),
+           conversationSubscriptionIds[conversationID] != nil {
+            workflowResyncTriggered.insert(conversationID)
+            if wfDiag {
+                UserDefaults.standard.set("触发表缺失全量 resync", forKey: "diag.wf.path")
+            }
+            let subId = conversationSubscriptionIds[conversationID]
+            Task { [weak self] in
+                guard let self, let subId else { return }
+                await self.forceFullResync(conversationID: conversationID, subscriptionId: subId)
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                await self.nudgeWorkflowRefresh(conversationID: conversationID)
+            }
         }
         // ③ 只读 RPC 兜底（一次，失败不重复）
         guard let connection, !workflowRunFetched.contains(conversationID) else { return nil }
@@ -1285,7 +1722,17 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         builder.set("workspacePath", workspace.path)
         guard let result = try? await connection.call(
             "zcode-agent", "conversationWorkflowRunsV4", .json(.object(builder.fields))) else {
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                UserDefaults.standard.set("RPC 兜底调用失败", forKey: "diag.wf.rpc")
+            }
             return nil
+        }
+        if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+            UserDefaults.standard.set("RPC 响应: \(String(describing: result.jsonValue).prefix(1200))", forKey: "diag.wf.rpc")
+            if !workflowApiDiagDone.contains(conversationID) {
+                workflowApiDiagDone.insert(conversationID)
+                Task { await self.workflowApiDiagDump(conversationID: conversationID, runId: "") }
+            }
         }
         // 回执宽容：顶层 {runs:[…]} / {result:{runs|workflowRun}} / 单 run 对象
         let value = result.jsonValue
@@ -1307,14 +1754,49 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         return nil
     }
 
+    /// 无水位全量 resync（服务端重发全量快照，含 state.workflowRuns）
+    private func forceFullResync(conversationID: String, subscriptionId: String) async {
+        guard let connection else { return }
+        var builder = JSONObjectBuilder()
+        builder.set("subscriptionId", subscriptionId)
+        builder.set("base", JSONValue.null)
+        _ = try? await connection.call(
+            "zcode-agent", "resyncConversationV4", .json(.object(builder.fields)))
+    }
+
+    /// resync 帧处理后 nudge：全量替换一次现有消息（幂等），驱动 observe 重查 workflowRun
+    private func nudgeWorkflowRefresh(conversationID: String) {
+        yieldToAll(.messagesReplaced(
+            conversationID: conversationID, messages: messages[conversationID] ?? []))
+    }
+
     /// workflowRuns 状态键 → 表（整键替换；无 runs 数组形态忽略）
     private func applyWorkflowRunsState(_ conversationID: String, _ value: JSONValue) {
         guard let dict = value.objectValue,
-              let runs = dict["runs"]?.arrayValue else { return }
+              let runs = dict["runs"]?.arrayValue else {
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                UserDefaults.standard.set("state.workflowRuns 形态不合: \(String(describing: value).prefix(200))", forKey: "diag.wf.state")
+            }
+            return
+        }
+        if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+            UserDefaults.standard.set("state.workflowRuns runs=\(runs.count) revision=\(dict["revision"]?.intValue ?? -1) sample=\(runs.first.map { String(describing: $0).prefix(400) } ?? "nil")", forKey: "diag.wf.state")
+        }
         workflowRunTables[conversationID] = (
             revision: dict["revision"]?.intValue ?? 0,
             runs: runs
         )
+        persistWorkflowMirror(conversationID, runs)
+        // 取证门槛：表一填充即 dump 一次（不依赖 observe 的再查询时机）
+        if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
+           !workflowApiDiagDone.contains(conversationID) {
+            let runId = runs.last?.objectValue?["runId"]?.stringValue
+                ?? runs.last?.objectValue?["id"]?.stringValue
+            if let runId {
+                workflowApiDiagDone.insert(conversationID)
+                Task { await self.workflowApiDiagDump(conversationID: conversationID, runId: runId) }
+            }
+        }
     }
 
     /// workflowRun.updated（delta.ts:122）：header 键整键替换（run patch + cleared 清除）+
@@ -1375,7 +1857,24 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         if let index {
             table.runs[index] = .object(entry)
             workflowRunTables[conversationID] = table
+            persistWorkflowMirror(conversationID, table.runs)
         }
+    }
+
+    /// 工作流状态镜像（快照 state.workflowRuns 间歇缺席自愈；同 server.configs.mirror 模式）：
+    /// 快照/增量一到即落盘（截尾 4 条），冷启动表空时水合，面板不再依赖投递时序
+    private func persistWorkflowMirror(_ conversationID: String, _ runs: [JSONValue]) {
+        let capped = Array(runs.suffix(4))
+        guard let data = try? JSONEncoder().encode(capped),
+            !data.isEmpty else { return }
+        UserDefaults.standard.set(data, forKey: "wf.runs.mirror.\(conversationID)")
+    }
+
+    private func loadWorkflowMirror(_ conversationID: String) -> [JSONValue]? {
+        guard let data = UserDefaults.standard.data(forKey: "wf.runs.mirror.\(conversationID)"),
+              let runs = try? JSONDecoder().decode([JSONValue].self, from: data),
+              !runs.isEmpty else { return nil }
+        return runs
     }
 
     /// 从快照/op 信封提取 run 负载（多键宽容；无 run 形态返回 nil）
@@ -1497,15 +1996,34 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             guard let d = actor.objectValue,
                   let siteId = d["siteId"]?.stringValue,
                   let ordinal = d["ordinal"]?.intValue else { return nil }
+            let tasksTotal = d["tasksTotal"]?.intValue
+                ?? d["nodesTotal"]?.intValue
+                ?? d["stations"]?.intValue
+            let tasksSettled = d["tasksSettled"]?.intValue
+                ?? d["nodesSettled"]?.intValue
             return WorkflowActorSummary(
                 id: "\(siteId)#\(ordinal)",
                 name: d["name"]?.stringValue,
                 rawStatus: d["status"]?.stringValue ?? "waiting",
                 phaseName: d["phaseName"]?.stringValue,
-                sessionId: d["sessionId"]?.stringValue)
+                sessionId: d["sessionId"]?.stringValue ?? d["childSessionId"]?.stringValue,
+                tasksTotal: tasksTotal,
+                tasksSettled: tasksSettled)
         }
 
         guard !nodes.isEmpty || !actors.isEmpty else { return nil }
+        // 子代理模型宽容解析（字符串直传；对象形态取 modelId|name|id）
+        let subagentModel: String? = {
+            switch dict["subagentModel"] {
+            case .string(let s): return s
+            case .object(let o):
+                return o["modelId"]?.stringValue ?? o["name"]?.stringValue ?? o["id"]?.stringValue
+            default: return nil
+            }
+        }()
+        // workId：取消/恢复/设置命令的定位键（web 端 resumeWorkflowRun 以 runId 充当
+        // workId；run 对象自带 workId 字段时优先）
+        let workId = dict["workId"]?.stringValue ?? id
         return WorkflowRunSummary(
             id: id,
             name: name,
@@ -1519,7 +2037,263 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             pendingQuestionsCount: dict["pendingQuestions"]?.arrayValue?.count ?? 0,
             concurrency: dict["concurrency"]?.intValue
                 ?? dict["concurrency"]?.objectValue?["active"]?.intValue,
-            concurrencyCeiling: dict["concurrencyCeiling"]?.intValue)
+            concurrencyCeiling: dict["concurrencyCeiling"]?.intValue
+                ?? dict["concurrency"]?.objectValue?["ceiling"]?.intValue
+                ?? dict["maxConcurrency"]?.intValue,
+            subagentModel: subagentModel,
+            cancellable: dict["cancellable"]?.boolValue ?? true,
+            workId: workId)
+    }
+
+    // MARK: 会话面板（goal / plan / btw 后台工作 / side 子代理）
+    //
+    // 数据源：conversation state.{goal,plan,backgroundWorks,subagents} 只读投影
+    // （桌面 state patch schema 同键；快照/state.updated 键级替换，applyDelta 统一
+    // 广播 panelStateUpdated）。控制面：pauseGoal/resumeGoal/cancelBackgroundWork/
+    // resumeWorkflowRun/amendWorkflowRunSettings 全部走 sendConversationCommandV4
+    // （web 端 v4-pane 同构造；ReadOnlyGate command 类放行）。
+
+    /// 面板态变更广播（快照 state 与 state.updated 应用点各一处）
+    private func yieldPanelState(_ conversationID: String) {
+        // 一次性面板字段取证（diag.wf.mode 开启时）：goal/plan/works/subagents 原始 JSON
+        if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
+           !workflowApiDiagDone.contains("panels:\(conversationID)") {
+            workflowApiDiagDone.insert("panels:\(conversationID)")
+            let state = snapshotState[conversationID]?.objectValue ?? [:]
+            let keys = state.keys.sorted().joined(separator: ",")
+            UserDefaults.standard.set(
+                "keys=\(keys) goal=\(String(describing: state["goal"]).prefix(300)) plan=\(String(describing: state["plan"]).prefix(300)) works=\(String(describing: state["backgroundWorks"]).prefix(300)) subs=\(String(describing: state["subagents"]).prefix(300))",
+                forKey: "diag.state.panels")
+        }
+        yieldToAll(.panelStateUpdated(conversationID: conversationID))
+    }
+
+    func goalSummary(in conversationID: String) async -> RemoteGoalSummary? {
+        guard let goal = snapshotState[conversationID]?.objectValue?["goal"] else { return nil }
+        if case .null = goal { return nil }
+        guard let d = goal.objectValue else { return nil }
+        let text = d["text"]?.stringValue
+            ?? d["description"]?.stringValue
+            ?? d["content"]?.stringValue
+            ?? d["prompt"]?.stringValue
+            ?? d["goal"]?.stringValue
+        guard let text, !text.isEmpty else { return nil }
+        let status = d["status"]?.stringValue
+        let paused = d["paused"]?.boolValue ?? (status == "paused" || status == "pausing")
+        return RemoteGoalSummary(text: text, rawStatus: status, isPaused: paused)
+    }
+
+    func planPanel(in conversationID: String) async -> PlanPanelSummary? {
+        guard let plan = snapshotState[conversationID]?.objectValue?["plan"] else { return nil }
+        if case .null = plan { return nil }
+        guard let d = plan.objectValue else { return nil }
+        // 正文多形态：content/text/markdown/body 直取；entries/ steps 数组逐行拼
+        var content = d["content"]?.stringValue
+            ?? d["text"]?.stringValue
+            ?? d["markdown"]?.stringValue
+            ?? d["body"]?.stringValue
+        if content == nil || content?.isEmpty == true {
+            let entries = d["entries"]?.arrayValue ?? d["steps"]?.arrayValue ?? []
+            let lines = entries.compactMap { e -> String? in
+                guard let o = e.objectValue else { return e.stringValue }
+                let title = o["title"]?.stringValue ?? o["text"]?.stringValue ?? ""
+                let done = o["status"]?.stringValue == "done" || o["completed"]?.boolValue == true
+                return (done ? "✓ " : "· ") + title
+            }
+            content = lines.isEmpty ? nil : lines.joined(separator: "\n")
+        }
+        guard let content, !content.isEmpty else { return nil }
+        return PlanPanelSummary(
+            title: d["title"]?.stringValue ?? d["name"]?.stringValue,
+            content: content,
+            rawStatus: d["status"]?.stringValue)
+    }
+
+    func backgroundWorks(in conversationID: String) async -> [BackgroundWorkSummary] {
+        let raw = snapshotState[conversationID]?.objectValue?["backgroundWorks"]
+        let array = raw?.arrayValue ?? raw?.objectValue?["works"]?.arrayValue ?? []
+        return array.compactMap { item in
+            guard let d = item.objectValue else { return nil }
+            guard let workId = d["workId"]?.stringValue ?? d["id"]?.stringValue else { return nil }
+            let status = d["status"]?.stringValue ?? d["state"]?.stringValue
+            return BackgroundWorkSummary(
+                workId: workId,
+                title: d["title"]?.stringValue ?? d["name"]?.stringValue ?? d["kind"]?.stringValue,
+                kind: d["kind"]?.stringValue ?? d["type"]?.stringValue,
+                rawStatus: status,
+                cancellable: d["cancellable"]?.boolValue ?? (status == "running"),
+                resumable: d["resumable"]?.boolValue ?? false,
+                runId: d["runId"]?.stringValue,
+                sessionId: d["sessionId"]?.stringValue ?? d["childSessionId"]?.stringValue)
+        }
+    }
+
+    func subagentSessions(in conversationID: String) async -> [SubagentSessionSummary] {
+        let raw = snapshotState[conversationID]?.objectValue?["subagents"]
+        // 桌面形态 {running:[...]}（web 端 subagents?.running.map(childSessionId)）；兼容裸数组
+        let array = raw?.objectValue?["running"]?.arrayValue
+            ?? raw?.objectValue?["all"]?.arrayValue
+            ?? raw?.arrayValue ?? []
+        return array.compactMap { item in
+            guard let d = item.objectValue,
+                  let childSessionId = d["childSessionId"]?.stringValue ?? d["sessionId"]?.stringValue
+            else { return nil }
+            return SubagentSessionSummary(
+                childSessionId: childSessionId,
+                agentId: d["agentId"]?.stringValue,
+                agentType: d["agentType"]?.stringValue ?? d["type"]?.stringValue,
+                name: d["name"]?.stringValue ?? d["agentName"]?.stringValue,
+                rawStatus: d["status"]?.stringValue ?? "running")
+        }
+    }
+
+    /// 目标暂停/继续（pauseGoal / resumeGoal；CAS 类命令必须携带当前 state revision）。
+    /// 返回命令回执（nil = 未送达；回执内 status/error 供调用方反馈）
+    @discardableResult
+    func setGoalPaused(_ paused: Bool, conversationID: String) async -> JSONValue? {
+        await sendCommand(
+            paused ? "pauseGoal" : "resumeGoal", sessionId: conversationID,
+            payload: .object([:]), casRevision: true)
+    }
+
+    /// 取消后台工作（cancelBackgroundWork {workId}；workflow run 的 workId 即 runId）
+    @discardableResult
+    func cancelWork(_ conversationID: String, workId: String) async -> JSONValue? {
+        await sendCommand(
+            "cancelBackgroundWork", sessionId: conversationID,
+            payload: .object(["workId": .string(workId)]))
+    }
+
+    /// 恢复工作流运行（resumeWorkflowRun {workId, name?}）
+    @discardableResult
+    func resumeWorkflowRun(_ conversationID: String, workId: String, name: String?) async -> JSONValue? {
+        var payload: [String: JSONValue] = ["workId": .string(workId)]
+        if let name, !name.isEmpty { payload["name"] = .string(name) }
+        return await sendCommand("resumeWorkflowRun", sessionId: conversationID, payload: .object(payload))
+    }
+
+    /// 工作流运行设置（amendWorkflowRunSettings；nil 参数不携带该键，.some(nil) 显式置 null）
+    @discardableResult
+    func amendWorkflowRunSettings(
+        _ conversationID: String, workId: String,
+        subagentModel: String??, maxConcurrency: Int??) async -> JSONValue? {
+        var payload: [String: JSONValue] = ["workId": .string(workId)]
+        if let model = subagentModel {
+            payload["subagentModel"] = model.map { .string($0) } ?? .null
+        }
+        if let limit = maxConcurrency {
+            payload["maxConcurrency"] = limit.map { .int($0) } ?? .null
+        }
+        return await sendCommand("amendWorkflowRunSettings", sessionId: conversationID, payload: .object(payload))
+    }
+
+    // MARK: 排队消息（桌面 composer pending 队列；state.queue 投影 + 队列命令面）
+
+    /// 排队队列只读投影（state.queue：{items:[{queueItemId, text, delivery{admitted}}], autoDrain}）
+    func queueInfo(in conversationID: String) async -> ConversationQueueInfo? {
+        guard let queue = snapshotState[conversationID]?.objectValue?["queue"] else { return nil }
+        if case .null = queue { return nil }
+        guard let d = queue.objectValue else { return nil }
+        let items: [RemoteQueueItem] = (d["items"]?.arrayValue ?? []).compactMap { item in
+            guard let o = item.objectValue else { return nil }
+            guard let id = o["queueItemId"]?.stringValue
+                ?? o["itemId"]?.stringValue
+                ?? o["id"]?.stringValue else { return nil }
+            let text = o["text"]?.stringValue
+                ?? o["inputText"]?.stringValue
+                ?? o["newText"]?.stringValue
+                ?? ""
+            let admitted = o["delivery"]?.objectValue?["admitted"]?.stringValue
+            return RemoteQueueItem(id: id, text: text, admitted: admitted)
+        }
+        guard !items.isEmpty else { return nil }
+        return ConversationQueueInfo(items: items, autoDrain: d["autoDrain"]?.boolValue ?? true)
+    }
+
+    /// 队列条目立即发送（CAS 类，携 state revision）
+    @discardableResult
+    func sendQueuedNow(_ conversationID: String, queueItemId: String) async -> JSONValue? {
+        await sendCommand(
+            "sendQueuedNow", sessionId: conversationID,
+            payload: .object(["queueItemId": .string(queueItemId)]),
+            casRevision: true)
+    }
+
+    /// 队列条目文本编辑（CAS 类——桌面四件队列命令全部携 revision，缺一被拒）
+    @discardableResult
+    func editQueueItem(_ conversationID: String, queueItemId: String, newText: String) async -> JSONValue? {
+        await sendCommand(
+            "editQueueItem", sessionId: conversationID,
+            payload: .object(["queueItemId": .string(queueItemId), "newText": .string(newText)]),
+            casRevision: true)
+    }
+
+    /// 队列条目删除（CAS 类）
+    @discardableResult
+    func deleteQueueItem(_ conversationID: String, queueItemId: String) async -> JSONValue? {
+        await sendCommand(
+            "deleteQueueItem", sessionId: conversationID,
+            payload: .object(["queueItemId": .string(queueItemId)]),
+            casRevision: true)
+    }
+
+    /// 队列条目重排（beforeQueueItemId=nil = 移到队尾；CAS 类——置顶报
+    /// "CAS commands require baseRevision" 的根因就是漏携）
+    @discardableResult
+    func reorderQueueItem(_ conversationID: String, queueItemId: String, beforeQueueItemId: String?) async -> JSONValue? {
+        await sendCommand(
+            "reorderQueueItem", sessionId: conversationID,
+            payload: .object([
+                "queueItemId": .string(queueItemId),
+                "beforeQueueItemId": beforeQueueItemId.map { .string($0) } ?? .null,
+            ]),
+            casRevision: true)
+    }
+
+    /// 自动排空开关（CAS 类）
+    @discardableResult
+    func setAutoDrain(_ conversationID: String, enabled: Bool) async -> JSONValue? {
+        await sendCommand(
+            "setAutoDrain", sessionId: conversationID,
+            payload: .object(["autoDrain": .bool(enabled)]),
+            casRevision: true)
+    }
+
+    /// 主模型/思考强度切换（switchModelConfig {provider, model, thought}；web 端模型选择器
+    /// 同构造，CAS 类命令携当前 state revision。thought 缺席传空串（schema K() 必填字符串）；
+    /// 成功后 model-selection onDidChange 回流驱动 chips 同步）
+    @discardableResult
+    func switchModelConfig(
+        _ conversationID: String, provider: String, model: String, thought: String?) async -> JSONValue? {
+        // CAS 前置：revision 缺失（快照无 state 的会话）先全量 resync 拉带 state 的快照，
+        // 轮询等待到达（帧异步，固定 0.9s 曾不够）
+        if conversationStateRevisions[conversationID] == nil {
+            await triggerResync(conversationID)
+            for _ in 0..<10 {
+                if conversationStateRevisions[conversationID] != nil { break }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+        }
+        return await sendCommand(
+            "switchModelConfig", sessionId: conversationID,
+            payload: .object([
+                "provider": .string(provider),
+                "model": .string(model),
+                "thought": .string(thought ?? ""),
+            ]),
+            casRevision: true)
+    }
+
+    /// 主动全量 resync（服务端重发快照含 state.workflowRuns；amend 停旧换新后拉新 run 用，
+    /// 5s 节流防抖）
+    private var lastResyncAt: [String: Date] = [:]
+    func triggerResync(_ conversationID: String) async {
+        if let last = lastResyncAt[conversationID], Date().timeIntervalSince(last) < 5 {
+            return
+        }
+        lastResyncAt[conversationID] = Date()
+        guard let subId = conversationSubscriptionIds[conversationID] else { return }
+        await forceFullResync(conversationID: conversationID, subscriptionId: subId)
     }
 
     // MARK: P2 批次：retryTurn / fork / 分组写面 / RunEvents 重建 / 子代理转录
@@ -1625,6 +2399,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         var cursor: JSONValue = .null
         for _ in 0..<2 {
             var builder = JSONObjectBuilder()
+            applySessionTarget(&builder, sessionID: conversationID)
             builder.set("runId", runId)
             builder.set("limit", 200)
             if cursor != .null {
@@ -1670,7 +2445,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                         name: payload["name"]?.stringValue,
                         rawStatus: payload["status"]?.stringValue ?? "waiting",
                         phaseName: payload["phaseName"]?.stringValue ?? payload["phase"]?.stringValue,
-                        sessionId: payload["sessionId"]?.stringValue))
+                        sessionId: payload["sessionId"]?.stringValue ?? payload["childSessionId"]?.stringValue,
+                        tasksTotal: nil,
+                        tasksSettled: nil))
                 }
             case type.contains("run-settled"), type.contains("settled"):
                 rawStatus = payload["status"]?.stringValue ?? rawStatus
@@ -1695,7 +2472,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             artifactsCount: 0,
             pendingQuestionsCount: 0,
             concurrency: nil,
-            concurrencyCeiling: nil)
+            concurrencyCeiling: nil,
+            subagentModel: nil,
+            cancellable: false)
     }
 
     /// G-021：子代理只读转录——按 actor.sessionId 拉一页 rowsRange（无新协议，纯只读），
@@ -1761,12 +2540,22 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// result {dataBase64, mediaType(image/*|video/*|application/pdf), totalBytes, nextOffset?}。
     /// 分块循环聚合，4MB 上限保护；失败返回 nil（UI 不渲染占位死块）。
     func attachmentPreview(sessionID: String, ref: String) async -> AttachmentPreview? {
+        // 中继瞬断（Reconnecting）会打断分块读：首败退避 1.2s 重试一次
+        if let first = await attachmentPreviewOnce(sessionID: sessionID, ref: ref) {
+            return first
+        }
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        return await attachmentPreviewOnce(sessionID: sessionID, ref: ref)
+    }
+
+    private func attachmentPreviewOnce(sessionID: String, ref: String) async -> AttachmentPreview? {
         guard let connection else { return nil }
         var chunks: [String] = []
         var mediaType: String?
         var totalBytes = 0
         var offset = 0
         let chunkLimit = 512 * 1024
+        defer { if DiagnosticAttachmentFlag.enabled { UserDefaults.standard.set("ref=\(ref) chunks=\(chunks.count) mediaType=\(mediaType ?? "nil") bytes=\(totalBytes)", forKey: "diag.attachment.last") } }
         for _ in 0..<8 { // 上限 8 块 ≈ 4MB
             var builder = JSONObjectBuilder()
             applySessionTarget(&builder, sessionID: sessionID)
@@ -1776,21 +2565,49 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             do {
                 let result = try await connection.call("zcode-agent", "attachmentReadV4", .json(.object(builder.fields)))
                 guard let dict = result.jsonValue?.objectValue,
-                      let base64 = dict["dataBase64"]?.stringValue else { return nil }
+                      let base64 = dict["dataBase64"]?.stringValue else {
+                    if DiagnosticAttachmentFlag.enabled {
+                        UserDefaults.standard.set("no dataBase64: \(String(describing: result.jsonValue).prefix(300))", forKey: "diag.attachment.err")
+                    }
+                    return nil
+                }
                 chunks.append(base64)
                 if mediaType == nil { mediaType = dict["mediaType"]?.stringValue }
                 totalBytes = dict["totalBytes"]?.intValue ?? totalBytes
                 guard let next = dict["nextOffset"]?.intValue else { break }
                 offset = next
             } catch {
+                if DiagnosticAttachmentFlag.enabled {
+                    UserDefaults.standard.set("ERR \(String(describing: error).prefix(300))", forKey: "diag.attachment.err")
+                }
                 return nil
             }
         }
         guard let mediaType else { return nil }
-        let joined = chunks.joined().replacingOccurrences(of: "\n", with: "")
-        guard let data = Data(base64Encoded: joined) else { return nil }
+        // 分块 base64 各自带 padding/可能夹杂空白：整串解码失败时按块独立解码拼接
+        let joined = chunks.joined()
+        var data = Data(base64Encoded: joined, options: [.ignoreUnknownCharacters])
+        if data == nil || data?.isEmpty == true {
+            var assembled = Data()
+            for chunk in chunks {
+                guard let part = Data(base64Encoded: chunk, options: [.ignoreUnknownCharacters]) else {
+                    assembled = Data(); break
+                }
+                assembled.append(part)
+            }
+            data = assembled.isEmpty ? nil : assembled
+        }
+        guard let data else {
+            if DiagnosticAttachmentFlag.enabled {
+                UserDefaults.standard.set("base64 decode failed len=\(joined.count) chunks=\(chunks.count)", forKey: "diag.attachment.err")
+            }
+            return nil
+        }
         return AttachmentPreview(ref: ref, data: data, mediaType: mediaType, totalBytes: totalBytes)
     }
+
+    /// 附件读取诊断开关（e2e 可关；默认开，验收后移除）
+    private enum DiagnosticAttachmentFlag { static let enabled = true }
 
     // MARK: workspace-config 只读投影（ChatView chips 数据源）
 
@@ -1800,6 +2617,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             return nil
         }
         return workspaceConfigState
+    }
+
+    /// 模型可用思考档（workspace-config configOptions 对象形态 values；
+    /// model-selection.getView 不携带该词表——实测 relay 下发模型条目为纯字符串）
+    func thoughtLevels(for model: String) async -> [String] {
+        await ensureWorkspaceConfigHandler()
+        return workspaceConfigThoughtByModel[model] ?? []
     }
 
     /// 注册 workspace-config 帧处理器（connection 侧已连接即订阅，handler 晚注册由重放缓存兜底）
@@ -1827,6 +2651,35 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     private func applyWorkspaceConfig(_ config: JSONValue) {
         var info = WorkspaceConfigInfo()
+        // 思考档词表源（web 端 Wxt：type=select 的 configOption.options，或 values[] 对象形态
+        // {value, modelThoughtLevels,...}，_ce schema 同源）；供 chips 思考菜单使用
+        for option in config["configOptions"]?.arrayValue ?? [] {
+            guard let optionDict = option.objectValue else { continue }
+            let entries = (optionDict["options"]?.arrayValue ?? [])
+                + (optionDict["values"]?.arrayValue ?? [])
+            for value in entries {
+                guard let v = value.objectValue else { continue }
+                let modelName = v["value"]?.stringValue ?? v["modelId"]?.stringValue
+                let levels = v["modelThoughtLevels"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                if let modelName, !levels.isEmpty {
+                    workspaceConfigThoughtByModel[modelName] = levels
+                }
+            }
+        }
+        // 每次应用覆盖写（首个快照可能为空，config.updated 随后补全）
+        if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+            var shape = "options=\(config["configOptions"]?.arrayValue?.count ?? 0)"
+            for option in config["configOptions"]?.arrayValue ?? [] {
+                guard let d = option.objectValue else { continue }
+                let optionValues = (d["options"]?.arrayValue ?? []).compactMap {
+                    $0.objectValue?["value"]?.stringValue ?? $0.stringValue
+                }
+                shape += " | id=\(d["id"]?.stringValue ?? "?") type=\(d["type"]?.stringValue ?? "?") opts=[\(optionValues.prefix(8).joined(separator: ","))]"
+            }
+            shape += " || thoughtByModel=\(workspaceConfigThoughtByModel.map { "\($0.key.prefix(12)):\($0.value)" }.joined(separator: ",").prefix(300))"
+            UserDefaults.standard.set(String(shape.prefix(1600)), forKey: "diag.wc.dump")
+            UserDefaults.standard.synchronize()
+        }
         for option in config["configOptions"]?.arrayValue ?? [] {
             guard let dict = option.objectValue,
                   let id = dict["id"]?.stringValue else { continue }
@@ -1866,6 +2719,26 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             let result = try await connection.call(
                 "model-selection", "getView", .json(.object(builder.fields)))
             guard let view = result.jsonValue?.objectValue else { return nil }
+            // 一次性取证：providers[] 原始形态 + 顶层思考档字段定位（验收后移除）
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
+               UserDefaults.standard.string(forKey: "diag.ms.dump") == nil {
+                let providerSummaries = (view["providers"]?.arrayValue ?? []).map { provider -> String in
+                    guard let d = provider.objectValue else { return "?" }
+                    let ids = (d["models"]?.arrayValue ?? []).compactMap { $0.objectValue?["modelId"]?.stringValue ?? $0.stringValue }
+                    let levels = d["models"]?.arrayValue?.compactMap {
+                        $0.objectValue?["modelThoughtLevels"]?.arrayValue?.compactMap(\.stringValue)
+                    } ?? []
+                    return "pid=\(d["providerId"]?.stringValue ?? "?") models=\(ids) modelLevels=\(levels)"
+                }
+                let thoughtish = view.filter { key, _ in
+                    let k = key.lowercased()
+                    return k.contains("thought") || k.contains("reason") || k.contains("option") || k.contains("level")
+                }.map { "\(String(describing: $1).prefix(300))" }.joined(separator: " ¦ ")
+                UserDefaults.standard.set(
+                    "topKeys=\(view.keys.sorted().joined(separator: "|")) thoughtish=\(thoughtish.prefix(900)) | \(providerSummaries.joined(separator: " | ").prefix(700))",
+                    forKey: "diag.ms.dump")
+                UserDefaults.standard.synchronize()
+            }
             let info = Self.parseModelSelectionView(view)
             modelSelectionCache = info
             yieldModelSelection()
@@ -1920,28 +2793,61 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         var info = ModelSelectionInfo()
         var models: [String] = []
         var thoughtLevels: [String] = []
+        var modelProviders: [String: String] = [:]
+        // 套餐分组：providerId → 组名（web 端 model picker 同口径；provider 顺序保持）
+        var groupsByPlan: [String: [String]] = [:]
+        var planOrder: [String] = []
+        func planName(for providerId: String) -> String? {
+            if providerId.contains("individual-coding-plan") { return String(localized: "个人套餐") }
+            if providerId.contains("start-plan") { return String(localized: "体验套餐") }
+            if providerId.contains("team-coding-plan") { return String(localized: "团队套餐") }
+            return nil
+        }
         for provider in view["providers"]?.arrayValue ?? [] {
             guard let providerDict = provider.objectValue else { continue }
-            for model in providerDict["models"]?.arrayValue ?? [] {
-                if let name = model.stringValue {
-                    models.append(name)
-                    continue
+            let providerId = providerDict["providerId"]?.stringValue ?? ""
+            let plan = planName(for: providerId)
+            // 思考档兜底源：provider config.optionSpecs.reasoningLevel.values
+            // （模型条目 modelThoughtLevels 缺席时的权威词表）
+            let config = providerDict["config"]?.objectValue
+                ?? providerDict["effectiveConfig"]?.objectValue
+            for level in config?["optionSpecs"]?.objectValue?["reasoningLevel"]?
+                .objectValue?["values"]?.arrayValue ?? [] {
+                if let levelName = level.stringValue, !thoughtLevels.contains(levelName) {
+                    thoughtLevels.append(levelName)
                 }
-                guard let modelDict = model.objectValue else { continue }
-                let label = modelDict["label"]?.stringValue
-                    ?? modelDict["name"]?.stringValue
-                    ?? modelDict["modelId"]?.stringValue
-                    ?? modelDict["id"]?.stringValue
-                if let label { models.append(label) }
-                for level in modelDict["modelThoughtLevels"]?.arrayValue ?? [] {
-                    if let levelName = level.stringValue, !thoughtLevels.contains(levelName) {
-                        thoughtLevels.append(levelName)
+            }
+            for model in providerDict["models"]?.arrayValue ?? [] {
+                var label: String?
+                if let name = model.stringValue {
+                    label = name
+                } else if let modelDict = model.objectValue {
+                    label = modelDict["label"]?.stringValue
+                        ?? modelDict["name"]?.stringValue
+                        ?? modelDict["modelId"]?.stringValue
+                        ?? modelDict["id"]?.stringValue
+                    for level in modelDict["modelThoughtLevels"]?.arrayValue ?? [] {
+                        if let levelName = level.stringValue, !thoughtLevels.contains(levelName) {
+                            thoughtLevels.append(levelName)
+                        }
+                    }
+                }
+                guard let label else { continue }
+                if !models.contains(label) { models.append(label) }
+                if !providerId.isEmpty { modelProviders[label] = providerId }
+                if let plan {
+                    if groupsByPlan[plan] == nil { planOrder.append(plan) }
+                    // 同组内去重，跨组保留（同一模型走不同套餐配额）
+                    if !(groupsByPlan[plan]?.contains(label) ?? false) {
+                        groupsByPlan[plan, default: []].append(label)
                     }
                 }
             }
         }
         info.models = models
         info.thoughtLevels = thoughtLevels
+        info.planGroups = planOrder.map { ModelPlanGroup(plan: $0, models: groupsByPlan[$0] ?? []) }
+        info.modelProviders = modelProviders
         // 当前绑定优先 preferredSelection（{providerId, modelId, options:{reasoningLevel}}），
         // 退化 effective.selection 同构
         let selection = view["preferredSelection"]?.objectValue
@@ -1985,12 +2891,21 @@ private extension RemoteConversationStore.SessionSummary {
         summary.pinned = dict["pinned"]?.boolValue
         summary.archived = dict["archived"]?.boolValue ?? dict["isArchived"]?.boolValue
         // 要求 4：会话自带归属工作区（宽容多键：workspacePath / workspace 字符串 / workspace.path 嵌套；
-        // listArchivedTasks 行已有 workspacePath 字段先例）。缺席 = 无法判定归属 → nil → 「其它」组
+        // listArchivedTasks 行已有 workspacePath 字段先例）。relay 下发的 sessions-index 行实测只带
+        // workspaceId（2026-10-05 全键取证）——它即工作区路径型 id，作为分组键兜底。
+        // 缺席 = 无法判定归属 → nil → 「其它」组
         summary.workspacePath = dict["workspacePath"]?.stringValue
             ?? dict["workspace"]?.stringValue
             ?? dict["workspace"]?.objectValue?["path"]?.stringValue
+            ?? dict["workspaceId"]?.stringValue
         // G-007 通路 A：行自带 workflowActivity（sessionWorkflowActivitySchema；无 run 时缺席）
         summary.workflowActivity = dict["workflowActivity"]
+        if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+            let raw = dict["workflowActivity"].map { String(describing: $0).prefix(700) } ?? "缺席"
+            UserDefaults.standard.set(
+                "session=\(sessionId.prefix(20)) workspaceId=\(dict["workspaceId"]?.stringValue ?? "缺席") workflowActivity=\(raw) · 全键=\(dict.keys.sorted().prefix(16))",
+                forKey: "diag.wf.activity.\(sessionId.prefix(14))")
+        }
         return summary
     }
 }

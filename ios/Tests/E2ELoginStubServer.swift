@@ -1241,8 +1241,14 @@ final class E2ELoginStubServer {
     /// 边界计数（v3 纠偏口径）：仅 applyFileRewind 属直写类计入 blockedWriteCommandCount；
     /// sendText/resolveInteraction/stop 为边界内合法面（桌面代执行），独立计数供闭环断言。
     private func handleConversationCommand(_ body: StubRPC, channel: ConnectionChannel, reply: @escaping ([String: Any]) -> Void) {
-        let type = body.objectValue?["type"]?.stringValue ?? ""
-        let sessionId = body.objectValue?["sessionId"]?.stringValue
+        // 信封形态解包（客户端 v4 纠偏后 sendConversationCommandV4 携
+        // {envelope:{commandId,clientId,type,payload,issuedAt,sessionId?}, workspacePath,
+        //  workspaceIdentity?}）——桌面按 envelope 内字段执行；stub 同构解包，否则
+        // type 读空 → 无 case 匹配 → 永不回执，客户端在测试窗口内等不到平铺兜底
+        // （门禁实测：createSessionWithFirstInputCount / sendTextCount 恒 0）
+        let effective = body.objectValue?["envelope"]?.objectValue ?? body.objectValue
+        let type = effective?["type"]?.stringValue ?? ""
+        let sessionId = effective?["sessionId"]?.stringValue
         if type == "applyFileRewind" {
             lock.lock()
             _blockedWriteCommandCount += 1
@@ -1250,10 +1256,10 @@ final class E2ELoginStubServer {
         }
         switch type {
         case "createSession":
-            let firstInput = body.objectValue?["payload"]?.objectValue?["firstInput"]?.objectValue?["text"]?.stringValue
+            let firstInput = effective?["payload"]?.objectValue?["firstInput"]?.objectValue?["text"]?.stringValue
             // 项 2：项目层选择随 createSession 的 workspaceId 下发（NewConversationSheet
             // 项目胶囊 → directory 参数；未绑定时客户端回退连接装配的 workspace）
-            let workspaceId = body.objectValue?["payload"]?.objectValue?["workspaceId"]?.stringValue
+            let workspaceId = effective?["payload"]?.objectValue?["workspaceId"]?.stringValue
             let newId = "sess-e2e-" + UUID().uuidString.prefix(6)
             lock.lock()
             _createSessionCount += 1
@@ -1277,7 +1283,7 @@ final class E2ELoginStubServer {
                 reply(["ok": false])
                 return
             }
-            let text = body.objectValue?["payload"]?.objectValue?["text"]?.stringValue ?? ""
+            let text = effective?["payload"]?.objectValue?["text"]?.stringValue ?? ""
             let userRow: [String: Any] = ["rowId": bumpRow(sessionId), "kind": "userInput", "text": text]
             let assistantRow: [String: Any] = [
                 "rowId": bumpRow(sessionId), "kind": "assistantText",
@@ -1291,7 +1297,7 @@ final class E2ELoginStubServer {
             // conversation 增量帧：只下发替身回复（用户行客户端已本地回显，避免双气泡）
             fireConversationDelta(sessionId: sessionId, row: assistantRow, channel: channel, delay: 0.35)
         case "resolveInteraction":
-            let payloadDict = body.objectValue?["payload"]?.objectValue ?? [:]
+            let payloadDict = effective?["payload"]?.objectValue ?? [:]
             var payloadJSON: [String: Any] = [:]
             for (key, value) in payloadDict {
                 if let s = value.stringValue { payloadJSON[key] = s }

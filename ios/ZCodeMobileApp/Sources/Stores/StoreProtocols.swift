@@ -7,6 +7,9 @@ enum ConversationEvent {
     case messagesReplaced(conversationID: String, messages: [ChatMessage])
     case messageAppended(conversationID: String, message: ChatMessage)
     case messageUpdated(conversationID: String, message: ChatMessage)
+    /// 面板态变更（goal/plan/backgroundWorks/subagents 任一键的快照/state.updated 应用）；
+    /// 观察方重读面板投影（无行级语义）
+    case panelStateUpdated(conversationID: String)
 }
 
 /// 会话存储协议。接入真实 ZCode 后端时按此边界替换实现。
@@ -49,6 +52,9 @@ protocol ConversationStore: AnyObject, Sendable {
     func markUnread(conversationID: String) async
     /// 已归档会话（连接态 listArchivedTasks 只读拉取 + 本地归档动作合并；演示态空）
     func archivedConversations() async -> [Conversation]
+    /// 删除任务（桌面失败任务「清理」/归档区删除同款：zcode-task.deleteTask）
+    @discardableResult
+    func deleteTask(_ conversationID: String) async -> Bool
     /// 交互应答信封（连接态 v4 resolveInteraction；演示态无交互面）
     func resolveInteractionRaw(_ conversationID: String, interactionId: String, answer: JSONValue) async
     /// 失败 turn 重试（G-015）：携行元数据精确游标 {rowId, entityId} 下发 retryTurn；
@@ -77,6 +83,58 @@ protocol ConversationStore: AnyObject, Sendable {
     /// 桌面 workflow 运行进度（要求 5 · 只读：v4 workflowRun.updated 带内事件 +
     /// conversationWorkflowRunsV4 只读族；nil = 无数据不渲染；不新增任何发送命令）
     func workflowRun(in conversationID: String) async -> WorkflowRunSummary?
+    /// 会话全部 workflow run（多 run 面板；活 run 优先。缺省退化为单 run 包装）
+    func workflowRuns(in conversationID: String) async -> [WorkflowRunSummary]
+    // MARK: 会话面板（goal/plan/btw/side；数据源 state.* 只读投影 + 控制命令面）
+    /// state.goal 只读投影（nil = 无目标不渲染）
+    func goalSummary(in conversationID: String) async -> RemoteGoalSummary?
+    /// state.plan 只读投影（nil = 无计划不渲染）
+    func planPanel(in conversationID: String) async -> PlanPanelSummary?
+    /// state.backgroundWorks 只读投影（btw 面板数据源）
+    func backgroundWorks(in conversationID: String) async -> [BackgroundWorkSummary]
+    /// state.subagents 只读投影（side 面板数据源）
+    func subagentSessions(in conversationID: String) async -> [SubagentSessionSummary]
+    /// 目标暂停/继续（pauseGoal / resumeGoal；桌面代执行；返回命令回执供失败反馈）
+    @discardableResult
+    func setGoalPaused(_ paused: Bool, conversationID: String) async -> JSONValue?
+    /// 取消后台工作（cancelBackgroundWork {workId}；返回命令回执供失败反馈）
+    @discardableResult
+    func cancelWork(_ conversationID: String, workId: String) async -> JSONValue?
+    /// 恢复工作流运行（resumeWorkflowRun {workId, name?}；返回命令回执供失败反馈）
+    @discardableResult
+    func resumeWorkflowRun(_ conversationID: String, workId: String, name: String?) async -> JSONValue?
+    /// 工作流运行设置（amendWorkflowRunSettings {workId, subagentModel?, maxConcurrency?}）：
+    /// 双重可选语义——nil 参数 = 不修改该键；.some(nil) = 置 null（跟随主模型/解除上限）。
+    /// 返回命令回执供失败反馈
+    @discardableResult
+    func amendWorkflowRunSettings(
+        _ conversationID: String, workId: String,
+        subagentModel: String??, maxConcurrency: Int??) async -> JSONValue?
+    /// 主模型/思考强度切换（switchModelConfig {provider, model, thought}；桌面代执行，
+    /// onDidChange 回流驱动 chips 同步）
+    @discardableResult
+    func switchModelConfig(_ conversationID: String, provider: String, model: String, thought: String?) async -> JSONValue?
+    /// 主动全量 resync（服务端重发快照；amend 停旧换新后拉新 run 用，实现内节流）
+    func triggerResync(_ conversationID: String) async
+    /// 模型可用思考档（workspace-config configOptions 词表；getView 不携带）
+    func thoughtLevels(for model: String) async -> [String]
+    /// 排队队列只读投影（state.queue；nil = 无排队）
+    func queueInfo(in conversationID: String) async -> ConversationQueueInfo?
+    /// 队列条目立即发送（CAS）
+    @discardableResult
+    func sendQueuedNow(_ conversationID: String, queueItemId: String) async -> JSONValue?
+    /// 队列条目文本编辑
+    @discardableResult
+    func editQueueItem(_ conversationID: String, queueItemId: String, newText: String) async -> JSONValue?
+    /// 队列条目删除
+    @discardableResult
+    func deleteQueueItem(_ conversationID: String, queueItemId: String) async -> JSONValue?
+    /// 队列条目重排（beforeQueueItemId=nil = 移到队尾）
+    @discardableResult
+    func reorderQueueItem(_ conversationID: String, queueItemId: String, beforeQueueItemId: String?) async -> JSONValue?
+    /// 自动排空开关（CAS）
+    @discardableResult
+    func setAutoDrain(_ conversationID: String, enabled: Bool) async -> JSONValue?
 }
 
 /// 附件预览结果（G-014）
@@ -118,6 +176,7 @@ extension ConversationStore {
 
     /// 已归档会话（演示态空：归档行即刻从列表消失，与既有行为一致）
     func archivedConversations() async -> [Conversation] { [] }
+    func deleteTask(_ conversationID: String) async -> Bool { false }
 
     /// 交互应答信封（演示态无挂起交互，默认空实现）
     func resolveInteractionRaw(_ conversationID: String, interactionId: String, answer: JSONValue) async {}
@@ -149,6 +208,32 @@ extension ConversationStore {
 
     /// 桌面 workflow 运行进度（协议默认无数据不渲染；Mock 对运行中演示会话覆写提供演示 run）
     func workflowRun(in conversationID: String) async -> WorkflowRunSummary? { nil }
+
+    /// 会话全部 workflow run（缺省退化为单 run 包装；远端实现覆写多源合并）
+    func workflowRuns(in conversationID: String) async -> [WorkflowRunSummary] {
+        [await workflowRun(in: conversationID)].compactMap { $0 }
+    }
+
+    // MARK: 会话面板（演示态无桌面 state 面，全部默认空/无数据；控制命令默认空实现）
+    func goalSummary(in conversationID: String) async -> RemoteGoalSummary? { nil }
+    func planPanel(in conversationID: String) async -> PlanPanelSummary? { nil }
+    func backgroundWorks(in conversationID: String) async -> [BackgroundWorkSummary] { [] }
+    func subagentSessions(in conversationID: String) async -> [SubagentSessionSummary] { [] }
+    func setGoalPaused(_ paused: Bool, conversationID: String) async -> JSONValue? { nil }
+    func cancelWork(_ conversationID: String, workId: String) async -> JSONValue? { nil }
+    func resumeWorkflowRun(_ conversationID: String, workId: String, name: String?) async -> JSONValue? { nil }
+    func amendWorkflowRunSettings(
+        _ conversationID: String, workId: String,
+        subagentModel: String??, maxConcurrency: Int??) async -> JSONValue? { nil }
+    func switchModelConfig(_ conversationID: String, provider: String, model: String, thought: String?) async -> JSONValue? { nil }
+    func triggerResync(_ conversationID: String) async {}
+    func thoughtLevels(for model: String) async -> [String] { [] }
+    func queueInfo(in conversationID: String) async -> ConversationQueueInfo? { nil }
+    func sendQueuedNow(_ conversationID: String, queueItemId: String) async -> JSONValue? { nil }
+    func editQueueItem(_ conversationID: String, queueItemId: String, newText: String) async -> JSONValue? { nil }
+    func deleteQueueItem(_ conversationID: String, queueItemId: String) async -> JSONValue? { nil }
+    func reorderQueueItem(_ conversationID: String, queueItemId: String, beforeQueueItemId: String?) async -> JSONValue? { nil }
+    func setAutoDrain(_ conversationID: String, enabled: Bool) async -> JSONValue? { nil }
 
     /// 审批卡便捷应答：{approved, scope} 注入 answer（scope 三档：once/task/always）
     func resolveInteraction(_ interactionId: String, approved: Bool, scope: String,
@@ -186,6 +271,18 @@ struct ModelSelectionInfo: Equatable {
     var activeModel: String?
     var thoughtLevels: [String] = []
     var activeThoughtLevel: String?
+    /// 套餐分组（个人套餐/体验套餐/团队套餐…；providerId 含 start-plan → 体验、
+    /// individual-coding-plan → 个人、team-coding-plan → 团队；缺席 = 未分组）
+    var planGroups: [ModelPlanGroup] = []
+    /// 模型 → 所属 providerId（switchModelConfig 需要三元组 provider/model/thought）
+    var modelProviders: [String: String] = [:]
+}
+
+/// 模型套餐分组（选择器按组分节展示；同一模型可同时出现在个人与体验两组——配额不同）
+struct ModelPlanGroup: Equatable, Identifiable {
+    var plan: String
+    var models: [String]
+    var id: String { plan }
 }
 
 /// 会话上下文用量（G-021：会话流工具行真实数据源）。

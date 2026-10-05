@@ -251,7 +251,11 @@ final class ZCodeServerConnection {
     /// Store 注册 workspace-config handler 前到达的帧（快照/增量整体替换语义，重放安全）
     private var workspaceConfigReplay: [V4TopicFrame] = []
     private var manuallyCancelled = false
-    private var clientId = "zcode-mobile-" + UUID().uuidString.prefix(8)
+    /// 连接握手注册的 clientId（命令信封 envelope.clientId 必须与之一致，
+    /// 否则桌面端拒收 fault.command.clientMismatch）。init 后不变 → nonisolated let 跨 actor 读
+    nonisolated private let clientId = "zcode-mobile-" + UUID().uuidString.prefix(8)
+
+    nonisolated var registeredClientId: String { clientId }
 
     /// 只读边界拦截记录（最近 20 条；连接态 execution 命令在 RPC 出口被拒的证据）
     private(set) var blockedExecutionCalls: [String] = []
@@ -705,7 +709,7 @@ final class ZCodeServerConnection {
 
     /// assembler dropped → resyncWorkspaceConfigV4（subscriptionId + base；无水位传 null 全量）
     private func resyncWorkspaceConfig() {
-        guard let subscriptionId = workspaceConfigSubscriptionId, let client, isActive else { return }
+        guard let subscriptionId = workspaceConfigSubscriptionId, client != nil, isActive else { return }
         var builder = JSONObjectBuilder()
         builder.set("subscriptionId", subscriptionId)
         builder.set("base", JSONValue.null)

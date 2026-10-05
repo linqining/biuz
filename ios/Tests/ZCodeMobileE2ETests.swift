@@ -311,9 +311,11 @@ final class ZCodeMobileE2ETests: XCTestCase {
         return item.exists
     }
 
-    /// 左滑会话行露出滑动动作并点击指定动作按钮（按钮 identifier 形如 04-rowact-pin-<id>）
+    /// 左滑会话行露出滑动动作并点击指定动作按钮（按钮 identifier 形如 04-rowact-pin-<id>）。
+    /// 行可能位于分组序列末尾、LazyVStack 视口外未物化——先滚动揭示再左滑
     private func swipeRowAndTapAction(_ app: XCUIApplication, row: XCUIElement,
                                       actionIdentifier: String, message: String) {
+        _ = scrollToReveal(row, app: app)
         XCTAssertTrue(row.waitForExistence(timeout: 6), message + "（行应先在场）")
         row.swipeLeft()
         let action = element(app, actionIdentifier)
@@ -419,6 +421,12 @@ final class ZCodeMobileE2ETests: XCTestCase {
                       "项目分组头「api」应存在（c4）")
         XCTAssertTrue(app.staticTexts["zcode-mobile"].waitForExistence(timeout: 4),
                       "项目分组头「zcode-mobile」应存在（c5）")
+        // 「其它」组排在分组序列末尾，LazyVStack 视口外不物化——有界下滑揭示后再断言
+        if !app.staticTexts["其它"].exists {
+            for _ in 0..<4 where !app.staticTexts["其它"].exists {
+                app.swipeUp()
+            }
+        }
         XCTAssertTrue(app.staticTexts["其它"].waitForExistence(timeout: 4),
                       "归属未知的 c2 应归「其它」组而非丢弃")
 

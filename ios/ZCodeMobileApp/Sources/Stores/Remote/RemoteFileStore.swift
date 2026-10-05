@@ -205,7 +205,7 @@ actor RemoteFileStore: @preconcurrency FileStore {
     }
 
     func contentPage(of path: String, offset: Int, length: Int) async -> FileContentPage {
-        guard let connection else { return FileContentPage(content: "", totalBytes: 0, isTruncated: false) }
+        guard connection != nil else { return FileContentPage(content: "", totalBytes: 0, isTruncated: false) }
         // stat 前置守卫：超大文件先截断提示，避免静默拉全量（二进制/超大文件不静默空串）
         if offset == 0, let fileStat = await stat(of: path), !fileStat.isDirectory,
            fileStat.size > Self.firstPageSizeBytes {

@@ -157,7 +157,7 @@ enum RelayFrameCodec {
     // MARK: CRC32（反射 0xEDB88320，hex8；与 V4Wire.crc32 同参）
 
     static func crc32Hex(of data: Data) -> String {
-        var table: [UInt32] = (0..<256).map { i -> UInt32 in
+        let table: [UInt32] = (0..<256).map { i -> UInt32 in
             var c = UInt32(i)
             for _ in 0..<8 {
                 c = (c & 1) == 1 ? (0xEDB8_8320 ^ (c >> 1)) : (c >> 1)

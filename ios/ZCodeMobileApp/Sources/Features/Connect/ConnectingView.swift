@@ -403,7 +403,7 @@ struct ConnectFailureView: View {
             }
             HStack(spacing: 10) {
                 secondaryButton(title: "原配置重试", icon: "arrow.clockwise", identifier: "l3-btn-retry-secondary") {
-                    Task { await onRetry() }
+                    Task { onRetry() }
                 }
                 secondaryButton(title: "手动更新令牌", icon: "key", identifier: "l3-btn-update-token", action: onManualToken)
             }

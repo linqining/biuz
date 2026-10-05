@@ -10,6 +10,7 @@
 		002950721655AE315013635C /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2D54E8CDE727E93B064055 /* RootView.swift */; };
 		017BAE8773AC3CE5A203FE27 /* TaskNotificationContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ABFC2280688B1F228898495 /* TaskNotificationContentTests.swift */; };
 		02F787931DA9B07F3E639348 /* P2ExtrasViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99765DA82BF8AB5FF5A1A8A5 /* P2ExtrasViews.swift */; };
+		05565D541E975E664A34E318 /* SessionPanelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02BB093265D7B81233803F4F /* SessionPanelsView.swift */; };
 		086FD4E9F567588B9134DB15 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA6F6A479CDA01323F0589A /* SettingsView.swift */; };
 		096A2BC7145DBEFA1A9EBC13 /* ServerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60F40DB0E5742B8570C2994B /* ServerViews.swift */; };
 		09A6B884D81B1F4E996AD6E3 /* ContextPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 526D1D725C702380F055B0AA /* ContextPicker.swift */; };
@@ -95,6 +96,7 @@
 
 /* Begin PBXFileReference section */
 		0266B0BDA4341531C4BB8EAB /* ZCodeMobileLoginE2ETests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZCodeMobileLoginE2ETests.swift; sourceTree = "<group>"; };
+		02BB093265D7B81233803F4F /* SessionPanelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPanelsView.swift; sourceTree = "<group>"; };
 		09FC90B4C2C1FF5129D9CE1A /* UserDefaultsSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDefaultsSettingsStore.swift; sourceTree = "<group>"; };
 		0B2D54E8CDE727E93B064055 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		0EF8A7B6C21964A5B6A9AF85 /* LanguageE2ETests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageE2ETests.swift; sourceTree = "<group>"; };
@@ -426,6 +428,7 @@
 				43175B854A9C5ECE89232888 /* ConversationListView.swift */,
 				357F6443D7A219168868AC99 /* MessageViews.swift */,
 				7CD6C92E5023305061C96EED /* NewConversationSheet.swift */,
+				02BB093265D7B81233803F4F /* SessionPanelsView.swift */,
 			);
 			path = Conversations;
 			sourceTree = "<group>";
@@ -627,6 +630,7 @@
 				002950721655AE315013635C /* RootView.swift in Sources */,
 				B23B7A1F04E6472FA7ED3EDA /* ScanView.swift in Sources */,
 				096A2BC7145DBEFA1A9EBC13 /* ServerViews.swift in Sources */,
+				05565D541E975E664A34E318 /* SessionPanelsView.swift in Sources */,
 				086FD4E9F567588B9134DB15 /* SettingsView.swift in Sources */,
 				DB8B93A52D6302E05E71E248 /* StoreEnvironment.swift in Sources */,
 				C97617519263B388A53759C9 /* StoreProtocols.swift in Sources */,

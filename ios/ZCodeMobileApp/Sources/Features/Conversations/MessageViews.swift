@@ -18,10 +18,13 @@ struct MessageView: View {
     var body: some View {
         switch message.role {
         case .user:
-            // 桌面口径：用户消息附件位于气泡上方、右对齐（G-014 缩略图行）
+            // 桌面口径：用户消息附件位于气泡上方、右对齐（FlexibleFlow 行对齐 trailing；
+            // 外层 frame 对恒定占满宽度的 Layout 无效——根因是 flow 行对齐）
             VStack(alignment: .trailing, spacing: T.sp1) {
                 if !message.attachments.isEmpty {
-                    AttachmentStripView(sessionID: sessionID, refs: message.attachments)
+                    AttachmentStripView(
+                        sessionID: sessionID, refs: message.attachments,
+                        rowAlignment: .trailing)
                 }
                 UserBubble(text: message.text)
             }
@@ -108,21 +111,73 @@ struct ToolCallCardView: View {
     @State private var expanded = false
     @Environment(AppRouter.self) private var router
 
+    /// 路径类目标（含路径分隔符且带扩展名）→ 文件图标 + 双段路径展示
+    private var isPathTarget: Bool {
+        let target = call.target
+        guard target.contains("/") else { return false }
+        return !((target as NSString).pathExtension).isEmpty
+    }
+
+    /// 工具种类图标（桌面工具行同构）。ToolKind 五 case 已穷举，不设 default：
+    /// 未来新增 case 时由编译期穷尽检查兜底（"default will never be executed" 消除）
+    private static func kindIcon(_ kind: ToolKind) -> String {
+        switch kind {
+        case .bash: return "terminal"
+        case .read: return "doc.text"
+        case .edit: return "pencil.line"
+        case .ask: return "questionmark.bubble"
+        case .browser: return "safari"
+        }
+    }
+
+    /// 工具种类中文动词（桌面「编辑/读取/正在执行」同构）
+    private static func kindLabel(_ kind: ToolKind) -> String {
+        switch kind {
+        case .bash: return String(localized: "执行")
+        case .read: return String(localized: "读取")
+        case .edit: return String(localized: "编辑")
+        case .ask: return String(localized: "提问")
+        case .browser: return String(localized: "浏览")
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Button {
                 withAnimation(.easeOut(duration: 0.2)) { expanded.toggle() }
             } label: {
                 HStack(spacing: T.sp2) {
-                    Text(call.kind.rawValue.uppercased())
-                        .font(T.mono(11, .semibold))
+                    // 桌面同构头：图标 + 中文动词 + 文件名（突出）+ 目录（弱化）+ 增删行数
+                    Image(systemName: Self.kindIcon(call.kind))
+                        .font(.system(size: 11))
                         .foregroundColor(T.text3)
-                        .frame(minWidth: 40, alignment: .leading)
-                    Text(call.target)
-                        .font(T.mono(11.5))
-                        .foregroundColor(T.text2)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(Self.kindLabel(call.kind))
+                        .font(T.font(12, .medium))
+                        .foregroundColor(T.text)
+                    if isPathTarget {
+                        FileTypeBadgeView(path: call.target)
+                        // 文件名 + 父目录双段展示：文件名保留完整，目录头部截断
+                        Text((call.target as NSString).lastPathComponent)
+                            .font(T.mono(12, .semibold))
+                            .foregroundColor(T.text)
+                            .lineLimit(1)
+                        let dir = (call.target as NSString).deletingLastPathComponent
+                        if !dir.isEmpty {
+                            Text(dir + "/")
+                                .font(T.mono(11))
+                                .foregroundColor(T.text3)
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                                .layoutPriority(-1)
+                        }
+                    } else {
+                        Text(call.target)
+                            .font(T.mono(11.5))
+                            .foregroundColor(T.text2)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     statusArea
                     Image(systemName: "chevron.right")
                         .font(.system(size: 11, weight: .semibold))
@@ -218,21 +273,26 @@ struct ToolCallCardView: View {
         }
         switch call.kind {
         case .bash, .read:
-            if let output = call.output {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(output)
-                        .font(T.mono(12))
-                        .foregroundColor(T.text2)
-                        .lineSpacing(4)
-                        .padding(T.sp3)
-                        .frame(minWidth: UIScreen.main.bounds.width - 96, alignment: .leading)
+            VStack(spacing: 0) {
+                // 展开体首行：具体命令/文件路径（头部截断仅是摘要，展开后要能看到全量）
+                targetDetailBlock
+                if let output = call.output {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(output)
+                            .font(T.mono(12))
+                            .foregroundColor(T.text2)
+                            .lineSpacing(4)
+                            .padding(T.sp3)
+                            .frame(minWidth: UIScreen.main.bounds.width - 96, alignment: .leading)
+                    }
                 }
-                .background(T.bgCode)
-                .accessibilityIdentifier("05-toolcard-body-bash")
             }
+            .background(T.bgCode)
+            .accessibilityIdentifier("05-toolcard-body-bash")
         case .edit:
-            if let diff = call.diff {
-                VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                targetDetailBlock
+                if let diff = call.diff {
                     DiffLineListView(lines: diff)
                     Button {
                         router.openDiffFromChat()
@@ -244,15 +304,107 @@ struct ToolCallCardView: View {
                     }
                     .accessibilityIdentifier("05-act-view-full-diff")
                 }
-                .background(T.bgCode)
-                .accessibilityIdentifier("05-toolcard-body-edit")
             }
+            .background(T.bgCode)
+            .accessibilityIdentifier("05-toolcard-body-edit")
         case .ask, .browser:
             Text(call.target)
                 .font(T.font(12))
                 .foregroundColor(T.text2)
                 .padding(T.sp3)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// 展开体目标块：bash=完整命令 / edit·read=完整文件路径（换行铺开，不再截断）
+    private var targetDetailBlock: some View {
+        Text(call.target)
+            .font(T.mono(12))
+            .foregroundColor(T.text)
+            .lineSpacing(3)
+            .padding(T.sp3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("05-toolcard-target-detail")
+    }
+}
+
+// MARK: - 文件类型徽标（桌面端语言图标同构：.swift → Swift 字形，其余扩展名色块缩写）
+
+struct FileTypeBadgeView: View {
+    let path: String
+
+    private var ext: String { (path as NSString).pathExtension.lowercased() }
+
+    var body: some View {
+        Group {
+            if ext == "swift" {
+                Image(systemName: "swift")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(red: 1.0, green: 0.47, blue: 0.24))
+            } else {
+                Text(abbr)
+                    .font(T.mono(8, .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 3.5)
+                    .padding(.vertical, 2.5)
+                    .background(color)
+                    .clipShape(RoundedRectangle(cornerRadius: 3.5))
+            }
+        }
+        .frame(width: 20)
+    }
+
+    /// 扩展名缩写（缺省取前 3 字符大写）
+    private var abbr: String {
+        switch ext {
+        case "ts", "tsx": return "TS"
+        case "js", "jsx", "mjs", "cjs": return "JS"
+        case "json": return "{}"
+        case "md", "markdown": return "MD"
+        case "py": return "PY"
+        case "rs": return "RS"
+        case "go": return "GO"
+        case "java": return "JV"
+        case "kt", "kts": return "KT"
+        case "rb": return "RB"
+        case "php": return "PHP"
+        case "c", "h": return "C"
+        case "cpp", "cc", "hpp", "mm": return "C++"
+        case "sh", "zsh", "bash": return "SH"
+        case "yml", "yaml": return "YML"
+        case "toml": return "TOML"
+        case "html", "htm": return "<>"
+        case "css", "scss", "less": return "CSS"
+        case "png", "jpg", "jpeg", "gif", "webp", "svg": return "IMG"
+        case "pdf": return "PDF"
+        case "zip", "tar", "gz": return "ZIP"
+        case "lock": return "LOCK"
+        default: return String(ext.prefix(3).uppercased())
+        }
+    }
+
+    /// 语言族色（桌面 Seti/语言色同族；缺省中性灰）
+    private var color: Color {
+        switch ext {
+        case "ts", "tsx": return Color(red: 0.19, green: 0.47, blue: 0.80)
+        case "js", "jsx", "mjs", "cjs", "json": return Color(red: 0.80, green: 0.62, blue: 0.08)
+        case "md", "markdown", "txt": return Color(red: 0.26, green: 0.52, blue: 0.96)
+        case "py": return Color(red: 0.22, green: 0.55, blue: 0.55)
+        case "rs": return Color(red: 0.72, green: 0.34, blue: 0.20)
+        case "go": return Color(red: 0.19, green: 0.60, blue: 0.70)
+        case "java", "php": return Color(red: 0.68, green: 0.35, blue: 0.30)
+        case "kt": return Color(red: 0.60, green: 0.35, blue: 0.85)
+        case "rb": return Color(red: 0.75, green: 0.25, blue: 0.30)
+        case "c", "h", "cpp", "cc", "hpp", "mm": return Color(red: 0.35, green: 0.55, blue: 0.75)
+        case "sh", "zsh", "bash": return Color(red: 0.35, green: 0.45, blue: 0.35)
+        case "yml", "yaml", "toml", "lock": return Color(red: 0.45, green: 0.50, blue: 0.55)
+        case "html", "htm": return Color(red: 0.78, green: 0.42, blue: 0.18)
+        case "css", "scss", "less": return Color(red: 0.25, green: 0.50, blue: 0.78)
+        case "png", "jpg", "jpeg", "gif", "webp", "svg": return Color(red: 0.45, green: 0.60, blue: 0.35)
+        case "pdf": return Color(red: 0.80, green: 0.30, blue: 0.28)
+        case "zip", "tar", "gz": return Color(red: 0.55, green: 0.45, blue: 0.30)
+        default: return Color(red: 0.52, green: 0.55, blue: 0.60)
         }
     }
 }
@@ -539,6 +691,8 @@ struct FlowChips: View {
 /// 简易流式布局（自动换行 chips）
 struct FlexibleFlow: Layout {
     var spacing: CGFloat = 8
+    /// 行内水平对齐（默认 leading；用户附件行传 trailing——靠左会被误读为 agent 发的图）
+    var rowAlignment: HorizontalAlignment = .leading
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? 320
@@ -557,17 +711,35 @@ struct FlexibleFlow: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        // 先按宽度分行，再按行对齐放置（trailing/center 时整行偏移）
+        var rows: [[(LayoutSubview, CGSize)]] = [[]]
+        var rowWidth: CGFloat = 0
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > bounds.maxX, x > bounds.minX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
+            if rowWidth + size.width > bounds.width, !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                rowWidth = 0
             }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
+            rows[rows.count - 1].append((subview, size))
+            rowWidth += size.width + spacing
+        }
+        var y = bounds.minY
+        for row in rows where !row.isEmpty {
+            let width = row.reduce(0) { $0 + $1.1.width } + spacing * CGFloat(row.count - 1)
+            let rowHeight = row.map(\.1.height).max() ?? 0
+            var x: CGFloat
+            if rowAlignment == .trailing {
+                x = bounds.maxX - width
+            } else if rowAlignment == .center {
+                x = bounds.minX + (bounds.width - width) / 2
+            } else {
+                x = bounds.minX
+            }
+            for (subview, size) in row {
+                subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += rowHeight + spacing
         }
     }
 }
@@ -581,9 +753,11 @@ struct AttachmentStripView: View {
     /// 由调用方场景保证——连接态行消息 id 即 row 键，sessionID 传所属会话）
     let sessionID: String
     let refs: [String]
+    /// 行对齐（用户消息传 .trailing：图随气泡右对齐，避免误读为 agent 附件）
+    var rowAlignment: HorizontalAlignment = .leading
 
     var body: some View {
-        FlexibleFlow(spacing: T.sp2) {
+        FlexibleFlow(spacing: T.sp2, rowAlignment: rowAlignment) {
             ForEach(refs, id: \.self) { ref in
                 AttachmentThumbView(store: store, sessionID: sessionID, ref: ref)
             }

@@ -145,7 +145,7 @@ struct TopicWireFrameAssembler {
     // MARK: CRC32（IEEE 802.3 多项式，与 zod schema algorithm:"crc32" 对应）
 
     static func crc32(of data: Data) -> String {
-        var table: [UInt32] = (0..<256).map { i -> UInt32 in
+        let table: [UInt32] = (0..<256).map { i -> UInt32 in
             var c = UInt32(i)
             for _ in 0..<8 {
                 c = (c & 1) == 1 ? (0xEDB8_8320 ^ (c >> 1)) : (c >> 1)

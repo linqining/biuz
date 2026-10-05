@@ -16,7 +16,9 @@ final class TerminalViewModel {
     func start(store: TaskStore, taskID: String) {
         guard continuation == nil else { return }
         continuation = Task {
-            for await line in await store.terminalStream(taskID: taskID) {
+            // terminalStream 非 async（返回 AsyncStream）：多余 await 触发
+            // UnnecessaryEffectMarker 告警（门禁第 4 轮摘要），仅保留 for await
+            for await line in store.terminalStream(taskID: taskID) {
                 lines.append(line)
             }
         }
@@ -284,16 +286,16 @@ struct TaskOutputView: View {
 
     private var outputActions: some View {
         VStack(spacing: 0) {
-            TextActionButton(title: "复制全部输出", identifier: "07-act-copyall") {
+            TextActionButton(title: "复制全部输出", action: {
                 UIPasteboard.general.string = terminalText
                 copied = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
-            }
+            }, identifier: "07-act-copyall")
             Divider().overlay(T.border).padding(.horizontal, T.sp4)
             // 停止任务（v3 纠偏：v4 stop 桌面代执行；演示态 MockTaskStore 路径不变）
-            TextActionButton(title: "停止任务", tint: T.red, identifier: "07-act-stop") {
+            TextActionButton(title: "停止任务", tint: T.red, action: {
                 showStopConfirm = true
-            }
+            }, identifier: "07-act-stop")
         }
         .background(T.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: T.rM))

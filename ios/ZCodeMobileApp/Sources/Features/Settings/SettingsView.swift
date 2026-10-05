@@ -163,9 +163,10 @@ struct SettingsView: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: - 用户卡（头像 + Coding Plan 徽章 + 额度条 68%）
-    // 连接态额度绑真实数据（usage-stats.getCodingPlanUsageSnapshot/getCodingPlanResetStatus
-    // 只读投影）；演示态 / 缺数据回退演示值（68% · 340/500），演示行为不变
+    // MARK: - 用户卡（头像 + Coding Plan 徽章 + 额度条）
+    // 连接态额度绑真实数据（usage-stats.getCodingPlanUsageSnapshot：5 小时条数窗为
+    // 主窗口）；连接态缺数据时如实显示「未获取」，不再回退演示值（用户实测反馈：
+    // 68%/9 月 2 日重置 是写死的演示串，误导校对）
 
     private var usagePercentRemaining: Double {
         if !session.isDemo, let usage = session.codingPlanUsage, let percent = usage.percentRemaining {
@@ -178,15 +179,35 @@ struct SettingsView: View {
         "\(Int((usagePercentRemaining * 100).rounded()))%"
     }
 
+    /// 连接态是否有真实额度数据（无 → 用户卡显示「未获取」而非演示值）
+    private var hasRealUsage: Bool {
+        !session.isDemo && session.codingPlanUsage != nil
+    }
+
     private var usageDetailText: String {
-        if !session.isDemo, let usage = session.codingPlanUsage,
-           let used = usage.used, let limit = usage.limit {
-            let unit = usage.unitText ?? "积分"
-            var detail = "本期已用 \(used) / \(limit) \(unit)"
-            if let resetsAt = usage.resetsAtText {
-                detail += " · \(resetsAt) 重置"
+        if hasRealUsage, let usage = session.codingPlanUsage {
+            var parts: [String] = []
+            if let used = usage.used, let limit = usage.limit {
+                parts.append(String(localized: "5 小时窗已用 \(used) / \(limit) 条"))
+            } else if let percent = usage.percentRemaining {
+                parts.append(String(localized: "已用 \(Int(((1 - percent) * 100).rounded()))%"))
             }
-            return detail
+            // 其余窗口摘要（每周/每月）
+            for window in usage.windows where window.level != "TIME_LIMIT" {
+                if let percentUsed = window.percentUsed {
+                    parts.append("\(window.label) \(Int(percentUsed.rounded()))%")
+                }
+            }
+            if let resetsAt = usage.resetsAtText {
+                parts.append(String(localized: "\(resetsAt) 重置"))
+            }
+            if parts.isEmpty {
+                return String(localized: "桌面端未返回额度明细")
+            }
+            return parts.joined(separator: " · ")
+        }
+        if !session.isDemo {
+            return String(localized: "额度未获取 · 连接后自动刷新")
         }
         return "本月 500 条中的 340 条已使用，9 月 2 日重置"
     }

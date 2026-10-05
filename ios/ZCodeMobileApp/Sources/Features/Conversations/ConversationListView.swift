@@ -78,7 +78,7 @@ struct ConversationListView: View {
                 || $0.summary.localizedCaseInsensitiveContains(query)
         }
         // 服务端命中合并（按 id 去重；断连/失败 remoteHits 为空 → 纯本地过滤，不崩）
-        var seen = Set(local.map(\.id))
+        let seen = Set(local.map(\.id))
         let merged = local + remoteHits.filter { !seen.contains($0.id) }
         return merged
     }
@@ -99,11 +99,14 @@ struct ConversationListView: View {
     /// 归属未知的会话（要求 4：sessions-index 行未携带工作区字段时数据无法判定归属，
     /// 归「其它」组而非丢弃/挤进某个项目组；演示态未绑定项目的会话同样归此组）
     private var ungrouped: [Conversation] { timeline.filter { $0.projectName == nil } }
+    /// 未归集项目的会话组名（桌面侧栏「任务」组同语义）
     /// G-018：正在派生的会话（fork 成功后打开新会话）
     @State private var forking = false
     /// G-017：移入分组目标会话（弹组名输入）
     @State private var groupTarget: Conversation?
     @State private var newGroupName = ""
+    /// 失败任务清理目标（桌面失败任务同款删除；确认后 zcode-task.deleteTask）
+    @State private var cleanupTarget: Conversation?
 
     /// 来源过滤后为空（仅非「全部」档可能；给可行动提示而非静默空白）
     private var isSourceFilteredEmpty: Bool {
@@ -190,6 +193,25 @@ struct ConversationListView: View {
         } message: {
             Text("输入桌面端分组名称；分组结构以桌面端同步为准")
         }
+        // 失败任务清理（桌面同款确认语义：删除任务不可恢复）
+        .alert(
+            String(localized: "清理失败任务"),
+            isPresented: Binding(
+                get: { cleanupTarget != nil },
+                set: { if !$0 { cleanupTarget = nil } })) {
+            Button("取消", role: .cancel) { cleanupTarget = nil }
+            Button("清理", role: .destructive) {
+                guard let target = cleanupTarget else { return }
+                Task {
+                    if await store.deleteTask(target.id) {
+                        conversations.removeAll { $0.id == target.id }
+                    }
+                }
+                cleanupTarget = nil
+            }
+        } message: {
+            Text("将删除失败任务「\(cleanupTarget?.title ?? "")」及其本地记录，桌面端同步删除")
+        }
         .task { await reload() }
         .refreshable { await reload(showSpinner: true) }
         // id 绑定 store 实例：连接成功后数据源 mock→远端 切换时重订阅（id 为常量会一直挂在旧流上）。
@@ -210,21 +232,22 @@ struct ConversationListView: View {
     }
 
     private var list: some View {
-        List {
-            Section {
-                SearchField(text: $query, placeholder: String(localized: "搜索会话"), identifier: "04-search")
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: T.sp1, leading: T.sp4, bottom: 0, trailing: T.sp4))
-                    .listRowSeparator(.hidden)
-                    .onChange(of: query) { _, newValue in
-                        scheduleSearch(newValue)
-                    }
-                sourceChips
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: T.sp1, leading: T.sp4, bottom: 0, trailing: T.sp4))
-                    .listRowSeparator(.hidden)
-            }
-            // 来源过滤为空的显式提示（不静默空白；默认「全部」不触发）
+        // 搜索 + 来源 chips 固定头部（List 行外提）：List 行在过滤后行数骤减时会回收重排，
+        // chips 的可访问性帧随之失准（症状：tap 云端沙盒选中后，再 tap「我的 Mac」两次均
+        // 落空——门禁 Matrix test01 line202 确定性复现，连拍 frame 证实 filter 停留 cloud）。
+        // 提为固定 VStack 头后元素帧稳定，identifier（04-search / 04-chip-source-*）全保留。
+        VStack(spacing: 0) {
+            SearchField(text: $query, placeholder: String(localized: "搜索会话"), identifier: "04-search")
+                .padding(.horizontal, T.sp4)
+                .padding(.top, T.sp1)
+                .onChange(of: query) { _, newValue in
+                    scheduleSearch(newValue)
+                }
+            sourceChips
+                .padding(.horizontal, T.sp4)
+                .padding(.top, T.sp1)
+            List {
+                // 来源过滤为空的显式提示（不静默空白；默认「全部」不触发）
             if isSourceFilteredEmpty {
                 Section {
                     HStack(spacing: T.sp2) {
@@ -261,11 +284,12 @@ struct ConversationListView: View {
                     }
                 }
             }
-            // 归属未知（数据无法判定）→「其它」可折叠组，不丢弃（要求 4）
+            // 桌面语义：未归集到项目的会话单独在「任务」组（桌面侧栏同名组；用户实测
+            // 「其它」命名与桌面分区不一致）
             if !ungrouped.isEmpty {
                 Section {
-                    projectGroupHeader((name: String(localized: "其它"), items: ungrouped))
-                    if !collapsedGroups.contains(String(localized: "其它")) {
+                    projectGroupHeader((name: String(localized: "任务"), items: ungrouped))
+                    if !collapsedGroups.contains(String(localized: "任务")) {
                         ForEach(ungrouped) { item in row(item) }
                     }
                 }
@@ -319,6 +343,7 @@ struct ConversationListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .scrollIndicators(.hidden)
+        }
     }
 
     /// 来源过滤 chips（全部 / 我的 Mac / 云端沙盒；选中深色实底胶囊，Qoder 屏 1 口径）。
@@ -453,6 +478,15 @@ struct ConversationListView: View {
                 Label("移入分组…", systemImage: "folder.badge.plus")
             }
             .accessibilityIdentifier("04-ctx-group-\(conversation.id)")
+            // 失败任务「清理」（桌面失败任务同款：zcode-task.deleteTask 删除任务）
+            if conversation.isFailed {
+                Button(role: .destructive) {
+                    cleanupTarget = conversation
+                } label: {
+                    Label("清理", systemImage: "trash")
+                }
+                .accessibilityIdentifier("04-ctx-cleanup-\(conversation.id)")
+            }
             Button(role: .destructive) {
                 Task { await store.setArchived(true, conversationID: conversation.id) }
             } label: {
@@ -460,6 +494,16 @@ struct ConversationListView: View {
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            // 失败任务滑块「清理」（桌面失败任务同款）
+            if conversation.isFailed {
+                Button {
+                    cleanupTarget = conversation
+                } label: {
+                    Label("清理", systemImage: "trash")
+                }
+                .tint(T.red)
+                .accessibilityIdentifier("04-rowact-cleanup-\(conversation.id)")
+            }
             Button {
                 Task { await store.setArchived(true, conversationID: conversation.id) }
             } label: {

@@ -10,6 +10,8 @@ struct ChatView: View {
 
     @State private var viewModel: ChatViewModel?
     @State private var observeTask: Task<Void, Never>?
+    /// loadOlder 顶部插入识别：插入后的首次 count 变化不滚底（保持阅读位置）
+    @State private var prependGuardFirstID: String?
 
     var body: some View {
         Group {
@@ -67,14 +69,12 @@ struct ChatView: View {
     private func content(_ viewModel: ChatViewModel) -> some View {
         VStack(spacing: 0) {
             header(viewModel)
-            // 桌面 workflow 运行进度（要求 5 · 只读：阶段节点链 + 子代理卡片 + 进度点；
-            // nil = 无数据不渲染。置于头部下固定区：不随消息流滚动，吸底锚点不影响可达性）
-            if let run = viewModel.workflowRun {
-                WorkflowPanelView(run: run) { sessionId in
-                    await viewModel.storeActorTranscript(sessionId: sessionId)
-                }
-                .padding(.horizontal, T.sp4)
-                .padding(.bottom, T.sp2)
+            // 会话面板区（goal/plan/工作流/btw/子代理 chips + 单开面板；默认收起为一行
+            // chips 不占消息流空间；面板体内部滚动、有界高度，数据缺席不渲染）
+            if viewModel.hasAnyPanel {
+                SessionPanelsView(viewModel: viewModel)
+                    .padding(.horizontal, T.sp4)
+                    .padding(.bottom, T.sp2)
             }
             if viewModel.isSearchActive {
                 messageSearchBar(viewModel)
@@ -82,7 +82,21 @@ struct ChatView: View {
             messageList(viewModel)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            ComposerBar(viewModel: viewModel)
+            VStack(spacing: 0) {
+                // 桌面同构：排队消息紧贴 composer 上方（pending 队列；无排队不渲染）
+                if viewModel.isReadOnly, let queue = viewModel.queueInfo {
+                    QueueBarView(
+                        queue: queue,
+                        onSendNow: { queueItemId in await viewModel.sendQueuedNow(queueItemId) },
+                        onDelete: { queueItemId in await viewModel.deleteQueueItem(queueItemId) },
+                        onEdit: { queueItemId, newText in
+                            await viewModel.editQueueItem(queueItemId, newText: newText)
+                        },
+                        onMoveUp: { queueItemId in await viewModel.moveQueueItemUp(queueItemId) },
+                        onToggleAutoDrain: { enabled in await viewModel.setAutoDrain(enabled) })
+                }
+                ComposerBar(viewModel: viewModel)
+            }
         }
     }
 
@@ -156,14 +170,18 @@ struct ChatView: View {
                             ApprovalInteractionCard(viewModel: viewModel, interaction: interaction)
                         }
                     }
-                    // 向上分页入口（named gap 补全：beforeRowId 此前无调用入口）
+                    // 向上分页入口：点击加载 + 滚顶自动加载（下拉到顶即拉更早历史）
                     if viewModel.canLoadOlder {
                         Button {
-                            Task { await viewModel.loadOlder() }
+                            loadOlderAnchored(viewModel, proxy: proxy)
                         } label: {
                             HStack(spacing: T.sp1) {
-                                Image(systemName: "chevron.up")
-                                    .font(.system(size: 10, weight: .semibold))
+                                if viewModel.isLoadingOlder {
+                                    SpinnerView(size: 12)
+                                } else {
+                                    Image(systemName: "chevron.up")
+                                        .font(.system(size: 10, weight: .semibold))
+                                }
                                 Text("加载更早消息")
                                     .font(T.font(12, .medium))
                             }
@@ -172,6 +190,12 @@ struct ChatView: View {
                             .contentShape(Rectangle())
                         }
                         .accessibilityIdentifier("05-act-load-older")
+                        // 滚顶自动加载：按钮进入可见区（用户翻到顶）即拉下一页——
+                        // 「下拉/点击」双触发；无更多数据时按钮隐藏不形成循环
+                        .onAppear {
+                            guard viewModel.canLoadOlder, !viewModel.isLoadingOlder else { return }
+                            loadOlderAnchored(viewModel, proxy: proxy)
+                        }
                     }
                     let visible = viewModel.searchQuery.isEmpty
                         ? viewModel.messages : viewModel.filteredMessages
@@ -189,9 +213,20 @@ struct ChatView: View {
                 .padding(.horizontal, T.sp4)
                 .padding(.top, T.sp2)
             }
-            .scrollIndicators(.hidden)
+            .scrollIndicators(.visible)
             .defaultScrollAnchor(.bottom)
+            .modifier(ChatScrollToTopLoadModifier {
+                // 滚动到顶（内容顶距视口 ≤ 24pt）：「下拉到顶自动加载更早」触发区
+                guard viewModel.canLoadOlder, !viewModel.isLoadingOlder else { return }
+                loadOlderAnchored(viewModel, proxy: proxy)
+            })
             .onChange(of: viewModel.messages.count) { _, _ in
+                // loadOlder 顶部插入：保持阅读位置（button 已锚定原顶部消息），不滚底
+                if viewModel.messages.first?.id != nil,
+                   viewModel.messages.first?.id == prependGuardFirstID {
+                    prependGuardFirstID = nil
+                    return
+                }
                 scrollToBottom(proxy)
             }
             .onChange(of: viewModel.messages.last?.text) { _, _ in
@@ -205,301 +240,38 @@ struct ChatView: View {
             proxy.scrollTo("bottom-anchor", anchor: .bottom)
         }
     }
+
+    /// 加载更早 + 锚定原顶部消息（保持阅读位置）；点击按钮与下拉到顶共用
+    private func loadOlderAnchored(_ viewModel: ChatViewModel, proxy: ScrollViewProxy) {
+        let anchor = viewModel.messages.first?.id
+        prependGuardFirstID = anchor
+        Task {
+            await viewModel.loadOlder()
+            if let anchor {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(anchor, anchor: .top)
+                }
+            }
+        }
+    }
 }
 
-// MARK: - 桌面 workflow 运行进度面板（要求 5 · 只读展示）
-// 形态对齐桌面基准：阶段节点链（状态圆点 + 竖向连线）+ 子代理卡片（isSubagent 节点）+
-// 头部进度点（已完成 n/m）。数据边界：桌面 workflowRun schema 未完整取证（调研 gaps），
-// 数据粒度不足（无 nodes）时整块不渲染，会话列表行保留 isRunning 进度点降级面；
-// 本面板纯只读，不新增任何发送命令。
+/// 「下拉到顶自动加载更早」手势（onScrollGeometryChange 为 iOS 18+ API）：
+/// 低版本系统降级为无自动触发（05-act-load-older 手动入口仍在），不阻断编译。
+struct ChatScrollToTopLoadModifier: ViewModifier {
+    let onAtTop: () -> Void
 
-struct WorkflowPanelView: View {
-    let run: WorkflowRunSummary
-    var onLoadActorTranscript: (String) async -> [ChatMessage] = { _ in [] }
-    @State private var transcriptActor: WorkflowActorSummary?
-    @State private var transcript: [ChatMessage] = []
-    @State private var transcriptLoading = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: T.sp2) {
-            header
-            nodeChain
-            if !run.actors.isEmpty {
-                actorCards
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { geo in
+                let offset = geo.contentOffset.y + geo.contentInsets.top
+                return offset <= 24
+            } action: { _, atTop in
+                guard atTop else { return }
+                onAtTop()
             }
-            capacityRow
-        }
-        .padding(T.sp3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(T.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: T.rM))
-        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.violet.opacity(0.35), lineWidth: 1))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("05-workflow-panel")
-    }
-
-    /// 头部：工作流名 + 五态状态胶囊（completed/errored/stopped 精确词）+ 进度点计数
-    private var header: some View {
-        HStack(spacing: T.sp2) {
-            Image(systemName: "flowchart.fill")
-                .font(.system(size: 13))
-                .foregroundColor(T.violet)
-            Text(run.name)
-                .font(T.font(13, .semibold))
-                .foregroundColor(T.text)
-                .lineLimit(1)
-            StatusPill(text: Self.runStatusText(run), kind: Self.runPillKind(run), compact: true)
-            if run.truncated {
-                Text(String(localized: "已截断"))
-                    .font(T.mono(9.5))
-                    .foregroundColor(T.orange)
-            }
-            Spacer(minLength: 0)
-            // 进度点计数（done / total）
-            Text("\(run.doneCount)/\(run.nodes.count)")
-                .font(T.mono(10.5, .semibold))
-                .foregroundColor(run.status == .done ? T.accentText : T.text3)
-        }
-    }
-
-    /// 子代理实例卡片（G-008 通路 B actors[] 权威投影：waiting|running|completed + 出生阶段）
-    private var actorCards: some View {
-        VStack(alignment: .leading, spacing: T.sp1) {
-            ForEach(run.actors) { actor in
-                // G-021：sessionId 在场整卡可点 → 只读转录下钻；无 sessionId 不渲染入口
-                let actionable = actor.sessionId != nil
-                Button {
-                    guard let sessionId = actor.sessionId else { return }
-                    transcriptActor = actor
-                    transcript = []
-                    transcriptLoading = true
-                    Task {
-                        transcript = await onLoadActorTranscript(sessionId)
-                        transcriptLoading = false
-                    }
-                } label: {
-                    HStack(spacing: T.sp2) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 11))
-                            .foregroundColor(actor.status == .running ? T.blue : T.text3)
-                        Text(actor.name ?? String(localized: "子代理"))
-                            .font(T.font(12, .medium))
-                            .foregroundColor(T.text)
-                            .lineLimit(1)
-                        if let phaseName = actor.phaseName, !phaseName.isEmpty {
-                            Text(phaseName)
-                                .font(T.mono(9.5))
-                                .foregroundColor(T.text3)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                        if actionable {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(T.text3)
-                        }
-                        StatusPill(
-                            text: Self.actorStatusText(actor),
-                            kind: actor.rawStatus == "completed" ? .done : (actor.rawStatus == "running" ? .run : .wait),
-                            compact: true)
-                    }
-                    .padding(.horizontal, T.sp2)
-                    .padding(.vertical, 5)
-                    .background(T.blueDim.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
-                }
-                .buttonStyle(.plain)
-                .disabled(!actionable)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("05-workflow-actor-\(actor.id)")
-                .accessibilityHint(actionable ? String(localized: "查看子代理只读转录") : "")
-            }
-        }
-        .sheet(item: $transcriptActor) { actor in
-            ActorTranscriptSheet(
-                actor: actor,
-                messages: transcript,
-                isLoading: transcriptLoading)
-        }
-    }
-
-    /// 容量与产物只读行（reports≤64/pendingQuestions≤32/artifacts≤32 由服务端有界下发，
-    /// 这里只展示计数；concurrency/ceiling/truncated/resumable 均为 CLI 算好透传，不自推导）
-    @ViewBuilder
-    private var capacityRow: some View {
-        if !capacityFragments.isEmpty {
-            HStack(spacing: T.sp2) {
-                ForEach(capacityFragments, id: \.self) { fragment in
-                    Text(fragment)
-                        .font(T.mono(9.5))
-                        .foregroundColor(T.text3)
-                }
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    private var capacityFragments: [String] {
-        var fragments: [String] = []
-        if run.artifactsCount > 0 {
-            fragments.append(String(format: String(localized: "产物 %lld"), run.artifactsCount))
-        }
-        if run.pendingQuestionsCount > 0 {
-            fragments.append(String(format: String(localized: "待答问题 %lld"), run.pendingQuestionsCount))
-        }
-        if let concurrency = run.concurrency {
-            if let ceiling = run.concurrencyCeiling {
-                fragments.append(String(format: String(localized: "并发 %lld/%lld"), concurrency, ceiling))
-            } else {
-                fragments.append(String(format: String(localized: "并发 %lld"), concurrency))
-            }
-        }
-        if run.resumable {
-            fragments.append(String(localized: "可恢复"))
-        }
-        return fragments
-    }
-
-    /// 阶段节点链：左侧状态圆点 + 竖向连线；子代理节点渲染为卡片
-    private var nodeChain: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(run.nodes.enumerated()), id: \.element.id) { index, node in
-                HStack(alignment: .top, spacing: T.sp3) {
-                    // 状态圆点 + 竖向连线（末节点不画）
-                    VStack(spacing: 0) {
-                        nodeDot(node)
-                        if index < run.nodes.count - 1 {
-                            Rectangle()
-                                .fill(T.border)
-                                .frame(width: 1.5)
-                                .frame(maxHeight: .infinity)
-                        }
-                    }
-                    .frame(width: 16)
-
-                    if node.isSubagent {
-                        subagentCard(node, index: index)
-                            .padding(.bottom, T.sp2)
-                    } else {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(node.label)
-                                .font(T.font(12.5, node.status == .running ? .semibold : .regular))
-                                .foregroundColor(node.status == .done ? T.text3 : T.text)
-                                .lineLimit(1)
-                            if let summary = node.summary, !summary.isEmpty {
-                                Text(summary)
-                                    .font(T.font(11))
-                                    .foregroundColor(T.text3)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .padding(.bottom, index < run.nodes.count - 1 ? T.sp3 : 0)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// 节点状态圆点（done 复选 / running spinner / failed 红叉 / pending 空心）
-    @ViewBuilder
-    private func nodeDot(_ node: WorkflowNodeSummary) -> some View {
-        switch node.status {
-        case .done:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 14))
-                .foregroundColor(T.accentText)
-                .frame(width: 16)
-        case .running:
-            SpinnerView(color: T.blue, size: 14)
-                .frame(width: 16)
-        case .failed:
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 14))
-                .foregroundColor(T.red)
-                .frame(width: 16)
-        case .pending:
-            Circle().strokeBorder(T.borderStrong, lineWidth: 1.5)
-                .frame(width: 13, height: 13)
-                .frame(width: 16)
-        }
-    }
-
-    /// 子代理卡片（🤖 名称 + 状态胶囊 + 简述；浅底弱化）
-    private func subagentCard(_ node: WorkflowNodeSummary, index: Int) -> some View {
-        HStack(spacing: T.sp2) {
-            Image(systemName: "cpu")
-                .font(.system(size: 12))
-                .foregroundColor(T.blue)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(node.label)
-                    .font(T.font(12, .semibold))
-                    .foregroundColor(T.text)
-                    .lineLimit(1)
-                if let summary = node.summary, !summary.isEmpty {
-                    Text(summary)
-                        .font(T.font(10.5))
-                        .foregroundColor(T.text3)
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 0)
-            StatusPill(text: Self.statusText(node.status), kind: Self.pillKind(node.status), compact: true)
-        }
-        .padding(.horizontal, T.sp2)
-        .padding(.vertical, 6)
-        .background(T.blueDim.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: T.rS))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("05-workflow-node-\(index)")
-    }
-
-    private static func statusText(_ status: WorkflowStepStatus) -> String {
-        switch status {
-        case .running: return String(localized: "运行中")
-        case .done: return String(localized: "已完成")
-        case .failed: return String(localized: "失败")
-        case .pending: return String(localized: "待执行")
-        }
-    }
-
-    private static func pillKind(_ status: WorkflowStepStatus) -> PillKind {
-        switch status {
-        case .running: return .run
-        case .done: return .done
-        case .failed: return .err
-        case .pending: return .wait
-        }
-    }
-
-    /// run 五态文案（workflow-runs.ts:365 词表原词映射；stopped/errored 精确呈现）
-    private static func runStatusText(_ run: WorkflowRunSummary) -> String {
-        switch run.rawStatus {
-        case "running": return String(localized: "运行中")
-        case "completed": return String(localized: "已完成")
-        case "errored": return String(localized: "失败")
-        case "stopped": return String(localized: "已停止")
-        default: return String(localized: "待执行")
-        }
-    }
-
-    private static func runPillKind(_ run: WorkflowRunSummary) -> PillKind {
-        switch run.rawStatus {
-        case "running": return .run
-        case "completed": return .done
-        case "errored": return .err
-        case "stopped": return .tag
-        default: return .wait
-        }
-    }
-
-    /// 子代理实例三态文案（waiting|running|completed）
-    private static func actorStatusText(_ actor: WorkflowActorSummary) -> String {
-        switch actor.rawStatus {
-        case "running": return String(localized: "运行中")
-        case "completed": return String(localized: "已完成")
-        default: return String(localized: "等待中")
+        } else {
+            content
         }
     }
 }
@@ -795,6 +567,189 @@ struct PlanApprovalCard: View {
     }
 }
 
+// MARK: - 排队消息条（桌面 composer pending 队列同构：立即 / 编辑 / 删除 / 上移 / 自动排空）
+
+struct QueueBarView: View {
+    let queue: ConversationQueueInfo
+    var onSendNow: (String) async -> String?
+    var onDelete: (String) async -> String?
+    var onEdit: (String, String) async -> String?
+    var onMoveUp: (String) async -> String?
+    var onToggleAutoDrain: (Bool) async -> String?
+
+    @State private var editingItemId: String?
+    @State private var editingText = ""
+    @State private var feedback: String?
+    @State private var feedbackClear: Task<Void, Never>?
+
+    private func showFeedback(_ message: String?) {
+        guard let message else { return }
+        feedbackClear?.cancel()
+        feedback = message
+        feedbackClear = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { feedback = nil }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.sp1) {
+            HStack(spacing: T.sp2) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(T.violet)
+                Text(String(localized: "排队中 \(queue.items.count)"))
+                    .font(T.font(11.5, .semibold))
+                    .foregroundColor(T.text)
+                Spacer(minLength: 0)
+                Button {
+                    Task {
+                        if let message = await onToggleAutoDrain(!queue.autoDrain) {
+                            showFeedback(message)
+                        }
+                    }
+                } label: {
+                    Text(queue.autoDrain
+                        ? String(localized: "自动排空 · 开")
+                        : String(localized: "自动排空 · 关"))
+                        .font(T.font(10.5, .semibold))
+                        .foregroundColor(queue.autoDrain ? T.accentText : T.text3)
+                        .padding(.horizontal, T.sp2)
+                        .padding(.vertical, 3)
+                        .background(queue.autoDrain ? T.accentDim.opacity(0.5) : T.bgInput)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("05-queue-act-autodrain")
+            }
+            ForEach(queue.items) { item in
+                queueRow(item)
+            }
+            if let message = feedback {
+                Text(message)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.orange)
+            }
+        }
+        .padding(.horizontal, T.sp4)
+        .padding(.vertical, T.sp2)
+        .background(T.tabbarBg)
+        .overlay(alignment: .top) { Divider().overlay(T.border) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-queue-bar")
+    }
+
+    /// 单条排队消息（立即 / 编辑 / 删除 / 上移；guide 模式条目标注）
+    private func queueRow(_ item: RemoteQueueItem) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if editingItemId == item.id {
+                HStack(spacing: T.sp2) {
+                    TextField("编辑排队内容", text: $editingText, axis: .vertical)
+                        .font(T.font(12.5))
+                        .foregroundColor(T.text)
+                        .lineLimit(1...4)
+                        .padding(.horizontal, T.sp2)
+                        .padding(.vertical, 6)
+                        .background(T.bgInput)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                    Button {
+                        Task {
+                            let message = await onEdit(item.id, editingText)
+                            if message == nil {
+                                editingItemId = nil
+                            } else {
+                                showFeedback(message)
+                            }
+                        }
+                    } label: {
+                        Text(String(localized: "保存"))
+                            .font(T.font(11.5, .semibold))
+                            .foregroundColor(T.onAccent)
+                            .padding(.horizontal, T.sp2)
+                            .frame(minHeight: 30)
+                            .background(T.accent)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        editingItemId = nil
+                    } label: {
+                        Text(String(localized: "取消"))
+                            .font(T.font(11.5))
+                            .foregroundColor(T.text2)
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                HStack(alignment: .top, spacing: T.sp2) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.text)
+                            .font(T.font(12))
+                            .foregroundColor(T.text)
+                            .lineLimit(2)
+                        if item.isGuide {
+                            Text(String(localized: "引导模式"))
+                                .font(T.mono(9.5))
+                                .foregroundColor(T.violet)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    // 立即发送（桌面「立即」同语义：sendQueuedNow，CAS）
+                    rowAction(icon: "arrow.up.circle.fill", label: String(localized: "立即")) {
+                        let message = await onSendNow(item.id)
+                        showFeedback(message)
+                    }
+                    .accessibilityIdentifier("05-queue-act-send-\(item.id)")
+                    rowAction(icon: "pencil", label: String(localized: "编辑")) {
+                        editingText = item.text
+                        editingItemId = item.id
+                    }
+                    if queue.items.first?.id != item.id {
+                        rowAction(icon: "arrow.up.to.line", label: "") {
+                            let message = await onMoveUp(item.id)
+                            showFeedback(message)
+                        }
+                    }
+                    rowAction(icon: "trash", label: "") {
+                        let message = await onDelete(item.id)
+                        showFeedback(message)
+                    }
+                    .accessibilityIdentifier("05-queue-act-delete-\(item.id)")
+                }
+                .padding(.horizontal, T.sp2)
+                .padding(.vertical, 6)
+                .background(T.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                .overlay(RoundedRectangle(cornerRadius: T.rS).stroke(T.border, lineWidth: 1))
+            }
+        }
+    }
+
+    private func rowAction(
+        icon: String, label: String,
+        action: @escaping () async -> Void
+    ) -> some View {
+        Button {
+            Task { await action() }
+        } label: {
+            HStack(spacing: 2) {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                if !label.isEmpty {
+                    Text(label).font(T.font(10.5, .semibold))
+                }
+            }
+            .foregroundColor(T.text2)
+            .padding(.horizontal, label.isEmpty ? 6 : T.sp2)
+            .frame(minHeight: 28)
+            .background(T.bgInput)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - Composer（工具行 + 44px 胶囊输入行；输入框 16px 防聚焦缩放）
 // v3 纠偏：连接态输入区可用（sendText 桌面代执行）；工具行连接态展示桌面端模型
 // 只读 chips（model-selection.getView 真实数据，缺数据不渲染），演示态沿用本机设置。
@@ -811,6 +766,13 @@ struct ComposerBar: View {
     var body: some View {
         VStack(spacing: T.sp2) {
             targetRow
+            if let message = switchHint {
+                Text(message)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("05-composer-switch-hint")
+            }
             if let selection = viewModel.modelSelection {
                 remoteChips(selection)
             } else {
@@ -880,8 +842,11 @@ struct ComposerBar: View {
             .frame(minHeight: 44)
             .background(T.bgInput)
             .clipShape(Capsule())
-            .accessibilityIdentifier("05-act-target")
         }
+        // identifier 挂 Menu 本体而非 label：挂在 label 上时 SwiftUI Menu 运行时会把它
+        // 逐层拼接成「05-act-target-05-act-target-…」（门禁诊断实据），XCUI 精确匹配
+        // 05-act-target 命中的是惰性子元素，tap 落空、菜单永不弹出
+        .accessibilityIdentifier("05-act-target")
     }
 
     private func selectTarget(_ option: DeviceOption) {
@@ -890,17 +855,111 @@ struct ComposerBar: View {
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
-    /// 桌面端模型/思考档只读展示（不调 set*；切换属边界外，须在桌面端完成）
+    /// 桌面端模型/思考档切换（switchModelConfig 桌面代执行；onDidChange 回流同步 chips。
+    /// 原只读口径随命令链路打通升级：模型按套餐分组，思考档独立菜单）
+    @State private var switchHint: String?
+    @State private var switchHintClear: Task<Void, Never>?
+
     private func remoteChips(_ selection: ModelSelectionInfo) -> some View {
         HStack(spacing: T.sp2) {
-            pill(icon: nil, text: selection.activeModel ?? "--")
-            pill(icon: "brain", text: "思考·\(selection.activeThoughtLevel ?? "--")")
+            modelMenu(selection)
+            thoughtMenu(selection)
             Spacer(minLength: 0)
             if let usage = viewModel.contextUsage {
                 contextMeter(usage, demo: false)
             }
         }
         .accessibilityIdentifier("05-composer-remote-chips")
+    }
+
+    /// 模型菜单（套餐分节：个人套餐/体验套餐；回执失败在 chips 行上方提示）
+    private func modelMenu(_ selection: ModelSelectionInfo) -> some View {
+        Menu {
+            if selection.planGroups.isEmpty {
+                ForEach(selection.models, id: \.self) { model in
+                    modelRow(model, selection)
+                }
+            } else {
+                ForEach(selection.planGroups) { group in
+                    Section(group.plan) {
+                        ForEach(group.models, id: \.self) { model in
+                            modelRow(model, selection)
+                        }
+                    }
+                }
+            }
+        } label: {
+            pill(icon: nil, text: selection.activeModel ?? "--", chevron: true)
+        }
+        .accessibilityIdentifier("05-chip-model")
+    }
+
+    private func modelRow(_ model: String, _ selection: ModelSelectionInfo) -> some View {
+        Button {
+            Task {
+                if let message = await viewModel.switchModel(model) {
+                    showSwitchHint(message)
+                }
+            }
+        } label: {
+            if model == selection.activeModel {
+                Label(model, systemImage: "checkmark")
+            } else {
+                Text(model)
+            }
+        }
+    }
+
+    /// 思考档菜单（workspace-config 词表按当前模型查询；缺席时退化为静态档位梯——
+    /// web 端别名表归纳词表，不支持的档位由桌面端校验拒绝并提示）
+    private func thoughtMenu(_ selection: ModelSelectionInfo) -> some View {
+        Menu {
+            if let levels = viewModel.thoughtLevels, !levels.isEmpty {
+                ForEach(levels, id: \.self) { level in
+                    thoughtRow(level, selection)
+                }
+            } else if !selection.thoughtLevels.isEmpty {
+                ForEach(selection.thoughtLevels, id: \.self) { level in
+                    thoughtRow(level, selection)
+                }
+            } else {
+                ForEach(Self.fallbackThoughtLevels, id: \.self) { level in
+                    thoughtRow(level, selection)
+                }
+            }
+        } label: {
+            pill(icon: "brain", text: "思考·\(selection.activeThoughtLevel ?? "--")", chevron: true)
+        }
+        .accessibilityIdentifier("05-chip-thought")
+    }
+
+    /// 思考档静态梯（getView 不携带词表、workspace-config 为空的远端环境兜底）
+    private static let fallbackThoughtLevels = ["off", "minimal", "low", "medium", "high", "max"]
+
+    private func thoughtRow(_ level: String, _ selection: ModelSelectionInfo) -> some View {
+        Button {
+            Task {
+                if let message = await viewModel.switchThoughtLevel(level) {
+                    showSwitchHint(message)
+                }
+            }
+        } label: {
+            if level == selection.activeThoughtLevel {
+                Label(level, systemImage: "checkmark")
+            } else {
+                Text(level)
+            }
+        }
+    }
+
+    private func showSwitchHint(_ message: String) {
+        switchHintClear?.cancel()
+        switchHint = message
+        switchHintClear = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { switchHint = nil }
+        }
     }
 
     private var toolsRow: some View {
@@ -969,12 +1028,17 @@ struct ComposerBar: View {
         .accessibilityIdentifier("05-composer-send")
     }
 
-    private func pill(icon: String?, text: String) -> some View {
+    private func pill(icon: String?, text: String, chevron: Bool = false) -> some View {
         HStack(spacing: 4) {
             if let icon {
                 Image(systemName: icon).font(.system(size: 10))
             }
             Text(text).font(T.font(11, .medium))
+            if chevron {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 7.5, weight: .semibold))
+                    .foregroundColor(T.text3)
+            }
         }
         .foregroundColor(T.text2)
         .padding(.horizontal, T.sp2)

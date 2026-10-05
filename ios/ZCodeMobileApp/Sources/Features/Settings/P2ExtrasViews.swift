@@ -12,26 +12,18 @@ import SwiftUI
 
 struct UsageStatsView: View {
     @Environment(AppSession.self) private var session
-    /// App 用量快照（getAppUsageStats 宽容投影）
-    struct AppUsage: Equatable {
-        var totalTokens: Int?
-        var totalSessions: Int?
-        var totalTurns: Int?
-        var cacheHitRate: Double?
-        var activeDays: Int?
-        var favoriteModel: String?
-    }
     /// 重置机会（getCodingPlanResetStatus.availableFiveHourResets 首个）
     struct ResetOpportunity: Equatable {
         var expireAt: Date
     }
 
-    @State private var appUsage: AppUsage?
     @State private var resetOpportunity: ResetOpportunity?
     @State private var isLoading = true
     @State private var errorText: String?
     @State private var claiming = false
     @State private var claimNotice: String?
+    /// 待确认的重置卡使用（扣费类接口二次确认；nil = 无待确认）
+    @State private var pendingResetType: AppSession.CodingPlanResetType?
 
     private var isConnected: Bool {
         if case .connected = session.mode { return true }
@@ -52,7 +44,7 @@ struct UsageStatsView: View {
             } else if isLoading {
                 CenterLoadingView(text: "正在读取用量…")
                     .accessibilityIdentifier("12-usage-loading")
-            } else if let error = errorText, appUsage == nil, session.codingPlanUsage == nil {
+            } else if let error = errorText, session.appUsageSnapshot == nil, session.codingPlanUsage == nil {
                 EmptyStateView(
                     icon: "chart.bar",
                     title: String(localized: "桌面端未提供用量数据"),
@@ -69,6 +61,24 @@ struct UsageStatsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await reload() }
         .refreshable { await reload() }
+        // 重置卡二次确认（扣费/消耗接口：确认后核销一张卡，不可撤销）
+        .confirmationDialog(
+            String(localized: "确认使用重置卡？"),
+            isPresented: Binding(
+                get: { pendingResetType != nil },
+                set: { if !$0 { pendingResetType = nil } }),
+            titleVisibility: .visible) {
+            Button(String(localized: "使用"), role: .destructive) {
+                if let type = pendingResetType {
+                    performResetUse(type)
+                }
+                pendingResetType = nil
+            }
+            .accessibilityIdentifier("12-usage-confirm-use")
+            Button("取消", role: .cancel) { pendingResetType = nil }
+        } message: {
+            Text(String(localized: "将核销一张重置卡并重置对应窗口的额度，核销后不可撤销。剩余：5 小时卡 ×\(session.codingPlanUsage?.resetCards?.fiveHourCount ?? 0) · 周卡 ×\(session.codingPlanUsage?.resetCards?.weekCount ?? 0)"))
+        }
     }
 
     private var list: some View {
@@ -84,20 +94,15 @@ struct UsageStatsView: View {
                 if let opportunity = resetOpportunity {
                     resetCard(opportunity)
                 }
-                if let usage = appUsage { appUsageCard(usage) }
-                if appUsage == nil {
-                    Text(String(localized: "App 用量分布：桌面端未提供（getAppUsageStats 不可用）"))
-                        .font(T.font(11))
-                        .foregroundColor(T.text3)
-                        .accessibilityIdentifier("12-usage-app-missing")
-                }
+                appUsageSection
             }
             .padding(T.sp4)
         }
         .scrollIndicators(.hidden)
     }
 
-    /// Coding Plan 额度（连接态真实值 = fetchCodingPlanUsage 投影；nil 显未提供）
+    /// Coding Plan 额度（重设计：全部额度窗口分行展示——5 小时/每周/每月 + 各自重置时间；
+    /// 此前只取 limits 首窗导致数值不对且缺分窗）
     private var codingPlanCard: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
             HStack {
@@ -105,13 +110,38 @@ struct UsageStatsView: View {
                     .font(T.font(13, .semibold))
                     .foregroundColor(T.text3)
                 Spacer()
-                if let usage = session.codingPlanUsage, let percent = usage.percentRemaining {
-                    Text(String(localized: "剩余 \(Int((percent * 100).rounded()))%"))
-                        .font(T.mono(11.5, .semibold))
-                        .foregroundColor(T.accentText)
-                }
             }
-            if let usage = session.codingPlanUsage {
+            if let usage = session.codingPlanUsage, !usage.windows.isEmpty {
+                ForEach(usage.windows) { window in
+                    quotaWindowRow(window)
+                }
+                // 套餐档位角标（quota.level："max" 等）
+                if let level = usage.unitText, !level.isEmpty {
+                    Text(String(localized: "套餐档位 \(level)"))
+                        .font(T.mono(10.5))
+                        .foregroundColor(T.text3)
+                }
+                // 重置卡摘要（可领取明细见下方重置机会卡）
+                if let cards = usage.resetCards,
+                   cards.fiveHourCount > 0 || cards.weekCount > 0 {
+                    HStack(spacing: T.sp2) {
+                        Image(systemName: "giftcard")
+                            .font(.system(size: 11))
+                            .foregroundColor(T.orange)
+                        Text(String(localized: "重置卡：5 小时 ×\(cards.fiveHourCount) · 每周 ×\(cards.weekCount)"))
+                            .font(T.font(11))
+                            .foregroundColor(T.text2)
+                        Spacer(minLength: 0)
+                        if let earliest = cards.earliestExpireText {
+                            Text(String(localized: "\(earliest) 前有效"))
+                                .font(T.font(10.5))
+                                .foregroundColor(T.text3)
+                        }
+                    }
+                    .accessibilityIdentifier("12-usage-reset-cards-summary")
+                }
+            } else if let usage = session.codingPlanUsage {
+                // 旧形态兜底（无 limits 数组的版本）
                 if let percent = usage.percentRemaining {
                     ThinProgressBar(progress: percent, height: 5, tint: T.accent)
                 }
@@ -138,6 +168,46 @@ struct UsageStatsView: View {
         .accessibilityIdentifier("12-usage-plan-card")
     }
 
+    /// 单个额度窗口行（进度条 + 用量/上限 + 重置时间）
+    private func quotaWindowRow(_ window: CodingPlanQuotaWindow) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(window.label)
+                    .font(T.font(12, .semibold))
+                    .foregroundColor(T.text)
+                Spacer(minLength: 0)
+                if let resets = window.resetsAtText {
+                    Text(String(localized: "\(resets) 重置"))
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text3)
+                }
+            }
+            if let remaining = window.percentRemaining {
+                ThinProgressBar(progress: remaining, height: 5,
+                                tint: remaining < 0.15 ? T.orange : T.accent)
+            }
+            HStack {
+                if let used = window.used, let limit = window.limit {
+                    Text("\(used) / \(limit) \(window.unit ?? "")")
+                        .font(T.mono(11))
+                        .foregroundColor(T.text2)
+                } else if let used = window.used {
+                    Text(String(localized: "已用 \(used) \(window.unit ?? "")"))
+                        .font(T.mono(11))
+                        .foregroundColor(T.text2)
+                }
+                Spacer()
+                if let remaining = window.percentRemaining {
+                    Text(String(localized: "剩 \(Int((remaining * 100).rounded()))%"))
+                        .font(T.mono(10.5, .semibold))
+                        .foregroundColor(remaining < 0.15 ? T.orange : T.text3)
+                }
+            }
+        }
+        .padding(.vertical, 3)
+        .accessibilityIdentifier("12-usage-window-\(window.level)")
+    }
+
     /// 重置机会卡（G-042：一键领取，桌面代执行）
     private func resetCard(_ opportunity: ResetOpportunity) -> some View {
         VStack(alignment: .leading, spacing: T.sp2) {
@@ -153,20 +223,35 @@ struct UsageStatsView: View {
             Text(String(localized: "将于 \(Self.shortTime.string(from: opportunity.expireAt)) 前有效，过期作废"))
                 .font(T.font(11))
                 .foregroundColor(T.text3)
-            Button {
-                claimReset()
-            } label: {
-                HStack {
-                    if claiming { SpinnerView(color: T.onAccent, size: 14) }
-                    Text(claiming ? String(localized: "领取中…") : String(localized: "一键领取"))
+            if let cards = session.codingPlanUsage?.resetCards {
+                Text(String(localized: "可用：5 小时卡 ×\(cards.fiveHourCount) · 周卡 ×\(cards.weekCount)"))
+                    .font(T.font(11))
+                    .foregroundColor(T.text2)
+                if let last5h = cards.lastFiveHourUsedText {
+                    Text(String(localized: "上次使用（5 小时窗）：\(last5h)"))
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text3)
                 }
-                .font(T.font(13, .semibold))
-                .foregroundColor(T.onAccent)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(T.accent)
-                .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                if let lastWeek = cards.lastWeekUsedText {
+                    Text(String(localized: "上次使用（周窗）：\(lastWeek)"))
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text3)
+                }
             }
-            .disabled(claiming)
+            // 分档使用（web 同构：resetType ∈ FIVE_HOUR|WEEK；AppSession.useCodingPlanResetCard
+            // 三步桌面代执行——仅接线，本验收期不代触发）
+            HStack(spacing: T.sp2) {
+                resetTypeButton(
+                    String(localized: "使用 5 小时卡"),
+                    type: .fiveHour,
+                    enabled: (session.codingPlanUsage?.resetCards?.fiveHourCount ?? 0) > 0,
+                    identifier: "12-usage-act-claim-5h")
+                resetTypeButton(
+                    String(localized: "使用周卡"),
+                    type: .week,
+                    enabled: (session.codingPlanUsage?.resetCards?.weekCount ?? 0) > 0,
+                    identifier: "12-usage-act-claim-week")
+            }
             .accessibilityIdentifier("12-usage-act-claim")
         }
         .card()
@@ -174,26 +259,250 @@ struct UsageStatsView: View {
         .accessibilityIdentifier("12-usage-reset-card")
     }
 
-    private func appUsageCard(_ usage: AppUsage) -> some View {
-        VStack(alignment: .leading, spacing: T.sp2) {
-            Text(String(localized: "App 用量（近 30 天）"))
-                .font(T.font(13, .semibold))
-                .foregroundColor(T.text3)
-            VStack(spacing: 0) {
-                usageRow(String(localized: "总 tokens"), value: usage.totalTokens.map { "\($0)" }, id: "tokens")
-                usageRow(String(localized: "会话数"), value: usage.totalSessions.map { "\($0)" }, id: "sessions")
-                usageRow(String(localized: "轮次数"), value: usage.totalTurns.map { "\($0)" }, id: "turns")
-                usageRow(String(localized: "缓存命中率"),
-                         value: usage.cacheHitRate.map { String(format: "%.0f%%", $0 * 100) },
-                         id: "cache")
-                usageRow(String(localized: "活跃天数"), value: usage.activeDays.map { "\($0)" }, id: "days")
-                usageRow(String(localized: "常用模型"), value: usage.favoriteModel, id: "model")
+    /// 单档使用按钮（无卡置灰；点击先弹二次确认——使用重置卡是扣费/消耗接口，
+    /// 确认后才走 AppSession.useCodingPlanResetCard 三步）
+    private func resetTypeButton(
+        _ title: String, type: AppSession.CodingPlanResetType,
+        enabled: Bool, identifier: String
+    ) -> some View {
+        Button {
+            pendingResetType = type
+        } label: {
+            HStack {
+                if claiming { SpinnerView(color: T.onAccent, size: 14) }
+                Text(claiming ? String(localized: "领取中…") : title)
             }
-            .background(T.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: T.rL))
+            .font(T.font(13, .semibold))
+            .foregroundColor(enabled ? T.onAccent : T.text3)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(enabled ? T.accent : T.bgInput)
+            .clipShape(RoundedRectangle(cornerRadius: T.rM))
         }
-        .card()
-        .accessibilityIdentifier("12-usage-app-card")
+        .disabled(claiming || !enabled)
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// 使用重置卡执行（二次确认后调用；扣费类接口不放自动触发）
+    private func performResetUse(_ type: AppSession.CodingPlanResetType) {
+        claiming = true
+        claimNotice = nil
+        Task {
+            defer { claiming = false }
+            let message = await session.useCodingPlanResetCard(type: type)
+            if let message {
+                claimNotice = message
+            } else {
+                claimNotice = String(localized: "已使用重置卡 · 额度刷新中")
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                await reload()
+            }
+        }
+    }
+
+    /// 使用统计（桌面基准重设计：summary 五指标 + 趋势折线 + 模型占比 + 工具用量；
+    /// 数据源 usage-stats.getAppUsageSnapshot，session.appUsageSnapshot 投影）
+    @ViewBuilder
+    private var appUsageSection: some View {
+        if let snapshot = session.appUsageSnapshot {
+            VStack(alignment: .leading, spacing: T.sp3) {
+                // 五指标（桌面同款：累计/峰值/最长聊天/当前连续/最长连续）
+                LazyVGrid(columns: [
+                    GridItem(.flexible()), GridItem(.flexible()),
+                ], spacing: T.sp2) {
+                    statCard(
+                        Self.tokenText(snapshot.summary.totalTokens),
+                        label: String(localized: "累计 Token"),
+                        id: "total")
+                    statCard(
+                        Self.tokenText(snapshot.summary.peakDayTokens),
+                        label: String(localized: "峰值 Token"),
+                        id: "peak")
+                    statCard(
+                        Self.durationText(snapshot.summary.longestSessionMs),
+                        label: String(localized: "最长聊天时长"),
+                        id: "chat")
+                    statCard(
+                        snapshot.summary.currentStreakDays.map { "\($0) 天" },
+                        label: String(localized: "当前连续天数"),
+                        id: "streak")
+                    statCard(
+                        snapshot.summary.longestStreakDays.map { "\($0) 天" },
+                        label: String(localized: "最长连续天数"),
+                        id: "best-streak")
+                    statCard(
+                        snapshot.summary.totalSessions.map { "\($0)" },
+                        label: String(localized: "会话数"),
+                        id: "sessions")
+                }
+
+                // 每日 Token 趋势（按模型分线；近 30 日）
+                if !snapshot.daily.isEmpty {
+                    VStack(alignment: .leading, spacing: T.sp2) {
+                        Text(String(localized: "每日 Token 趋势（近 30 日）"))
+                            .font(T.font(12.5, .semibold))
+                            .foregroundColor(T.text)
+                        UsageTrendChart(daily: snapshot.daily)
+                            .frame(height: 130)
+                        seriesLegend(snapshot)
+                    }
+                    .padding(T.sp3)
+                    .background(T.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rL))
+                    .accessibilityIdentifier("12-usage-trend")
+                }
+
+                // 模型用量占比（桌面 donut 的移动端等价：占比条 + 百分比）
+                if !snapshot.models.isEmpty {
+                    VStack(alignment: .leading, spacing: T.sp2) {
+                        Text(String(localized: "模型用量"))
+                            .font(T.font(12.5, .semibold))
+                            .foregroundColor(T.text)
+                        ForEach(snapshot.models.sorted { $0.totalTokens > $1.totalTokens }) { model in
+                            modelBar(model, total: snapshot.models.map(\.totalTokens).reduce(0, +))
+                        }
+                    }
+                    .padding(T.sp3)
+                    .background(T.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rL))
+                    .accessibilityIdentifier("12-usage-models")
+                }
+
+                // 工具用量 Top（调用次数排序）
+                if !snapshot.tools.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(String(localized: "工具用量"))
+                            .font(T.font(12.5, .semibold))
+                            .foregroundColor(T.text)
+                            .padding(.bottom, T.sp1)
+                        ForEach(
+                            snapshot.tools.sorted { $0.callCount > $1.callCount }.prefix(6)
+                        ) { tool in
+                            usageRow(
+                                tool.toolName,
+                                value: String(localized: "\(tool.callCount) 次"),
+                                id: "tool-\(tool.toolName)")
+                        }
+                    }
+                    .padding(T.sp3)
+                    .background(T.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rL))
+                    .accessibilityIdentifier("12-usage-tools")
+                }
+
+                // 次要指标行（会话/回合/缓存命中率/活跃天）
+                VStack(spacing: 0) {
+                    usageRow(
+                        String(localized: "轮次数"),
+                        value: snapshot.summary.totalTurns.map { "\($0)" }, id: "turns")
+                    usageRow(
+                        String(localized: "缓存命中率"),
+                        value: snapshot.summary.cacheHitRate.map { String(format: "%.0f%%", $0 * 100) },
+                        id: "cache")
+                    usageRow(
+                        String(localized: "活跃天数"),
+                        value: snapshot.summary.activeDays.map { "\($0)" }, id: "days")
+                    if let favorite = snapshot.summary.favoriteModelId {
+                        let share = snapshot.summary.favoriteModelShare.map {
+                            String(format: "%.0f%%", $0 * 100)
+                        }
+                        usageRow(
+                            String(localized: "常用模型"),
+                            value: share.map { "\(favorite) · \($0)" } ?? favorite,
+                            id: "model")
+                    }
+                }
+                .background(T.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: T.rL))
+            }
+        } else {
+            Text(String(localized: "App 用量分布：桌面端未提供（getAppUsageStats 不可用）"))
+                .font(T.font(11))
+                .foregroundColor(T.text3)
+                .accessibilityIdentifier("12-usage-app-missing")
+        }
+    }
+
+    private func statCard(_ value: String?, label: String, id: String) -> some View {
+        VStack(spacing: 3) {
+            Text(value ?? "--")
+                .font(T.mono(15, .semibold))
+                .foregroundColor(T.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(T.font(10.5))
+                .foregroundColor(T.text3)
+        }
+        .frame(maxWidth: .infinity, minHeight: 62)
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rL))
+        .accessibilityIdentifier("12-usage-stat-\(id)")
+    }
+
+    private func seriesLegend(_ snapshot: AppUsageInfo) -> some View {
+        let series = UsageTrendChart.seriesModels(daily: snapshot.daily)
+        return HStack(spacing: T.sp3) {
+            ForEach(Array(series.enumerated()), id: \.element) { index, model in
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(UsageTrendChart.seriesColor(index))
+                        .frame(width: 7, height: 7)
+                    Text(model)
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text2)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private func modelBar(_ model: AppUsageModelSlice, total: Double) -> some View {
+        let share = model.share ?? (total > 0 ? model.totalTokens / total : 0)
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(model.modelId)
+                    .font(T.font(11.5))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(String(format: "%.0f%%", share * 100))
+                    .font(T.mono(10.5, .semibold))
+                    .foregroundColor(T.text2)
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(T.bgInput)
+                    Capsule()
+                        .fill(T.accent.opacity(0.75))
+                        .frame(width: max(4, proxy.size.width * share))
+                }
+            }
+            .frame(height: 6)
+        }
+        .accessibilityIdentifier("12-usage-model-\(model.modelId)")
+    }
+
+    /// Token 数格式化（桌面同款「亿/万」口径）
+    static func tokenText(_ tokens: Double?) -> String? {
+        guard let tokens else { return nil }
+        if tokens >= 100_000_000 {
+            return String(format: "%.1f 亿", tokens / 100_000_000)
+        }
+        if tokens >= 10_000 {
+            return String(format: "%.0f 万", tokens / 10_000)
+        }
+        return Int(tokens).description
+    }
+
+    /// 毫秒时长格式化（「20 小时 22 分钟」桌面同款）
+    static func durationText(_ ms: Int?) -> String? {
+        guard let ms, ms > 0 else { return nil }
+        let minutes = Int((Double(ms) / 60_000).rounded())
+        let hours = minutes / 60
+        if hours >= 1 {
+            return String(localized: "\(hours) 小时 \(minutes % 60) 分钟")
+        }
+        return String(localized: "\(minutes) 分钟")
     }
 
     private func usageRow(_ title: String, value: String?, id: String) -> some View {
@@ -218,25 +527,8 @@ struct UsageStatsView: View {
         defer { isLoading = false }
         // ① Coding Plan 额度（既有真实链路重拉）
         await session.refreshDesktopReadonlyInfo()
-        // ② App 用量（zcode-agent.getAppUsageStats → v4 usage/stats）
-        var builder = JSONObjectBuilder()
-        builder.set("range", "30d")
-        builder.set("timeZone", TimeZone.current.identifier)
-        if let result = try? await session.connection.call(
-            "zcode-agent", "getAppUsageStats", .json(.object(builder.fields))),
-           let dict = result.jsonValue?.objectValue {
-            let summary = dict["summary"]?.objectValue ?? [:]
-            appUsage = AppUsage(
-                totalTokens: summary["totalTokens"]?.intValue,
-                totalSessions: summary["totalSessions"]?.intValue,
-                totalTurns: summary["totalTurns"]?.intValue,
-                cacheHitRate: summary["cacheHitRate"]?.doubleValue,
-                activeDays: summary["activeDays"]?.intValue,
-                favoriteModel: summary["favoriteModel"]?.objectValue?["modelId"]?.stringValue)
-        } else {
-            appUsage = nil
-        }
-        // ③ 重置机会（getCodingPlanResetStatus.availableFiveHourResets）
+        // ② 重置机会（getCodingPlanResetStatus.availableFiveHourResets）
+
         await loadResetOpportunity()
     }
 
@@ -251,39 +543,6 @@ struct UsageStatsView: View {
             resetOpportunity = ResetOpportunity(expireAt: Date(timeIntervalSince1970: expireAt / 1000))
         } else {
             resetOpportunity = nil
-        }
-    }
-
-    /// G-042 一键领取：requestCodingPlanResetOpportunity → useCodingPlanReset
-    /// （桌面代执行写，ReadOnlyGate 已放行；历史已读 markCodingPlanResetHistoryRead）
-    private func claimReset() {
-        claiming = true
-        claimNotice = nil
-        Task {
-            defer { claiming = false }
-            // ① 请求领取机会（幂等探测）
-            var request = JSONObjectBuilder()
-            request.set("preferredProviderId", "zai")
-            _ = try? await session.connection.call(
-                "usage-stats", "requestCodingPlanResetOpportunity", .json(.object(request.fields)))
-            // ② 使用重置（桌面执行领取）
-            var use = JSONObjectBuilder()
-            use.set("preferredProviderId", "zai")
-            do {
-                _ = try await session.connection.call(
-                    "usage-stats", "useCodingPlanReset", .json(.object(use.fields)))
-                claimNotice = String(localized: "已领取重置机会 · 额度刷新中")
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } catch {
-                claimNotice = String(localized: "领取失败 · \(error.localizedDescription)")
-                return
-            }
-            // ③ 历史标记已读（清桌面角标）
-            var read = JSONObjectBuilder()
-            read.set("preferredProviderId", "zai")
-            _ = try? await session.connection.call(
-                "usage-stats", "markCodingPlanResetHistoryRead", .json(.object(read.fields)))
-            await reload()
         }
     }
 
@@ -834,4 +1093,64 @@ struct RemoteCapabilityListPage: View {
         formatter.dateFormat = "M/d HH:mm"
         return formatter
     }()
+}
+
+// MARK: - 每日 Token 趋势折线（Canvas 多序列；桌面「每日 Token 趋势图」移动端等价）
+
+struct UsageTrendChart: View {
+    let daily: [AppUsageDailyPoint]
+
+    /// 序列 = 按总量降序的模型名（稳定色序）
+    static func seriesModels(daily: [AppUsageDailyPoint]) -> [String] {
+        var totals: [String: Double] = [:]
+        for point in daily {
+            for (model, tokens) in point.byModel {
+                totals[model, default: 0] += tokens
+            }
+        }
+        return totals.sorted { $0.value > $1.value }.map(\.key)
+    }
+
+    static func seriesColor(_ index: Int) -> Color {
+        let palette: [Color] = [.blue, .green, .orange, .purple, .teal]
+        return palette[index % palette.count]
+    }
+
+    var body: some View {
+        let series = Self.seriesModels(daily: daily)
+        let maxValue = daily.compactMap { point in
+            point.byModel.values.max()
+        }.max() ?? 1
+        Canvas { context, size in
+            guard !daily.isEmpty, maxValue > 0 else { return }
+            let stepX = daily.count > 1 ? size.width / CGFloat(daily.count - 1) : size.width
+            for fraction in [0.25, 0.5, 0.75] {
+                let y = size.height * (1 - fraction)
+                var grid = Path()
+                grid.move(to: CGPoint(x: 0, y: y))
+                grid.addLine(to: CGPoint(x: size.width, y: y))
+                context.stroke(grid, with: .color(T.border.opacity(0.5)), lineWidth: 0.5)
+            }
+            for (seriesIndex, model) in series.enumerated() {
+                var path = Path()
+                var started = false
+                for (pointIndex, point) in daily.enumerated() {
+                    let tokens = point.byModel[model] ?? 0
+                    let x = CGFloat(pointIndex) * stepX
+                    let y = size.height * (1 - CGFloat(tokens / maxValue))
+                    if started {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.move(to: CGPoint(x: x, y: y))
+                        started = true
+                    }
+                }
+                context.stroke(
+                    path,
+                    with: .color(Self.seriesColor(seriesIndex)),
+                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            }
+        }
+        .accessibilityIdentifier("12-usage-trend-canvas")
+    }
 }

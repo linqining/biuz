@@ -21,6 +21,107 @@ struct CodingPlanUsageInfo: Equatable {
     var limit: Int?
     var unitText: String?
     var resetsAtText: String?
+    /// 全部额度窗口（getCodingPlanUsageSnapshot quota.limits：5 小时/每周/每月；
+    /// 此前只取首个窗口导致「额度不正确」且缺 5h/周/月分窗与重置时间）
+    var windows: [CodingPlanQuotaWindow] = []
+    /// 重置卡（getCodingPlanResetStatus；nil = 未取到）
+    var resetCards: CodingPlanResetCards?
+}
+
+/// 重置卡信息（2026-10-05 取证：availableFiveHourResets/availableWeekResets 数组 +
+/// latestFiveHourResetHistory/latestWeekResetHistory.usedAt + hasUnreadHistory）
+struct CodingPlanResetCards: Equatable {
+    var fiveHourCount: Int = 0
+    var weekCount: Int = 0
+    /// 最早过期时间（任一卡）
+    var earliestExpireText: String?
+    /// 最近一次使用（5h 窗）
+    var lastFiveHourUsedText: String?
+    /// 最近一次使用（周窗）
+    var lastWeekUsedText: String?
+}
+
+/// 单个额度窗口（level 词表宽容映射：five-hour/weekly/monthly）
+struct CodingPlanQuotaWindow: Equatable, Identifiable {
+    var level: String
+    var label: String
+    var used: Int?
+    var limit: Int?
+    var unit: String?
+    var percentUsed: Double?
+    var resetsAtText: String?
+    var id: String { level }
+
+    /// 剩余比例（0~1；无 percentage 时由 used/limit 推导）
+    var percentRemaining: Double? {
+        if let percentUsed {
+            return max(0, min(1, 1 - percentUsed / 100))
+        }
+        guard let used, let limit, limit > 0 else { return nil }
+        return max(0, min(1, Double(limit - used) / Double(limit)))
+    }
+}
+
+/// 使用统计快照（usage-stats.getAppUsageSnapshot；桌面「使用统计」页同源数据）
+struct AppUsageInfo: Equatable {
+    var summary: AppUsageSummary
+    var models: [AppUsageModelSlice]
+    var daily: [AppUsageDailyPoint]
+    var tools: [AppUsageToolStat]
+}
+
+struct AppUsageSummary: Equatable {
+    var totalTokens: Double?
+    var peakDayTokens: Double?
+    var longestSessionMs: Int?
+    var currentStreakDays: Int?
+    var longestStreakDays: Int?
+    var totalSessions: Int?
+    var totalTurns: Int?
+    var activeDays: Int?
+    var cacheHitRate: Double?
+    var favoriteModelId: String?
+    var favoriteModelShare: Double?
+}
+
+/// 模型用量占比（桌面 donut 的移动端等价呈现：占比条 + 百分比）
+struct AppUsageModelSlice: Equatable, Identifiable {
+    var modelId: String
+    var totalTokens: Double
+    var share: Double?
+    var id: String { modelId }
+}
+
+/// 每日各模型 token（趋势折线数据点；date=yyyy-MM-dd）
+struct AppUsageDailyPoint: Equatable {
+    var date: String
+    var byModel: [String: Double]
+}
+
+/// 工具调用统计
+struct AppUsageToolStat: Equatable, Identifiable {
+    var toolName: String
+    var callCount: Int
+    var avgDurationMs: Double
+    var errorRate: Double?
+    var id: String { toolName }
+}
+
+/// 会话排队消息（桌面 composer 上方的 pending 队列；state.queue 同源投影）
+struct RemoteQueueItem: Equatable, Identifiable {
+    /// queueItemId（sendQueuedNow/editQueueItem/deleteQueueItem/reorderQueueItem 的定位键）
+    var id: String
+    var text: String
+    /// delivery.admitted（"queue"=排队等待 / "guide"=引导模式待发）
+    var admitted: String?
+
+    var isGuide: Bool { admitted == "guide" }
+}
+
+struct ConversationQueueInfo: Equatable {
+    var items: [RemoteQueueItem]
+    /// 自动排空（桌面 queue.autoDrain；setAutoDrain 命令切换）
+    var autoDrain: Bool
 }
 
 // MARK: - 应用会话装配（OAuth 账户层 + 桌面配对连接层 + Store 装配策略）
@@ -146,6 +247,19 @@ final class AppSession {
         }
         // 语言偏好一并复位（P1 语言切换持久化后，保证用例间无顺序依赖）
         UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        // 来源过滤档位一并复位（会话列表 chips 持久化键）：门禁轮次中被强杀的用例会把
+        // 「云端沙盒/我的 Mac」档残留到下次冷启——cloud 档隐藏 source=="mac" 的全部行，
+        // 后续用例的「演示行/替身行在场」首断言即全军覆没（第 1 轮门禁 Matrix test01/
+        // Feature test03~06 实证）。复位到「全部」= 列表用例的确定性起点。
+        UserDefaults.standard.removeObject(forKey: "list.sourceFilter.v1")
+        // 执行目标偏好一并复位（chat.target.*：per-conversation + 全局默认）：上一轮
+        // 选过的「E2E-Relay-Mac」残留会让下一轮的胶囊开局即回显 Mac——目标选择器用例
+        // 的「初始云端沙盒」前提与「菜单候选命中」判定全部失真（本轮门禁 Feature
+        // test07 line754 实证）。清空后回退云端沙盒 = 选择器用例的确定性起点。
+        for key in UserDefaults.standard.dictionaryRepresentation().keys
+        where key.hasPrefix("chat.target.") {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     // MARK: 冷启动
@@ -202,7 +316,7 @@ final class AppSession {
         }
         // 中继服务器在注册表内按 mid/sid 复用（重复连接不膨胀列表）
         let existing = ServerRegistry.servers.first { $0.relay?.deviceSid == link.deviceSid }
-        var server = ServerConfig(
+        let server = ServerConfig(
             id: existing?.id ?? UUID().uuidString,
             name: existing?.name,
             host: link.endpointHost ?? "zcode.z.ai",
@@ -213,6 +327,11 @@ final class AppSession {
             preferredWorkspacePath: existing?.preferredWorkspacePath,
             relay: link)
         mode = .connecting(server)
+        // 持久化（本函数注释所诺的第二步，此前遗漏）：连接前置写入注册表——失败也保留
+        // 设备，OAuth 直达自动连接与 Composer 目标菜单（ExecutionTargetStore.machines）
+        // 均以注册表 relay 项为准（门禁实测：漏 upsert 导致「暂未发现已配对的桌面设备」
+        // 误引导与目标菜单缺 E2E-Relay-Mac 候选）
+        ServerRegistry.upsert(server)
         await connectToSaved(server)
     }
 
@@ -262,10 +381,68 @@ final class AppSession {
         guard connection.isActive else {
             desktopOAuthInfo = nil
             codingPlanUsage = nil
+            appUsageSnapshot = nil
             return
         }
         desktopOAuthInfo = await Self.fetchDesktopOAuthInfo(connection: connection)
         codingPlanUsage = await Self.fetchCodingPlanUsage(connection: connection)
+        appUsageSnapshot = await Self.fetchAppUsageSnapshot(connection: connection)
+    }
+
+    /// 使用统计快照（usage-stats.getAppUsageSnapshot {range, timeZone}；
+    /// 桌面「使用统计」页同源：summary 指标 + models 占比 + dailyModelUsage 趋势 + tools）
+    private(set) var appUsageSnapshot: AppUsageInfo?
+
+    private static func fetchAppUsageSnapshot(connection: ZCodeServerConnection) async -> AppUsageInfo? {
+        var builder = JSONObjectBuilder()
+        builder.set("range", "30d")
+        builder.set("timeZone", TimeZone.current.identifier)
+        guard let result = try? await connection.call(
+            "usage-stats", "getAppUsageSnapshot", .json(.object(builder.fields))),
+            let dict = result.jsonValue?.objectValue else {
+            return nil
+        }
+        var summary = AppUsageSummary()
+        if let s = dict["summary"]?.objectValue {
+            summary = AppUsageSummary(
+                totalTokens: s["totalTokens"]?.doubleValue,
+                peakDayTokens: s["peakDayTokens"]?.doubleValue,
+                longestSessionMs: s["longestSessionMs"]?.intValue,
+                currentStreakDays: s["currentStreakDays"]?.intValue,
+                longestStreakDays: s["longestStreakDays"]?.intValue,
+                totalSessions: s["totalSessions"]?.intValue,
+                totalTurns: s["totalTurns"]?.intValue,
+                activeDays: s["activeDays"]?.intValue,
+                cacheHitRate: s["cacheHitRate"]?.doubleValue,
+                favoriteModelId: s["favoriteModel"]?.objectValue?["modelId"]?.stringValue,
+                favoriteModelShare: s["favoriteModel"]?.objectValue?["share"]?.doubleValue)
+        }
+        let models: [AppUsageModelSlice] = (dict["models"]?.arrayValue ?? []).compactMap { m in
+            guard let d = m.objectValue, let modelId = d["modelId"]?.stringValue else { return nil }
+            return AppUsageModelSlice(
+                modelId: modelId,
+                totalTokens: d["totalTokens"]?.doubleValue ?? 0,
+                share: d["share"]?.doubleValue)
+        }
+        let daily: [AppUsageDailyPoint] = (dict["dailyModelUsage"]?.arrayValue ?? []).compactMap { point in
+            guard let d = point.objectValue, let date = d["date"]?.stringValue else { return nil }
+            var byModel: [String: Double] = [:]
+            for entry in d["models"]?.arrayValue ?? [] {
+                guard let e = entry.objectValue, let modelId = e["modelId"]?.stringValue else { continue }
+                byModel[modelId] = e["totalTokens"]?.doubleValue ?? 0
+            }
+            return AppUsageDailyPoint(date: date, byModel: byModel)
+        }
+        let tools: [AppUsageToolStat] = (dict["tools"]?.arrayValue ?? []).compactMap { t in
+            guard let d = t.objectValue, let toolName = d["toolName"]?.stringValue else { return nil }
+            return AppUsageToolStat(
+                toolName: toolName,
+                callCount: d["callCount"]?.intValue ?? 0,
+                avgDurationMs: d["avgDurationMs"]?.doubleValue ?? 0,
+                errorRate: d["errorRate"]?.doubleValue)
+        }
+        guard summary.totalTokens != nil || !models.isEmpty || !daily.isEmpty else { return nil }
+        return AppUsageInfo(summary: summary, models: models, daily: daily, tools: tools)
     }
 
     /// oauth 只读三接口 → 展示态（provider 名单/当前 provider/登录用户与过期态）。
@@ -318,36 +495,146 @@ final class AppSession {
         var usage = CodingPlanUsageInfo()
         var builder = JSONObjectBuilder()
         builder.set("range", "30d")
-        builder.set("preferredProviderId", "zai")
+        // preferredProviderId 必须用注册表完整 id（「zai」匹配不到任何 provider，
+        // 桌面端落到 bigmodel API-key 面 → no_bigmodel_api_key）；web 端另带 timeZone
+        builder.set("preferredProviderId", "account:zai-individual-coding-plan")
         builder.set("accountAccess", accountAccess)
-        if let result = try? await connection.call(
-            "usage-stats", "getCodingPlanUsageSnapshot", .json(.object(builder.fields))),
-           let dict = result.jsonValue?.objectValue {
-            // quota = {level, limits:[{usage, unit, number, percentage, nextResetTime, …}]}
-            if let limit = dict["quota"]?.objectValue?["limits"]?.arrayValue?.first {
-                usage.used = limit["usage"]?.intValue
-                usage.limit = limit["number"]?.intValue
-                if let percentage = limit["percentage"]?.doubleValue {
-                    usage.percentRemaining = max(0, min(1, 1 - percentage / 100))
-                } else if let used = usage.used, let limit = usage.limit, limit > 0 {
-                    usage.percentRemaining = max(0, min(1, Double(limit - used) / Double(limit)))
+        builder.set("timeZone", TimeZone.current.identifier)
+        let snapshotResult: RPCValue?
+        do {
+            snapshotResult = try await connection.call(
+                "usage-stats", "getCodingPlanUsageSnapshot", .json(.object(builder.fields)))
+        } catch {
+            // 失败不再静默（「桌面端未返回 Coding Plan 用量」的取证口）
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                UserDefaults.standard.set(
+                    "err=\(String(describing: error).prefix(500))", forKey: "diag.usage.snapshot.error")
+                UserDefaults.standard.synchronize()
+            }
+            snapshotResult = nil
+        }
+        if let dict = snapshotResult?.jsonValue?.objectValue {
+            // 取证（一次性）：quota.limits 全量窗口形态（level 词表定位 5h/周/月）
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
+               UserDefaults.standard.string(forKey: "diag.usage.snapshot") == nil {
+                UserDefaults.standard.set(
+                    String(describing: dict), forKey: "diag.usage.snapshot")
+            }
+            // quota = {level:"max"|…, limits:[…]}；窗口真实形态（2026-10-05 取证）：
+            // ① {type:"TIME_LIMIT", unit:5, usage:总量, remaining, currentValue:已用,
+            //    percentage:已用%, nextResetTime, usageDetails[]} → 5 小时条数窗
+            // ②③ {type:"TOKENS_LIMIT", unit, number, percentage:已用%, nextResetTime}
+            //    → 每周/每月 token 窗（无绝对数值，只有百分比）
+            let limits = dict["quota"]?.objectValue?["limits"]?.arrayValue ?? []
+            var tokenWindowIndex = 0
+            usage.windows = limits.compactMap { limit in
+                guard let d = limit.objectValue else { return nil }
+                let type = d["type"]?.stringValue ?? ""
+                let isTimeLimit = type == "TIME_LIMIT"
+                let label: String
+                var used: Int?
+                var limitValue: Int?
+                if isTimeLimit {
+                    label = String(localized: "5 小时")
+                    used = d["currentValue"]?.intValue
+                    limitValue = d["usage"]?.intValue
+                } else {
+                    tokenWindowIndex += 1
+                    label = tokenWindowIndex == 1
+                        ? String(localized: "每周")
+                        : tokenWindowIndex == 2
+                            ? String(localized: "每月")
+                            : String(localized: "Token 窗口 \(tokenWindowIndex)")
                 }
-                usage.unitText = limit["unit"]?.stringValue
-                if let nextReset = limit["nextResetTime"]?.doubleValue, nextReset > 0 {
-                    usage.resetsAtText = Self.shortFormatter.string(from: Date(timeIntervalSince1970: nextReset / 1000))
+                var window = CodingPlanQuotaWindow(
+                    level: type.isEmpty ? "window" : type,
+                    label: label,
+                    used: used,
+                    limit: limitValue,
+                    unit: isTimeLimit ? String(localized: "条") : nil,
+                    percentUsed: d["percentage"]?.doubleValue,
+                    resetsAtText: nil)
+                if let nextReset = d["nextResetTime"]?.doubleValue, nextReset > 0 {
+                    window.resetsAtText = Self.shortFormatter.string(
+                        from: Date(timeIntervalSince1970: nextReset / 1000))
                 }
+                return window
+            }
+            // 套餐档位（quota.level："max" 等）记入 unitText 供卡片角标
+            usage.unitText = dict["quota"]?.objectValue?["level"]?.stringValue
+            // 主窗口（legacy 字段兼容 SettingsView 用户卡）：5 小时窗优先，否则首个
+            let primary = usage.windows.first {
+                $0.level == "TIME_LIMIT"
+            } ?? usage.windows.first
+            if let primary {
+                usage.used = primary.used
+                usage.limit = primary.limit
+                usage.percentRemaining = primary.percentRemaining
+                usage.resetsAtText = primary.resetsAtText
             }
         }
         var resetBuilder = JSONObjectBuilder()
-        resetBuilder.set("preferredProviderId", "zai")
+        resetBuilder.set("preferredProviderId", "account:zai-individual-coding-plan")
         resetBuilder.set("accountAccess", accountAccess)
         if let result = try? await connection.call(
             "usage-stats", "getCodingPlanResetStatus", .json(.object(resetBuilder.fields))),
            let dict = result.jsonValue?.objectValue {
+            // 取证（一次性）：重置卡全量形态
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
+               UserDefaults.standard.string(forKey: "diag.usage.reset") == nil {
+                UserDefaults.standard.set(
+                    String(describing: dict).prefix(1200), forKey: "diag.usage.reset")
+            }
+            // 重置卡全量解析：5h/周两组可用卡 + 最早过期 + 最近使用历史
+            var cards = CodingPlanResetCards()
+            let fiveHour = dict["availableFiveHourResets"]?.arrayValue ?? []
+            let week = dict["availableWeekResets"]?.arrayValue ?? []
+            cards.fiveHourCount = fiveHour.count
+            cards.weekCount = week.count
+            let allExpiries = (fiveHour + week).compactMap {
+                $0.objectValue?["expireAt"]?.doubleValue
+            }.filter { $0 > 0 }
+            if let earliest = allExpiries.min() {
+                cards.earliestExpireText = Self.shortFormatter.string(
+                    from: Date(timeIntervalSince1970: earliest / 1000))
+            }
+            if let usedAt = dict["latestFiveHourResetHistory"]?.objectValue?["usedAt"]?.doubleValue,
+               usedAt > 0 {
+                cards.lastFiveHourUsedText = Self.shortFormatter.string(
+                    from: Date(timeIntervalSince1970: usedAt / 1000))
+            }
+            if let usedAt = dict["latestWeekResetHistory"]?.objectValue?["usedAt"]?.doubleValue,
+               usedAt > 0 {
+                cards.lastWeekUsedText = Self.shortFormatter.string(
+                    from: Date(timeIntervalSince1970: usedAt / 1000))
+            }
+            usage.resetCards = cards
             // 重置窗口取最近可用 five-hour 机会（毫秒时间戳）
             if let expireAt = dict["availableFiveHourResets"]?.arrayValue?.first?.objectValue?["expireAt"]?.doubleValue,
                expireAt > 0 {
                 usage.resetsAtText = Self.shortFormatter.string(from: Date(timeIntervalSince1970: expireAt / 1000))
+            }
+        }
+        // 取证（一次性）：App 用量统计快照（summary/模型趋势/工具用量形状定位）
+        if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
+           UserDefaults.standard.string(forKey: "diag.usage.app") == nil {
+            var appBuilder = JSONObjectBuilder()
+            appBuilder.set("range", "30d")
+            appBuilder.set("timeZone", TimeZone.current.identifier)
+            if let result = try? await connection.call(
+                "usage-stats", "getAppUsageSnapshot", .json(.object(appBuilder.fields))),
+               let json = result.jsonValue {
+                // 聚焦未取证数组的首元素形状
+                var report = "topKeys=\(json.objectValue?.keys.sorted().joined(separator: "|") ?? "?")"
+                for key in ["dailyModelUsage", "heatmap"] {
+                    if let array = json[key]?.arrayValue {
+                        report += " || \(key)(\(array.count)) first=\(String(describing: array.first).prefix(600))"
+                        if array.count > 1 {
+                            report += " second=\(String(describing: array[1]).prefix(200))"
+                        }
+                    }
+                }
+                UserDefaults.standard.set(String(report.prefix(2400)), forKey: "diag.usage.app")
             }
         }
         return usage.used != nil || usage.limit != nil || usage.percentRemaining != nil ? usage : nil
@@ -358,6 +645,57 @@ final class AppSession {
         formatter.dateFormat = "M 月 d 日 HH:mm"
         return formatter
     }()
+
+    // MARK: 重置卡（usage-stats 三步；web 端 resetType ∈ FIVE_HOUR|WEEK）
+
+    enum CodingPlanResetType: String {
+        case fiveHour = "FIVE_HOUR"
+        case week = "WEEK"
+    }
+
+    /// 使用重置卡（桌面代执行三步，web reset-cards 同构；用户要求仅接线不自动触发）：
+    /// ① requestCodingPlanResetOpportunity {scope, idempotencyKey} 幂等探测
+    /// ② useCodingPlanReset {scope, idempotencyKey, resetType} 使用（FIVE_HOUR|WEEK）
+    /// ③ markCodingPlanResetHistoryRead {scope} 清桌面未读角标
+    /// scope = {workspaceKey, remoteSessionId:"", sessionId:""}（web 端缺省空串）。
+    /// 成功后刷新额度/重置状态投影；返回用户可读反馈（nil = 成功）
+    func useCodingPlanResetCard(type: CodingPlanResetType) async -> String? {
+        guard connection.isActive else {
+            return String(localized: "未连接桌面端")
+        }
+        let scope: JSONValue = .object([
+            "workspaceKey": .string(
+                connection.workspace?.workspaceIdentity ?? connection.workspace?.path ?? ""),
+            "remoteSessionId": .string(""),
+            "sessionId": .string(""),
+        ])
+        let idempotencyKey = UUID().uuidString
+        // ① 幂等探测领取机会
+        var request = JSONObjectBuilder()
+        request.set("scope", scope)
+        request.set("idempotencyKey", idempotencyKey)
+        _ = try? await connection.call(
+            "usage-stats", "requestCodingPlanResetOpportunity", .json(.object(request.fields)))
+        // ② 使用重置卡
+        var use = JSONObjectBuilder()
+        use.set("scope", scope)
+        use.set("idempotencyKey", idempotencyKey)
+        use.set("resetType", type.rawValue)
+        do {
+            _ = try await connection.call(
+                "usage-stats", "useCodingPlanReset", .json(.object(use.fields)))
+        } catch {
+            return String(localized: "领取失败 · \(error.localizedDescription)")
+        }
+        // ③ 清历史未读角标（失败不影响结果）
+        var mark = JSONObjectBuilder()
+        mark.set("scope", scope)
+        _ = try? await connection.call(
+            "usage-stats", "markCodingPlanResetHistoryRead", .json(.object(mark.fields)))
+        // 额度/重置状态回流刷新
+        await refreshDesktopReadonlyInfo()
+        return nil
+    }
 
     // MARK: 配对流程（L1 → L2 → 成功/失败）
 
@@ -450,8 +788,6 @@ final class AppSession {
         if case .connected = mode { return .connected }
         cancelConnecting()
         return .failed("剪贴板配对链接")
-        UserDefaults.standard.set("autoConnect: no paired device", forKey: "diag.autoConnect")
-        return .noPairedDevice
     }
 
     /// 退出登录：仅清账户层 tokenSet，不动已保存服务器与连接令牌（9.5 两层凭据模型）

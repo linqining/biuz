@@ -3,3 +3,5 @@
 # Xcode 用户界面状态（个人态不入库，G-028）
 *.xcuserstate
 xcuserdata/
+ios/DerivedData/
+.vscode/

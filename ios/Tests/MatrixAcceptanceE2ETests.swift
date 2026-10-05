@@ -55,6 +55,7 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         return condition()
     }
 
+    @discardableResult
     private func waitStaticText(_ application: XCUIApplication, containing text: String,
                                 timeout: TimeInterval, _ message: String) -> Bool {
         let predicate = NSPredicate(format: "label CONTAINS %@", text)
@@ -188,17 +189,22 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         XCTAssertTrue(element(application, "04-chip-source-all").waitForExistence(timeout: 6),
                       "来源过滤 chips 应在场")
         element(application, "04-chip-source-cloud").tap()
-        XCTAssertTrue(element(application, "04-row-c3").waitForExistence(timeout: 6),
+        XCTAssertTrue(element(application, "04-row-c3").waitForExistence(timeout: 12),
                       "演示态「云端沙盒」档应返回演示 cloud 会话集合（c3/c4）")
         XCTAssertFalse(element(application, "04-row-c1").exists,
                        "cloud 档不应混入 mac 会话（c1）")
         element(application, "04-chip-source-mac").tap()
-        XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 6),
+        // 档位切换后 List 重排 + LazyVStack 重新物化，等待窗给足时序容忍（同等待遇用于三档）
+        if !element(application, "04-row-c1").waitForExistence(timeout: 4) {
+            // 首次 tap 若落在 chips 行重排动画期（XCUI 坐标解析先于布局稳定），有界重试一次
+            element(application, "04-chip-source-mac").tap()
+        }
+        XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 12),
                       "演示态「我的 Mac」档应返回演示 mac 会话集合（c1/c2/c5/c6）")
         XCTAssertFalse(element(application, "04-row-c3").exists,
                        "mac 档不应混入 cloud 会话（c3）")
         element(application, "04-chip-source-all").tap()
-        XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 6),
+        XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 12),
                       "切回「全部」后 mock 会话行应回归")
 
         // ② 连接态：替身会话归「我的 Mac」档；无 cloud 数据时云端档置灰禁用
@@ -567,6 +573,14 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         // 追问：先弹文本输入 → 发送 → 真实反馈 + Sheet 保持（任务仍在待操作）
         followup.tap()
         let field = element(application, "06-field-followup")
+        if !field.waitForExistence(timeout: 6) {
+            // 诊断：alert 是否在场 / Sheet 上按钮集合（判定 tap 未生效还是 alert a11y 形态差异）
+            let alertLabel = application.alerts.firstMatch.exists
+                ? application.alerts.firstMatch.label : "<无 alert>"
+            let dump = application.buttons.allElementsBoundByIndex.prefix(14)
+                .map { "\($0.label)|\($0.identifier)" }.joined(separator: " ; ")
+            NSLog("test09 追问诊断 alerts=\(alertLabel) buttons=\(dump)")
+        }
         XCTAssertTrue(field.waitForExistence(timeout: 6), "追问应先弹文本输入")
         XCTAssertTrue(typeInto(application, field, text: "迁移期间会锁表吗"), "追问输入框应可输入")
         element(application, "06-act-followup-send").tap()
