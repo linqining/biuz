@@ -130,7 +130,9 @@ enum ReadOnlyGate {
             "logout", "logoutAll", "cancelPending",
         ],
         "conversation-share": ["publish", "importShare"],
-        "usage-stats": ["requestCodingPlanResetOpportunity", "useCodingPlanReset"],
+        // G-042 放行：重置机会领取（request/use）为桌面代执行写，移动端一键领取入口；
+        // markCodingPlanResetHistoryRead 本就不属直写。保留拦截面：无。
+        "usage-stats": [],
         "coding-plan-subscription": [
             "createSign", "updateSign", "bindStripeCard", "unbindStripeCard", "payStripe",
             "createPaypalSetupToken", "subscribePaypal",
@@ -145,9 +147,12 @@ enum ReadOnlyGate {
         "bots": [
             "beginFeishuRegistration", "pollFeishuRegistration",
             "beginWeixinRegistration", "pollWeixinRegistration",
-            "saveConfig", "saveBot", "removeBotSecret", "deleteBot", "testBot",
-            "createBindCode", "resetBotState", "handleInboundMessage",
+            "saveConfig", "handleInboundMessage",
             "handleProviderCallback", "handleProviderCallbackResponse",
+            // G-002~G-005 放行（P0 缺口矩阵）：saveBot（解绑=清 providerUserId，桌面
+            // BotsDialog.tsx:1027-1035 同构）、resetBotState、deleteBot、removeBotSecret、
+            // testBot、createBindCode——写的是桌面宿主侧 Bot 配置/凭据存储，非手机直写
+            // 仓库文件，属「发命令由桌面执行」合法远控写。注册轮询与消息处理仍拦截。
         ],
         "skills": ["setEnabled", "copyToCommon", "removeFromCommon", "deleteSkill"],
         "skill-sync": ["importSkillsArchive"],

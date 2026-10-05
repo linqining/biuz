@@ -493,3 +493,23 @@ Tab 根（L1）
 8. **client_id 缺省值与可配置性为绑定假设**：web 端取自部署环境变量 `VITE_ZAI_OAUTH_CLIENT_ID`（转引），稿内 `client_P8X5CMW…` 为调研样例值；移动端的打包内置值、是否允许用户覆盖、以及 BigModel `appId` 的取值策略均未定义，需在接入时确认。
 9. **令牌续期行为未定义**：调研材料未见 refresh token 机制，`expires_in` → `expiresAt` 之后的续期/重登策略为开放问题；本规范首发口径为「过期即重新登录」（9.5），如后续服务端提供 refresh 能力再修订。
 10. **应用内授权的载体选型与注入边界**：用户已决策 OAuth **在应用内授权 Sheet 完成，不跳系统浏览器**（O2-A 固化）；实现载体建议 **`ASWebAuthenticationSession` 优先**——其呈现形态即系统级应用内 Sheet，自带加载进度/取消按钮、与 Safari 共享会话 Cookie（已登录用户免重复输密码），且 redirect 到自定义 scheme 时由框架回调交付（`callbackScheme` 需注册，与 redirect_uri 绑定假设 9.7.7 对齐）。**边界事实**：`ASWebAuthenticationSession` **无外观控制 API**——授权同意页是 chat.z.ai/BigModel 的真实网页，深浅由该页面与系统决定（App 强制 Zai Dark/Light 不生效，待真机验证），稿内 `.wv-page` 区域仅为该远端页面的**信息层级示意**；**两种载体（含 WKWebView 备选）均禁止注入自绘同意页或改写授权页内容**（伪造授权页 = 钓鱼反模式），WKWebView 备选仅做「容器 + redirect 拦截」，并自行承担 Cookie 隔离与外观不一致代价。无论哪种载体，「✕ / 下拉 / 页内取消 = 用户取消」语义一致（ASWebAuthenticationSession 下页内「取消」即系统 chrome Cancel）。
+
+---
+
+## 附录 · 实现决策记录（P2 批次，2026-10-05）
+
+### D-1 底部动作栏次按钮文案（G-026 漂移收口）
+
+spec 5.10 标注次按钮语义为「桌面端继续」（08-act-desktop-continue），实现长期呈「浏览文件」。
+已将文案对齐 spec（`Text("桌面端继续")`，RootView.swift），testid 保持 `08-act-desktop-continue`
+不变（grep 全部 E2E 无文案断言依赖，仅 identifier 断言）。动作仍为打开文件树（桌面端继续处理的入口）。
+
+### D-2 API Key 登录路径移除（G-027 产品决策）
+
+spec 屏 01「使用 API Key 登录」/屏 13-⑥ 路径**从实现范围移除**，理由：
+1. BiuZ 移动端账户体系已由 z.ai OAuth（zcodeJwtToken + zai.access_token）与 BigModel 双路径覆盖，
+   API Key 为第三条冗余路径；
+2. 桌面侧无对应的 API Key 校验链路（开源 v3.14.3 无该入口），移动端单方面实现将出现"可登录但桌面不认"的断链；
+3. 凭据面收敛：Keychain 仅存 OAuth tokenSet 与连接层凭据，不再扩 API Key 存储。
+
+本决策不阻塞 Z.ai OAuth 与 BigModel 主路径；后续若桌面补齐校验链路可重新评估。

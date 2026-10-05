@@ -16,6 +16,8 @@ struct LoginFlowView: View {
     @State private var stepTimings: [String] = []
     @State private var exchangeLogs: [ConnectLogLine] = []
     @State private var exchangeStep: ExchangeStep = .callback
+    /// G-026 协议页（ nil=关闭）
+    @State private var agreementPage: AgreementPage?
 
     enum LoginStep: Equatable {
         case home
@@ -40,13 +42,15 @@ struct LoginFlowView: View {
                     LoginHomeView(
                         onStartOAuth: { startOAuth(.zai) },
                         onConnectDesktop: { dismiss() },
-                        onBigModel: { startOAuth(.bigmodel) })
+                        onBigModel: { startOAuth(.bigmodel) },
+                        onAgreement: { agreementPage = $0 })
                 case .authorizing:
                     // O2-A：背景页压暗 + 缩放（2.7 Sheet 转场），授权 Sheet 升起
                     LoginHomeView(
                         onStartOAuth: { startOAuth(.zai) },
                         onConnectDesktop: { dismiss() },
                         onBigModel: { startOAuth(.bigmodel) },
+                        onAgreement: { agreementPage = $0 },
                         dimmed: true)
                         .overlay(alignment: .bottom) {
                             OAuthSheetView(
@@ -83,6 +87,9 @@ struct LoginFlowView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { navigationBar }
+            .sheet(item: $agreementPage) { page in
+                AgreementWebViewSheet(page: page)
+            }
         }
     }
 
@@ -95,14 +102,34 @@ struct LoginFlowView: View {
                 .font(T.font(16.5, .bold))
                 .foregroundColor(T.text)
         }
+        // 显式关闭：不想登录/不想连接时随时可退出（全屏 cover 无下滑手势）
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                cancelFlowIfRunning()
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(T.text)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityIdentifier("o1-act-close")
+        }
+    }
+
+    /// 关闭前清理进行中的授权（避免后台回调残留），与 O2 ✕ 同语义
+    private func cancelFlowIfRunning() {
+        if step == .authorizing || step == .exchanging {
+            handleUserCancel()
+        }
     }
 
     private var title: String {
         switch step {
-        case .home, .authorizing: return "登录 BiuZ"
-        case .exchanging: return "正在完成登录"
-        case .success: return "登录成功"
-        case .failure: return "登录未完成"
+        case .home, .authorizing: return String(localized: "登录 BiuZ")
+        case .exchanging: return String(localized: "正在完成登录")
+        case .success: return String(localized: "登录成功")
+        case .failure: return String(localized: "登录未完成")
         }
     }
 
@@ -280,6 +307,7 @@ struct LoginHomeView: View {
     var onStartOAuth: () -> Void
     var onConnectDesktop: () -> Void
     var onBigModel: () -> Void
+    var onAgreement: (AgreementPage) -> Void = { _ in }
     var dimmed = false
 
     @State private var advancedExpanded = false
@@ -394,7 +422,19 @@ struct LoginHomeView: View {
     private var footer: some View {
         VStack(spacing: 2) {
             Text("Z.ai 账号登录在应用内授权 Sheet 中完成，凭据仅存本机 Keychain")
-            Text("也可跳过登录直接连接局域网桌面端 · 登录即同意《用户协议》与《隐私政策》")
+            // G-026：协议名可点 → 内嵌 WebView Sheet（可滚动/可关闭/断网失败态）
+            HStack(spacing: 2) {
+                Text("也可跳过登录直接连接局域网桌面端 · 登录即同意")
+                Button { onAgreement(.terms) } label: {
+                    Text("《用户协议》").foregroundColor(T.accentText)
+                }
+                .accessibilityIdentifier("o1-act-agreement")
+                Text("与")
+                Button { onAgreement(.privacy) } label: {
+                    Text("《隐私政策》").foregroundColor(T.accentText)
+                }
+                .accessibilityIdentifier("o1-act-privacy")
+            }
         }
         .font(T.font(11))
         .foregroundColor(T.text3)
@@ -834,6 +874,129 @@ struct OAuthProgressView: View {
         case .working: return T.codeLab
         case .info: return T.text3
         case .error: return T.red
+        }
+    }
+}
+
+
+// MARK: - 协议内嵌页（G-026：可滚动 / 可关闭 / 断网失败态；URL 集中配置）
+
+/// 协议页身份（URL 集中配置点；运营侧更换仅需改 rawValue 指向）
+enum AgreementPage: String, Identifiable {
+    case terms
+    case privacy
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .terms: return String(localized: "用户协议")
+        case .privacy: return String(localized: "隐私政策")
+        }
+    }
+
+    /// 当前为占位地址（可配置点）；404/断网由 WebView 失败态兜底呈现
+    var url: URL {
+        switch self {
+        case .terms: return URL(string: "https://biuz.app/legal/terms")!
+        case .privacy: return URL(string: "https://biuz.app/legal/privacy")!
+        }
+    }
+}
+
+struct AgreementWebViewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let page: AgreementPage
+    @State private var loadFailed = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
+            HStack {
+                Text(page.title).font(T.font(17, .bold)).foregroundColor(T.text)
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(T.text)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityIdentifier("o1-legal-close")
+            }
+            .padding(.horizontal, T.sp4)
+
+            ZStack {
+                AgreementWebView(url: page.url, onLoadFailed: { loadFailed = true })
+                    .opacity(loadFailed ? 0 : 1)
+                if loadFailed {
+                    VStack(spacing: T.sp2) {
+                        Image(systemName: "wifi.exclamationmark")
+                            .font(.system(size: 24))
+                            .foregroundColor(T.text3)
+                            .frame(width: 56, height: 56)
+                            .background(T.bgInput)
+                            .clipShape(Circle())
+                        Text("加载失败")
+                            .font(T.font(14, .bold))
+                            .foregroundColor(T.text)
+                        Text("检查网络后重试；协议内容也可在官网查看")
+                            .font(T.font(11.5))
+                            .foregroundColor(T.text3)
+                        Button {
+                            loadFailed = false
+                            // 重建视图触发重新加载
+                            reloadToken += 1
+                        } label: {
+                            Text("重试")
+                                .font(T.font(13, .semibold))
+                                .foregroundColor(T.onAccent)
+                                .padding(.horizontal, T.sp4)
+                                .frame(minHeight: 44)
+                                .background(T.accent)
+                                .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                        }
+                        .accessibilityIdentifier("o1-legal-retry")
+                    }
+                    .id(reloadToken)
+                }
+            }
+        }
+        .background(T.bgElevated)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+    }
+
+    @State private var reloadToken = 0
+}
+
+/// 轻量 WKWebView 容器（协议只读页；不做注入与拦截）
+struct AgreementWebView: UIViewRepresentable {
+    let url: URL
+    let onLoadFailed: () -> Void
+
+    func makeUIView(context: Context) -> WKWebView {
+        let webView = WKWebView(frame: .zero)
+        webView.navigationDelegate = context.coordinator
+        context.coordinator.onLoadFailed = onLoadFailed
+        webView.load(URLRequest(url: url))
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var onLoadFailed: (() -> Void)?
+        var reported = false
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
+            if !reported { reported = true; onLoadFailed?() }
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: Error) {
+            if !reported { reported = true; onLoadFailed?() }
         }
     }
 }

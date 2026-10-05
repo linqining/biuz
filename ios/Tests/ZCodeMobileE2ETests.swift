@@ -17,6 +17,7 @@ final class ZCodeMobileE2ETests: XCTestCase {
 
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)"] // 本地化后固定测试语言（中文断言稳定）
         app.launch()
         return app
     }
@@ -143,12 +144,13 @@ final class ZCodeMobileE2ETests: XCTestCase {
                       "流式回复应以 Agent 提问卡收尾")
 
         // 快捷回复 chips 可点并发应答（QuestionCard → onReply → store.answerQuestion；
-        // v3 纠偏后 MessageViews chips 连接态/演示态同构可点，演示走 Mock 路径行为不变）
-        let chip = app.buttons["先看完整 diff"]
+        // v3 纠偏后 MessageViews chips 连接态/演示态同构可点，演示走 Mock 路径行为不变）。
+        // chip 文本取新会话剧本（MockConversationStore 剧本 quickReplies 三档）
+        let chip = app.buttons["给我看完整 diff"]
         XCTAssertTrue(chip.waitForExistence(timeout: 8), "提问卡应提供快捷回复 chips（44px 热区）")
         chip.tap()
         XCTAssertTrue(app.staticTexts
-            .containing(NSPredicate(format: "label CONTAINS %@", "收到，按「先看完整 diff」处理"))
+            .containing(NSPredicate(format: "label CONTAINS %@", "收到，按「给我看完整 diff」处理"))
             .firstMatch.waitForExistence(timeout: 15),
                       "点击 chip 应发出应答并触发模拟回复（应答文本回执上屏）")
 
@@ -397,9 +399,9 @@ final class ZCodeMobileE2ETests: XCTestCase {
 
     // MARK: - 流程 8：列表分区头与行信息层级 + 演示态额度回退（贯穿约束抽查）
 
-    /// ① 分区渲染：置顶 + 今天/昨天/更早 时间分组头（mock 数据四组齐全；
-    /// 「昨天」仅 now<02:00 时 c3/c4 会跨入更早，该时段跳过此断言避免时钟边沿抖动）；
-    /// ② 行信息层级：标题 + 运行中胶囊（c5）+ 未读徽章（c2=2）；
+    /// ① 分区渲染：置顶 + 项目分组头（要求 4：分组键=会话自带工作区字段——mock c1/c6→zcode、
+    /// c3→notes、c4→api、c5→zcode-mobile 四组；c2 未携带 workspace 字段 → 归「其它」组不丢弃；
+    /// 日期分组已被项目分组取代）；② 行信息层级：标题 + 运行中胶囊（c5）+ 未读徽章（c2=2）；
     /// ③ 演示态用户卡额度回退演示值（68% · 340/500），连接态替身投影由登录套件 test14 断言。
     func test08_listGroupHeadersRowHierarchyAndDemoQuota() throws {
         let app = launch()
@@ -408,15 +410,17 @@ final class ZCodeMobileE2ETests: XCTestCase {
                       "演示列表应加载（置顶行 c1 可见）")
         XCTAssertTrue(app.staticTexts["置顶"].waitForExistence(timeout: 6),
                       "c1 置顶应存在「置顶」分组头")
-        XCTAssertTrue(app.staticTexts["今天"].waitForExistence(timeout: 6),
-                      "时间分组头「今天」应存在（c1/c2/c5）")
-        let hour = Calendar.current.component(.hour, from: Date())
-        if hour >= 2 {
-            XCTAssertTrue(app.staticTexts["昨天"].waitForExistence(timeout: 3),
-                          "时间分组头「昨天」应存在（c3/c4，26/30 小时前）")
-        }
-        XCTAssertTrue(app.staticTexts["更早"].waitForExistence(timeout: 3),
-                      "时间分组头「更早」应存在（c6，50 小时前）")
+        // 要求 4：项目分组头（≥3 组断言：zcode/notes/api/zcode-mobile 四组）
+        XCTAssertTrue(app.staticTexts["zcode"].waitForExistence(timeout: 6),
+                      "项目分组头「zcode」应存在（c1/c6，分组键取会话自带工作区字段）")
+        XCTAssertTrue(app.staticTexts["notes"].waitForExistence(timeout: 4),
+                      "项目分组头「notes」应存在（c3）")
+        XCTAssertTrue(app.staticTexts["api"].waitForExistence(timeout: 4),
+                      "项目分组头「api」应存在（c4）")
+        XCTAssertTrue(app.staticTexts["zcode-mobile"].waitForExistence(timeout: 4),
+                      "项目分组头「zcode-mobile」应存在（c5）")
+        XCTAssertTrue(app.staticTexts["其它"].waitForExistence(timeout: 4),
+                      "归属未知的 c2 应归「其它」组而非丢弃")
 
         // 行信息层级：c5 运行中胶囊 + c2 未读徽章计数
         let c5 = element(app, "04-row-c5")

@@ -154,12 +154,26 @@ final class ReadOnlyGateTests: XCTestCase {
             ("subagents", "deleteAgent"), ("mcp-sync", "saveMcpToUserDirectory"),
             ("plugin-sync", "importPluginsArchive"), ("plugins", "installPlugin"),
             ("plugin-management", "setPluginEnabled"),
-            ("bots", "saveBot"), ("bots", "handleInboundMessage"),
+            ("bots", "handleInboundMessage"), ("bots", "beginFeishuRegistration"),
             ("off-peak-task", "createTask"), ("coding-plan-subscription", "payStripe"),
         ]
         for (channel, command) in cases {
             let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: .undefined)
             XCTAssertTrue(verdict.isBlocked, "\(channel).\(command)（频道直写黑名单）应拦截")
+        }
+    }
+
+    // MARK: ②' IM Bot 合法远控写放行（G-002~G-005：桌面宿主侧配置/凭据写，非手机直写仓库）
+
+    func testBotLifecycleCommandsAllowed() {
+        let cases: [(String, String)] = [
+            ("bots", "saveBot"), ("bots", "resetBotState"),
+            ("bots", "deleteBot"), ("bots", "removeBotSecret"),
+            ("bots", "testBot"), ("bots", "createBindCode"),
+        ]
+        for (channel, command) in cases {
+            let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: .undefined)
+            XCTAssertFalse(verdict.isBlocked, "\(channel).\(command) 已放行为合法远控写（桌面代执行），不应拦截")
         }
     }
 

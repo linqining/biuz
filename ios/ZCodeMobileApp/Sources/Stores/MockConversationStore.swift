@@ -38,7 +38,15 @@ actor MockConversationStore: @preconcurrency ConversationStore {
         messages[conversationID] ?? []
     }
 
-    func send(_ text: String, in conversationID: String) async {
+    /// G-021：演示态上下文用量随消息量动态增长（非硬编码常量），供会话流工具行展示
+    func sessionContextUsage(in conversationID: String) async -> ContextUsageInfo? {
+        let count = messages[conversationID]?.count ?? 0
+        let size = 128_000
+        let used = min(Int(Double(size) * 0.9), 18_000 + count * 3_800)
+        return ContextUsageInfo(used: used, size: size)
+    }
+
+    func send(_ text: String, in conversationID: String) async -> Bool {
         let userMessage = ChatMessage(
             id: UUID().uuidString, role: .user, text: text, timestamp: Date())
         append(userMessage, to: conversationID)
@@ -51,6 +59,7 @@ actor MockConversationStore: @preconcurrency ConversationStore {
             await self?.runReply(steps, conversationID: conversationID, replyID: replyID)
         }
         _ = task
+        return true // 演示态恒受理
     }
 
     func answerQuestion(_ reply: String, in conversationID: String, questionID: String) async {
@@ -72,18 +81,23 @@ actor MockConversationStore: @preconcurrency ConversationStore {
     }
 
     func createConversation(title: String, directory: String, executor: ExecutorKind) async -> Conversation {
-        let conversation = Conversation(
+        var conversation = Conversation(
             id: UUID().uuidString, title: title.isEmpty ? "新会话" : title,
             summary: "刚刚创建 · \(executor.label)",
             directory: directory, updatedAt: Date(),
             isRunning: false)
+        // G-006 演示口径：新建会话按执行端赋来源（云端沙盒 → cloud / 我的 Mac → mac），
+        // 使演示态来源过滤三档与新建链路语义一致
+        conversation.source = executor == .cloudSandbox ? "cloud" : "mac"
         conversations.insert(conversation, at: 0)
         messages[conversation.id] = []
         yield(.conversationUpdated(conversation))
         yield(.conversationsReplaced(sortedConversations()))
 
         let welcome: [ReplyStep] = [
-            .text("会话已创建，执行端：\(executor.label)，工作目录 `\(directory)`。\n\n告诉我你想做什么，我会按步骤推进并在关键操作前请求批准。"),
+            .text(directory.isEmpty
+                  ? "会话已创建，执行端：\(executor.label)，未绑定项目（纯对话）。\n\n告诉我你想做什么，我会按步骤推进并在关键操作前请求批准。"
+                  : "会话已创建，执行端：\(executor.label)，工作目录 `\(directory)`。\n\n告诉我你想做什么，我会按步骤推进并在关键操作前请求批准。"),
         ]
         Task {
             await self.runReply(welcome, conversationID: conversation.id, replyID: UUID().uuidString)
@@ -113,6 +127,38 @@ actor MockConversationStore: @preconcurrency ConversationStore {
 
     func markUnread(conversationID: String) async {
         update(id: conversationID) { $0.unreadCount = max($0.unreadCount, 1) }
+    }
+
+    // MARK: - 桌面 workflow 运行进度（要求 5 演示投影：运行中会话 c1 提供演示 run，
+    // 其余会话无数据不渲染；演示工作流面板为只读展示，不改变既有交互路径）
+
+    func workflowRun(in conversationID: String) async -> WorkflowRunSummary? {
+        guard conversationID == "c1" else { return nil }
+        return WorkflowRunSummary(
+            id: "demo-workflow-run",
+            name: "持久层重构 · 分步工作流",
+            rawStatus: "running",
+            stopReason: nil,
+            resumable: false,
+            truncated: false,
+            nodes: [
+                WorkflowNodeSummary(id: "n0", label: "梳理 SessionStore 调用面",
+                                    status: .done, summary: "3 处同步读写 · 2 处单例直连"),
+                WorkflowNodeSummary(id: "n1", label: "抽取 SessionStoreProtocol",
+                                    status: .done, summary: "+5 / -2 已批准"),
+                WorkflowNodeSummary(id: "n2", label: "迁移调用方",
+                                    status: .running),
+                WorkflowNodeSummary(id: "n3", label: "回归测试与提交",
+                                    status: .pending),
+            ],
+            actors: [
+                WorkflowActorSummary(id: "demo-site-0#1", name: "迁移调用方（子代理）",
+                                     rawStatus: "running", phaseName: "迁移调用方"),
+            ],
+            artifactsCount: 2,
+            pendingQuestionsCount: 0,
+            concurrency: 1,
+            concurrencyCeiling: 3)
     }
 
     // MARK: - 回复脚本
@@ -283,6 +329,8 @@ actor MockConversationStore: @preconcurrency ConversationStore {
         let now = Date()
         let minutes: (Int) -> Date = { now.addingTimeInterval(TimeInterval(-$0 * 60)) }
 
+        // G-006：seed 会话补 source 演示值——mac/cloud 两源并存，演示态来源过滤三档
+        // 各自非空可验（「全部」档默认不变）；项目 directory 五组并存供多项目分组断言
         conversations = [
             Conversation(
                 id: "c1", title: "重构会话持久层",
@@ -293,7 +341,7 @@ actor MockConversationStore: @preconcurrency ConversationStore {
             Conversation(
                 id: "c2", title: "修复登录超时问题",
                 summary: "Agent: 已定位到网关 504，准备重试策略。",
-                directory: "~/work/zcode/server", updatedAt: minutes(96),
+                directory: "", updatedAt: minutes(96),
                 unreadCount: 2),
             Conversation(
                 id: "c3", title: "生成周报 · 第 40 周",
@@ -316,6 +364,42 @@ actor MockConversationStore: @preconcurrency ConversationStore {
                 directory: "~/work/zcode", updatedAt: minutes(60 * 50),
                 taskProgress: 1.0),
         ]
+        // 来源演示值（构造后统一赋，避免逐条构造参数膨胀）：c3/c4 云端沙盒源，其余我的 Mac 源
+        for index in conversations.indices {
+            conversations[index].source = ["c3", "c4"].contains(conversations[index].id) ? "cloud" : "mac"
+        }
+        // G-007 演示：运行中会话 c1/c5 携带 workflowActivity 演示值（行迷你轨道可验；
+        // c3 无 workflowActivity → 不渲染占位）
+        conversations[0].workflowActivity = WorkflowActivitySummary(runs: [
+            SessionWorkflowRunSummary(
+                id: "demo-activity-run",
+                name: "持久层重构 · 分步工作流",
+                rawStatus: "running",
+                phases: [
+                    SessionWorkflowPhase(name: "梳理调用面", status: .done),
+                    SessionWorkflowPhase(name: "抽取协议", status: .done),
+                    SessionWorkflowPhase(name: "迁移调用方", status: .running),
+                    SessionWorkflowPhase(name: "回归验证", status: .pending),
+                    SessionWorkflowPhase(name: "准备提交", status: .pending,
+                                         alongside: [3]),
+                    SessionWorkflowPhase(name: "发布说明", status: .pending),
+                    SessionWorkflowPhase(name: "清理临时分支", status: .pending),
+                ],
+                currentPhase: "迁移调用方",
+                agentsWorking: 2),
+        ])
+        conversations[4].workflowActivity = WorkflowActivitySummary(runs: [
+            SessionWorkflowRunSummary(
+                id: "demo-activity-run-2",
+                name: "首页性能调优",
+                rawStatus: "running",
+                phases: [
+                    SessionWorkflowPhase(name: "性能画像", status: .done),
+                    SessionWorkflowPhase(name: "懒加载改造", status: .running),
+                ],
+                currentPhase: "懒加载改造",
+                agentsWorking: 1),
+        ])
 
         messages["c1"] = [
             ChatMessage(

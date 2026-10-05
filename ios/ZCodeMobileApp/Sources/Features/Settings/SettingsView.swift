@@ -196,9 +196,16 @@ struct SettingsView: View {
             HStack(spacing: T.sp3) {
                 AgentAvatar(size: 56)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Zai 开发者")
+                    // G-020：连接态绑定 OAuth displayName（真实数据），演示态回退演示名
+                    Text(session.oauthUserInfo?.displayName ?? String(localized: "Zai 开发者"))
                         .font(T.font(17, .bold))
                         .foregroundColor(T.text)
+                    if let username = session.oauthUserInfo?.username {
+                        Text("@\(username) · \(String(localized: "已登录"))")
+                            .font(T.mono(10.5))
+                            .foregroundColor(T.text3)
+                            .lineLimit(1)
+                    }
                     HStack(spacing: 4) {
                         Image(systemName: "bolt.fill").font(.system(size: 9))
                         Text("Coding Plan").font(T.font(10.5, .semibold))
@@ -243,19 +250,39 @@ struct SettingsView: View {
 
     // MARK: - 分组
 
+    /// G-034：设备行副标题绑真实连接态——仅显示可证实的在线设备（不再硬编码假在线）
+    private var pairingSubtitle: String {
+        if case .connected(let server) = session.mode {
+            return "\(server.name ?? server.displayAddress) 在线"
+        }
+        return "未连接桌面端"
+    }
+
+    /// G-034：在线数与实际连接数一致（中继/局域网同一时刻至多 1 条连接）
+    private var pairingValue: String {
+        let paired = ServerRegistry.servers.count
+        if case .connected = session.mode {
+            return "\(paired) 台已配对 · 1 台在线"
+        }
+        return "\(paired) 台已配对 · 0 台在线"
+    }
+
     private var settingGroups: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
             group("设备与远控") {
                 navRow(route: .devices, icon: "laptopcomputer.and.iphone", title: "设备与配对",
-                       subtitle: "云端沙盒在线 · 我的 Mac 在线", value: "2 台在线", identifier: "12-row-pairing")
+                       subtitle: pairingSubtitle, value: pairingValue, identifier: "12-row-pairing")
                 navRow(route: .bots, icon: "app.badge.filled", title: "IM Bot",
-                       subtitle: "微信 / 飞书 / Telegram 通道", value: "已绑定飞书", identifier: "12-row-bot")
+                       subtitle: "微信 / 飞书 / Telegram 通道 · 桌面端托管",
+                       value: nil, identifier: "12-row-bot")
             }
             group("基础设置") {
                 navRow(route: .model, icon: "cpu", title: "模型设置",
                        subtitle: nil, value: settings.value.model, identifier: "12-row-model")
                 navRow(route: .appearance, icon: "circle.lefthalf.filled", title: "外观",
                        subtitle: nil, value: settings.value.appearance.label, identifier: "12-row-appearance")
+                navRow(route: .diagnostics, icon: "stethoscope", title: "诊断与日志",
+                       subtitle: "导出连接日志用于问题反馈", value: nil, identifier: "12-row-diagnostics")
                 navRow(route: .language, icon: "globe", title: "语言",
                        subtitle: nil, value: settings.value.language, identifier: "12-row-language")
                 toggleRow(icon: "bell", title: "通知", subtitle: "任务完成 / 待审批 / 失败本地推送",
@@ -271,20 +298,33 @@ struct SettingsView: View {
                           identifier: "12-row-notify")
             }
             group("数据与统计") {
+                // G-033 验收③：演示文案（12.4M tokens/128 条等）仅演示态出现——连接态读面
+                // 未接入的行如实标注，不再展示假数据
                 navRow(route: .usage, icon: "chart.bar", title: "用量统计",
-                       subtitle: "近 30 天 token 与任务数", value: "12.4M tokens", identifier: "12-row-usage")
+                       subtitle: session.isDemo ? "近 30 天 token 与任务数" : "连接后同步桌面用量",
+                       value: session.isDemo ? "12.4M tokens" : nil, identifier: "12-row-usage")
                 navRow(route: .memory, icon: "brain", title: "记忆",
-                       subtitle: "Agent 长期记忆条目", value: "128 条", identifier: "12-row-memory")
+                       subtitle: session.isDemo ? "Agent 长期记忆条目" : "连接后同步桌面记忆",
+                       value: session.isDemo ? "128 条" : nil, identifier: "12-row-memory")
             }
             group("Agent 能力") {
                 navRow(route: .skills, icon: "wand.and.stars", title: "技能",
-                       subtitle: "12 项已启用", value: nil, identifier: "12-row-skills")
+                       subtitle: session.isDemo ? "12 项已启用" : "连接后同步桌面技能",
+                       value: nil, identifier: "12-row-skills")
                 navRow(route: .mcp, icon: "server.rack", title: "MCP",
-                       subtitle: "4 个服务器已连接", value: nil, identifier: "12-row-mcp")
+                       subtitle: session.isDemo ? "4 个服务器已连接" : "连接后同步桌面 MCP",
+                       value: nil, identifier: "12-row-mcp")
                 navRow(route: .plugins, icon: "puzzlepiece.extension", title: "插件商店",
                        subtitle: nil, value: nil, badge: "New", identifier: "12-row-plugins")
                 navRow(route: .automation, icon: "clock.badge.checkmark", title: "自动化",
                        subtitle: "定时任务与触发器", value: nil, badge: "Beta", identifier: "12-row-automation")
+                // P2 批次只读页入口（G-022/G-024/G-025；写面均维持拦截）
+                navRow(route: .savedWorkflows, icon: "flowchart.fill", title: "工作流库",
+                       subtitle: "已保存工作流与最近运行", value: nil, identifier: "12-row-workflows")
+                navRow(route: .offPeakTasks, icon: "moon.stars", title: "错峰任务",
+                       subtitle: "低峰期排队的后台任务", value: nil, identifier: "12-row-offpeak")
+                navRow(route: .feedbackTickets, icon: "ladybug", title: "反馈工单",
+                       subtitle: "查看工单进度", value: nil, identifier: "12-row-feedback")
             }
         }
     }
@@ -296,61 +336,71 @@ struct SettingsView: View {
         case .appearance: AppearanceSettingsView()
         case .language: LanguageSettingsView()
         case .serverAccount: ServerAccountConfigView()
+        // P2 批次只读页（写面均维持 ReadOnlyGate 拦截）
+        case .savedWorkflows:
+            RemoteCapabilityListPage(capability: .savedWorkflows, title: "工作流库", icon: "flowchart.fill")
+        case .offPeakTasks:
+            RemoteCapabilityListPage(capability: .offPeak, title: "错峰任务", icon: "moon.stars")
+        case .feedbackTickets:
+            RemoteCapabilityListPage(capability: .feedback, title: "反馈工单", icon: "ladybug")
         case .serverDetail: ServerDetailView()
-        case .devices: GenericListPage(
-            title: "设备与配对", icon: "laptopcomputer.and.iphone",
-            rows: [
-                ("cloud.fill", "云端沙盒 · ap-east-1", "在线 · 用量 3.2 / 10 核时", nil),
-                ("desktopcomputer", "我的 Mac (studio-m2)", "在线 · Host v2.3.1 · 电量 82%", nil),
-                ("qrcode", "扫码配对新设备", "手机扫描桌面端二维码", nil),
-            ])
-        case .bots: GenericListPage(
-            title: "IM Bot", icon: "app.badge.filled",
-            rows: [
-                ("message.fill", "飞书", "已绑定 · 活跃", nil),
-                ("message.circle", "Telegram", "未绑定", nil),
-            ])
-        case .usage: GenericListPage(
-            title: "用量统计", icon: "chart.bar",
-            rows: [
-                ("number", "近 30 天 tokens", "12.4M（日均 413K）", nil),
-                ("checklist", "任务完成率", "94%（47 / 50）", nil),
-                ("clock", "平均任务时长", "8 分 24 秒", nil),
-            ])
-        case .memory: GenericListPage(
-            title: "记忆", icon: "brain",
-            rows: [
-                ("text.quote", "偏好 Swift + SwiftUI 原生实现", "2026-09-28 更新", nil),
-                ("text.quote", "工作区主目录 ~/work/zcode", "2026-09-25 更新", nil),
-                ("text.quote", "测试框架使用 swift-testing", "2026-09-20 更新", nil),
-            ])
-        case .skills: GenericListPage(
-            title: "技能", icon: "wand.and.stars",
-            rows: [
-                ("wand.and.stars", "代码评审", "已启用", nil),
-                ("wand.and.stars", "周报生成", "已启用", nil),
-                ("wand.and.stars", "SQL 优化", "已停用", nil),
-            ])
-        case .mcp: GenericListPage(
-            title: "MCP", icon: "server.rack",
-            rows: [
-                ("server.rack", "github-mcp", "已连接", nil),
-                ("server.rack", "jira-mcp", "已连接", nil),
-                ("server.rack", "figma-mcp", "已停用", nil),
-            ])
-        case .plugins: GenericListPage(
-            title: "插件商店", icon: "puzzlepiece.extension",
-            rows: [
-                ("puzzlepiece.extension", "K8s 助手", "社区 · 4.8 分", "New"),
-                ("puzzlepiece.extension", "数据库巡检", "官方 · 4.9 分", nil),
-                ("puzzlepiece.extension", "API 翻译", "社区 · 4.6 分", nil),
-            ])
-        case .automation: GenericListPage(
-            title: "自动化（Beta）", icon: "clock.badge.checkmark",
-            rows: [
-                ("clock", "每日站会摘要", "每天 09:30 · 上次成功", "Beta"),
-                ("clock", "周末镜像同步", "每周六 02:00 · 上次失败", "Beta"),
-            ])
+        case .devices: DevicesPage() // G-034/G-059：真实连接态 + 多机切换，替换硬编码假在线
+        case .bots: BotManagementView() // G-001：真实列表/运行态（桌面 botsService 读面），替换静态假数据
+        case .usage: UsageStatsView() // G-041/G-042：App 用量真值 + 重置机会卡，替换演示占位
+        case .memory:
+            // G-011：连接态接桌面只读清单（listProjectMemories）；失败/空回退诚实占位
+            if case .connected = session.mode {
+                RemoteCapabilityListPage(capability: .memory, title: "记忆", icon: "brain")
+            } else {
+                GenericListPage(
+                    title: "记忆", icon: "brain",
+                    rows: [
+                        ("text.quote", "偏好 Swift + SwiftUI 原生实现", "2026-09-28 更新", nil),
+                        ("text.quote", "工作区主目录 ~/work/zcode", "2026-09-25 更新", nil),
+                        ("text.quote", "测试框架使用 swift-testing", "2026-09-20 更新", nil),
+                    ])
+            }
+        case .skills:
+            // G-011：连接态接桌面技能目录只读读面（getSkillReferenceCatalog）；启停写面维持拦截
+            if case .connected = session.mode {
+                RemoteCapabilityListPage(capability: .skills, title: "技能", icon: "wand.and.stars")
+            } else {
+                GenericListPage(
+                    title: "技能", icon: "wand.and.stars",
+                    rows: [
+                        ("wand.and.stars", "代码评审", "已启用", nil),
+                        ("wand.and.stars", "周报生成", "已启用", nil),
+                        ("wand.and.stars", "SQL 优化", "已停用", nil),
+                    ])
+            }
+        case .mcp:
+            // G-011：连接态接 MCP 服务器状态只读读面（listMcpServerStatuses）；启停写面维持拦截
+            if case .connected = session.mode {
+                RemoteCapabilityListPage(capability: .mcp, title: "MCP", icon: "server.rack")
+            } else {
+                GenericListPage(
+                    title: "MCP", icon: "server.rack",
+                    rows: [
+                        ("server.rack", "github-mcp", "已连接", nil),
+                        ("server.rack", "jira-mcp", "已连接", nil),
+                        ("server.rack", "figma-mcp", "已停用", nil),
+                    ])
+            }
+        case .plugins:
+            // G-011：连接态接插件清单只读读面（listPlugins）；安装/卸载写面维持拦截
+            if case .connected = session.mode {
+                RemoteCapabilityListPage(capability: .plugins, title: "插件商店", icon: "puzzlepiece.extension")
+            } else {
+                GenericListPage(
+                    title: "插件商店", icon: "puzzlepiece.extension",
+                    rows: [
+                        ("puzzlepiece.extension", "K8s 助手", "社区 · 4.8 分", "New"),
+                        ("puzzlepiece.extension", "数据库巡检", "官方 · 4.9 分", nil),
+                        ("puzzlepiece.extension", "API 翻译", "社区 · 4.6 分", nil),
+                    ])
+            }
+        case .automation: AutomationsView() // G-016：真实列表+运行历史（zcode-agent listAutomations），替换硬编码占位
+        case .diagnostics: DiagnosticsExportView() // G-061
         }
     }
 
@@ -419,11 +469,14 @@ struct SettingsView: View {
         HStack(spacing: T.sp2) {
             rowLeading(icon: icon)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title)
+                // G-007：title/subtitle 经 String 参传入时 Text(_ String) 不查本地化表——
+                // 包装 LocalizedStringKey 恢复 xcstrings 查表（zh-Hans 源语言查表回退键原文，
+                // zh 断言不变；en 态命中 en 列）
+                Text(LocalizedStringKey(title))
                     .font(T.font(14.5))
                     .foregroundColor(T.text)
                 if let subtitle {
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .font(T.font(11.5))
                         .foregroundColor(T.text3)
                         .lineLimit(1)
@@ -448,8 +501,16 @@ struct SettingsView: View {
 
 struct ModelSettingsView: View {
     @Environment(AppSettingsModel.self) private var settings
+    @Environment(\.conversationStore) private var conversationStore
+    /// 连接态：模型清单与当前绑定来自桌面 model-selection 通道（与桌面列表一致）；
+    /// 演示/离线回退本地缺省清单。选中=本地偏好；桌面绑定以桌面侧为准（只读通道）。
+    @State private var remoteModels: [String] = []
+    @State private var remoteActiveModel: String?
+    @State private var usedRemoteList = false
 
-    private let models = ["GLM-5.3", "GLM-5", "GLM-4.7"]
+    private let fallbackModels = ["GLM-5.3", "GLM-5", "GLM-4.7"]
+
+    private var models: [String] { usedRemoteList && !remoteModels.isEmpty ? remoteModels : fallbackModels }
 
     var body: some View {
         ScrollView {
@@ -464,7 +525,7 @@ struct ModelSettingsView: View {
                                     .font(T.font(14.5, .medium))
                                     .foregroundColor(T.text)
                                 Spacer()
-                                if settings.value.model == item {
+                                if isActiveModel(item) {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 13, weight: .bold))
                                         .foregroundColor(T.accent)
@@ -494,6 +555,21 @@ struct ModelSettingsView: View {
         .background(T.bg)
         .navigationTitle("模型设置")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            guard let remote = conversationStore as? RemoteConversationStore,
+                  let info = await remote.modelSelectionView(), !info.models.isEmpty else { return }
+            remoteModels = info.models
+            remoteActiveModel = info.activeModel
+            usedRemoteList = true
+        }
+    }
+
+    /// 连接态打勾以桌面绑定为准；本地偏好仅用于演示/离线回退清单
+    private func isActiveModel(_ item: String) -> Bool {
+        if usedRemoteList, let active = remoteActiveModel {
+            return item == active
+        }
+        return settings.value.model == item
     }
 
     @ViewBuilder
@@ -554,43 +630,153 @@ struct AppearanceSettingsView: View {
     }
 }
 
-// MARK: - 语言设置（持久化展示值）
+// MARK: - 语言设置（G-008→P1 语言适配：真实切换链路——偏好持久化到 UserDefaults
+// AppleLanguages，iOS 在下次启动时按其构建 Bundle 语言；修改后提示重启生效。
+// 文案本地化由 Localizable.xcstrings（zh-Hans 源 + en）承载，跟随系统为默认。）
+
+/// 应用语言偏好（AppleLanguages 持久化口径；system = 移除覆盖键，跟随系统）
+enum AppLanguagePreference: String, CaseIterable, Identifiable {
+    case system
+    case zhHans = "zh-Hans"
+    case english = "en"
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: return String(localized: "跟随系统")
+        case .zhHans: return String(localized: "简体中文")
+        case .english: return "English"
+        }
+    }
+
+    static func current() -> AppLanguagePreference {
+        if let first = UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.first {
+            if first.hasPrefix("zh") { return .zhHans }
+            if first.hasPrefix("en") { return .english }
+        }
+        return .system
+    }
+}
 
 struct LanguageSettingsView: View {
     @Environment(AppSettingsModel.self) private var settings
-    private let languages = ["跟随系统", "简体中文", "English"]
+    @State private var selection: AppLanguagePreference = AppLanguagePreference.current()
+    @State private var needsRestart = false
+
+    /// 当前生效语言（AppleLanguages 覆盖优先，否则系统首选语言）
+    private var effectiveLanguageLabel: String {
+        let preferred = Locale.preferredLanguages.first ?? "zh-Hans"
+        if preferred.hasPrefix("zh") { return String(localized: "简体中文") }
+        if preferred.hasPrefix("en") { return "English" }
+        return preferred
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: T.sp2) {
-                ForEach(languages, id: \.self) { language in
-                    Button {
-                        settings.update { $0.language = language }
-                    } label: {
-                        HStack {
-                            Text(language)
-                                .font(T.font(14.5, .medium))
-                                .foregroundColor(T.text)
-                            Spacer()
-                            if settings.value.language == language {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(T.accent)
-                            }
-                        }
-                        .padding(.horizontal, T.sp3)
-                        .frame(minHeight: 48)
+            VStack(alignment: .leading, spacing: T.sp3) {
+                VStack(spacing: 0) {
+                    HStack(spacing: T.sp2) {
+                        Image(systemName: "globe")
+                            .font(.system(size: 14))
+                            .foregroundColor(T.accentText)
+                            .frame(width: 30)
+                        Text("当前界面语言")
+                            .font(T.font(14.5))
+                            .foregroundColor(T.text)
+                        Spacer()
+                        Text(effectiveLanguageLabel)
+                            .font(T.font(14, .semibold))
+                            .foregroundColor(T.accentText)
                     }
-                    .accessibilityIdentifier("12-language-\(language)")
+                    .padding(.horizontal, T.sp3)
+                    .frame(minHeight: 48)
+                    .accessibilityIdentifier("12-language-system")
                 }
+                .background(T.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: T.rL))
+
+                VStack(spacing: 0) {
+                    ForEach(AppLanguagePreference.allCases) { option in
+                        Button {
+                            apply(option)
+                        } label: {
+                            HStack {
+                                Text(option.label)
+                                    .font(T.font(14.5, .medium))
+                                    .foregroundColor(T.text)
+                                Spacer()
+                                if selection == option {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundColor(T.accent)
+                                }
+                            }
+                            .padding(.horizontal, T.sp3)
+                            .frame(minHeight: 48)
+                        }
+                        .accessibilityIdentifier("12-language-\(option.rawValue)")
+                    }
+                }
+                .background(T.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: T.rL))
+
+                if needsRestart {
+                    HStack(spacing: T.sp2) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 12))
+                            .foregroundColor(T.orange)
+                        Text("语言将在重启应用后完全生效")
+                            .font(T.font(12, .semibold))
+                            .foregroundColor(T.orange)
+                        Spacer()
+                    }
+                    .padding(T.sp3)
+                    .background(T.orangeDim)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                    .accessibilityIdentifier("12-language-restart-hint")
+                }
+
+                VStack(alignment: .leading, spacing: T.sp2) {
+                    Text("界面语言跟随系统")
+                        .font(T.font(13, .semibold))
+                        .foregroundColor(T.text3)
+                    Text("默认随 iOS 系统语言自动切换（简体中文 / English）。选择固定语言后，BiuZ 将始终以该语言显示（重启生效）；文案覆盖范围见版本说明。")
+                        .font(T.font(12))
+                        .foregroundColor(T.text2)
+                        .lineSpacing(4)
+                }
+                .padding(T.sp3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(T.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: T.rL))
             }
-            .background(T.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: T.rL))
             .padding(T.sp4)
         }
         .background(T.bg)
         .navigationTitle("语言")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func apply(_ option: AppLanguagePreference) {
+        guard option != selection else { return }
+        selection = option
+        switch option {
+        case .system:
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        case .zhHans:
+            UserDefaults.standard.set(["zh-Hans"], forKey: "AppleLanguages")
+        case .english:
+            UserDefaults.standard.set(["en"], forKey: "AppleLanguages")
+        }
+        // 同步既有偏好字段（语言页展示 + 兼容旧存档语义；现已有本页消费点）
+        let display = switch option {
+        case .system: "跟随系统"
+        case .zhHans: "简体中文"
+        case .english: "English"
+        }
+        settings.update { $0.language = display }
+        needsRestart = true
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 }
 

@@ -87,7 +87,7 @@ actor MockTaskStore: @preconcurrency TaskStore {
             TerminalLine(id: 2, label: "[tool]", text: "read Sources/Core/SessionStore.swift (128 行)"),
             TerminalLine(id: 3, label: "[tool]", text: "edit Sources/Core/SessionStore.swift +5 -2"),
             TerminalLine(id: 4, label: "[agent]", text: "调用方迁移决策待用户确认，已发起提问"),
-            TerminalLine(id: 5, label: "[subagent]", text: "子智能体 test-runner 运行中（回归 46 用例）"),
+            TerminalLine(id: 5, label: "[subagent]", text: String(localized: "子智能体 test-runner 运行中（回归 46 用例）")),
         ]
     }
 

@@ -16,6 +16,12 @@ import CommonCrypto
 ///          `sendConversationCommandV4`（createSession 空会话 / 带 firstInput 旧形态）回执；
 ///          execution 分类命令计数（连接态只读边界断言：恒为 0）；
 ///          `failConversationSubscribe` 开关可拒绝 conversation 订阅（驱动 readSession 兜底）。
+/// ④ 四项补全面（FeatureCompletionE2ETests 数据源）：
+///          `GET /api/v1/relay/devices` 设备清单/中继链接契约面（账号级设备 API 未上线，
+///          App 未消费，供链接形态断言与后续接入）；server-info workspaces 两项（项目
+///          选择页多候选）；createSession 记录 payload.workspaceId（项目层下发断言）；
+///          sess-e2e-plan 行级 plan 行（任务拆解卡）、sess-e2e-think 首窗 reasoning 行
+///          （思考折叠默认收起）。
 ///
 /// 线程模型：全部连接回调在私有串行队列；对外状态读写经 NSLock，供用例线程直接断言。
 /// 生命周期：用例 setUp 启动（随机端口）、tearDown 关闭；每个用例拿到全新状态，无顺序依赖。
@@ -93,6 +99,23 @@ final class E2ELoginStubServer {
     var createSessionCount: Int { lock.lock(); defer { lock.unlock() }; return _createSessionCount }
     /// 收到的「携带 firstInput」createSession 数（P1-4 断言：新建会话带指令 ≥1）
     var createSessionWithFirstInputCount: Int { lock.lock(); defer { lock.unlock() }; return _createSessionWithFirstInputCount }
+    /// 各次 createSession 携带的 workspaceId（按到达顺序；项 2 项目层选择断言：
+    /// NewConversationSheet 项目胶囊 → createConversation directory → payload.workspaceId）
+    var createSessionWorkspaceIds: [String] { lock.lock(); defer { lock.unlock() }; return _createSessionWorkspaceIds }
+    /// 最近一次 createSession 的 workspaceId（nil = 未携带）
+    var lastCreateSessionWorkspaceId: String? {
+        lock.lock(); defer { lock.unlock() }
+        return _createSessionWorkspaceIds.last
+    }
+    /// 设备清单/中继链接 API（替身侧契约面）被请求次数（项 1 断言）
+    var relayDeviceListRequests: Int { lock.lock(); defer { lock.unlock() }; return _relayDeviceListRequests }
+    /// 替身形态中继配对链接（设备清单 API 返回值；host=127.0.0.1 回环安全）。
+    /// 保持解析必需的最小形态（scheme https + /remote/ 路径 + sid + hash + name），
+    /// hash 保留 URL 编码的 base64 尾形（%3D）；mid/t/app_version 为可选参数不携带，
+    /// 亦降低 e2e 长串 typeText 的丢字面
+    var stubRelayLink: String {
+        "https://127.0.0.1/remote/v4?sid=stub-relay-sid-e2e-4242&hash=stubRelayHash%3D&name=E2E-Relay-Mac"
+    }
     /// 收到的 renameTask / unarchiveTask / listArchivedTasks 计数（P1-5/P1-6 断言）
     var renameTaskCount: Int { lock.lock(); defer { lock.unlock() }; return _renameTaskCount }
     var unarchiveTaskCount: Int { lock.lock(); defer { lock.unlock() }; return _unarchiveTaskCount }
@@ -281,6 +304,8 @@ final class E2ELoginStubServer {
     private var _stopCount = 0
     private var _createSessionCount = 0
     private var _createSessionWithFirstInputCount = 0
+    private var _createSessionWorkspaceIds: [String] = []
+    private var _relayDeviceListRequests = 0
     private var _renameTaskCount = 0
     private var _unarchiveTaskCount = 0
     private var _listArchivedTasksCount = 0
@@ -302,6 +327,31 @@ final class E2ELoginStubServer {
     private var _failConversationSubscribe = false
     private var _conversationSubscribeRejections = 0
     private var _taskEventFireHits = 0
+    // MARK: bots 域替身状态（G-001~G-006 验收：桌面 botsService 只读四方法 + 放行写）
+    private var _botsRPCCalls: [String] = []
+    private var _bindCodeRequests = 0
+    private var _lastBindCode: String?
+    private var _lastBindCodeTTLms = 30_000
+    private var _lastSaveBot: (botId: String, droppedBinding: Bool, hasCredentialValue: Bool)?
+    private var _deleteBotIds: [String] = []
+    private var _removeSecretIds: [String] = []
+    private var _resetStateIds: [String] = []
+    /// 绑定码 TTL 可由测试调短（过期态刷新断言，避免等 30s）
+    var stubBindCodeTTLms = 30_000
+    /// bots 频道收到的命令名（按到达顺序；出口 ≥4 与写命令到达断言）
+    var botsRPCCalls: [String] { lock.lock(); defer { lock.unlock() }; return _botsRPCCalls }
+    var bindCodeRequests: Int { lock.lock(); defer { lock.unlock() }; return _bindCodeRequests }
+    var lastBindCode: String? { lock.lock(); defer { lock.unlock() }; return _lastBindCode }
+    var lastSaveBot: (botId: String, droppedBinding: Bool, hasCredentialValue: Bool)? {
+        lock.lock(); defer { lock.unlock() }; return _lastSaveBot
+    }
+    var deleteBotIds: [String] { lock.lock(); defer { lock.unlock() }; return _deleteBotIds }
+    var removeSecretIds: [String] { lock.lock(); defer { lock.unlock() }; return _removeSecretIds }
+    var resetStateIds: [String] { lock.lock(); defer { lock.unlock() }; return _resetStateIds }
+    /// bots 内存配置（saveBot/deleteBot/removeBotSecret 就地生效——listBots 回执随之变化，
+    /// 验收「解绑后 getBotStates 对应用户消失 / 删除后 listBots 不再返回」的数据源）
+    private var botConfigs: [[String: Any]] = []
+    private var botWorkspaceStates: [[String: Any]] = []
 
     private let queue = DispatchQueue(label: "e2e.login.stub.server")
     private var listener: NWListener?
@@ -361,8 +411,28 @@ final class E2ELoginStubServer {
                 ["rowId": 5, "kind": "subagent", "subagentType": "reviewer", "summaryText": "六类行渲染复查通过"],
                 ["rowId": 6, "kind": "artifact", "displayName": "六类行基线.md", "artifactType": "file"],
             ],
+            // sess-e2e-plan：流程面板（项 3）——行级 plan 行注入（items 三步：
+            // 1 完成 / 1 进行 / 1 待办 → 头部计数 1/3，非全完成默认展开，头部可点折叠/展开）
+            "sess-e2e-plan": [
+                ["rowId": 1, "kind": "userInput", "text": "把登录超时修复拆成计划执行"],
+                ["rowId": 2, "kind": "plan", "items": [
+                    ["id": "plan-e2e-1", "content": "梳理登录超时复现路径", "status": "completed"],
+                    ["id": "plan-e2e-2", "content": "修补会话重连竞态", "status": "in_progress"],
+                    ["id": "plan-e2e-3", "content": "补回归测试并归档", "status": "pending"],
+                ]],
+                ["rowId": 3, "kind": "assistantText", "text": "替身助手：计划已生成，按步推进", "state": "complete"],
+            ],
+            // sess-e2e-think：思考折叠（项 4）——首窗即含 complete 态 reasoning 行
+            //（ThinkingBlockView 默认折叠：仅「已深度思考」头部摘要，点开展开正文）
+            "sess-e2e-think": [
+                ["rowId": 1, "kind": "userInput", "text": "解释一下会话重连的退避策略"],
+                ["rowId": 2, "kind": "reasoning", "text": "推理行：先核对退避基数 500ms 与上限 10s，再对照重连计数上限 6 次",
+                 "state": "complete"],
+                ["rowId": 3, "kind": "assistantText", "text": "替身助手：退避为 min(10s, 500ms·2^n)，最多 6 次", "state": "complete"],
+            ],
         ]
-        nextRowId = ["sess-e2e-1": 7, "sess-e2e-2": 3, "task-e2e-1": 4, "sess-e2e-3": 7]
+        nextRowId = ["sess-e2e-1": 7, "sess-e2e-2": 3, "task-e2e-1": 4, "sess-e2e-3": 7,
+                     "sess-e2e-plan": 4, "sess-e2e-think": 4]
         // sess-e2e-1 预置一条 permission 挂起交互（pendingInteractionSummary.permissionCount=1
         // 的具体对象）：conversation 订阅后经 state.updated 下发 → ChatView 审批卡渲染，
         // resolveInteraction 应答后清空
@@ -374,7 +444,29 @@ final class E2ELoginStubServer {
                 "command": "rm -rf /Users/e2e/zcode-workspace/build",
                 "path": "/Users/e2e/zcode-workspace",
                 "impact": "删除构建产物目录 build/（约 40MB，可重新生成）",
-            ]]
+            ]],
+            // G-017：计划审批（plan_approval）挂起交互——计划文本经 renderContext.plan 下发，
+            // 客户端 PlanApprovalCard 结构化渲染 + 放行/驳回（resolveInteraction 桌面代执行）
+            "sess-e2e-plan": [[
+                "id": "int-e2e-plan-1",
+                "kind": "plan_approval",
+                "title": "登录超时修复计划",
+                "renderContext": [
+                    "kind": "plan_approval",
+                    "plan": "第一步：梳理登录超时复现路径\n第二步：修补会话重连竞态\n第三步：补回归测试并归档",
+                ],
+            ]],
+        ]
+        // bots 域替身配置（对齐桌面 BotConfig 形态：一个已绑定+有凭据，一个停用+未绑定）
+        botConfigs = [
+            ["id": "bot-telegram", "name": "E2E 通知机器人", "provider": "telegram", "enabled": true,
+             "providerUserId": "user-tg-1001", "displayName": "E2E 管理员", "credentialRef": "keychain:bot-tg-1"],
+            ["id": "bot-feishu", "name": "E2E 飞书机器人", "provider": "feishu", "enabled": false,
+             "credentialRef": "keychain:bot-fs-1"],
+        ]
+        botWorkspaceStates = [
+            ["id": "st-ctx-1", "botId": "bot-telegram",
+             "workspacePath": "/Users/e2e/zcode-workspace", "mode": "chat", "activeTaskId": "task-e2e-1"],
         ]
     }
 
@@ -392,6 +484,11 @@ final class E2ELoginStubServer {
             case .startFailed(let detail): return detail
             }
         }
+    }
+
+    /// RPC 参数体转字典（bots 域 botId/bot/credentialValue 提取用）
+    fileprivate func rpcArgDict(_ rpc: StubRPC) -> [String: StubRPC] {
+        rpc.objectValue ?? [:]
     }
 
     /// 启动并阻塞等待端口就绪（超时抛错）。返回绑定端口。
@@ -473,11 +570,41 @@ final class E2ELoginStubServer {
             handleTokenExchange(respond: respond)
         } else if path == "/api/server-info" {
             handleServerInfo(request, respond: respond)
+        } else if path == "/api/v1/relay/devices" {
+            handleRelayDevices(request, respond: respond)
         } else {
             respond(httpResponse(status: "404 Not Found",
                                  headers: ["Content-Type": "application/json"],
                                  body: Data(#"{"error":"stub: no route"}"#.utf8)))
         }
+    }
+
+    /// 设备清单/中继链接 API（项 1 替身扩展面）：返回账号下已配对的桌面设备及其
+    /// `/remote/v4` 中继配对链接。绑定假设如实标注：账号级设备列表云端 API 未上线，
+    /// App 侧当前不消费本接口（设备列表取 ServerRegistry 中继服务器 + 剪贴板链接）；
+    /// 本面为链接形态契约与后续接入预留，用例可直连探针断言（同 server-info 鉴权口径）。
+    private func handleRelayDevices(_ request: RecordedRequest, respond: @escaping (Data) -> Void) {
+        guard acceptPairingCredential(request) else {
+            respond(httpResponse(status: "401 Unauthorized",
+                                 headers: ["Content-Type": "application/json"],
+                                 body: toJSON(["error": "token mismatch"])))
+            return
+        }
+        lock.lock()
+        _relayDeviceListRequests += 1
+        lock.unlock()
+        let payload: [String: Any] = [
+            "devices": [[
+                "deviceId": "stub-relay-mac-1",
+                "name": "E2E-Relay-Mac",
+                "kind": "paired_mac",
+                "online": false,
+                "relayLink": stubRelayLink,
+            ]],
+        ]
+        respond(httpResponse(status: "200 OK",
+                             headers: ["Content-Type": "application/json"],
+                             body: toJSON(payload)))
     }
 
     /// 假授权页：立即 302 到 zcode://oauth/callback?code=…&state=…（holdAuthorizePage 时返回驻留 HTML）
@@ -559,11 +686,20 @@ final class E2ELoginStubServer {
             "version": "1.4.2-e2e",
             "protocolVersion": 1,
             "authRequired": true,
-            "workspaces": [[
-                "path": "/Users/e2e/zcode-workspace",
-                "label": "e2e 主工作区",
-                "workspaceIdentity": "ws-e2e-1",
-            ]],
+            // workspaces 两项（项 2 项目层断言数据源）：[0] 既有主工作区（连接装配与
+            // topic 键，不得移动位次），[1] 实验项目供项目选择页多候选断言
+            "workspaces": [
+                [
+                    "path": "/Users/e2e/zcode-workspace",
+                    "label": "e2e 主工作区",
+                    "workspaceIdentity": "ws-e2e-1",
+                ],
+                [
+                    "path": "/Users/e2e/zcode-workspace-lab",
+                    "label": "e2e 实验项目",
+                    "workspaceIdentity": "ws-e2e-2",
+                ],
+            ],
             "capabilities": ["conversationV4": true, "gitDiff": true],
         ]
         respond(httpResponse(status: "200 OK",
@@ -948,6 +1084,147 @@ final class E2ELoginStubServer {
                 "latestWeekResetHistory": NSNull(),
                 "hasUnreadHistory": false,
             ])))
+        case "listAutomations" where channelName == "zcode-agent":
+            // G-016：自动化列表（对齐桌面 listAutomations 投影字段 automationId/title/cronExpr/…）
+            let now = Date()
+            let nextRun = Int(now.addingTimeInterval(6 * 3_600).timeIntervalSince1970 * 1000)
+            let lastRun = Int(now.addingTimeInterval(-2 * 3_600).timeIntervalSince1970 * 1000)
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "automations": [
+                    ["automationId": "auto-e2e-1", "title": "E2E 夜间回归", "cronExpr": "0 2 * * *",
+                     "enabled": true, "nextRunAt": nextRun, "lastRunAt": lastRun,
+                     "runCount": 12, "lastRunFailed": false],
+                    ["automationId": "auto-e2e-2", "title": "E2E 周报整理", "cronExpr": "0 9 * * 1",
+                     "enabled": false, "runCount": 3, "lastRunFailed": true],
+                ],
+            ])))
+        case "listAutomationRuns" where channelName == "zcode-agent":
+            let started = Int(Date().addingTimeInterval(-2 * 3_600).timeIntervalSince1970 * 1000)
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "runs": [
+                    ["runId": "run-e2e-1", "startedAt": started, "status": "success", "summary": "回归 46 用例全通过"],
+                    ["runId": "run-e2e-2", "startedAt": started - 86_400_000, "status": "failed",
+                     "lastError": "E2E_RUN_ERR_TIMEOUT"],
+                ],
+            ])))
+        case "listBots" where channelName == "bots":
+            lock.lock()
+            _botsRPCCalls.append(command)
+            let payload: [String: Any] = ["bots": botConfigs]
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(payload)))
+        case "getStatus" where channelName == "bots":
+            lock.lock()
+            _botsRPCCalls.append(command)
+            let enabledCount = botConfigs.filter { ($0["enabled"] as? Bool) == true }.count
+            let runtime: [[String: Any]] = botConfigs.compactMap { config in
+                guard let botId = config["id"] as? String else { return nil }
+                let enabled = (config["enabled"] as? Bool) ?? false
+                let bound = (config["providerUserId"] as? String)?.isEmpty == false
+                return ["botId": botId,
+                        "status": !enabled ? "disabled" : (bound ? "connected" : "idle"),
+                        "message": enabled ? "长连接保持中" : "已停用 · 桌面端不再投递"]
+            }
+            let payload: [String: Any] = [
+                "botsCount": botConfigs.count,
+                "enabledBotsCount": enabledCount,
+                "contextsCount": botWorkspaceStates.count,
+                "botRuntime": runtime,
+            ]
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(payload)))
+        case "getBotStates" where channelName == "bots":
+            lock.lock()
+            _botsRPCCalls.append(command)
+            let payload: [String: Any] = ["states": botWorkspaceStates]
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(payload)))
+        case "createBindCode" where channelName == "bots":
+            lock.lock()
+            _botsRPCCalls.append(command)
+            _bindCodeRequests += 1
+            let code = String(format: "BIND-%04d", 4200 + _bindCodeRequests)
+            _lastBindCode = code
+            let ttl = stubBindCodeTTLms
+            _lastBindCodeTTLms = ttl
+            let payload: [String: Any] = [
+                "code": code,
+                "expiresAt": Int(Date().addingTimeInterval(Double(ttl) / 1000).timeIntervalSince1970 * 1000),
+                "ttlMs": ttl,
+            ]
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(payload)))
+        case "testBot" where channelName == "bots":
+            lock.lock()
+            _botsRPCCalls.append(command)
+            let botId = self.rpcArgDict(body)["botId"]?.stringValue ?? ""
+            // 对齐桌面 testBot 语义：好凭据连通、坏凭据固定错误码（与桌面 zh-CN 提示同源）
+            let payload: [String: Any] = botId == "bot-telegram"
+                ? ["ok": true, "message": "getMe ok · @e2e_notify_bot", "provider": "telegram"]
+                : ["ok": false, "message": "E2E_BOT_ERR_CREDENTIAL · 凭据校验被拒绝", "provider": "feishu"]
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(payload)))
+        case "saveBot" where channelName == "bots":
+            lock.lock()
+            _botsRPCCalls.append(command)
+            let args = self.rpcArgDict(body)
+            var botDict: [String: Any] = [:]
+            if case .object(let obj)? = args["bot"] {
+                botDict = obj.reduce(into: [:]) { acc, pair in
+                    // StubRPC 无 bool/double 形态（wire 层 Bool→int 0/1），统一落 int/string
+                    switch pair.value {
+                    case .string(let s): acc[pair.key] = s
+                    case .int(let i): acc[pair.key] = i
+                    default: break
+                    }
+                }
+            }
+            let botId = botDict["id"] as? String ?? ""
+            if let index = botConfigs.firstIndex(where: { ($0["id"] as? String) == botId }), !botDict.isEmpty {
+                var updated = botConfigs[index]
+                for (key, value) in botDict where key != "id" {
+                    if value is NSNull { updated.removeValue(forKey: key) } else { updated[key] = value }
+                }
+                botConfigs[index] = updated
+            }
+            _lastSaveBot = (
+                botId: botId,
+                droppedBinding: botDict["providerUserId"] == nil,
+                hasCredentialValue: args["credentialValue"] != nil
+            )
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
+        case "deleteBot" where channelName == "bots":
+            lock.lock()
+            _botsRPCCalls.append(command)
+            let deleteId = self.rpcArgDict(body)["botId"]?.stringValue ?? ""
+            _deleteBotIds.append(deleteId)
+            botConfigs.removeAll { ($0["id"] as? String) == deleteId }
+            botWorkspaceStates.removeAll { ($0["botId"] as? String) == deleteId }
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
+        case "removeBotSecret" where channelName == "bots":
+            lock.lock()
+            _botsRPCCalls.append(command)
+            let secretId = self.rpcArgDict(body)["botId"]?.stringValue ?? ""
+            _removeSecretIds.append(secretId)
+            // 桌面同构：移除密钥回未配置凭据态，并同步清理绑定
+            if let index = botConfigs.firstIndex(where: { ($0["id"] as? String) == secretId }) {
+                botConfigs[index].removeValue(forKey: "credentialRef")
+                botConfigs[index].removeValue(forKey: "providerUserId")
+                botConfigs[index].removeValue(forKey: "displayName")
+            }
+            botWorkspaceStates.removeAll { ($0["botId"] as? String) == secretId }
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
+        case "resetBotState" where channelName == "bots":
+            lock.lock()
+            _botsRPCCalls.append(command)
+            let resetId = self.rpcArgDict(body)["botId"]?.stringValue ?? ""
+            _resetStateIds.append(resetId)
+            botWorkspaceStates.removeAll { ($0["botId"] as? String) == resetId }
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
         case "sendConversationCommandV4":
             handleConversationCommand(body, channel: channel) { result in
                 channel.sendWSFrame(self.rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(result)))
@@ -974,9 +1251,13 @@ final class E2ELoginStubServer {
         switch type {
         case "createSession":
             let firstInput = body.objectValue?["payload"]?.objectValue?["firstInput"]?.objectValue?["text"]?.stringValue
+            // 项 2：项目层选择随 createSession 的 workspaceId 下发（NewConversationSheet
+            // 项目胶囊 → directory 参数；未绑定时客户端回退连接装配的 workspace）
+            let workspaceId = body.objectValue?["payload"]?.objectValue?["workspaceId"]?.stringValue
             let newId = "sess-e2e-" + UUID().uuidString.prefix(6)
             lock.lock()
             _createSessionCount += 1
+            if let workspaceId { _createSessionWorkspaceIds.append(workspaceId) }
             if firstInput != nil { _createSessionWithFirstInputCount += 1 }
             if let firstInput {
                 // 边界内形态（command）：携带首条输入 → 直接写 userInput+assistant 行（桌面开跑）
@@ -1266,6 +1547,9 @@ final class E2ELoginStubServer {
     /// pinned 投影：recordedPinned 有记录时带出（setTaskPinned 双写后重建 Store 置顶保持断言）。
     private func fireSessionsIndex(topic: String, channel: ConnectionChannel, delays: [TimeInterval]) {
         let pinned = recordedPinned
+        // 会话行自带 workspacePath（要求 4：多项目分组替身——桌面侧栏 mtt_mobile /
+        // zcode_mobile / poker_texas_air / matchclub 多项目并存，分组键取行内字段；
+        // sess-e2e-think 不带该字段 → 数据无法判定归属 → 归「其它」组）
         var sessions: [[String: Any]] = [
             [
                 "sessionId": "sess-e2e-1",
@@ -1273,6 +1557,20 @@ final class E2ELoginStubServer {
                 "phase": "running",
                 "lastActivityAt": Self.iso8601.string(from: Date()),
                 "lastAssistantPreview": "替身端持续输出中…",
+                "workspacePath": "/Users/e2e/mtt_mobile",
+                // G-007 通路 A：行自带 workflowActivity（sessionWorkflowActivitySchema 有界形态）
+                "workflowActivity": ["runs": [[
+                    "runId": "run-e2e-1",
+                    "name": "登录链路工作流",
+                    "status": "running",
+                    "phases": [
+                        ["name": "准备", "status": "done"],
+                        ["name": "执行", "status": "running"],
+                        ["name": "校验", "status": "pending"],
+                    ],
+                    "currentPhase": "执行",
+                    "agentsWorking": 1,
+                ]]],
                 "pendingInteractionSummary": ["permissionCount": 1, "userInputCount": 0],
             ],
             [
@@ -1281,6 +1579,7 @@ final class E2ELoginStubServer {
                 "phase": "completedSuccess",
                 "lastActivityAt": Self.iso8601.string(from: Date().addingTimeInterval(-7200)),
                 "lastAssistantPreview": "基线检查完成。",
+                "workspacePath": "/Users/e2e/zcode_mobile",
                 "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
             ],
             // 六类行投影专用会话（消息流只读渲染断言：userInput/assistantText/reasoning/
@@ -1291,6 +1590,27 @@ final class E2ELoginStubServer {
                 "phase": "completedSuccess",
                 "lastActivityAt": Self.iso8601.string(from: Date().addingTimeInterval(-3600)),
                 "lastAssistantPreview": "产物已生成。",
+                "workspacePath": "/Users/e2e/poker_texas_air",
+                "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
+            ],
+            // 流程面板投影专用会话（项 3：行级 plan 行 → 任务拆解卡折叠/展开断言；
+            // 标题不含 "E2E"——避免与登录套件 test12 的「E2E」搜索过滤断言耦合）
+            [
+                "sessionId": "sess-e2e-plan",
+                "title": "替身会话 · 流程面板投影",
+                "phase": "completedSuccess",
+                "lastActivityAt": Self.iso8601.string(from: Date().addingTimeInterval(-5_400)),
+                "lastAssistantPreview": "计划已生成。",
+                "workspacePath": "/Users/e2e/matchclub",
+                "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
+            ],
+            // 思考折叠投影专用会话（项 4：complete 态 reasoning 行 → 默认折叠 + 展开交互）
+            [
+                "sessionId": "sess-e2e-think",
+                "title": "替身会话 · 思考折叠投影",
+                "phase": "completedSuccess",
+                "lastActivityAt": Self.iso8601.string(from: Date().addingTimeInterval(-9_000)),
+                "lastAssistantPreview": "退避策略说明完成。",
                 "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
             ],
         ]

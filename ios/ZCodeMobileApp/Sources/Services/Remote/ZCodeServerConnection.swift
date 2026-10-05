@@ -58,12 +58,12 @@ enum ConnectError: Error, Equatable {
     var headline: String {
         switch self {
         case .http(let status, _):
-            return status == 401 ? "无法验证访问令牌" : "服务返回错误"
-        case .timeout: return "连接超时"
-        case .protocolVersion: return "协议版本不匹配"
-        case .emptyWorkspaces: return "工作区列表为空"
-        case .handshakeFailed: return "协议握手失败"
-        case .transport: return "无法建立 WebSocket"
+            return status == 401 ? String(localized: "无法验证访问令牌") : String(localized: "服务返回错误")
+        case .timeout: return String(localized: "连接超时")
+        case .protocolVersion: return String(localized: "协议版本不匹配")
+        case .emptyWorkspaces: return String(localized: "工作区列表为空")
+        case .handshakeFailed: return String(localized: "协议握手失败")
+        case .transport: return String(localized: "无法建立 WebSocket")
         }
     }
 

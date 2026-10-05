@@ -19,9 +19,9 @@ enum ConnectURLParser {
         var message: String {
             switch self {
             case .missingScheme, .unrecognizable:
-                return "无法识别的地址：请粘贴完整链接或输入 host:port（缺 scheme/端口）"
+                return String(localized: "无法识别的地址：请粘贴完整链接或输入 host:port（缺 scheme/端口）")
             case .missingPort:
-                return "无法识别的地址：缺少端口（桌面端默认 3030）"
+                return String(localized: "无法识别的地址：缺少端口（桌面端默认 3030）")
             }
         }
     }

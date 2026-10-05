@@ -13,6 +13,7 @@ enum TinyMarkdown {
         case paragraph(String)
         case listItem(String)
         case code(language: String?, code: String)
+        case table(header: [String], rows: [[String]])
     }
 
     static func parse(_ text: String) -> [Block] {
@@ -38,6 +39,35 @@ enum TinyMarkdown {
                 }
                 index += 1
                 push(.code(language: language.isEmpty ? nil : language, code: code.joined(separator: "\n")))
+                continue
+            }
+            // 管道表格：连续 | 开头的行；第 2 行为分隔行（|---|---|）则首行是表头
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("|") {
+                var tableLines: [String] = []
+                while index < lines.count, lines[index].trimmingCharacters(in: .whitespaces).hasPrefix("|") {
+                    tableLines.append(lines[index])
+                    index += 1
+                }
+                guard tableLines.count >= 2 else {
+                    tableLines.forEach { push(.paragraph($0)) }
+                    continue
+                }
+                func cellsOf(_ row: String) -> [String] {
+                    var parts = row.split(separator: "|", omittingEmptySubsequences: false)
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                    if let first = parts.first, first.isEmpty { parts.removeFirst() }
+                    if let last = parts.last, last.isEmpty { parts.removeLast() }
+                    return parts
+                }
+                let header = cellsOf(tableLines[0])
+                var rows: [[String]] = []
+                for rowLine in tableLines.dropFirst() {
+                    if rowLine.range(of: "^\\|[\\s:|-]+\\|\\s*$", options: .regularExpression) != nil { continue } // 分隔行
+                    rows.append(cellsOf(rowLine))
+                }
+                if !header.isEmpty {
+                    push(.table(header: header, rows: rows))
+                }
                 continue
             }
             if line.hasPrefix("### ") {
@@ -85,7 +115,51 @@ struct MarkdownBlockView: View {
             }
         case .code(let language, let code):
             CodeBlockView(language: language, code: code, fontSize: codeFontSize)
+        case .table(let header, let rows):
+            MarkdownTableView(header: header, rows: rows, cellFontSize: codeFontSize)
         }
+    }
+}
+
+/// 管道表格渲染：表头强调底色 + 行分隔线 + 横向滚动（窄屏不挤压列）
+struct MarkdownTableView: View {
+    let header: [String]
+    let rows: [[String]]
+    var cellFontSize: CGFloat = 12
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: T.sp3) {
+                    ForEach(Array(header.enumerated()), id: \.offset) { _, cell in
+                        inline(cell)
+                            .font(T.mono(cellFontSize, .semibold))
+                            .foregroundColor(T.text)
+                    }
+                }
+                .padding(.horizontal, T.sp3)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(T.bgCode)
+                Divider().overlay(T.border)
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(alignment: .firstTextBaseline, spacing: T.sp3) {
+                        ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                            inline(cell)
+                                .font(T.mono(cellFontSize))
+                                .foregroundColor(T.text2)
+                        }
+                    }
+                    .padding(.horizontal, T.sp3)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Divider().overlay(T.border)
+                }
+            }
+        }
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
     }
 }
 
@@ -146,7 +220,7 @@ struct CodeBlockView: View {
                             .foregroundColor(copied ? T.accentText : T.text3)
                             .frame(minWidth: 44, minHeight: 44)
                     }
-                    .accessibilityIdentifier("code-copy")
+                    .accessibilityIdentifier("09-code-copy")
                 }
                 .padding(.horizontal, T.sp3)
                 .frame(height: 44)

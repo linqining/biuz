@@ -77,7 +77,7 @@ final class LayoutAuditTests: XCTestCase {
     /// 演示模式冷启动（无服务器配置）
     @discardableResult
     private func launchDemo() -> XCUIApplication {
-        app.launchArguments = ["-ZCodeE2EResetState"]
+        app.launchArguments = ["-ZCodeE2EResetState", "-AppleLanguages", "(zh-Hans)"]
         app.launch()
         wait(element(app, "04-row-c1"), timeout: 10, "演示会话列表应加载")
         return app
@@ -85,7 +85,7 @@ final class LayoutAuditTests: XCTestCase {
 
     /// 连接替身直达已连接态（手动输入 stub 地址令牌）；内部自行冷启动
     private func connectStub(_ application: XCUIApplication) {
-        application.launchArguments = ["-ZCodeE2EResetState"]
+        application.launchArguments = ["-ZCodeE2EResetState", "-AppleLanguages", "(zh-Hans)"]
         application.launch()
         let meTab = element(application, "12-tab-me")
         wait(meTab, timeout: 10, "Tab 栏应出现")
@@ -253,7 +253,7 @@ final class LayoutAuditTests: XCTestCase {
 
     func test04_loginHomeAndAuthorizeSheet() throws {
         stub.holdAuthorizePage = true
-        app.launchArguments = ["-ZCodeE2EResetState", "-ZCodeOpenLoginFlow",
+        app.launchArguments = ["-ZCodeE2EResetState", "-AppleLanguages", "(zh-Hans)", "-ZCodeOpenLoginFlow",
                                "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
                                "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
                                "-ZCodeOAuthClientID", "stub-client-e2e"]
@@ -335,13 +335,13 @@ final class LayoutAuditTests: XCTestCase {
         wait(element(app, "l2-card-steps"), timeout: 6, "应进入 L2 连接中")
         snap("20-l2-connecting")
         assertOnScreen(element(app, "l2-act-cancel"), "L2 取消按钮应在屏内")
-        // 五步列表逐行在场（发现服务/校验令牌/建立 WebSocket/协议握手 v4/载入工作区）
-        // + 进度 meta（黑洞性地址卡在发现步：进度 1/5，探测 3s 超时 ×2 全窗口恒定）
+        // 五步进度 meta（黑洞性地址卡在发现步：进度 1/5，探测 3s 超时 ×2 全窗口恒定）
         XCTAssertTrue(app.staticTexts["连接进度 · 1/5"].waitForExistence(timeout: 4),
                       "L2 应显示五步进度 meta（发现服务进行中 = 1/5）")
-        for stepId in ["l2-step-discover", "l2-step-auth", "l2-step-ws",
-                       "l2-step-handshake", "l2-step-workspace"] {
-            XCTAssertTrue(element(app, stepId).exists, "L2 五步列表应含 \(stepId) 行")
+        // 五步列表逐行在场：以行名 Text 观测（stepRow 的 HStack 容器 identifier
+        // 不进可访问性树；blackhole 无 server-info，auth 步恒为「校验访问令牌」）
+        for stepName in ["发现服务", "校验访问令牌", "建立 WebSocket", "协议握手 v4", "载入工作区"] {
+            XCTAssertTrue(app.staticTexts[stepName].exists, "L2 五步列表应含「\(stepName)」行")
         }
 
         // L3 失败态（超时分支）

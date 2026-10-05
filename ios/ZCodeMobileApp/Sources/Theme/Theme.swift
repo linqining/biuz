@@ -125,7 +125,7 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .system: return "跟随系统"
+        case .system: return String(localized: "跟随系统")
         case .light: return "Zai Light"
         case .dark: return "Zai Dark"
         }

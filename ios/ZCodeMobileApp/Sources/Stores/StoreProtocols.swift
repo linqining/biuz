@@ -17,8 +17,10 @@ protocol ConversationStore: AnyObject, Sendable {
     func conversations() async -> [Conversation]
     func observeConversations() -> AsyncStream<ConversationEvent>
     func messages(in conversationID: String) async -> [ChatMessage]
-    /// 发送用户消息；回复经事件流逐字推送（模拟流式输出）
-    func send(_ text: String, in conversationID: String) async
+    /// 发送用户消息；回复经事件流逐字推送（模拟流式输出）。
+    /// 返回是否受理（连接态=信封下发成功；false=未送达，调用方可如实反馈）
+    @discardableResult
+    func send(_ text: String, in conversationID: String) async -> Bool
     func answerQuestion(_ reply: String, in conversationID: String, questionID: String) async
     func createConversation(title: String, directory: String, executor: ExecutorKind) async -> Conversation
     func setPinned(_ pinned: Bool, conversationID: String) async
@@ -49,6 +51,41 @@ protocol ConversationStore: AnyObject, Sendable {
     func archivedConversations() async -> [Conversation]
     /// 交互应答信封（连接态 v4 resolveInteraction；演示态无交互面）
     func resolveInteractionRaw(_ conversationID: String, interactionId: String, answer: JSONValue) async
+    /// 失败 turn 重试（G-015）：携行元数据精确游标 {rowId, entityId} 下发 retryTurn；
+    /// 游标缺失（entityId=nil）时调用方不渲染入口，本实现亦不下发
+    func retryTurn(_ conversationID: String, rowId: Int, entityId: String?) async
+    /// 会话派生（G-018）：forkAssistant（session 类放行分支）；返回新会话 id（失败 nil）
+    func forkConversation(_ conversationID: String) async -> String?
+    /// 会话分组管理写面（G-017，均为索引元数据写、桌面代执行合法）：
+    /// createTaskGroup / renameTaskGroup / updateTaskGroupColor / deleteTaskGroup /
+    /// applyGroupedTaskViewOrder（组内顺序 + 会话入组）
+    func createTaskGroup(named name: String, color: String?) async -> String?
+    func renameTaskGroup(_ groupID: String, to name: String) async
+    func updateTaskGroupColor(_ groupID: String, color: String) async
+    func deleteTaskGroup(_ groupID: String) async
+    func applyGroupedTaskViewOrder(groupID: String?, order: [(taskID: String, groupID: String?)]) async
+    /// 子代理只读转录（G-021）：按 actor.sessionId 拉一页 rowsRange 渲染（无新协议）
+    func actorTranscript(sessionId: String, limit: Int) async -> [ChatMessage]
+    /// 会话上下文用量（G-021：连接态 state.runtime.contextUsage；演示态 Mock 动态值；nil=无数据不渲染）
+    func sessionContextUsage(in conversationID: String) async -> ContextUsageInfo?
+    /// 附件预览读（G-014：连接态 attachmentReadV4 分块聚合 image/video/pdf；
+    /// 演示态无附件数据恒 nil——无数据不渲染占位死块）
+    func attachmentPreview(sessionID: String, ref: String) async -> AttachmentPreview?
+    /// 会话全文检索（G-018：连接态 zcode-task listTaskList searchQuery 透传，
+    /// 命中含未加载进内存的历史会话；演示态空 → 列表回退本地过滤）
+    func searchSessions(_ query: String) async -> [Conversation]
+    /// 桌面 workflow 运行进度（要求 5 · 只读：v4 workflowRun.updated 带内事件 +
+    /// conversationWorkflowRunsV4 只读族；nil = 无数据不渲染；不新增任何发送命令）
+    func workflowRun(in conversationID: String) async -> WorkflowRunSummary?
+}
+
+/// 附件预览结果（G-014）
+struct AttachmentPreview: Equatable, Identifiable {
+    var id: String { ref }
+    var ref: String = ""
+    var data: Data
+    var mediaType: String   // image/* | video/* | application/pdf
+    var totalBytes: Int
 }
 
 extension ConversationStore {
@@ -84,6 +121,34 @@ extension ConversationStore {
 
     /// 交互应答信封（演示态无挂起交互，默认空实现）
     func resolveInteractionRaw(_ conversationID: String, interactionId: String, answer: JSONValue) async {}
+
+    /// 失败 turn 重试（演示态无游标面，默认空实现）
+    func retryTurn(_ conversationID: String, rowId: Int, entityId: String?) async {}
+
+    /// 会话派生（演示态本地无桌面 fork 面，默认 nil）
+    func forkConversation(_ conversationID: String) async -> String? { nil }
+
+    /// 会话分组写面（演示态本地无桌面组面，默认空实现）
+    func createTaskGroup(named name: String, color: String?) async -> String? { nil }
+    func renameTaskGroup(_ groupID: String, to name: String) async {}
+    func updateTaskGroupColor(_ groupID: String, color: String) async {}
+    func deleteTaskGroup(_ groupID: String) async {}
+    func applyGroupedTaskViewOrder(groupID: String?, order: [(taskID: String, groupID: String?)]) async {}
+
+    /// 子代理只读转录（演示态无远端行面，默认空）
+    func actorTranscript(sessionId: String, limit: Int) async -> [ChatMessage] { [] }
+
+    /// 会话上下文用量（演示态默认由 Mock 覆写；协议默认无数据）
+    func sessionContextUsage(in conversationID: String) async -> ContextUsageInfo? { nil }
+
+    /// 附件预览读（演示态无附件读面，默认 nil）
+    func attachmentPreview(sessionID: String, ref: String) async -> AttachmentPreview? { nil }
+
+    /// 会话全文检索（演示态空；列表回退本地过滤）
+    func searchSessions(_ query: String) async -> [Conversation] { [] }
+
+    /// 桌面 workflow 运行进度（协议默认无数据不渲染；Mock 对运行中演示会话覆写提供演示 run）
+    func workflowRun(in conversationID: String) async -> WorkflowRunSummary? { nil }
 
     /// 审批卡便捷应答：{approved, scope} 注入 answer（scope 三档：once/task/always）
     func resolveInteraction(_ interactionId: String, approved: Bool, scope: String,
@@ -121,6 +186,23 @@ struct ModelSelectionInfo: Equatable {
     var activeModel: String?
     var thoughtLevels: [String] = []
     var activeThoughtLevel: String?
+}
+
+/// 会话上下文用量（G-021：会话流工具行真实数据源）。
+/// 连接态来自会话 state.runtime.contextUsage（zcodeSessionContextUsageSchema 的 used/size）；
+/// 演示态由 Mock 按消息量动态生成（非硬编码常量）。nil = 无数据 → UI 不渲染进度条。
+struct ContextUsageInfo: Equatable {
+    var used: Int
+    var size: Int
+
+    var fraction: Double {
+        guard size > 0 else { return 0 }
+        return min(1, Double(used) / Double(size))
+    }
+
+    var percentText: String {
+        "\(Int((fraction * 100).rounded()))%"
+    }
 }
 
 /// 任务存储协议

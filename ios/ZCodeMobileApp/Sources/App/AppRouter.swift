@@ -12,12 +12,17 @@ enum TaskRoute: Hashable {
 enum FileRoute: Hashable {
     case tree
     case preview(FileNode)
+    /// G-023：提交图谱 / 分支对比只读页
+    case commitGraph
 }
 
 enum SettingsRoute: String, Hashable {
     case model, appearance, language, devices, bots, usage, memory, skills, mcp, plugins, automation
     // v2.4 增量：服务器与账户（L4-B 配置区 / L5 服务器详情）
     case serverAccount, serverDetail
+    // P2 批次只读页（G-022/G-024/G-025）
+    case savedWorkflows, offPeakTasks, feedbackTickets
+    case diagnostics // G-061 导出诊断日志
 }
 
 @MainActor
@@ -59,6 +64,12 @@ final class AppRouter {
     func pushFileTree() {
         selectedTab = .files
         filePath.append(.tree)
+    }
+
+    /// G-023：文件域内 push（提交图谱等只读页）
+    func pushFileRoute(_ route: FileRoute) {
+        selectedTab = .files
+        filePath.append(route)
     }
 
     /// 「查看完整 Diff」从会话内跳转到文件 Tab 根

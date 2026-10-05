@@ -79,7 +79,8 @@ struct TaskOutputView: View {
                 case .trajectory:
                     trajectoryCard
                 }
-                subagentRow
+                // G-022：子智能体行移除——原为硬编码假数据（test-runner · 回归 46 用例）
+                // 且整行不可点；桌面 SubagentSession 读面接入前不渲染占位死控件。
             }
             .padding(T.sp4)
         }
@@ -101,6 +102,15 @@ struct TaskOutputView: View {
                     outputModel.configOptions = options
                     outputModel.modelSelection = selection
                     outputModel.tokenUsage = usage
+                }
+            }
+        }
+        // 状态条随任务流翻转（验收口径：状态流回推后卡片/状态条翻转）。此前详情页
+        // 只在停止确认回调里拉取一次——回推事件晚于该拉取时状态条停留在运行中。
+        .task {
+            for await tasks in store.observeTasks() {
+                if let index = tasks.firstIndex(where: { $0.id == task.id }) {
+                    outputModel.currentTask = tasks[index]
                 }
             }
         }
@@ -144,8 +154,12 @@ struct TaskOutputView: View {
     }
 
     private var durationText: String {
-        let minutes = max(1, Int(-task.updatedAt.timeIntervalSinceNow / 60) % 60)
-        return "已运行 \(minutes) 分钟"
+        // G-032：绝对时长（updatedAt 基准差值，不取模）——跨小时不回卷
+        let minutes = max(1, Int(-task.updatedAt.timeIntervalSinceNow / 60))
+        if minutes >= 60 {
+            return String(localized: "已运行 \(minutes / 60) 小时 \(minutes % 60) 分")
+        }
+        return String(localized: "已运行 \(minutes) 分钟")
     }
 
     /// 连接态只读元数据行（模型绑定 / 思考与配置 / Token 用量；缺数据行不渲染避免死控件）
@@ -319,29 +333,6 @@ struct TaskOutputView: View {
         .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
     }
 
-    private var subagentRow: some View {
-        HStack(spacing: T.sp2) {
-            Image(systemName: "person.2")
-                .font(.system(size: 13))
-                .foregroundColor(T.violet)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("子智能体")
-                    .font(T.font(13.5, .medium))
-                    .foregroundColor(T.text)
-                Text("test-runner 运行中 · 回归 46 用例")
-                    .font(T.font(11.5))
-                    .foregroundColor(T.text3)
-            }
-            Spacer()
-            StatusPill(text: "运行中", kind: .tag, compact: true)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(T.text3)
-        }
-        .card()
-        .accessibilityIdentifier("07-toolcard-head-subagent")
-    }
 }
 
 /// 终端单行：$ 绿提示符 / [label] code-lab / ✓ 绿结果

@@ -113,6 +113,8 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
             "-ZCodeOAuthClientID", "stub-client-e2e",
             // 回调改为替身的 web 回调路径（App 按注册 redirect_uri 拦截，镜像真实 zcode.z.ai 行为）
             "-ZCodeOAuthRedirectURI", "http://127.0.0.1:\(stub.port)/cn/share/callback",
+            // 本地化后固定测试语言（中文文案断言稳定）
+            "-AppleLanguages", "(zh-Hans)",
         ]
         if openFlow == .login {
             arguments.append("-ZCodeOpenLoginFlow")
@@ -130,6 +132,7 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthRedirectURI", "http://127.0.0.1:\(stub.port)/cn/share/callback",
+            "-AppleLanguages", "(zh-Hans)",
         ]
         application.launch()
         return application
@@ -695,7 +698,15 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertTrue(stubRow2.waitForExistence(timeout: 3), "标题含「E2E」的 sess-e2e-2 应保留")
         XCTAssertEqual(stub.blockedWriteCommandCount, 0, "搜索过滤不应产生任何直写/配置写类命令")
         searchInput.typeText(String(repeating: "\u{8}", count: 8))
-        XCTAssertTrue(stubRow1.waitForExistence(timeout: 6), "清空搜索词后 sess-e2e-1 应恢复显示")
+        // 合成事件丢字偶发（套件已知，门禁第 1 轮实证）：清空不彻底（value 残留字符）
+        // 时补发退格，直至输入框为空再断言行恢复
+        if (searchInput.value as? String ?? "").isEmpty == false {
+            searchInput.tap()
+            searchInput.typeText(String(repeating: "\u{8}", count: 12))
+        }
+        XCTAssertTrue(waitUntil(timeout: 8, "清空搜索词后 sess-e2e-1 应恢复显示") {
+            (searchInput.value as? String ?? "").isEmpty && stubRow1.exists
+        })
 
         // 闭环③：置顶 = 本地覆盖（execution 计数不变）→「置顶」分组头回执，取消后消失
         swipeRowAndTapAction(application, row: stubRow1, actionIdentifier: "04-rowact-pin-sess-e2e-1",
@@ -800,6 +811,18 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.6)
         }
         return verify()
+    }
+
+    /// 下滑回列表顶部直到元素回到可访问性树（LazyVStack 窗口外不渲染；
+    /// 有界重试，用于揭示吸底滚动后滑出窗口的顶部内容）
+    @discardableResult
+    private func revealBySwipeDown(_ item: XCUIElement, application: XCUIApplication,
+                                   maxSwipes: Int = 6) -> Bool {
+        for _ in 0..<maxSwipes where !item.exists {
+            application.swipeDown()
+            _ = item.waitForExistence(timeout: 1)
+        }
+        return item.exists
     }
 
     /// 点击输入框并等待键盘弹出（无键盘不 typeText，避免合成事件落空）
@@ -1257,8 +1280,17 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertTrue(application.staticTexts.matching(
             NSPredicate(format: "label CONTAINS '删除构建产物目录'")).firstMatch.exists,
             "审批卡应展示影响摘要行")
-        // 授权范围三档可切换（默认仅本次）
-        element(application, "05-choice-always").tap()
+        // 授权范围三档可切换（默认仅本次）。审批卡位于消息列表顶部，详情吸底滚动
+        // （defaultScrollAnchor(.bottom)）后卡片可能滑出 LazyVStack 渲染窗口（元素出树，
+        // 门禁第 1 轮实证 tap No matches）——tap 前先下滑回顶部揭示
+        let choiceAlways = element(application, "05-choice-always")
+        XCTAssertTrue(revealBySwipeDown(choiceAlways, application: application),
+                      """
+                      下滑揭示后审批卡授权范围三档应可操作（05-choice-*）。
+                      诊断：card.exists=\(approvalCard.exists)；容器 identifier 覆盖子元素时
+                      05-choice-* 不进树（应用侧已改为 accessibilityElement(children: .contain)）
+                      """)
+        choiceAlways.tap()
         element(application, "05-choice-once").tap()
         // 批准：resolveInteraction 真实下发且携带 interactionId
         element(application, "05-act-approve").tap()
@@ -1311,14 +1343,27 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertTrue(renameMenu.waitForExistence(timeout: 5),
                       "长按会话行应弹出含「重命名」的上下文菜单（04-ctx-rename）")
         renameMenu.tap()
-        let renameField = application.textFields.firstMatch
+        // 重命名输入框定位到 alert 内（四 Tab 同挂 ZStack，未选中 Tab 的 02-search-input
+        // 仍在 textFields 查询结果里，firstMatch 会误命中——门禁实证）；alert 的 TextField
+        // 不自动获焦，typeText 前先 tap 聚焦并等键盘弹出
+        let renameField = application.alerts.firstMatch.textFields.firstMatch
         XCTAssertTrue(renameField.waitForExistence(timeout: 6), "重命名应弹输入框")
-        renameField.typeText("（已改名）")
-        application.buttons["保存"].firstMatch.tap()
+        tapAndWaitKeyboard(renameField, application: application)
+        // 输入用 ASCII 锚点（套件先例：中文合成事件存在丢字偶发；丢字为空时
+        // renameConversation 的空标题守卫会静默返回，renameTask 不下发）
+        renameField.typeText("Renamed-E2E-16")
+        let fieldValue = String(describing: renameField.value ?? "nil")
+        // 先收键盘再点保存（键盘为系统层，若遮挡保存按钮命中点则 tap 落空）：
+        // 点 alert 主体安全收起键盘（alert 为模态，不因外部 tap 关闭）
+        application.alerts.firstMatch.tap()
+        if application.keyboards.firstMatch.exists {
+            dismissKeyboard(application)
+        }
+        application.alerts.firstMatch.buttons["保存"].firstMatch.tap()
         XCTAssertTrue(waitUntil(timeout: 10, "替身应收到 renameTask 元数据写") {
             stub.renameTaskCount >= 1
-        })
-        XCTAssertTrue(stub.lastRenameTitle?.contains("（已改名）") == true,
+        }, "诊断 renameTaskCount=\(stub.renameTaskCount) alert仍在树=\(application.alerts.firstMatch.exists) 输入后value=\(fieldValue)")
+        XCTAssertTrue(stub.lastRenameTitle?.contains("Renamed-E2E-16") == true,
                       "renameTask 应携带新标题；实际=\(String(describing: stub.lastRenameTitle))")
 
         // ③b 已归档分区：入口行展开 → listArchivedTasks 拉取 + 归档样例行 + 取消归档（unarchiveTask 到达）
@@ -1362,12 +1407,15 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         // 替身侧掐断全部 WS 通道（传输层 cancel，无 close 帧）
         stub.dropAllWebSocketChannels()
 
-        // 黄色断线横幅出现：标题 + 「重连」动作按钮（动作热区在横幅内、可点）
+        // 黄色断线横幅出现：标题 + 「重连」动作按钮（动作热区在横幅内、可点）。
+        // 横幅容器 label 不聚合子文本（同 12-usercard 口径），标题以全局 Text 观测：
+        // 黄色断线态标题「与桌面端的连接已断开」≠ 红色回退态「桌面端连接失败 · 已回退演示数据」，
+        // 此断言同时验证断线路由（AppSession .disconnected）而非连接失败回退
         let banner = element(application, "13-banner-connection")
         XCTAssertTrue(banner.waitForExistence(timeout: 15),
                       "WS 通道被掐断后应出现断线横幅（AppSession .disconnected 投影）")
-        waitLabel(banner, contains: "与桌面端的连接已断开", timeout: 8,
-                  "断线横幅应表明连接已断开（黄色断线态，非红色回退态）")
+        XCTAssertTrue(application.staticTexts["与桌面端的连接已断开"].waitForExistence(timeout: 8),
+                      "断线横幅应表明连接已断开（黄色断线态标题；若实际渲染红色回退态标题则断线路由错误）")
         let reconnectButton = application.buttons["重连"].firstMatch
         XCTAssertTrue(reconnectButton.waitForExistence(timeout: 6),
                       "断线横幅应提供「重连」动作")
@@ -1388,7 +1436,7 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
 
     /// 流程 18：消息流六类行只读渲染（stub sess-e2e-3 全 kind 预置行）。
     /// 首窗尾部 3 行 = toolCall 工具卡 / subagent / artifact；「加载更早消息」拼接出
-    /// userInput / assistantText / reasoning（💭 前缀）——六类行映射全量断言 + 截图检查点。
+    /// userInput / assistantText / reasoning（项 4 起为思考折叠块）——六类行映射全量断言 + 截图检查点。
     func test18_connectedMessageStreamRendersAllSixRowKinds() throws {
         let application = connectAndEnterMain(launchFresh())
         let stubRow3 = element(application, "04-row-sess-e2e-3")
@@ -1408,16 +1456,21 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertTrue(waitStaticText(containing: "六类行基线.md", in: application, timeout: 8,
                                      "artifact 行应渲染产物名（📦 产物投影）"))
 
-        // 向上拼接出更早一窗：userInput / assistantText / reasoning（💭 前缀）
+        // 向上拼接出更早一窗：userInput / assistantText / reasoning
+        //（项 4 口径更新：reasoning 不再 💭 前缀平铺，渲染为思考折叠块——折叠态仅
+        // 「已深度思考」头部摘要，与 FeatureCompletionE2ETests 思考折叠用例同构）
         let loadOlder = element(application, "05-act-load-older")
         XCTAssertTrue(loadOlder.waitForExistence(timeout: 8), "6 行 > 首窗 3 行，应出现向上分页入口")
         loadOlder.tap()
         XCTAssertTrue(waitStaticText(containing: "生成一份六类行渲染基线", in: application,
-                                     timeout: 10, "userInput 行应渲染用户气泡文本"))
+                                    timeout: 10, "userInput 行应渲染用户气泡文本"))
         XCTAssertTrue(waitStaticText(containing: "替身助手：六类行渲染基线已就绪", in: application,
                                      timeout: 8, "assistantText 行应渲染助手文本"))
-        XCTAssertTrue(waitStaticText(containing: "💭", in: application, timeout: 8,
-                                     "reasoning 行应以 💭 前缀渲染"))
+        let thinkingHead = element(application, "05-thinking-head")
+        XCTAssertTrue(thinkingHead.waitForExistence(timeout: 8),
+                      "reasoning 行应渲染思考折叠块头部（项 4：💭 前缀已由折叠块取代）")
+        waitLabel(thinkingHead, contains: "已深度思考", timeout: 6,
+                  "complete 态 reasoning 行折叠摘要应显示「已深度思考」")
         snap(application, "31-session-six-row-kinds")
         XCTAssertEqual(stub.blockedWriteCommandCount, 0,
                        "浏览六类行消息流不应产生任何直写/配置写类命令")

@@ -22,18 +22,60 @@ struct TaskBoardView: View {
     /// 服务端搜索回执（连接态；P2 全文搜索）。nil = 未触发远端搜索，走本地过滤。
     @State private var remoteResults: [TaskRecord]?
     @State private var searchDebounce: Task<Void, Never>?
+    /// G-057 状态筛选 chips（nil = 全部）
+    @State private var statusFilter: TaskStatus?
 
     private var waiting: [TaskRecord] { filtered.filter { $0.status == .waiting } }
     private var running: [TaskRecord] { filtered.filter { $0.status == .running } }
     private var failed: [TaskRecord] { filtered.filter { $0.status == .failed } }
     private var done: [TaskRecord] { filtered.filter { $0.status == .done } }
     private var filtered: [TaskRecord] {
-        guard !query.isEmpty else { return model.tasks }
+        var base = model.tasks
+        // G-057：状态筛选先行
+        if let statusFilter {
+            base = base.filter { $0.status == statusFilter }
+        }
+        guard !query.isEmpty else { return base }
         // 连接态优先服务端全文搜索回执（searchable_text 检索）；空回执回退本地标题过滤
         if let remoteResults, store.isReadOnly {
-            return remoteResults
+            return remoteResults.filter { statusFilter == nil || $0.status == statusFilter }
         }
-        return model.tasks.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        return base.filter { $0.title.localizedCaseInsensitiveContains(query) }
+    }
+
+    /// G-057 筛选 chips（数据驱动计数；"待操作"即待审批/待应答语义）
+    private var statusFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: T.sp2) {
+                chip(label: String(localized: "全部"), count: model.tasks.count, status: nil)
+                chip(label: String(localized: "运行中"), count: model.tasks.filter { $0.status == .running }.count, status: .running)
+                chip(label: String(localized: "待操作"), count: model.tasks.filter { $0.status == .waiting }.count, status: .waiting)
+                chip(label: String(localized: "已完成"), count: model.tasks.filter { $0.status == .done }.count, status: .done)
+                chip(label: String(localized: "失败"), count: model.tasks.filter { $0.status == .failed }.count, status: .failed)
+            }
+            .padding(.horizontal, T.sp4)
+        }
+        .accessibilityIdentifier("02-filter-chips")
+    }
+
+    private func chip(label: String, count: Int, status: TaskStatus?) -> some View {
+        let selected = statusFilter == status
+        return Button {
+            withAnimation(.easeOut(duration: 0.18)) {
+                statusFilter = status
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(label).font(T.font(12, .medium))
+                Text("\(count)").font(T.mono(10.5)).foregroundColor(selected ? T.onAccent.opacity(0.8) : T.text3)
+            }
+            .foregroundColor(selected ? T.onAccent : T.text2)
+            .padding(.horizontal, T.sp3)
+            .frame(minHeight: 44)
+            .background(selected ? T.accent : T.bgInput)
+            .clipShape(Capsule())
+        }
+        .accessibilityIdentifier("02-chip-status-\(status?.rawValue ?? "all")")
     }
 
     var body: some View {
@@ -47,7 +89,7 @@ struct TaskBoardView: View {
                         title: "还没有任务",
                         detail: "从新建任务开始，Agent 将在云端沙盒中执行",
                         cta: "新建任务", ctaAction: { showNewSheet = true },
-                        ctaIdentifier: "13-btn-newtask")
+                        ctaIdentifier: "02-btn-newtask")
                     .accessibilityIdentifier("02-empty")
                 } else {
                     board
@@ -105,8 +147,10 @@ struct TaskBoardView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: T.sp2, pinnedViews: []) {
                 greeting
-                SearchField(text: $query, placeholder: "搜索任务", identifier: "02-search")
+                SearchField(text: $query, placeholder: String(localized: "搜索任务"), identifier: "02-search")
                     .padding(.horizontal, T.sp4)
+                // G-057：状态筛选 chips（全部/运行中/待操作/已完成/失败）
+                statusFilterChips
 
                 if !waiting.isEmpty {
                     groupHeader("待操作", count: waiting.count)

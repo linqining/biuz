@@ -7,6 +7,10 @@ struct ServerAccountConfigView: View {
     @Environment(AppRouter.self) private var router
     @State private var showLogoutConfirm = false
     @State private var testResult: TestOutcome?
+    /// G-028 刷新额度状态（真实重拉 + 结果反馈）
+    @State private var isRefreshingQuota = false
+    @State private var quotaRefreshNotice: String?
+    @State private var quotaRefreshedAt: Date?
 
     struct TestOutcome: Equatable {
         var ok: Bool
@@ -110,19 +114,60 @@ struct ServerAccountConfigView: View {
                 }
                 .accessibilityIdentifier("l4-b-act-logout")
                 Button {
-                    session.oauthSessionVersion += 1 // 刷新额度：目前仅刷新过期判定（额度接口未在调研范围内）
+                    Task { await refreshQuota() }
                 } label: {
-                    Label("刷新额度", systemImage: "arrow.clockwise")
+                    Label(isRefreshingQuota ? "刷新中…" : "刷新额度", systemImage: isRefreshingQuota ? "hourglass" : "arrow.clockwise")
                         .font(T.font(13.5, .semibold))
                         .foregroundColor(T.text)
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
                 }
                 .accessibilityIdentifier("l4-b-act-refresh")
+                .disabled(isRefreshingQuota)
+            }
+            // G-028：刷新结果反馈（更新时间 / 错误提示；验收①②）
+            if let notice = quotaRefreshNotice {
+                Text(notice)
+                    .font(T.font(11, .semibold))
+                    .foregroundColor(notice.contains("失败") ? T.red : T.accentText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("l4-b-quota-notice")
+            } else if let at = quotaRefreshedAt {
+                Text("已更新 · \(Self.quotaFormatter.string(from: at))")
+                    .font(T.font(10.5))
+                    .foregroundColor(T.text3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .card(padding: 14)
     }
+
+    /// G-028：真实刷新——refreshDesktopReadonlyInfo 重拉 getCodingPlanUsageSnapshot /
+    /// getCodingPlanResetStatus（桌面 usage-stats 两读），成功/失败均给反馈
+    private func refreshQuota() async {
+        guard !isRefreshingQuota else { return }
+        isRefreshingQuota = true
+        quotaRefreshNotice = nil
+        let before = session.codingPlanUsage
+        await session.refreshDesktopReadonlyInfo()
+        isRefreshingQuota = false
+        if let after = session.codingPlanUsage {
+            quotaRefreshedAt = Date()
+            if after != before {
+                quotaRefreshNotice = String(localized: "额度已刷新（数据有更新）")
+            } else {
+                quotaRefreshNotice = String(localized: "额度已刷新（与上次一致）")
+            }
+        } else {
+            quotaRefreshNotice = String(localized: "刷新失败 · 桌面端未返回额度数据，请确认连接后重试")
+        }
+    }
+
+    static let quotaFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
 
     private func expiredCard(_ tokenSet: OAuthTokenSet) -> some View {
         VStack(alignment: .leading, spacing: 10) {

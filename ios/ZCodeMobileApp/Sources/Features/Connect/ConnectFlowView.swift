@@ -31,6 +31,23 @@ struct ConnectFlowView: View {
                     ConnectHelpView()
                 }
             }
+            // G-009：L1 连接主页 cover 此前无任何关闭控件（从设置/登录成功页进入后
+            // 不实际发起连接即无法退出）。补 ✕（44px，同 LoginFlowView o1-act-close 模式）：
+            // 连接进行中先取消连接再收起 cover；presentedFlow 置 nil。
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        session.cancelConnecting()
+                        session.dismissFlow()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(T.text)
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityIdentifier("l1-act-close")
+                }
+            }
             .animation(.easeOut(duration: 0.22), value: session.mode)
         }
         .overlay {
@@ -686,10 +703,12 @@ struct ManualConnectView: View {
         // 云中继配对链接（https://…/remote/v4?sid=…&hash=…&mid=…）：直连 wss 端点，
         // 令牌栏不参与（hash 即凭据，随配置仅存 Keychain）
         if let relay = ConnectURLParser.parseRelayLink(hostText) {
+            // 识别即提示（解析为同步操作，提示不依赖连接结果的返回时序——
+            // 中继失败最长可达 auth 15s 超时，提示不能等到那时才出现）
+            parseNotice = "已识别云中继配对链接 · \(relay.machineName ?? relay.endpointHost ?? "桌面端")"
             connecting = true
             await session.connectRelayLink(hostText)
             connecting = false
-            parseNotice = "已识别云中继配对链接 · \(relay.machineName ?? relay.endpointHost ?? "桌面端")"
             return
         }
 

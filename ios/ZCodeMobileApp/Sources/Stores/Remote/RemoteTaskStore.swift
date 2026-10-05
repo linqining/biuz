@@ -151,9 +151,9 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
         }
         var record = TaskRecord(
             id: taskId,
-            title: dict["title"]?.stringValue ?? "未命名任务",
+            title: dict["title"]?.stringValue ?? String(localized: "未命名任务"),
             summary: dict["lastError"]?.objectValue?["message"]?.stringValue
-                ?? dict["changeSummary"].map { _ in "有新的文件变更待审查" }
+                ?? dict["changeSummary"].map { _ in String(localized: "有新的文件变更待审查") }
                 ?? "",
             directory: workspacePath,
             status: status,
@@ -166,7 +166,12 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
             pendingCommand: nil,
             pendingImpact: nil)
         if let change = dict["changeSummary"]?.objectValue {
-            record.pendingImpact = "文件 \(change["fileCount"]?.intValue ?? 0) · +\(change["added"]?.intValue ?? 0)/-\(change["removed"]?.intValue ?? 0)"
+            let fileCount = change["fileCount"]?.intValue ?? 0
+                let added = change["added"]?.intValue ?? 0
+                let removed = change["removed"]?.intValue ?? 0
+                record.pendingImpact = String(
+                    format: String(localized: "文件 %lld · +%lld/-%lld"),
+                    fileCount, added, removed)
         }
         return record
     }
@@ -307,7 +312,7 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
                 guard let name else { continue }
                 switch dict["currentValue"] {
                 case .string(let value): options[name] = value
-                case .bool(let value): options[name] = value ? "开" : "关"
+                case .bool(let value): options[name] = value ? String(localized: "开") : String(localized: "关")
                 default: options[name] = "--"
                 }
             }

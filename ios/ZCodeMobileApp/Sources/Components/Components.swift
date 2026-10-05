@@ -55,10 +55,10 @@ extension TaskStatus {
     }
     var label: String {
         switch self {
-        case .running: return "运行中"
-        case .waiting: return "待操作"
-        case .done: return "已完成"
-        case .failed: return "失败"
+        case .running: return String(localized: "运行中")
+        case .waiting: return String(localized: "待操作")
+        case .done: return String(localized: "已完成")
+        case .failed: return String(localized: "失败")
         }
     }
 }
@@ -83,7 +83,8 @@ struct TabBadge: View {
 // MARK: - 按钮（spec 5.5）
 
 struct PrimaryButton: View {
-    let title: String
+    // G-007：LocalizedStringKey 使字面量标题走 Localizable 查表（调用点全为字面量，已核对）
+    let title: LocalizedStringKey
     var identifier: String = ""
     var action: () -> Void
 
@@ -103,7 +104,7 @@ struct PrimaryButton: View {
 
 /// 文字链接类动作：min-height 44 热区（padding 外扩法）
 struct TextActionButton: View {
-    let title: String
+    let title: LocalizedStringKey
     var tint: Color = T.accentText
     var action: () -> Void
     var identifier: String = ""
@@ -214,7 +215,7 @@ struct EmptyStateView: View {
 }
 
 struct CenterLoadingView: View {
-    let text: String
+    let text: LocalizedStringKey
     var identifier: String = "loading-center"
 
     var body: some View {
@@ -268,7 +269,7 @@ struct ZSegmentedPicker<Item: Hashable>: View {
 
 struct SearchField: View {
     @Binding var text: String
-    var placeholder: String = "搜索"
+    var placeholder: String = String(localized: "搜索")
     var identifier: String = "search"
 
     var body: some View {

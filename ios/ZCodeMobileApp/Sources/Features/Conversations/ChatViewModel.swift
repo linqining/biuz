@@ -17,6 +17,8 @@ final class ChatViewModel {
     var workspaceConfig: WorkspaceConfigInfo?
     var canLoadOlder = false
     private var isLoadingOlder = false
+    /// 会话上下文用量（G-021：连接态真实值；演示态 Mock 动态值；nil=不渲染）
+    var contextUsage: ContextUsageInfo?
 
     /// 连接态数据源标记（mock 演示恒为 false）：chips / 向上分页 / 待审批卡数据仅连接态提供
     var isReadOnly: Bool { store.isReadOnly }
@@ -24,6 +26,10 @@ final class ChatViewModel {
     /// 待处理交互投影（连接态 conversation state.pendingInteractions；
     /// permission 类渲染审批卡，其余类型暂以折叠卡呈现）
     var pendingInteractions: [RemotePendingInteraction] = []
+
+    /// 桌面 workflow 运行进度（要求 5 · 只读投影：nil = 无数据不渲染；
+    /// 演示态运行中会话提供演示 run）
+    var workflowRun: WorkflowRunSummary?
 
     /// 会话内消息搜索（P2-3）：对已加载 messages 本地检索 + 命中计数
     var searchQuery: String = ""
@@ -49,6 +55,9 @@ final class ChatViewModel {
         conversation = all.first { $0.id == conversationID }
         messages = await store.messages(in: conversationID)
         await store.markRead(conversationID: conversationID)
+        contextUsage = await store.sessionContextUsage(in: conversationID)
+        // 要求 5：workflow 只读投影（带内缓存命中为纯内存读；无数据不渲染）
+        workflowRun = await store.workflowRun(in: conversationID)
         if isReadOnly, !messages.isEmpty {
             canLoadOlder = true // 首屏尾部 200 行之外可能有更早数据（loadOlder 探测回收）
             modelSelection = await store.modelSelectionView()
@@ -70,6 +79,7 @@ final class ChatViewModel {
                 conversation = updated
             case .messagesReplaced(let id, let replaced) where id == conversationID:
                 messages = replaced
+                contextUsage = await store.sessionContextUsage(in: conversationID)
             case .messageAppended(let id, let message) where id == conversationID:
                 if !messages.contains(where: { $0.id == message.id }) {
                     messages.append(message)
@@ -83,6 +93,8 @@ final class ChatViewModel {
             }
             // 任意事件后轻量刷新待审批投影（state.updated 无独立事件语义）
             await refreshPendingInteractions()
+            // workflowRun.updated 带内事件无独立语义，随事件轻量刷新（缓存命中为内存读）
+            workflowRun = await store.workflowRun(in: conversationID)
         }
     }
 
@@ -121,6 +133,20 @@ final class ChatViewModel {
         guard !text.isEmpty else { return }
         draft = ""
         await store.send(text, in: conversationID)
+    }
+
+    /// G-021：子代理只读转录加载（actor.sessionId → store 只读拉一页）
+    func storeActorTranscript(sessionId: String) async -> [ChatMessage] {
+        await store.actorTranscript(sessionId: sessionId, limit: 100)
+    }
+
+    /// G-015：失败工具卡「重试」→ retryTurn 下发（行合成 id "row-<n>" 携 rowId；
+    /// entityId 由工具卡渲染门槛保证在场，此处从 messages 反查补齐）
+    func retryTurn(rowId: Int) async {
+        guard rowId > 0 else { return }
+        guard let message = messages.first(where: { $0.id == "row-\(rowId)" }),
+              let entityId = message.toolCall?.entityId else { return }
+        await store.retryTurn(conversationID, rowId: rowId, entityId: entityId)
     }
 
     func answerQuestion(_ reply: String) async {

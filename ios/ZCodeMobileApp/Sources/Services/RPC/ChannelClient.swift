@@ -153,7 +153,7 @@ actor ChannelClient: RPCChannelTransport {
         let timeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             await self?.failInitializeWaiters(
-                RPCError(message: "等待服务端 Initialize 超时", name: "TimeoutError"))
+                RPCError(message: String(localized: "等待服务端 Initialize 超时"), name: "TimeoutError"))
         }
         defer { timeoutTask.cancel() }
 
@@ -163,7 +163,7 @@ actor ChannelClient: RPCChannelTransport {
                 switch state {
                 case .idle: continuation.resume()
                 case .closed:
-                    continuation.resume(throwing: RPCError(message: "连接在 Initialize 前已关闭", name: "ConnectionClosed"))
+                    continuation.resume(throwing: RPCError(message: String(localized: "连接在 Initialize 前已关闭"), name: "ConnectionClosed"))
                 case .uninitialized:
                     initializeWaiters.append(continuation)
                 }
@@ -183,7 +183,7 @@ actor ChannelClient: RPCChannelTransport {
     private func close() {
         guard state != .closed else { return }
         state = .closed
-        let closedError = RPCError(message: "连接已关闭", name: "ConnectionClosed")
+        let closedError = RPCError(message: String(localized: "连接已关闭"), name: "ConnectionClosed")
         failPending(closedError)
         failInitializeWaiters(closedError)
         eventHandlers.removeAll()
@@ -193,7 +193,7 @@ actor ChannelClient: RPCChannelTransport {
     private func handleTransportError(_ error: Error) {
         guard state != .closed else { return }
         state = .closed
-        let rpcError = RPCError(message: "传输错误：\(error.localizedDescription)", name: "TransportError")
+        let rpcError = RPCError(message: String(format: String(localized: "传输错误：%@"), error.localizedDescription), name: "TransportError")
         failPending(rpcError)
         failInitializeWaiters(rpcError)
         eventHandlers.removeAll()
@@ -223,7 +223,7 @@ actor ChannelClient: RPCChannelTransport {
     func call(_ channel: String, _ command: String, _ arg: RPCValue = .undefined,
               timeout: TimeInterval = 30) async throws -> RPCValue {
         guard state == .idle else {
-            throw RPCError(message: "通道未就绪（state=\(state)）", name: "NotInitialized")
+            throw RPCError(message: String(format: String(localized: "通道未就绪（state=%@）"), String(describing: state)), name: "NotInitialized")
         }
         let id = lastRequestId
         lastRequestId += 1
@@ -238,7 +238,7 @@ actor ChannelClient: RPCChannelTransport {
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             await self?.resolveResponse(
                 id: id,
-                result: .failure(RPCError(message: "RPC 超时：\(channel).\(command)", name: "TimeoutError")))
+                result: .failure(RPCError(message: String(format: String(localized: "RPC 超时：%@.%@"), channel, command), name: "TimeoutError")))
         }
         defer { timeoutTask.cancel() }
 
@@ -336,7 +336,7 @@ actor ChannelClient: RPCChannelTransport {
         case .promiseErrorObj:
             guard let id = headerItems[safe: 1]?.intValue else { return }
             resolveResponse(id: id, result: .failure(
-                RPCError(message: "RPC 错误对象", name: "ErrorObj", detail: body.jsonValue)))
+                RPCError(message: String(localized: "RPC 错误对象"), name: "ErrorObj", detail: body.jsonValue)))
         case .eventFire:
             guard let id = headerItems[safe: 1]?.intValue else { return }
             eventHandlers[id]?(body)
@@ -354,9 +354,9 @@ actor ChannelClient: RPCChannelTransport {
 
     private func decodeError(_ body: RPCValue) -> RPCError {
         guard let json = body.jsonValue, case .object(let dict) = json else {
-            return RPCError(message: "未知 RPC 错误", name: "Error")
+            return RPCError(message: String(localized: "未知 RPC 错误"), name: "Error")
         }
-        var error = RPCError(message: "未知 RPC 错误", name: "Error", detail: .object(dict))
+        var error = RPCError(message: String(localized: "未知 RPC 错误"), name: "Error", detail: .object(dict))
         if case .string(let message)? = dict["message"] { error.message = message }
         if case .string(let name)? = dict["name"] { error.name = name }
         return error

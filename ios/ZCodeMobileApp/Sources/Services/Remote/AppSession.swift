@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 // MARK: - 桌面端只读信息模型（oauth / usage-stats 投影）
 
@@ -143,6 +144,8 @@ final class AppSession {
         for server in ServerRegistry.servers {
             ServerRegistry.remove(id: server.id)
         }
+        // 语言偏好一并复位（P1 语言切换持久化后，保证用例间无顺序依赖）
+        UserDefaults.standard.removeObject(forKey: "AppleLanguages")
     }
 
     // MARK: 冷启动
@@ -151,20 +154,34 @@ final class AppSession {
     /// QA/E2E 钩子：`-ZCodeOpenLoginFlow` 直开 O1 登录主页；`-ZCodeOpenConnectFlow` 直开 L1 连接页；
     /// `-ZCodeRelayLink <url>` 解析中继配对链接并直接发起云中继连接（无 UI 驱动的真机验证，
     /// 模式同 -ZCodeOpenConnectFlow；链接失效保持演示态）。
-    func bootstrap() {
+    func bootstrap() async {
         let arguments = ProcessInfo.processInfo.arguments
+        UserDefaults.standard.set("args=\(arguments.count) relayArg=\(Self.relayLinkArgument(from: arguments) ?? "nil")", forKey: "diag.args")
         if arguments.contains("-ZCodeOpenLoginFlow") {
             presentedFlow = .login
         } else if arguments.contains("-ZCodeOpenConnectFlow") {
             presentedFlow = .connect(editTokenOnly: false)
         } else if let relayURL = Self.relayLinkArgument(from: arguments) {
-            Task { await connectRelayLink(relayURL) }
+            await connectRelayLink(relayURL)
             return
         }
-        if let server = savedServer {
+        // Keychain 在冷启动瞬间偶发 errSecMissingEntitlement（模拟器已知抖动），
+        // ServerRegistry 会把读取错误吞成空数组 → 误判"未配置"进演示模式；
+        // 短退避重读 3 次再判定。
+        var server = savedServer
+        if server == nil {
+            for _ in 0..<3 {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                server = savedServer
+                if server != nil { break }
+            }
+        }
+        if let server {
+            UserDefaults.standard.set("bootstrap: relay=\(server.relay != nil) count=\(ServerRegistry.servers.count) host=\(server.host):\(server.port)", forKey: "diag.lastConnect")
             mode = .connecting(server)
-            Task { await connectToSaved(server) }
+            await connectToSaved(server)
         } else {
+            UserDefaults.standard.set("bootstrap: savedServer=nil(含重试) servers=\(ServerRegistry.servers.count) selected=\(ServerRegistry.selectedServerID ?? "nil") → demo", forKey: "diag.lastConnect")
             mode = .demo
         }
     }
@@ -199,12 +216,22 @@ final class AppSession {
         await connectToSaved(server)
     }
 
-    private func connectToSaved(_ server: ServerConfig) async {
-        let result: Result<ServerRemoteInfo, ConnectError>
+    private func connectOnce(_ server: ServerConfig) async -> Result<ServerRemoteInfo, ConnectError> {
         if server.relay != nil {
-            result = await connection.connectRelay(to: server)
-        } else {
-            result = await connection.connect(to: server, preferredWorkspace: server.preferredWorkspacePath)
+            return await connection.connectRelay(to: server)
+        }
+        return await connection.connect(to: server, preferredWorkspace: server.preferredWorkspacePath)
+    }
+
+    private func connectToSaved(_ server: ServerConfig) async {
+        var result = await connectOnce(server)
+        // 云中继链路偶发瞬断（桌面端重启/网络抖动）：短退避自动重试两次再判失败
+        if case .failure = result, server.relay != nil {
+            for delayNs: UInt64 in [2_000_000_000, 4_000_000_000] {
+                try? await Task.sleep(nanoseconds: delayNs)
+                result = await connectOnce(server)
+                if case .success = result { break }
+            }
         }
         switch result {
         case .success(let info):
@@ -220,9 +247,11 @@ final class AppSession {
             if updated.name == nil { updated.name = info.name }
             ServerRegistry.upsert(updated)
             ServerRegistry.selectedServerID = updated.id
+            UserDefaults.standard.set("connected: relay=\(server.relay != nil)", forKey: "diag.lastConnect")
             // 桌面端只读信息（oauth 登录展示态 + Coding Plan 用量）后台拉取；失败各字段保持 nil
             Task { await refreshDesktopReadonlyInfo() }
         case .failure(let error):
+            UserDefaults.standard.set("failed: relay=\(server.relay != nil) host=\(server.host):\(server.port) error=\(String(describing: error))", forKey: "diag.lastConnect")
             teardownRemoteStores()
             mode = .connectFailed(server, error)
         }
@@ -374,6 +403,57 @@ final class AppSession {
         // Keychain 写入已在流程内完成（OAuthLoginFlow 内部 save 成功后才回调成功）
     }
 
+    // MARK: 登录直达会话（项 1）
+
+    /// 登录后设备直达结果（OAuthSuccessView 呈现）
+    enum AutoConnectOutcome: Equatable {
+        case connected              // 已连上桌面端（cover 由 dismissFlow 收起，直达主界面）
+        case noPairedDevice         // 无已配对设备、剪贴板亦无链接 → 引导粘贴链接
+        case failed(String)         // 尝试了已知设备/链接但连接失败 → 引导 + 上次目标
+    }
+
+    /// 登录成功后自动发现设备并连接（P0·登录直达会话）。
+    ///
+    /// 绑定假设（调研 deviceListApi 结论）：**账号级设备列表云端 API 未上线**——登录态
+    /// （zcodeJwtToken）下没有任何可发现桌面设备的云端接口（web bundle 的远控登录页
+    /// 也停在「设备列表能力即将接入」），且中继模式无 server-info HTTP 面可探测在线态。
+    /// 因此"设备列表"取本机最贴近来源：
+    /// ① ServerRegistry 已配对的中继服务器（relay 凭据仅存 Keychain）——最近连接优先
+    ///   （"在线优先"的本地代理口径），直接走既有连接链路（内置 2s/4s 退避重试）；
+    /// ② 无已配对设备时回退剪贴板中的 remote/v4 配对链接（官方链接传递路径，
+    ///   ConnectHomeView 同源识别）→ connectRelayLink。
+    /// 失败/无设备均返回 outcome，由调用方给出可行动提示（引导粘贴链接，不静默）。
+    func autoConnectAfterLogin() async -> AutoConnectOutcome {
+        let relayServers = ServerRegistry.servers
+            .filter { $0.relay != nil }
+            .sorted { ($0.lastConnectedAt ?? .distantPast) > ($1.lastConnectedAt ?? .distantPast) }
+        if let target = relayServers.first {
+            UserDefaults.standard.set(
+                "autoConnect: relay \(target.displayName) sid=\(target.relay?.deviceSid ?? "?")",
+                forKey: "diag.autoConnect")
+            await connect(server: target)
+            if case .connected = mode { return .connected }
+            // 失败：清理失败覆盖态回演示底座，交由引导 UI（不静默、不留半开连接）
+            cancelConnecting()
+            return .failed(target.displayName)
+        }
+        // 剪贴板兜底在 E2E 下禁用：测试机剪贴板残渣可能触发真实网络连接拖垮门禁用例
+        // （E2E reset 已清 ServerRegistry，正常路径恒走 noPairedDevice 立即返回）
+        guard !ProcessInfo.processInfo.arguments.contains("-ZCodeE2EResetState"),
+              let clipboard = UIPasteboard.general.string,
+              ConnectURLParser.parseRelayLink(clipboard) != nil else {
+            UserDefaults.standard.set("autoConnect: no paired device", forKey: "diag.autoConnect")
+            return .noPairedDevice
+        }
+        UserDefaults.standard.set("autoConnect: clipboard relay link", forKey: "diag.autoConnect")
+        await connectRelayLink(clipboard)
+        if case .connected = mode { return .connected }
+        cancelConnecting()
+        return .failed("剪贴板配对链接")
+        UserDefaults.standard.set("autoConnect: no paired device", forKey: "diag.autoConnect")
+        return .noPairedDevice
+    }
+
     /// 退出登录：仅清账户层 tokenSet，不动已保存服务器与连接令牌（9.5 两层凭据模型）
     func logout() {
         OAuthCredentialStore.clear()
@@ -385,6 +465,7 @@ final class AppSession {
     // MARK: Store 装配
 
     private func assembleRemoteStores(info: ServerRemoteInfo, workspace: ServerWorkspaceInfo?) {
+        UserDefaults.standard.set("assemble: workspace=\(workspace == nil ? "nil!" : (workspace?.path ?? "?")) info=\(String(describing: info).prefix(200))", forKey: "diag.assemble")
         guard let workspace else { return }
         let conversationStore = RemoteConversationStore(connection: connection, workspace: workspace)
         remoteConversationStore = conversationStore

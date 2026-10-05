@@ -110,6 +110,7 @@ final class DiffViewModel {
 /// 连接态增数据源分段（未暂存/已暂存/本次会话）；演示态不渲染分段，行为完全不变
 struct DiffReviewView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(AppSession.self) private var session
     @Environment(\.fileStore) private var store
     @Environment(\.conversationStore) private var conversationStore
     @State private var viewModel = DiffViewModel()
@@ -154,7 +155,42 @@ struct DiffReviewView: View {
         // （无 id 的 .task 仅在首次挂载（当时还是 mock）执行，连接态 diff 永不加载——门禁第 1 轮实证）
         .task(id: ObjectIdentifier(store)) {
             await viewModel.load(store: store, conversationStore: conversationStore)
+            await loadGitSummary()
         }
+        // G-038：下拉刷新与会话/任务列表一致（桌面产生新改动后下拉可见）
+        .refreshable {
+            await viewModel.load(store: store, conversationStore: conversationStore)
+            await loadGitSummary()
+        }
+    }
+
+    // MARK: G-040 Git 只读信息（getRepositorySummary：真实分支/领先落后；失败保持中性标注）
+
+    struct GitSummaryInfo: Equatable {
+        var branchName: String?
+        var ahead: Int
+        var behind: Int
+        var isDirty: Bool
+    }
+    @State private var gitSummary: GitSummaryInfo?
+
+    private func loadGitSummary() async {
+        guard case .connected = session.mode else { gitSummary = nil; return }
+        var builder = JSONObjectBuilder()
+        if let ws = session.connection.workspace {
+            builder.set("workspacePath", ws.path)
+        }
+        guard let result = try? await session.connection.call(
+            "git", "getRepositorySummary", .json(.object(builder.fields))),
+            let dict = result.jsonValue?.objectValue else {
+            gitSummary = nil
+            return
+        }
+        gitSummary = GitSummaryInfo(
+            branchName: dict["branchName"]?.stringValue,
+            ahead: dict["ahead"]?.intValue ?? 0,
+            behind: dict["behind"]?.intValue ?? 0,
+            isDirty: dict["isDirty"]?.boolValue ?? false)
     }
 
     private var emptyTitle: String {
@@ -214,15 +250,21 @@ struct DiffReviewView: View {
         .accessibilityIdentifier("08-more-notice")
     }
 
-    /// 分支胶囊（GitBranchSwitcher）：静态展示——分支切换属工作区写面（移动端只读边界），
-    /// 不提供可点按的空动作
+    /// 分支胶囊（G-030/G-040）：连接态接 git.getRepositorySummary 真实分支与 ahead/behind
+    /// （只读零风险，git 频道读放行）；演示态/无数据呈「桌面端管理」中性标注，不再硬编码假分支名
     private var branchRow: some View {
         HStack(spacing: T.sp2) {
             HStack(spacing: 5) {
                 Image(systemName: "arrow.triangle.branch")
                     .font(.system(size: 11))
-                Text("feat/session-protocol")
+                Text(gitBranchText)
                     .font(T.mono(11.5, .medium))
+                    .lineLimit(1)
+                if let ahead = gitSummary?.ahead, let behind = gitSummary?.behind, ahead > 0 || behind > 0 {
+                    Text("↑\(ahead) ↓\(behind)")
+                        .font(T.mono(10.5))
+                        .foregroundColor(T.text3)
+                }
             }
             .foregroundColor(T.text2)
             .padding(.horizontal, T.sp3)
@@ -230,9 +272,33 @@ struct DiffReviewView: View {
             .background(T.bgInput)
             .clipShape(Capsule())
             .accessibilityIdentifier("08-branch-switcher")
+            // G-023：提交图谱 / 分支对比只读页入口
+            Button {
+                router.pushFileRoute(.commitGraph)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                        .font(.system(size: 11))
+                    Text(String(localized: "提交图谱"))
+                        .font(T.font(11.5, .medium))
+                }
+                .foregroundColor(T.text2)
+                .padding(.horizontal, T.sp3)
+                .frame(minHeight: 32)
+                .background(T.bgInput)
+                .clipShape(Capsule())
+            }
+            .accessibilityIdentifier("08-act-commit-graph")
             Spacer()
         }
         .padding(.top, T.sp1)
+    }
+
+    private var gitBranchText: String {
+        if let branch = gitSummary?.branchName, !branch.isEmpty {
+            return branch
+        }
+        return String(localized: "分支由桌面端管理")
     }
 
     private var statsRow: some View {
@@ -463,4 +529,153 @@ struct DiffLineRowView: View {
         .background(colors.bg)
         .accessibilityIdentifier("\(screenPrefix)-diffrow-\(line.kind.rawValue)-\(indexInKind)")
     }
+}
+
+// MARK: - G-023 提交图谱 / 分支对比只读页（git.getCommitGraph + getBranchComparison；
+// switchBranch 等仓库写维持 ReadOnlyGate 拦截；回执宽容解析，失败呈中性空态）
+
+struct CommitGraphPage: View {
+    struct CommitRow: Identifiable {
+        let id: String
+        let subject: String
+        let author: String
+        let when: String
+    }
+
+    @Environment(AppSession.self) private var session
+    @State private var commits: [CommitRow] = []
+    @State private var comparisonText: String?
+    @State private var isLoading = true
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if isLoading {
+                CenterLoadingView(text: "正在读取提交图谱…")
+            } else if failed || commits.isEmpty {
+                EmptyStateView(
+                    icon: "point.topleft.down.curvedto.point.bottomright.up",
+                    title: String(localized: "暂无提交图谱"),
+                    detail: String(localized: "连接桌面端后同步最近提交链（只读）"))
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: T.sp2) {
+                        if let comparisonText {
+                            HStack(spacing: T.sp2) {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(T.blue)
+                                Text(comparisonText)
+                                    .font(T.font(12, .medium))
+                                    .foregroundColor(T.text2)
+                                Spacer(minLength: 0)
+                            }
+                            .card(padding: T.sp2)
+                            .accessibilityIdentifier("08-branch-comparison")
+                        }
+                        ForEach(commits) { commit in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: T.sp2) {
+                                    Text(commit.subject)
+                                        .font(T.font(13, .medium))
+                                        .foregroundColor(T.text)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    Text(commit.when)
+                                        .font(T.font(10.5))
+                                        .foregroundColor(T.text3)
+                                }
+                                HStack(spacing: T.sp2) {
+                                    Text(commit.id)
+                                        .font(T.mono(10))
+                                        .foregroundColor(T.codeLab)
+                                    Text(commit.author)
+                                        .font(T.font(10.5))
+                                        .foregroundColor(T.text3)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            .card(padding: T.sp2)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("08-commit-\(commit.id)")
+                        }
+                    }
+                    .padding(T.sp4)
+                }
+                .background(T.bg)
+                .refreshable { await load() }
+            }
+        }
+        .background(T.bg)
+        .navigationTitle(String(localized: "提交图谱"))
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func load() async {
+        isLoading = true
+        failed = false
+        let connection = session.connection
+        guard connection.isActive else {
+            failed = true
+            isLoading = false
+            return
+        }
+        var builder = JSONObjectBuilder()
+        if let workspacePath = connection.workspace?.path {
+            builder.set("workspacePath", workspacePath)
+        }
+        // 提交链（getCommitGraph）：宽容取 commits[]/graph[]/[]
+        if let result = try? await connection.call(
+            "git", "getCommitGraph", .json(.object(builder.fields))) {
+            let items = result.jsonValue?["commits"]?.arrayValue
+                ?? result.jsonValue?["graph"]?.arrayValue
+                ?? result.jsonValue?.arrayValue
+                ?? []
+            commits = items.compactMap { item in
+                guard let d = item.objectValue,
+                      let hash = d["hash"]?.stringValue ?? d["id"]?.stringValue
+                          ?? d["oid"]?.stringValue else { return nil }
+                let when = (d["timestamp"]?.intValue ?? d["authorDate"]?.intValue).map {
+                    Self.relative.localizedString(
+                        for: Date(timeIntervalSince1970: Double($0) / 1000), relativeTo: Date())
+                } ?? ""
+                return CommitRow(
+                    id: String(hash.prefix(8)),
+                    subject: d["subject"]?.stringValue
+                        ?? d["message"]?.stringValue
+                        ?? String(localized: "（无提交说明）"),
+                    author: d["author"]?.stringValue
+                        ?? d["authorName"]?.stringValue
+                        ?? "",
+                    when: when)
+            }
+        }
+        // 分支对比（getBranchComparison）：宽容呈现 ahead/behind 或对比摘要
+        if let result = try? await connection.call(
+            "git", "getBranchComparison", .json(.object(builder.fields))) {
+            if let dict = result.jsonValue?.objectValue {
+                let ahead = dict["ahead"]?.intValue ?? dict["aheadCount"]?.intValue
+                let behind = dict["behind"]?.intValue ?? dict["behindCount"]?.intValue
+                if ahead != nil || behind != nil {
+                    let base = dict["base"]?.stringValue ?? dict["baseBranch"]?.stringValue ?? ""
+                    comparisonText = String(
+                        format: String(localized: "对比 %@ · 领先 %lld / 落后 %lld"),
+                        base, ahead ?? 0, behind ?? 0)
+                } else if let summary = dict["summary"]?.stringValue {
+                    comparisonText = summary
+                }
+            }
+        }
+        failed = commits.isEmpty && comparisonText == nil
+        isLoading = false
+    }
+
+    static let relative: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.locale = Locale(identifier: "zh_CN")
+        return formatter
+    }()
 }

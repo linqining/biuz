@@ -6,6 +6,17 @@ struct OAuthSuccessView: View {
     @Environment(AppSession.self) private var session
     var onContinue: () -> Void
 
+    /// 登录直达会话（项 1）状态机：进入本页即自动尝试连上已配对的桌面端
+    enum AutoLinkPhase: Equatable {
+        case idle
+        case connecting(source: String?)
+        case connected
+        case noDevice
+        case failed(source: String?, detail: String)
+    }
+    @State private var autoPhase: AutoLinkPhase = .idle
+    @State private var pasteError: String?
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -27,6 +38,7 @@ struct OAuthSuccessView: View {
                     tokenSetSummary(tokenSet)
                     bearerNote
                 }
+                autoLinkSection
                 Spacer(minLength: 16)
                 Button(action: onContinue) {
                     HStack {
@@ -45,6 +57,134 @@ struct OAuthSuccessView: View {
             .padding(.horizontal, T.sp6)
         }
         .scrollIndicators(.hidden)
+        .task {
+            // 登录成功回调链的直达动作：自动发现设备并连接（无设备/失败不静默，
+            // 落为下方可行动引导卡）。无配对设备时该调用立即返回，不影响页面呈现。
+            guard autoPhase == .idle else { return }
+            autoPhase = .connecting(source: session.savedServer?.relay != nil
+                ? session.savedServer?.displayName : nil)
+            let outcome = await session.autoConnectAfterLogin()
+            switch outcome {
+            case .connected:
+                autoPhase = .connected
+            case .noPairedDevice:
+                autoPhase = .noDevice
+            case .failed(let source):
+                autoPhase = .failed(source: source, detail: "连接未成功，桌面端可能未在线")
+            }
+        }
+    }
+
+    // MARK: 登录直达区块（连接中 / 无设备 / 失败三态，全部可行动）
+
+    @ViewBuilder
+    private var autoLinkSection: some View {
+        switch autoPhase {
+        case .idle, .connected:
+            EmptyView()
+        case .connecting(let source):
+            HStack(spacing: T.sp3) {
+                SpinnerView(size: 16)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("正在连接我的 Mac…")
+                        .font(T.font(12.5, .semibold))
+                        .foregroundColor(T.text)
+                    Text(source ?? "正在发现已配对的桌面设备")
+                        .font(T.mono(10.5))
+                        .foregroundColor(T.text3)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            .card(padding: T.sp3)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("o3-card-autolink")
+        case .noDevice:
+            autoLinkGuide(
+                icon: "desktopcomputer.and.arrow.down", tint: T.orange,
+                title: "暂未发现已配对的桌面设备",
+                detail: "在桌面端打开 Web 远程控制并复制配对链接，回到这里粘贴即可直达；也可以先开始使用，稍后从连接页扫码。")
+        case .failed(let source, let detail):
+            autoLinkGuide(
+                icon: "exclamationmark.triangle", tint: T.orange,
+                title: "连接 \(source ?? "我的 Mac") 失败",
+                detail: "\(detail)。可检查桌面端是否在线后重试，或重新复制配对链接粘贴。")
+        }
+    }
+
+    private func autoLinkGuide(icon: String, tint: Color, title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            HStack(spacing: T.sp2) {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .foregroundColor(tint)
+                Text(title)
+                    .font(T.font(12.5, .semibold))
+                    .foregroundColor(T.text)
+                Spacer()
+            }
+            Text(detail)
+                .font(T.font(11.5))
+                .foregroundColor(T.text2)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+            if let pasteError {
+                Text(pasteError)
+                    .font(T.font(11))
+                    .foregroundColor(T.red)
+            }
+            HStack(spacing: 10) {
+                Button {
+                    connectFromClipboard()
+                } label: {
+                    Label("粘贴链接连接", systemImage: "doc.on.clipboard")
+                        .font(T.font(13, .semibold))
+                        .foregroundColor(T.onAccent)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(T.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                }
+                .accessibilityIdentifier("o3-act-paste-link")
+
+                Button {
+                    onContinue()
+                } label: {
+                    Text("先去连接桌面端")
+                        .font(T.font(13, .semibold))
+                        .foregroundColor(T.text)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                }
+                .accessibilityIdentifier("o3-act-skip-connect")
+            }
+            .padding(.top, 2)
+        }
+        .card(padding: T.sp3)
+        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.orange.opacity(0.45), lineWidth: 1))
+        // 透明容器：容器可定位（o3-card-autolink），粘贴/跳过动作保留各自 identifier
+        // （同 05-approval-card 处理，容器 identifier 不吞后代）
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("o3-card-autolink")
+    }
+
+    /// 剪贴板 → 云中继配对链接 → 既有 connectRelayLink（成功由 dismissFlow 收起本 cover）
+    private func connectFromClipboard() {
+        guard let text = UIPasteboard.general.string,
+              ConnectURLParser.parseRelayLink(text) != nil else {
+            pasteError = "剪贴板中没有云中继配对链接（桌面端 Web 远程控制 → 复制链接）"
+            return
+        }
+        pasteError = nil
+        autoPhase = .connecting(source: "剪贴板配对链接")
+        Task {
+            await session.connectRelayLink(text)
+            if case .connected = session.mode {
+                autoPhase = .connected
+            } else {
+                session.cancelConnecting()
+                autoPhase = .failed(source: "剪贴板配对链接", detail: "链接无效或桌面端离线")
+            }
+        }
     }
 
     private func userCard(_ userInfo: OAuthUserInfo) -> some View {

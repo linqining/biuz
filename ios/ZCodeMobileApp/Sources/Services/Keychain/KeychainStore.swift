@@ -165,8 +165,21 @@ enum ServerRegistry {
     private static let serversKey = "server.configs.v1"
     private static let selectedKey = "server.selected.v1"
 
+    private static let mirrorKey = "server.configs.mirror.v1"
+
     static var servers: [ServerConfig] {
-        (try? KeychainStore.loadCodable([ServerConfig].self, account: serversKey)) ?? []
+        if let stored = (try? KeychainStore.loadCodable([ServerConfig].self, account: serversKey)) ?? nil {
+            return stored
+        }
+        // 自愈：部分模拟器运行时上重装会清空应用 Keychain（真机更新无此问题）。
+        // Keychain 读空但 UserDefaults 镜像存在 → 回填 Keychain 并沿用（镜像内容与
+        // Keychain 同源，由 upsert/remove 同步维护）。
+        if let mirrored = UserDefaults.standard.data(forKey: mirrorKey),
+           let list = try? JSONDecoder().decode([ServerConfig].self, from: mirrored), !list.isEmpty {
+            try? KeychainStore.saveCodable(list, account: serversKey)
+            return list
+        }
+        return []
     }
 
     static func upsert(_ config: ServerConfig) {
@@ -177,14 +190,27 @@ enum ServerRegistry {
             all.insert(config, at: 0)
         }
         try? KeychainStore.saveCodable(all, account: serversKey)
+        syncMirror(all)
     }
 
     static func remove(id: String) {
         let remaining = servers.filter { $0.id != id }
         try? KeychainStore.saveCodable(remaining, account: serversKey)
+        syncMirror(remaining)
         if selectedServerID == id {
             UserDefaults.standard.removeObject(forKey: selectedKey)
         }
+    }
+
+    /// UserDefaults 镜像（模拟器重装清 Keychain 的自愈源；真机不依赖）
+    private static func syncMirror(_ list: [ServerConfig]) {
+        if let data = try? JSONEncoder().encode(list) {
+            UserDefaults.standard.set(data, forKey: mirrorKey)
+        }
+    }
+
+    static func clearMirror() {
+        UserDefaults.standard.removeObject(forKey: mirrorKey)
     }
 
     static var selectedServerID: String? {

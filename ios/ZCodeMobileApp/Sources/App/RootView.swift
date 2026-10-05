@@ -94,6 +94,8 @@ struct RootView: View {
                         FileTreeView()
                     case .preview(let node):
                         FilePreviewView(node: node)
+                    case .commitGraph:
+                        CommitGraphPage()
                     }
                 }
         }
@@ -115,17 +117,17 @@ struct RootView: View {
         case .connectFailed(_, let error):
             return ConnectionBanner.Model(
                 icon: "exclamationmark.triangle.fill", tint: T.red,
-                title: "桌面端连接失败 · 已回退演示数据",
+                title: String(localized: "桌面端连接失败 · 已回退演示数据"),
                 detail: error.headline,
-                action: "重试") {
+                action: String(localized: "重试")) {
                 Task { await session.reconnect() }
             }
         case .disconnected(_, let detail):
             return ConnectionBanner.Model(
                 icon: "wifi.exclamationmark", tint: T.orange,
-                title: "与桌面端的连接已断开",
+                title: String(localized: "与桌面端的连接已断开"),
                 detail: detail,
-                action: "重连") {
+                action: String(localized: "重连")) {
                 Task { await session.reconnect() }
             }
         default:
@@ -275,7 +277,7 @@ struct ZCodeTabBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(item.identifier)
-        .accessibilityLabel("\(item.title)\(count > 0 ? "，\(count) 条未处理" : "")")
+        .accessibilityLabel("\(item.title)\(count > 0 ? String(localized: "，\(count) 条未处理") : "")")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -306,7 +308,9 @@ struct DiffActionBar: View {
             Button {
                 router.pushFileTree()
             } label: {
-                Text("浏览文件")
+                // G-026：文案对齐 spec 5.10 语义（次按钮动作 = 在桌面端继续处理）；
+                // testid 保留 08-act-desktop-continue（无 E2E 文案断言依赖，已核验）
+                Text(String(localized: "桌面端继续"))
                     .font(T.font(15, .semibold))
                     .foregroundColor(T.text2)
                     .frame(maxWidth: .infinity, minHeight: 48)

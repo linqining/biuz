@@ -42,6 +42,7 @@ final class RelayLinkE2ETests: XCTestCase {
     @discardableResult
     private func launch(args: [String]) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)"] // 本地化后固定测试语言（中文断言稳定）
         app.launchArguments = ["-ZCodeE2EResetState"] + args
         app.launch()
         return app
@@ -77,8 +78,16 @@ final class RelayLinkE2ETests: XCTestCase {
         return true
     }
 
-    /// 逐键退格清空地址栏（URL 键盘无全选菜单可依赖；80 位覆盖最长测试链接）
-    private func clearHostField(_ field: XCUIElement) {
+    /// 逐键退格清空地址栏（URL 键盘无全选菜单可依赖；80 位覆盖最长测试链接）。
+    /// 上一段提交/报错后键盘可能已收起（typeText 需焦点在场）：先 tap 重新聚焦
+    /// 并等键盘弹出（有界重试），再退格清空。
+    private func clearHostField(_ application: XCUIApplication, _ field: XCUIElement) {
+        for _ in 0..<3 {
+            field.tap()
+            if application.keyboards.firstMatch.waitForExistence(timeout: 3) {
+                break
+            }
+        }
         field.typeText(String(repeating: "\u{8}", count: 80))
     }
 
@@ -127,9 +136,13 @@ final class RelayLinkE2ETests: XCTestCase {
         XCTAssertFalse(element(app, "l1-field-host-err").exists,
                        "中继链接不得走局域网直连解析的地址报错分支（l1-field-host-err 不应出现）")
 
-        // ② 解析产物反射：成功提示携带链接 name= 参数的机器名
-        waitLabel(element(app, "l1-parse-ok"), contains: "已识别云中继配对链接 · E2E-Relay-Mac",
-                  timeout: 8, "解析成功提示应携带配对链接 name= 参数提取的机器名")
+        // ② 解析产物反射：成功提示携带链接 name= 参数的机器名。
+        // l1-parse-ok 的 identifier 挂在无背景 HStack 容器上（不进可访问性树、label 不聚合），
+        // 以提示文本的全局 Text 观测（同 13-banner/12-usercard 口径）
+        XCTAssertTrue(app.staticTexts
+            .containing(NSPredicate(format: "label CONTAINS %@", "已识别云中继配对链接 · E2E-Relay-Mac"))
+            .firstMatch.waitForExistence(timeout: 8),
+                      "解析成功提示应携带配对链接 name= 参数提取的机器名")
     }
 
     // MARK: - 用例 2：拦截负例（非 /remote/ 路径、token= 形态不得误入中继分支）
@@ -151,7 +164,7 @@ final class RelayLinkE2ETests: XCTestCase {
                       "非 /remote/ 路径不应识别为中继，应按直连规则报地址错误（缺端口）")
         XCTAssertFalse(element(app, "l3-btn-retry").waitForExistence(timeout: 3),
                        "非 /remote/ 路径不得触发中继连接（不应出现 L3 失败态）")
-        clearHostField(hostField)
+        clearHostField(app, hostField)
 
         // ② /remote/ 路径但带 token=（token= 形态归直连）
         XCTAssertTrue(typeInto(app, hostField, text: tokenShapedRelayLink), "地址栏应可输入 token= 链接")

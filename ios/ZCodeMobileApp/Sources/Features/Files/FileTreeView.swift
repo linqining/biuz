@@ -4,12 +4,21 @@ import SwiftUI
 /// 连接态搜索走 file.searchWorkspaceFiles（服务端有界候选）；演示态保持本地过滤不变
 struct FileTreeView: View {
     @Environment(\.fileStore) private var store
+    @Environment(AppSession.self) private var session
     @State private var tree: [FileNode] = []
     @State private var expanded: Set<String> = ["src", "src/core"]
     @State private var query = ""
     @State private var isLoading = true
     @State private var searchResults: [FileNode]?
     @State private var searchTask: Task<Void, Never>?
+
+    /// G-031：连接态组头显示当前连接 workspace 真实路径；演示态保留演示路径
+    private var headerPath: String {
+        if case .connected = session.mode, let ws = session.connection.workspace {
+            return "工作区 \(ws.path)"
+        }
+        return "工作区 ~/work/zcode"
+    }
 
     /// 命中行：搜索回执优先（连接态），否则树内过滤（演示态 + 未命中时回退）
     private var visibleRows: [FileNode] {
@@ -42,7 +51,7 @@ struct FileTreeView: View {
             } else {
                 List {
                     Section {
-                        SearchField(text: $query, placeholder: "搜索文件", identifier: "09-search")
+                        SearchField(text: $query, placeholder: String(localized: "搜索文件"), identifier: "09-search")
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 4, leading: T.sp4, bottom: 4, trailing: T.sp4))
                             .listRowSeparator(.hidden)
@@ -52,7 +61,8 @@ struct FileTreeView: View {
                             row(node)
                         }
                     } header: {
-                        Text("工作区 ~/work/zcode")
+                        // G-031：连接态显示真实 workspace 路径，演示态保留演示路径
+                        Text(headerPath)
                             .font(T.font(11, .semibold))
                             .foregroundColor(T.text3)
                     }
@@ -134,9 +144,19 @@ struct FileTreeView: View {
                         Image(systemName: iconName(for: node.name))
                             .font(.system(size: 12))
                             .foregroundColor(T.text3)
-                        Text(node.name)
-                            .font(T.mono(13))
-                            .foregroundColor(T.text)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(node.name)
+                                .font(T.mono(13))
+                                .foregroundColor(T.text)
+                            // G-039：搜索命中态显示相对路径，补回层级上下文
+                            if searchResults != nil, node.path.count > node.name.count {
+                                Text(node.path)
+                                    .font(T.mono(10))
+                                    .foregroundColor(T.text3)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
                         Spacer()
                         if let size = node.size {
                             Text(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
@@ -196,6 +216,39 @@ struct FilePreviewView: View {
     /// 二进制预览状态（readBinaryPreview 首块）
     @State private var binaryData: Data?
     @State private var binaryFailed = false
+    /// G-027 分享态：内容临时文件 URL / 不可分享提示
+    @State private var shareURL: URL?
+    @State private var shareNotice: String?
+
+    /// G-027：分享文件本体——文本内容写临时文件（文件名取 node.name，路径仅作 fallback
+    /// 语义）；已截断（超分页读上限）不分享半份内容，给明确提示
+    private func shareFile() async {
+        if binaryKind != nil {
+            // 二进制（图片/PDF）已下载的首块预览不可代表本体：如实提示
+            shareNotice = String(localized: "二进制文件暂不支持移动端分享，请在桌面端查看或分享")
+            return
+        }
+        if isTruncated {
+            shareNotice = String(localized: "文件超出移动端可读上限（已在桌面端截断加载），请在桌面端分享完整文件")
+            return
+        }
+        let body = content.isEmpty ? await store.content(of: node.path) : content
+        guard !body.isEmpty else {
+            shareNotice = String(localized: "文件内容为空或读取失败，无法分享")
+            return
+        }
+        let sanitized = node.name.replacingOccurrences(of: "/", with: "_")
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("biuz-share-\(UUID().uuidString.prefix(6))")
+            .appendingPathComponent(sanitized)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            try body.write(to: url, atomically: true, encoding: .utf8)
+            shareURL = url
+        } catch {
+            shareNotice = String(localized: "分享失败 · \(error.localizedDescription)")
+        }
+    }
 
     private var markdownBlocks: [TinyMarkdown.Block] {
         TinyMarkdown.parse(content)
@@ -252,11 +305,10 @@ struct FilePreviewView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
+                // G-027：分享文件内容（文本经已读内容写临时文件；路径仅作 fallback 文件名）。
+                // 截断（超分页读上限）时给明确不可分享提示，不分享半份内容。
                 Button {
-                    let activityVC = UIActivityViewController(activityItems: [node.path], applicationActivities: nil)
-                    UIApplication.shared.connectedScenes
-                        .compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }
-                        .first?.present(activityVC, animated: true)
+                    Task { await shareFile() }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 15))
@@ -265,6 +317,18 @@ struct FilePreviewView: View {
                 }
                 .accessibilityIdentifier("09-act-share")
             }
+        }
+        .sheet(item: Binding(
+            get: { shareURL.map(ShareFilePayload.init) },
+            set: { if $0 == nil { shareURL = nil } })) { payload in
+            ActivityView(payload: payload)
+        }
+        .alert("无法分享", isPresented: Binding(
+            get: { shareNotice != nil },
+            set: { if !$0 { shareNotice = nil } })) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(shareNotice ?? "")
         }
         .task {
             // 二进制类别（图片/PDF）走 readBinaryPreview 单独通道
@@ -438,4 +502,23 @@ struct PDFKitView: UIViewRepresentable {
             uiView.document = PDFDocument(data: data)
         }
     }
+}
+
+
+// MARK: - 文件分享（G-027：UIActivityViewController 的 SwiftUI 包装，分享内容临时文件）
+
+struct ShareFilePayload: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// iOS 14+ 无原生 ActivityView SwiftUI 封装；最小 UIViewControllerRepresentable
+struct ActivityView: UIViewControllerRepresentable {
+    let payload: ShareFilePayload
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [payload.url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

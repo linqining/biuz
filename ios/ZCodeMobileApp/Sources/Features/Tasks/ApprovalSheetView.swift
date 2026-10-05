@@ -6,6 +6,7 @@ import SwiftUI
 struct ApprovalSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.taskStore) private var store
+    @Environment(\.conversationStore) private var conversationStore
     let task: TaskRecord
 
     enum AuthScope: String, CaseIterable, Identifiable {
@@ -36,6 +37,9 @@ struct ApprovalSheetView: View {
 
     @State private var scope: AuthScope = .once
     @State private var decisionToast: String?
+    /// G-025 追问输入态
+    @State private var showFollowupInput = false
+    @State private var followupText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -237,14 +241,40 @@ struct ApprovalSheetView: View {
 
     private var exitActions: some View {
         VStack(spacing: 0) {
+            // G-025：追问接真——文本输入后经会话通道 sendText 下发（桌面会话流出现
+            // 该追问；不 resolveInteraction，任务保持待操作）。发送失败给错误提示。
             TextActionButton(title: "追问 Agent，再决定", tint: T.text2, identifier: "06-act-followup") {
-                decisionToast = "已把追问发送给 Agent，任务保留在待操作"
+                showFollowupInput = true
             }
             TextActionButton(title: "稍后处理", tint: T.text3, identifier: "06-act-later") {
                 dismiss()
             }
         }
         .padding(.bottom, T.sp3)
+        .alert("追问 Agent", isPresented: $showFollowupInput) {
+            TextField("想追问什么…", text: $followupText)
+                .accessibilityIdentifier("06-field-followup")
+            Button("取消", role: .cancel) { followupText = "" }
+            Button("发送") { Task { await sendFollowup() } }
+                .accessibilityIdentifier("06-act-followup-send")
+        } message: {
+            Text("追问将发送到该任务的会话流；批准/拒绝仍待你决定。")
+        }
+    }
+
+    /// 追问下发（G-025）：演示态走 Mock 会话通道（会话流出现追问），连接态 sendText
+    /// 桌面代执行；失败（未连接/信封被拒）如实提示，不再给假反馈
+    private func sendFollowup() async {
+        let text = followupText.trimmingCharacters(in: .whitespacesAndNewlines)
+        followupText = ""
+        guard !text.isEmpty else { return }
+        let ack = await conversationStore.send(text, in: task.id)
+        // send 返回是否已受理（v3 纠偏后的接口语义：false=未送达）
+        if ack {
+            decisionToast = String(localized: "已把追问发送给 Agent，任务保留在待操作")
+        } else {
+            decisionToast = String(localized: "追问发送失败 · 请确认桌面端连接后再试")
+        }
     }
 
     private func dismissAfterDecision() {
