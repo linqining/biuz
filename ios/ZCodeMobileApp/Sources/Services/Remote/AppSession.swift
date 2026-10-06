@@ -369,6 +369,36 @@ final class AppSession {
             UserDefaults.standard.set("connected: relay=\(server.relay != nil)", forKey: "diag.lastConnect")
             // 桌面端只读信息（oauth 登录展示态 + Coding Plan 用量）后台拉取；失败各字段保持 nil
             Task { await refreshDesktopReadonlyInfo() }
+            // 诊断探针（-ZCodeDiagQueueCASProbe new）：PTY 受限期间队列 CAS/模型选择
+            // schema 的活体验证入口——连接就绪后一次性运行，ack 落 diag.qcas.N；
+            // （-ZCodeDiagStopProbe new）stop 命令信封活体验证，ack 落 diag.stop.N
+            let probeArgs = ProcessInfo.processInfo.arguments
+            func probeTarget(_ flag: String) -> String? {
+                guard let i = probeArgs.firstIndex(of: flag),
+                      i + 1 < probeArgs.count else { return nil }
+                return probeArgs[i + 1]
+            }
+            if let target = probeTarget("-ZCodeDiagQueueCASProbe") {
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 2_500_000_000) // stores/订阅就绪
+                    guard let self else { return }
+                    await self.remoteConversationStore?.runQueueCASProbeDiag(target: target)
+                }
+            }
+            if let target = probeTarget("-ZCodeDiagStopProbe") {
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    guard let self else { return }
+                    await self.remoteConversationStore?.runStopProbeDiag(target: target)
+                }
+            }
+            if probeArgs.contains("-ZCodeDiagCleanupProbe") {
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    guard let self else { return }
+                    await self.remoteConversationStore?.runCleanupProbeDiag()
+                }
+            }
         case .failure(let error):
             UserDefaults.standard.set("failed: relay=\(server.relay != nil) host=\(server.host):\(server.port) error=\(String(describing: error))", forKey: "diag.lastConnect")
             teardownRemoteStores()
@@ -376,7 +406,8 @@ final class AppSession {
         }
     }
 
-    /// 连接态拉取桌面只读信息（oauth 三读 + usage-stats 两读）；断开/重连时刷新
+    /// 连接态拉取桌面只读信息（oauth 三读 + usage-stats 两读 + 多 workspace 枚举探测）；
+    /// 断开/重连时刷新
     func refreshDesktopReadonlyInfo() async {
         guard connection.isActive else {
             desktopOAuthInfo = nil
@@ -387,6 +418,48 @@ final class AppSession {
         desktopOAuthInfo = await Self.fetchDesktopOAuthInfo(connection: connection)
         codingPlanUsage = await Self.fetchCodingPlanUsage(connection: connection)
         appUsageSnapshot = await Self.fetchAppUsageSnapshot(connection: connection)
+        await probeRemoteControlBootstrap()
+    }
+
+    /// 多 workspace 枚举探测（web 远控 REST 面，2026-10-06 bundle 取证）：
+    /// `GET {relayOrigin}/api/remote-control/windows/bootstrap/{token}` →
+    /// `{workspaces, tasks, mobileViewState|initialViewState}`——web 端工作区切换器
+    /// 数据源（listWorkspaces 即此端点，非 relay 命令通道）。web 的 token 来自页面
+    /// 参数 remoteControlToken；移动端以配对链接 sid 试探（是否同 token 族由回执定）：
+    /// 2xx → diag 落 workspace 清单（多 workspace 接线依据）；401/404 → diag 落
+    /// 状态码（token 不同族实据）。GET 只读，无副作用。
+    private func probeRemoteControlBootstrap() async {
+        guard let relay = savedServer?.relay, !relay.deviceSid.isEmpty,
+              let server = savedServer else { return }
+        let origin = server.useTLS ? "https://\(server.host)" : "http://\(server.host)"
+        guard let url = URL(string: "\(origin)/api/remote-control/windows/bootstrap/\(relay.deviceSid)") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let workspaces = json["workspaces"] as? [[String: Any]] ?? []
+                let paths = workspaces.compactMap {
+                    ($0["workspacePath"] as? String) ?? ($0["path"] as? String) ?? ($0["workspaceKey"] as? String)
+                }
+                let firstShape = workspaces.first.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "-"
+                UserDefaults.standard.set(
+                    "status=\(status) topKeys=\(json.keys.sorted().joined(separator: "|"))"
+                        + " workspaces=\(workspaces.count) [\(paths.joined(separator: " | ").prefix(300))]"
+                        + " first=\(firstShape.prefix(300))",
+                    forKey: "diag.remote.bootstrap")
+            } else {
+                UserDefaults.standard.set(
+                    "status=\(status) body=\(String(data: data, encoding: .utf8)?.prefix(200) ?? "?")",
+                    forKey: "diag.remote.bootstrap")
+            }
+        } catch {
+            UserDefaults.standard.set(
+                "ERR \(String(describing: error).prefix(200))", forKey: "diag.remote.bootstrap")
+        }
+        UserDefaults.standard.synchronize()
     }
 
     /// 使用统计快照（usage-stats.getAppUsageSnapshot {range, timeZone}；
@@ -397,9 +470,8 @@ final class AppSession {
         var builder = JSONObjectBuilder()
         builder.set("range", "30d")
         builder.set("timeZone", TimeZone.current.identifier)
-        guard let result = try? await connection.call(
-            "usage-stats", "getAppUsageSnapshot", .json(.object(builder.fields))),
-            let dict = result.jsonValue?.objectValue else {
+        guard let result = try? await usageStatsCall(connection, "getAppUsageSnapshot", builder.fields),
+              let dict = result.jsonValue?.objectValue else {
             return nil
         }
         var summary = AppUsageSummary()
@@ -485,6 +557,20 @@ final class AppSession {
     /// usage-stats 两读 → 用量投影。accountAccess 按个人 Coding Plan 固定形态
     /// （zcodeProviderAccountAccessSchema：zai / individual-coding-plan）。
     /// 请求被服务端拒绝时投影为 nil（UI 回退演示额度行）。
+    /// usage-stats 读面统一入口：桌面端对并发快照请求拒绝（"Request in progress,
+    /// please wait"——连接刷新与用量页 task 竞态时实测），首败 1.2s 退避重试一次
+    /// （同 loadOlder 中继瞬断口径）；重试仍败则原错误上抛（调用方取证）。
+    private static func usageStatsCall(
+        _ connection: ZCodeServerConnection, _ command: String,
+        _ args: [String: JSONValue]) async throws -> RPCValue {
+        do {
+            return try await connection.call("usage-stats", command, .json(.object(args)))
+        } catch {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            return try await connection.call("usage-stats", command, .json(.object(args)))
+        }
+    }
+
     private static func fetchCodingPlanUsage(connection: ZCodeServerConnection) async -> CodingPlanUsageInfo? {
         let accountAccess = JSONValue.object([
             "type": .string("zhipu-account"),
@@ -502,8 +588,7 @@ final class AppSession {
         builder.set("timeZone", TimeZone.current.identifier)
         let snapshotResult: RPCValue?
         do {
-            snapshotResult = try await connection.call(
-                "usage-stats", "getCodingPlanUsageSnapshot", .json(.object(builder.fields)))
+            snapshotResult = try await usageStatsCall(connection, "getCodingPlanUsageSnapshot", builder.fields)
         } catch {
             // 失败不再静默（「桌面端未返回 Coding Plan 用量」的取证口）
             if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
@@ -576,9 +661,9 @@ final class AppSession {
         var resetBuilder = JSONObjectBuilder()
         resetBuilder.set("preferredProviderId", "account:zai-individual-coding-plan")
         resetBuilder.set("accountAccess", accountAccess)
-        if let result = try? await connection.call(
-            "usage-stats", "getCodingPlanResetStatus", .json(.object(resetBuilder.fields))),
-           let dict = result.jsonValue?.objectValue {
+        if let dict = try? await usageStatsCall(
+            connection, "getCodingPlanResetStatus", resetBuilder.fields),
+           let dict = dict.jsonValue?.objectValue {
             // 取证（一次性）：重置卡全量形态
             if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
                UserDefaults.standard.string(forKey: "diag.usage.reset") == nil {
@@ -609,11 +694,9 @@ final class AppSession {
                     from: Date(timeIntervalSince1970: usedAt / 1000))
             }
             usage.resetCards = cards
-            // 重置窗口取最近可用 five-hour 机会（毫秒时间戳）
-            if let expireAt = dict["availableFiveHourResets"]?.arrayValue?.first?.objectValue?["expireAt"]?.doubleValue,
-               expireAt > 0 {
-                usage.resetsAtText = Self.shortFormatter.string(from: Date(timeIntervalSince1970: expireAt / 1000))
-            }
+            // 注意：usage.resetsAtText 保留额度窗口自身 nextResetTime（自动重置时间）；
+            // 重置卡的 expireAt 是「卡过期时间」，语义不同——不能覆写（曾致用户卡显示
+            // 卡过期日当额度重置日，数据对不上）
         }
         // 取证（一次性）：App 用量统计快照（summary/模型趋势/工具用量形状定位）
         if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
@@ -804,6 +887,15 @@ final class AppSession {
         UserDefaults.standard.set("assemble: workspace=\(workspace == nil ? "nil!" : (workspace?.path ?? "?")) info=\(String(describing: info).prefix(200))", forKey: "diag.assemble")
         guard let workspace else { return }
         let conversationStore = RemoteConversationStore(connection: connection, workspace: workspace)
+        // 多 workspace：连接期 workspace-list-response 采集的桌面全部工作区回写
+        // （聚合任务列表用；active 在首位，单 workspace 行为不变）。store 是 actor，
+        // 经 actor 方法回写（跨 actor 隔离）
+        let workspaces = info.workspaces
+        Task {
+            await conversationStore.setAllWorkspaces(workspaces)
+            let bootstrapTasks = await connection.relayBootstrapTasks
+            await conversationStore.setBootstrapTasks(bootstrapTasks)
+        }
         remoteConversationStore = conversationStore
         remoteTaskStore = RemoteTaskStore(connection: connection, workspace: workspace, conversationStore: conversationStore)
         remoteFileStore = RemoteFileStore(connection: connection, workspace: workspace)

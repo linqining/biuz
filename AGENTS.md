@@ -108,8 +108,17 @@ xcrun simctl launch booted cn.biuz.mobile \
 
 ## 6. 未决事项速查（接手先看）
 
-- `RemoteTaskStore.stop` 信封违规待修（协议文档 §7.1 警告框）。
-- 「加载更早消息」用户报不生效，待复验（`diag.rowsrange.*`）。
-- CAS 词表未穷举（switchModelConfig/pauseGoal 已实证）；`conversationWorkflowRunsV4` 不带 limit 疑似服务端缺省 0（建议显式传）。
+- ~~`RemoteTaskStore.stop` 信封违规~~已修（2026-10-06：委托 `RemoteConversationStore.stopTurn` 走统一 `sendCommand`）。
+- **信封 sessionId 键恒在场**（2026-10-06 探针实证）：createSession 传 null、其余传目标 id；键缺省被 zod 拒（曾致移动端 createSession 对真实桌面静默全失败）。新写命令一律走 `sendCommand`，禁止自造信封（该教训再次印证）。
+- **CAS stale 重试**（2026-10-06 探针实证）：`proto.staleRevision`/status "stale" 时原样重发一次即命中（sendCASWithRetry）；队列五件/pauseGoal/resumeGoal/retryTurn 已接入，新 CAS 命令接入时沿用。
+- **队列 CAS 已活体验证**（-ZCodeDiagQueueCASProbe 12 步全 accepted，置顶后队列顺序实际改变）；新建会话 createSession/modelSelection 载荷同轮活体验证（result.sessionId=sess_* 规范 id）；**stop 命令已活体验证**（-ZCodeDiagStopProbe，对运行中 turn accepted）。三探针保留可复跑。
+- **PTY 阻塞根因确诊（2026-10-06）**：内核 PTY 池耗尽——`kern.tty.ptmx_max=511`，`pty.openpty()` 直接报 "out of pty devices"（expect/tmux 同样失败），而用户态仅 3 个 zsh 持有 ttys（其余为内核层泄漏——立项报告「PTY 泄漏」的确切机理）。**恢复办法**：`sudo sysctl -w kern.tty.ptmx_max=999`（临时）或重启（彻底），之后即可跑门禁 E2E（test08 已编译就绪：`xcodebuild test-without-building -only-testing:ZCodeMobileUITests/FeatureCompletionE2ETests/test08_newConversationModelSelectionCarriedInFirstInput`）。
+- 探针残留：5 个标题带「探针」/「请慢慢数数」的会话仍投影在会话列表——deleteTask 只删 task-index，deleteSession 对有行会话报 sessionNotFound（仅 draft/空会话可回收）；残留为桌面真态，需桌面端侧删除。清理探针 -ZCodeDiagCleanupProbe 保留。
+- ~~「加载更早消息」~~复验通过（2026-10-06 diag 实据：before=185 after=381，conversationRowsRangeV4 游标分页 hasMore=true 正常回收）。
+- CAS 词表更新（2026-10-06）：switchModelConfig/pauseGoal/**队列四件 sendQueuedNow/editQueueItem/deleteQueueItem/reorderQueueItem**/setAutoDrain 已实证为 CAS 类（队列缺 revision 被拒 "CAS commands require baseRevision and baseLogEpoch"）；`conversationWorkflowRunsV4` 不带 limit 疑似服务端缺省 0（建议显式传）。
+- 会话前模型选择（2026-10-06 已接）：createSession `firstInput.modelSelection = {providerId, modelId, options?:{reasoningLevel}}`（web `U7e` 形态，档位缺席略去 options）；移动端新建会话 sheet 已接线。
+- **多 workspace 已解决（v1.5，2026-10-06）**：bootstrap.tasks 即跨工作区全量任务索引（实测 252 行/26 工作区，web「所有项目目录」同源）——会话列表经 setBootstrapTasks 合并直接呈现全部项目任务。workspace-list-request 只回当前打开工作区（非枚举源）；REST windows/bootstrap 对配对 sid 404（web 专用 remoteControlToken 族）——v1.3③ 的 listTaskList scope 限制本身仍成立，但枚举改走 bootstrap.tasks 后不再是用户可见缺口。探针保留（diag.remote.bootstrap / diag.bootstrap.tasks）。
+- **审批卡可用性（2026-10-06）**：卡片固定 composer 上方常驻（不再随消息滚动顶走）；重连后快照缺 pendingInteractions 键 → base:null 全量 resync 补齐一次（根因：store 重建缓存空 + 增量恢复不补发未变化键）。
+- **文件页「全部批准」语义（2026-10-06 修复空实现）**：本地已阅/保留标记（全部未决文件置已批准、角标清零）——无服务端逐文件批准接口，git stage 被 ReadOnlyGate 拦截，桌面实态不变；真正的权限审批走 resolveInteraction 卡（会话内「批准执行」）。
 - workflow 多 run：取消/设置命令的 workId 必须取活 run（stale 活 run 发 cancel 得 `backgroundWorkCancelRejected.not_found`；仲裁口径见协议文档 §13 v1.1④）。
 - `diag.*` 清理待工作流验收后统一执行。

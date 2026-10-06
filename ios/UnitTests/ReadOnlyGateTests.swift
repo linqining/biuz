@@ -70,11 +70,14 @@ final class ReadOnlyGateTests: XCTestCase {
 
     // MARK: ② 直写面（防回归底线）
 
-    func testGitWriteCommandsBlocked() {
+    func testGitWriteCommandsAllowedWebParity() {
+        // 2026-10-06 边界修订（用户裁决「和 web bundle 保持一致」）：git 写族与 web
+        // 端同等放行（桌面代执行——web 端这些命令全部经桌面 git 服务执行）。
+        // file 频道默认拒绝与 file.* 直写拦截保持不变（真·文件直写仍不接）。
         for command in ["stagePaths", "commit", "unstagePaths", "discardPaths", "push",
                         "switchBranch", "createBranchAndSwitch", "generateCommitMessage"] {
             let verdict = ReadOnlyGate.inspect(channel: "git", command: command, arg: .undefined)
-            XCTAssertTrue(verdict.isBlocked, "git.\(command) 仓库写应拦截")
+            XCTAssertFalse(verdict.isBlocked, "git.\(command) 应与 web 对齐放行（桌面代执行）")
         }
     }
 
@@ -145,7 +148,6 @@ final class ReadOnlyGateTests: XCTestCase {
             ("oauth", "startOAuth"), ("oauth", "handleCallback"), ("oauth", "refreshToken"),
             ("oauth", "logout"), ("oauth", "logoutAll"),
             ("conversation-share", "publish"), ("conversation-share", "importShare"),
-            ("usage-stats", "requestCodingPlanResetOpportunity"), ("usage-stats", "useCodingPlanReset"),
             ("window-controller", "mutateTask"),
             ("feedback", "create"), ("feedback", "uploadAttachment"),
             ("provider-settings", "createPersonalProvider"), ("provider-settings", "testModelConnectivity"),
@@ -174,6 +176,23 @@ final class ReadOnlyGateTests: XCTestCase {
         for (channel, command) in cases {
             let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: .undefined)
             XCTAssertFalse(verdict.isBlocked, "\(channel).\(command) 已放行为合法远控写（桌面代执行），不应拦截")
+        }
+    }
+
+    // MARK: ②'' Coding Plan 重置机会领取放行（G-042：usage-stats 频道一键领取入口）
+    // 实现口径（ReadOnlyGate channelDirectWriteCommands["usage-stats"] = []）：
+    // requestCodingPlanResetOpportunity / useCodingPlanReset 为「移动端发命令、桌面代执行」
+    // 的合法远控写（非手机直写仓库文件）；usage-stats 其余均为读面。放行必须保持——
+    // 反向回归：一旦有人把这两件加回黑名单，一键领取入口即被边界误杀（G-042 验收失败）。
+
+    func testCodingPlanResetClaimCommandsAllowed() {
+        let cases: [(String, String)] = [
+            ("usage-stats", "requestCodingPlanResetOpportunity"),
+            ("usage-stats", "useCodingPlanReset"),
+        ]
+        for (channel, command) in cases {
+            let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: .undefined)
+            XCTAssertFalse(verdict.isBlocked, "\(channel).\(command) G-042 放行（一键领取入口），不应拦截")
         }
     }
 
@@ -217,8 +236,7 @@ final class ReadOnlyGateTests: XCTestCase {
 
         // ② 拦截面 verdict 全部携带可记录 reason（出口 append 的字符串源）
         let blockedFaces: [(String, String)] = [
-            ("git", "stagePaths"), ("git", "commit"), ("git", "unstagePaths"),
-            ("git", "discardPaths"), ("git", "push"),
+            // git 写族已按 web 对齐放行（2026-10-06），拦截面只剩 file/zcode-agent/task 等
             ("file", "writeTextFile"), ("file", "applyPatch"), ("file", "unknownWriteCmd"),
             ("zcode-task", "setModel"), ("zcode-task", "setConfigOption"),
             ("zcode-agent", "writeWorkspaceFile"), ("zcode-agent", "saveFile"),

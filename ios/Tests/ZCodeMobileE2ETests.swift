@@ -48,6 +48,20 @@ final class ZCodeMobileE2ETests: XCTestCase {
         return result == .completed
     }
 
+    /// 滚动揭示视口外元素（项 5 项目分组上线后列表按项目分组渲染，未绑定项目的
+    /// 会话归「任务」组、位于首屏之下——List/LazyVStack 惰性创建，视口外查不到。
+    /// 有界下滑直到元素入树；已在场则原样返回）
+    @discardableResult
+    private func scrollReveal(_ app: XCUIApplication, _ identifier: String,
+                              maxSwipes: Int = 6) -> Bool {
+        let item = element(app, identifier)
+        if item.exists { return true }
+        for _ in 0..<maxSwipes where !item.exists {
+            app.swipeUp()
+        }
+        return item.exists
+    }
+
     // MARK: - 流程 1：启动进入会话列表，能看到 mock 会话数据
 
     func test01_launchShowsConversationListWithMockData() throws {
@@ -57,14 +71,17 @@ final class ZCodeMobileE2ETests: XCTestCase {
         let pinnedRow = element(app, "04-row-c1")
         XCTAssertTrue(pinnedRow.waitForExistence(timeout: 10), "启动后应进入会话列表并出现置顶会话行（c1）")
 
-        // 只断言首屏渲染窗口内的行（List 行惰性创建，窗口外行查不到）
-        XCTAssertTrue(element(app, "04-row-c2").exists, "今天分组的会话（c2）应显示")
-        XCTAssertTrue(element(app, "04-row-c5").exists, "今天分组的运行中会话（c5）应显示")
-
+        // 首屏断言（滚动前完成：LazyVStack 行滑出视口后即从树中移除）
         XCTAssertTrue(element(app, "04-act-new").exists, "会话页导航栏应有新建入口")
         XCTAssertTrue(element(app, "04-search").exists, "会话页应有搜索框")
         XCTAssertTrue(app.staticTexts["重构会话持久层"].exists, "应显示 mock 会话标题「重构会话持久层」")
-        XCTAssertTrue(app.staticTexts["修复登录超时问题"].exists, "应显示 mock 会话标题「修复登录超时问题」")
+
+        // 项目分组（项 5）上线后列表按项目分组渲染：未绑定项目的 c2/c5 归「任务」组、
+        // 位于首屏之下（List 行惰性创建，视口外查不到）——滚动揭示后断言
+        XCTAssertTrue(scrollReveal(app, "04-row-c2"), "未绑定项目的会话（c2）滚动后应显示（任务组）")
+        XCTAssertTrue(app.staticTexts["修复登录超时问题"].exists,
+                      "应显示 mock 会话标题「修复登录超时问题」（c2 揭示窗口内）")
+        XCTAssertTrue(scrollReveal(app, "04-row-c5"), "运行中会话（c5）滚动后应显示（任务组）")
     }
 
     // MARK: - 流程 2：底部 Tab 在 会话/任务/文件/设置 之间切换
@@ -154,12 +171,18 @@ final class ZCodeMobileE2ETests: XCTestCase {
             .firstMatch.waitForExistence(timeout: 15),
                       "点击 chip 应发出应答并触发模拟回复（应答文本回执上屏）")
 
-        // 返回列表，新会话应按时间线排入「今天」分组
+        // 返回列表，新会话应按时间线排入「任务」组（未绑定项目；项目分组上线后该组
+        // 位于视口外，需滚动揭示——List 行惰性创建）
         let back = app.navigationBars.buttons.firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 4), "会话页应有系统返回按钮")
         back.tap()
-        XCTAssertTrue(app.staticTexts["E2E smoke conversation"].waitForExistence(timeout: 8),
-                      "返回后列表应出现新建的会话")
+        let newConversationRow = app.staticTexts["E2E smoke conversation"]
+        if !newConversationRow.waitForExistence(timeout: 4) {
+            for _ in 0..<6 where !newConversationRow.exists {
+                app.swipeUp()
+            }
+        }
+        XCTAssertTrue(newConversationRow.exists, "返回后列表滚动揭示应出现新建的会话（任务组）")
     }
 
     // MARK: - 流程 4：设置页修改一项配置并保存，重新进入仍在
@@ -243,6 +266,9 @@ final class ZCodeMobileE2ETests: XCTestCase {
             let item = visibleButtons.element(boundBy: index)
             guard item.exists, item.isHittable else { continue }
             checkedCount += 1
+            // 「提交图谱」为 G-023 只读页入口（git.getCommitGraph 读面，DiffReviewView:282），
+            // label 撞禁词「提交」——白名单放行；真实仓库写面的提交/暂存仍拦截
+            if item.label.contains("提交图谱") { continue }
             for forbidden in ["保存", "写入", "回滚", "还原", "提交", "暂存", "放弃更改"] {
                 XCTAssertFalse(item.label.contains(forbidden),
                                "文件页不应出现文件写/仓库写入口（命中「\(forbidden)」：\(item.label)）")
@@ -421,14 +447,15 @@ final class ZCodeMobileE2ETests: XCTestCase {
                       "项目分组头「api」应存在（c4）")
         XCTAssertTrue(app.staticTexts["zcode-mobile"].waitForExistence(timeout: 4),
                       "项目分组头「zcode-mobile」应存在（c5）")
-        // 「其它」组排在分组序列末尾，LazyVStack 视口外不物化——有界下滑揭示后再断言
-        if !app.staticTexts["其它"].exists {
-            for _ in 0..<4 where !app.staticTexts["其它"].exists {
+        // 「任务」组（未绑定项目会话，G-018 后组名与桌面侧栏对齐：原「其它」改「任务」）
+        // 排在分组序列末尾，LazyVStack 视口外不物化——有界下滑揭示后再断言
+        if !app.staticTexts["任务"].exists {
+            for _ in 0..<4 where !app.staticTexts["任务"].exists {
                 app.swipeUp()
             }
         }
-        XCTAssertTrue(app.staticTexts["其它"].waitForExistence(timeout: 4),
-                      "归属未知的 c2 应归「其它」组而非丢弃")
+        XCTAssertTrue(app.staticTexts["任务"].waitForExistence(timeout: 4),
+                      "归属未知的 c2 应归「任务」组而非丢弃（组名与桌面侧栏同名语义）")
 
         // 行信息层级：c5 运行中胶囊 + c2 未读徽章计数
         let c5 = element(app, "04-row-c5")

@@ -44,6 +44,18 @@ actor RelayChannelClient: RPCChannelTransport {
         var initialTaskId: String?
         var recoveryId: String?
         var sessionCount: Int
+        /// workspace-list-request 返回的全部工作区（2026-10-06 web /remote/v4 页面同源取证：
+        /// 桌面对配对客户端回 workspace-list-response{result:{workspaces[], activeWorkspaceKey}}；
+        /// 首位 = active（与桥一致），其余为桌面打开的其它工作区——多 workspace 枚举源）
+        var workspaces: [RelayWorkspaceSummary] = []
+    }
+
+    /// workspace-list-response 的条目（宽容解析：键 workspaceKey|path；身份/名可选）
+    struct RelayWorkspaceSummary: Equatable {
+        var workspaceKey: String
+        var path: String?
+        var workspaceIdentity: String?
+        var name: String?
     }
 
     private(set) var state: State = .uninitialized
@@ -58,6 +70,8 @@ actor RelayChannelClient: RPCChannelTransport {
     private let transport: RelayTransport
     private let link: RelayLinkConfig
     private let appVersion: String
+    /// workspace-list-request 的全部工作区（连接期采集，summary 携带给装配层）
+    private var workspaceSummaries: [RelayWorkspaceSummary] = []
 
     // 桥状态
     private var bridgeGeneration = 0
@@ -103,17 +117,27 @@ actor RelayChannelClient: RPCChannelTransport {
         desktopAppVersion = result?["desktopAppVersion"]?.stringValue
         initialViewState = result?["initialViewState"]
         taskListJSON = result?["tasks"]
+        // 诊断：bootstrap.tasks 的跨工作区面（web 移动流任务首页同源数据；
+        // 若 tasks 行自带多 workspacePath，即为多 workspace 枚举源，无需额外 RPC）
+        let taskWs = Set((taskListJSON?.arrayValue ?? []).compactMap {
+            $0.objectValue?["workspacePath"]?.stringValue
+        })
+        UserDefaults.standard.set(
+            "tasks=\(taskCount) distinctWs=\(taskWs.count) [\(taskWs.sorted().joined(separator: " | ").prefix(500))]",
+            forKey: "diag.bootstrap.tasks")
         if let version = desktopAppVersion {
             let versionDrift = link.desktopAppVersion.map { $0 != version } ?? false
             log(.ok, "bootstrap-response · \(version) · tasks=\(taskCount)"
                 + (versionDrift ? " · ⚠ 桌面版本与配对链接不一致" : ""))
         }
 
-        // 3. workspace-list（activeWorkspaceKey）
+        // 3. workspace-list（activeWorkspaceKey + 全部工作区——多 workspace 枚举源）
+        var workspaceSummaries: [RelayWorkspaceSummary] = []
         let workspaceList = try? await requestApp("workspace-list-request", timeout: 10)
         if let listResult = workspaceList?["result"] {
             activeWorkspaceKey = listResult["activeWorkspaceKey"]?.stringValue
             activeTaskId = listResult["activeTaskId"]?.stringValue
+            self.workspaceSummaries = Self.parseWorkspaceSummaries(listResult["workspaces"])
         }
         if activeWorkspaceKey == nil {
             activeWorkspaceKey = initialViewState?["activeWorkspaceKey"]?.stringValue
@@ -125,7 +149,23 @@ actor RelayChannelClient: RPCChannelTransport {
         return summary ?? ConnectSummary(
             desktopAppVersion: desktopAppVersion, bridgeKind: nil,
             workspacePath: activeWorkspaceKey ?? "", workspaceKey: activeWorkspaceKey,
-            initialTaskId: activeTaskId, recoveryId: lastRecoveryId, sessionCount: taskCount)
+            initialTaskId: activeTaskId, recoveryId: lastRecoveryId, sessionCount: taskCount,
+            workspaces: workspaceSummaries)
+    }
+
+    /// workspace-list-response 条目宽容解析（web 同源：条目带 workspaceKey，path/身份可选）
+    nonisolated static func parseWorkspaceSummaries(_ value: JSONValue?) -> [RelayWorkspaceSummary] {
+        (value?.arrayValue ?? []).compactMap { item in
+            guard let d = item.objectValue else { return nil }
+            let key = d["workspaceKey"]?.stringValue
+                ?? d["path"]?.stringValue ?? ""
+            guard !key.isEmpty else { return nil }
+            return RelayWorkspaceSummary(
+                workspaceKey: key,
+                path: d["path"]?.stringValue,
+                workspaceIdentity: d["workspaceIdentity"]?.stringValue,
+                name: d["name"]?.stringValue ?? d["title"]?.stringValue)
+        }
     }
 
     /// workspace-bridge-open → workspace-bridge-ready → 桥身份绑定 → 等待 Initialize([200])
@@ -173,7 +213,8 @@ actor RelayChannelClient: RPCChannelTransport {
             workspaceKey: bridge?["workspaceKey"]?.stringValue ?? workspaceKey,
             initialTaskId: bridge?["initialTaskId"]?.stringValue ?? taskId,
             recoveryId: lastRecoveryId,
-            sessionCount: taskCount)
+            sessionCount: taskCount,
+            workspaces: workspaceSummaries)
 
         // 桥内桌面即推 Initialize（探针实测 04 01 06 c8 01 00 = serialize([200])+serialize(undefined)）
         try await waitForInitialize(timeout: 10)

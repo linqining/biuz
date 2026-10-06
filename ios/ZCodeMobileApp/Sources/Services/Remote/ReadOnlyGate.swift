@@ -64,14 +64,13 @@ enum ReadOnlyGate {
         "restartWorkspaceProcess",
     ]
 
-    /// git 频道的仓库写操作（getChanges/getDiff/refresh 为纯读，放行）：
-    /// stagePaths/commit/unstagePaths/discardPaths/push/switchBranch/
-    /// createBranchAndSwitch/generateCommitMessage——手机端不改仓库。
-    private static let directWriteGitCommands: Set<String> = [
-        "stagePaths", "commit",
-        "unstagePaths", "discardPaths", "push",
-        "switchBranch", "createBranchAndSwitch", "generateCommitMessage",
-    ]
+    /// git 频道写族（getChanges/getDiff/refresh 为纯读）：与 web bundle 对齐放开
+    /// （2026-10-06 用户裁决「和 web bundle 保持一致」——web 端 stagePaths/commit/
+    /// unstagePaths/discardPaths/push/switchBranch/createBranchAndSwitch/
+    /// generateCommitMessage 全部走桌面代执行，同属「客户端发命令」边界模式，
+    /// 与 G-002~G-005 bots 写放行同分类）。破坏性命令（discardPaths 丢工作区改动/
+    /// push 推远端）接入 UI 时必须带确认弹层。
+    private static let directWriteGitCommands: Set<String> = []
 
     /// file 频道读白名单（默认拒绝收口）：RemoteFileStore 实际调用面 + 计划中的
     /// 二进制预览读。白名单之外的任何 file 命令（含未知写命令 writeTextFile/
@@ -192,7 +191,7 @@ enum ReadOnlyGate {
     /// 对一次 channel RPC 出口做边界判定。
     /// - zcode-agent/zcode-task：消息/审批/停止/队列/会话管理放行（command），
     ///   配置与直写黑名单拦截（directWrite），其余默认只读；
-    /// - git：读放行，仓库写拦截；
+    /// - git：web 对齐全放行（桌面代执行；破坏性命令接 UI 时须带确认）；
     /// - file：读白名单放行，其余（含未知）一律拦截（默认拒绝收口）；
     /// - 其余频道：黑名单拦截，默认放行（hello/订阅/查询链路不误杀）。
     static func inspect(channel: String, command: String, arg: RPCValue) -> Verdict {

@@ -474,17 +474,66 @@ actor RemoteFileStore: @preconcurrency FileStore {
         }
     }
 
-    // MARK: 本地决策（gaps：无服务端逐文件批准接口）
+    // MARK: 逐文件批准（2026-10-06 边界放开：git 写族与 web bundle 对齐，桌面代执行
+    // ——`git.stagePaths {workspacePath, paths}` / `git.unstagePaths {…}`，web 端同参同面）
 
     func setFileDecision(path: String, approved: Bool?) async {
-        localApprovals.remove(path)
-        localRejections.remove(path)
-        if approved == true { localApprovals.insert(path) }
-        if approved == false { localRejections.insert(path) }
+        defer { gitDecisionDiag(path: path, approved: approved) }
+        switch approved {
+        case .some(true):
+            // 批准 → stage：文件移入已暂存，「批准」落地为桌面 git 实态
+            guard await callGitWrite("stagePaths", paths: [path]) else { return }
+            localApprovals.insert(path)
+            localRejections.remove(path)
+        case .some(false):
+            // 拒绝 → unstage：仅退索引（安全可逆、幂等）；工作区改动不动
+            //（破坏性 discardPaths 不接）
+            guard await callGitWrite("unstagePaths", paths: [path]) else { return }
+            localRejections.insert(path)
+            localApprovals.remove(path)
+        case .none:
+            localApprovals.remove(path)
+            localRejections.remove(path)
+        }
     }
 
+    /// 全部批准 = 未决文件一次性 stagePaths（web 提交前批量 stage 同款；一次 RPC）
     func approveAll() async {
-        // git 层最近似操作是 stagePaths（git.ts:43），但「批准」语义属会话级 rewind/discard；
-        // stagePaths 属工作区写（ReadOnlyGate executionGitCommands 拦截），移动端保持本地 UI 态。
+        let files = await diffFiles()
+        let undecided = files.filter { !$0.isApproved && !$0.isRejected }.map(\.path)
+        guard !undecided.isEmpty else { return }
+        defer { gitDecisionDiag(path: "approveAll(\(undecided.count))", approved: true) }
+        guard await callGitWrite("stagePaths", paths: undecided) else { return }
+        for path in undecided {
+            localApprovals.insert(path)
+            localRejections.remove(path)
+        }
+    }
+
+    /// git 写命令统一出口（ReadOnlyGate 已按 web 对齐放行；失败静默 + diag 取证）
+    private func callGitWrite(_ command: String, paths: [String]) async -> Bool {
+        guard let connection else { return false }
+        var builder = JSONObjectBuilder()
+        builder.set("workspacePath", workspace.path)
+        builder.set("paths", .array(paths.map { .string($0) }))
+        do {
+            _ = try await connection.call("git", command, .json(.object(builder.fields)))
+            return true
+        } catch {
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                UserDefaults.standard.set(
+                    "git.\(command) paths=\(paths.count) err=\(String(describing: error).prefix(300))",
+                    forKey: "diag.git.write")
+                UserDefaults.standard.synchronize()
+            }
+            return false
+        }
+    }
+
+    private func gitDecisionDiag(path: String, approved: Bool?) {
+        guard UserDefaults.standard.string(forKey: "diag.wf.mode") != nil else { return }
+        UserDefaults.standard.set(
+            "path=\(path) approved=\(String(describing: approved))", forKey: "diag.git.decision")
+        UserDefaults.standard.synchronize()
     }
 }

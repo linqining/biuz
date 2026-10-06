@@ -376,6 +376,9 @@ struct ConversationListView: View {
                 }
                 .disabled(unavailable)
                 .accessibilityIdentifier(filter.identifier)
+                // 选中态暴露为 selected trait（视觉深色实底的可访问性等价物；
+                // 屏幕阅读器可播报，XCUITest 以 isSelected 断言持久化选中态）
+                .accessibilityAddTraits(sourceFilter == filter && !unavailable ? [.isSelected] : [])
                 .accessibilityHint(unavailable ? "云端沙盒执行端尚未接入会话" : "")
             }
             Spacer(minLength: 0)

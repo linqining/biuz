@@ -25,7 +25,8 @@ protocol ConversationStore: AnyObject, Sendable {
     @discardableResult
     func send(_ text: String, in conversationID: String) async -> Bool
     func answerQuestion(_ reply: String, in conversationID: String, questionID: String) async
-    func createConversation(title: String, directory: String, executor: ExecutorKind) async -> Conversation
+    func createConversation(title: String, directory: String, executor: ExecutorKind,
+                            modelSelection: NewSessionModelSelection?) async -> Conversation
     func setPinned(_ pinned: Bool, conversationID: String) async
     func setArchived(_ archived: Bool, conversationID: String) async
     func markRead(conversationID: String) async
@@ -283,6 +284,15 @@ struct ModelPlanGroup: Equatable, Identifiable {
     var plan: String
     var models: [String]
     var id: String { plan }
+}
+
+/// 新建会话的会话前模型选择（createSession firstInput.modelSelection）。
+/// 字段名与 web 端 sendText/createSession 载荷一致：
+/// {providerId, modelId, options:{reasoningLevel}}（provider/model/thought 三元组同源）。
+struct NewSessionModelSelection: Equatable {
+    var providerId: String
+    var modelId: String
+    var reasoningLevel: String
 }
 
 /// 会话上下文用量（G-021：会话流工具行真实数据源）。

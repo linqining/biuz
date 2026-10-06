@@ -107,6 +107,13 @@ final class E2ELoginStubServer {
         lock.lock(); defer { lock.unlock() }
         return _createSessionWorkspaceIds.last
     }
+    /// 最近一次 createSession 的 firstInput.modelSelection（会话前模型选择断言：
+    /// NewConversationSheet 模型/思考等级行 → {providerId, modelId, options:{reasoningLevel}}；
+    /// 元素为 StubRPC（objectValue 产物），断言经 stringValue/objectValue 提取）
+    var lastCreateSessionModelSelection: [String: StubRPC]? {
+        lock.lock(); defer { lock.unlock() }
+        return _lastCreateSessionModelSelection
+    }
     /// 设备清单/中继链接 API（替身侧契约面）被请求次数（项 1 断言）
     var relayDeviceListRequests: Int { lock.lock(); defer { lock.unlock() }; return _relayDeviceListRequests }
     /// 替身形态中继配对链接（设备清单 API 返回值；host=127.0.0.1 回环安全）。
@@ -305,6 +312,7 @@ final class E2ELoginStubServer {
     private var _createSessionCount = 0
     private var _createSessionWithFirstInputCount = 0
     private var _createSessionWorkspaceIds: [String] = []
+    private var _lastCreateSessionModelSelection: [String: StubRPC]?
     private var _relayDeviceListRequests = 0
     private var _renameTaskCount = 0
     private var _unarchiveTaskCount = 0
@@ -353,11 +361,47 @@ final class E2ELoginStubServer {
     private var botConfigs: [[String: Any]] = []
     private var botWorkspaceStates: [[String: Any]] = []
 
+    // MARK: 完备性补验桩状态（G-008 workflowRuns / G-011 能力读面 / G-017 任务组）
+    /// 会话级 workflowRuns 状态（G-008 通路 B：conversation 订阅即下发=冷快照恢复语义；
+    /// fireWorkflowRunsStateForTest 供运行中整键翻转断言）
+    private var _workflowRunsState: [String: [[String: Any]]] = [:]
+    /// 能力读面收到的 RPC 方法名（按到达顺序；「真实清单来自替身」源断言）
+    private var _capabilityReads: [String] = []
+    /// 任务组写命令记录（command + 参数字典；G-017 移动端→桌面同步写断言）
+    private var _taskGroupWrites: [(command: String, args: [String: StubRPC])] = []
+
     private let queue = DispatchQueue(label: "e2e.login.stub.server")
     private var listener: NWListener?
     private(set) var port: UInt16 = 0
     /// 强持有活跃 channel（channel 仅被回调弱引用，需此处保活）
     private var channels: [ConnectionChannel] = []
+
+    /// 测试钩子：设置会话 workflowRuns（订阅即重放 = 冷快照恢复语义）
+    func setWorkflowRunsState(sessionId: String, runs: [[String: Any]]) {
+        lock.lock()
+        _workflowRunsState[sessionId] = runs
+        lock.unlock()
+    }
+
+    /// 测试钩子：向全部活跃 channel 重放 workflowRuns state.updated（整键翻转断言）
+    func fireWorkflowRunsStateForTest(sessionId: String, runs: [[String: Any]], delay: TimeInterval = 0.3) {
+        lock.lock()
+        let snapshot = channels
+        lock.unlock()
+        let patch: [String: Any] = ["workflowRuns": ["revision": Int(Date().timeIntervalSince1970 * 1000),
+                                                     "runs": runs]]
+        for channel in snapshot {
+            fireConversationStateDelta(sessionId: sessionId, patch: patch,
+                                       channel: channel, delay: delay)
+        }
+    }
+
+    /// 能力读面方法名（真实清单源断言）与任务组写记录
+    var capabilityReads: [String] { lock.lock(); defer { lock.unlock() }; return _capabilityReads }
+    var taskGroupWrites: [(command: String, args: [String: StubRPC])] {
+        lock.lock(); defer { lock.unlock() }; return _taskGroupWrites
+    }
+
 
     /// 会话行数据（sessionId → 行数组；快照会话预置历史行，createSession/sendText 时增补）
     private var sessionRows: [String: [[String: Any]]] = [:]
@@ -845,6 +889,19 @@ final class E2ELoginStubServer {
                                            patch: ["pendingInteractions": pendingForSession],
                                            channel: channel, delay: 0.4)
             }
+            // 订阅即下发 workflowRuns 状态（G-008 标准③冷快照恢复语义：重连/冷启后
+            // 运行中 run 不消失——状态随订阅重放）
+            let wfSession = sessionId(ofTopic: topic)
+            lock.lock()
+            let workflowRuns = _workflowRunsState[wfSession]
+            lock.unlock()
+            if let workflowRuns {
+                fireConversationStateDelta(
+                    sessionId: wfSession,
+                    patch: ["workflowRuns": ["revision": Int(Date().timeIntervalSince1970 * 1000),
+                                             "runs": workflowRuns]],
+                    channel: channel, delay: 0.45)
+            }
         case "subscribeWorkspaceConfigV4":
             let topic = body.objectValue?["topic"]?.stringValue ?? "workspace-config/unknown"
             lock.lock()
@@ -1229,6 +1286,71 @@ final class E2ELoginStubServer {
             handleConversationCommand(body, channel: channel) { result in
                 channel.sendWSFrame(self.rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(result)))
             }
+        // MARK: 能力读面（G-011/G-022/G-024/G-025）：真实替身清单（回执形状对齐
+        // P2ExtrasViews 宽容解析的取数键），供「连接态真实清单渲染 + 零写入口」断言
+        case "listProjectMemories":
+            lock.lock(); _capabilityReads.append(command); lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "workspaces": [["id": "mem-e2e-1", "label": "zcode_mobile 记忆库",
+                                "files": [["path": "MEMORY.md"], ["path": "decisions.md"], ["path": "stack.md"]],
+                                "updatedAt": Int(Date().timeIntervalSince1970 * 1000)]],
+            ])))
+        case "getSkillReferenceCatalog":
+            lock.lock(); _capabilityReads.append(command); lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "skills": [["name": "e2e-skill-a", "description": "端到端验收技能 · stub", "enabled": true]],
+            ])))
+        case "listMcpServerStatuses":
+            lock.lock(); _capabilityReads.append(command); lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "servers": [["name": "e2e-mcp-server", "status": "connected", "command": "npx e2e-mcp"]],
+            ])))
+        case "listPlugins":
+            lock.lock(); _capabilityReads.append(command); lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "plugins": [["name": "e2e-plugin", "version": "1.2.3", "enabled": false,
+                             "description": "端到端验收插件 · stub"]],
+            ])))
+        case "listSavedWorkflows":
+            lock.lock(); _capabilityReads.append(command); lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "workflows": [["id": "wf-e2e-1", "name": "登录链路工作流",
+                               "description": "已保存工作流 · stub"]],
+            ])))
+        case "listSavedWorkflowRuns":
+            lock.lock(); _capabilityReads.append(command); lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "runs": [["runId": "run-saved-e2e-1", "workflowName": "登录链路工作流",
+                          "startedAt": Int(Date().timeIntervalSince1970 * 1000) - 600_000,
+                          "status": "completed"]],
+            ])))
+        case "list" where channelName == "off-peak":
+            lock.lock(); _capabilityReads.append("off-peak.list"); lock.unlock()
+            // offPeak 解析取顶层 JSON 数组（P2ExtrasViews:1040 arrayValue）→ StubRPC.array
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.array([
+                .object(["offPeakTaskId": .string("offpeak-e2e-1"),
+                         "title": .string("错峰回归任务 · stub"),
+                         "createdAt": .int(Int(Date().timeIntervalSince1970 * 1000)),
+                         "status": .string("queued")]),
+            ])))
+        case "list" where channelName == "feedback":
+            lock.lock(); _capabilityReads.append("feedback.list"); lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "items": [["ticketId": "ticket-e2e-1", "title": "E2E 工单 · stub",
+                           "updatedAt": Int(Date().timeIntervalSince1970 * 1000), "status": "processing"]],
+            ])))
+        // MARK: 任务组写（G-017）：移动端→桌面同步写命令记录（回执 ok）
+        case "createTaskGroup" where channelName == "zcode-task":
+            lock.lock()
+            _taskGroupWrites.append((command: "createTaskGroup", args: self.rpcArgDict(body)))
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "result": ["groupId": "group-e2e-1"]])))
+        case "applyGroupedTaskViewOrder" where channelName == "zcode-task":
+            lock.lock()
+            _taskGroupWrites.append((command: "applyGroupedTaskViewOrder", args: self.rpcArgDict(body)))
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
         default:
             // 未知命令统一快速应答，避免客户端悬挂
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
@@ -1260,11 +1382,15 @@ final class E2ELoginStubServer {
             // 项 2：项目层选择随 createSession 的 workspaceId 下发（NewConversationSheet
             // 项目胶囊 → directory 参数；未绑定时客户端回退连接装配的 workspace）
             let workspaceId = effective?["payload"]?.objectValue?["workspaceId"]?.stringValue
+            // 会话前模型选择（模型/思考等级行接线断言）
+            let modelSelection = effective?["payload"]?.objectValue?["firstInput"]?
+                .objectValue?["modelSelection"]?.objectValue
             let newId = "sess-e2e-" + UUID().uuidString.prefix(6)
             lock.lock()
             _createSessionCount += 1
             if let workspaceId { _createSessionWorkspaceIds.append(workspaceId) }
             if firstInput != nil { _createSessionWithFirstInputCount += 1 }
+            if let modelSelection { _lastCreateSessionModelSelection = modelSelection }
             if let firstInput {
                 // 边界内形态（command）：携带首条输入 → 直接写 userInput+assistant 行（桌面开跑）
                 sessionRows[newId] = [

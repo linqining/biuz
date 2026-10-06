@@ -83,6 +83,20 @@ struct ChatView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
+                // 待审批交互卡（常驻 composer 上方：不随消息滚动，新消息不再顶走；
+                // 连接态 permission/plan/escalation 类挂起交互，resolveInteraction 下发）
+                ForEach(viewModel.pendingInteractions) { interaction in
+                    if interaction.isPlanApproval {
+                        PlanApprovalCard(viewModel: viewModel, interaction: interaction)
+                            .padding(.horizontal, T.sp4)
+                            .padding(.top, T.sp2)
+                    } else if interaction.isPermission
+                                || interaction.kind.lowercased().contains("escalation") {
+                        ApprovalInteractionCard(viewModel: viewModel, interaction: interaction)
+                            .padding(.horizontal, T.sp4)
+                            .padding(.top, T.sp2)
+                    }
+                }
                 // 桌面同构：排队消息紧贴 composer 上方（pending 队列；无排队不渲染）
                 if viewModel.isReadOnly, let queue = viewModel.queueInfo {
                     QueueBarView(
@@ -157,19 +171,8 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: T.sp4) {
-                    // 待审批交互卡（连接态：permission 类挂起交互，命令/路径/影响结构化排版）
-                    ForEach(viewModel.pendingInteractions) { interaction in
-                        if interaction.isPlanApproval {
-                            // G-017：计划审批结构化卡（计划内容 + 放行/驳回，resolveInteraction 下发）
-                            PlanApprovalCard(viewModel: viewModel, interaction: interaction)
-                        } else if interaction.isPermission {
-                            ApprovalInteractionCard(viewModel: viewModel, interaction: interaction)
-                        } else if interaction.kind.lowercased().contains("escalation") {
-                            // G-020：工作流 escalation 升级问题 → 复用审批卡作为移动审批入口
-                            // （answer 经 resolveInteraction 桌面代执行，边界不变）
-                            ApprovalInteractionCard(viewModel: viewModel, interaction: interaction)
-                        }
-                    }
+                    // 待审批交互卡已移出滚动列表（用户报障：新消息把卡片顶出屏幕，
+                    // 需上滚找批准按钮）——改固定在 composer 上方常驻，见 approvalBar(_:)
                     // 向上分页入口：点击加载 + 滚顶自动加载（下拉到顶即拉更早历史）
                     if viewModel.canLoadOlder {
                         Button {

@@ -71,8 +71,10 @@ final class NotificationService: NSObject {
     private var enabled = false
     /// (status,taskId,requestId) → 最近投递时间（3 秒去重窗口）
     private var recentFires: [String: Date] = [:]
-    /// G-016：已提醒过的挂起交互 requestId（同 id 不重复提醒；关开关时清空）
-    private var notifiedRequestIDs: Set<String> = []
+    /// G-016：已提醒过的挂起交互 requestId（同 id 不重复提醒；关开关时清空）。
+    /// internal 读写供单元验收（去重断言 + 用例间清空隔离；业务代码只经
+    /// handleTaskStatusChange/syncEnabled 增删，不直接写）
+    var notifiedRequestIDs: Set<String> = []
     /// 点击路由（由 App 装配：跳对应任务详情）
     var routeHandler: ((String) -> Void)?
 

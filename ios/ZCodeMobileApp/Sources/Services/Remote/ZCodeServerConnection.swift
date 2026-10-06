@@ -235,6 +235,8 @@ final class ZCodeServerConnection {
     /// 局域网直连（ChannelClient，13 字节头二进制帧）或云中继（RelayChannelClient，
     /// JSON 文本帧 + rpc-frame）——统一走 RPCChannelTransport 门面，只读拦截同源覆盖
     private var client: (any RPCChannelTransport)?
+    /// 中继客户端强类型引用（bootstrap tasks 清单读取；局域网直连时为 nil）
+    private var relayClient: RelayChannelClient?
     private var relayTransport: RelayTransport?
     private var serverConfig: ServerConfig?
     private(set) var serverInfo: ServerRemoteInfo?
@@ -445,6 +447,12 @@ final class ZCodeServerConnection {
     /// WS=transport paired；握手=bootstrap + bridge-open + 桥内 Initialize；工作区=bridge.workspacePath。
     /// 成功后复用既有 Remote Store 面（call/listen 经 RPCChannelTransport 门面，
     /// ReadOnlyGate 出口拦截对中继路径同等生效）。
+    /// 中继 bootstrap-response 的跨工作区 tasks 清单（web「所有项目目录」同源；
+    /// 非中继连接为 nil）
+    var relayBootstrapTasks: JSONValue? {
+        get async { await relayClient?.taskListJSON }
+    }
+
     @discardableResult
     func connectRelay(to server: ServerConfig) async -> Result<ServerRemoteInfo, ConnectError> {
         disconnect()
@@ -472,6 +480,7 @@ final class ZCodeServerConnection {
         let client = RelayChannelClient(transport: transport, link: link, appVersion: appVersion)
         self.relayTransport = transport
         self.client = client
+        self.relayClient = client
         do {
             let summary = try await client.connectRelay(timeout: 15) { [weak self] error in
                 Task { @MainActor [weak self] in
@@ -493,23 +502,49 @@ final class ZCodeServerConnection {
             progress.handshake.meta = "bridge kind=\(summary.bridgeKind ?? "local")"
             log(.ok, "bootstrap + workspace-bridge-open 完成 · 桥内 Initialize 已到")
 
-            // 步骤 5：桥 workspacePath → ServerWorkspaceInfo（Store 装配与局域网同构）
+            // 步骤 5：桥 workspacePath → ServerWorkspaceInfo（Store 装配与局域网同构）。
+            // 多 workspace（2026-10-06 取证 workspace-list-response）：全部工作区入 info，
+            // active（桥）保持首位——任务列表按全清单聚合，单工作区行为不变
             progress.workspace.phase = .running
             state = .connecting(progress)
-            let workspace = ServerWorkspaceInfo(
-                path: summary.workspacePath,
-                label: server.displayName,
-                workspaceIdentity: nil)
+            let activeEntry = summary.workspaces.first { $0.workspaceKey == summary.workspaceKey }
+                ?? summary.workspaces.first
+            var relayWorkspaces: [ServerWorkspaceInfo] = summary.workspaces.map { entry in
+                ServerWorkspaceInfo(
+                    path: entry.path ?? entry.workspaceKey,
+                    label: entry.name,
+                    workspaceIdentity: entry.workspaceIdentity)
+            }
+            if let activeEntry, !relayWorkspaces.contains(where: {
+                $0.path == (activeEntry.path ?? activeEntry.workspaceKey)
+            }) {
+                relayWorkspaces.insert(
+                    ServerWorkspaceInfo(
+                        path: activeEntry.path ?? activeEntry.workspaceKey,
+                        label: server.displayName,
+                        workspaceIdentity: activeEntry.workspaceIdentity),
+                    at: 0)
+            }
+            if relayWorkspaces.isEmpty {
+                relayWorkspaces = [ServerWorkspaceInfo(
+                    path: summary.workspacePath, label: server.displayName,
+                    workspaceIdentity: nil)]
+            }
+            let workspace = relayWorkspaces[0]
             progress.workspace.phase = .done
             progress.workspace.meta = workspace.label ?? workspace.path
-            log(.ok, "workspace-bridge · \(workspace.path)")
+            log(.ok, "workspace-bridge · \(workspace.path) · 清单 \(relayWorkspaces.count) 个工作区")
+            UserDefaults.standard.set(
+                "count=\(relayWorkspaces.count) paths=[\(relayWorkspaces.map(\.path).joined(separator: " | ").prefix(400))]",
+                forKey: "diag.ws.list")
+            UserDefaults.standard.synchronize()
             let info = ServerRemoteInfo(
                 serverId: "relay-\(link.endpointHost ?? "zcode")",
                 name: server.displayName,
                 version: summary.desktopAppVersion ?? "relay",
                 protocolVersion: ServerRemoteInfo.expectedProtocolVersion,
                 authRequired: false,
-                workspaces: [workspace],
+                workspaces: relayWorkspaces,
                 capabilities: [])
             serverInfo = info
             self.workspace = workspace

@@ -206,19 +206,11 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
             ]))
     }
 
-    /// 停止任务：v4 stop 信封下发（sessionId=taskId），状态回流由 onDynamicTaskEvent
-    /// 驱动卡片/状态条翻转。桌面代执行命令，边界内允许。
+    /// 停止任务：委托 conversationStore.stopTurn（统一 sendCommand 信封——嵌套形态、
+    /// 握手 clientId、epoch 毫秒 issuedAt、workspace 信封齐全）。状态回流由
+    /// onDynamicTaskEvent 驱动卡片/状态条翻转。桌面代执行命令，边界内允许。
     func stop(taskID: String) async {
-        guard let connection else { return }
-        let envelope = RPCValue.jsonObject { builder in
-            builder.set("commandId", UUID().uuidString)
-            builder.set("clientId", "zcode-mobile")
-            builder.set("sessionId", taskID)
-            builder.set("type", "stop")
-            builder.set("payload", .object(["reason": .string("user-requested")]))
-            builder.set("issuedAt", ISO8601DateFormatter().string(from: Date()))
-        }
-        _ = try? await connection.call("zcode-agent", "sendConversationCommandV4", envelope)
+        await conversationStore?.stopTurn(sessionId: taskID)
     }
 
     /// 失败重试：retryTurn 需 target{rowId, entityId}（rewind 后重喂 agent 的精确

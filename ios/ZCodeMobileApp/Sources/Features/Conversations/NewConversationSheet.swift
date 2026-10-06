@@ -29,6 +29,12 @@ struct NewConversationSheet: View {
     @State private var isRemote = false
     @FocusState private var inputFocused: Bool
 
+    // 模型与思考等级（连接态可选）：getView 投影 + 会话前选择，随 firstInput.modelSelection 下发
+    @State private var modelInfo: ModelSelectionInfo?
+    @State private var selectedModel: String?
+    @State private var selectedThought: String?
+    @State private var thoughtOptions: [String] = []
+
     private var suggestions: [(String, String)] {
         [
             ("修一个 bug", "定位并修复登录超时问题，补回归测试"),
@@ -79,9 +85,12 @@ struct NewConversationSheet: View {
 
             PrimaryButton(title: "开始任务", identifier: "03-submit-start") {
                 Task {
-                    // 项目层选择随 createSession 的 workspaceId 下发（directory 参数承载）
+                    // 项目层选择随 createSession 的 workspaceId 下发（directory 参数承载）；
+                    // 连接态模型/思考等级随 firstInput.modelSelection 下发（会话前选择）
+                    let selection = pendingModelSelection()
                     let conversation = await conversationStore.createConversation(
-                        title: title, directory: projectPath, executor: executor)
+                        title: title, directory: projectPath, executor: executor,
+                        modelSelection: selection)
                     NewSessionContextStore.save(
                         NewSessionContext(machineID: machineID, projectPath: projectPath))
                     onCreated(conversation)
@@ -234,6 +243,13 @@ struct NewConversationSheet: View {
             machineName = session.savedServer?.displayName ?? String(localized: "我的 Mac")
             executor = .pairedMac
         }
+        // 连接态拉模型选择视图（套餐分组 + 当前绑定），默认跟随桌面端当前值
+        if isRemote {
+            modelInfo = await conversationStore.modelSelectionView()
+            selectedModel = modelInfo?.activeModel ?? modelInfo?.models.first
+            selectedThought = modelInfo?.activeThoughtLevel
+            await reloadThoughtOptions()
+        }
         let last = NewSessionContextStore.loadLast()
         let machines = DeviceDirectory.machines()
         if let match = machines.first(where: { $0.id == last.machineID }) ?? machines.first {
@@ -361,16 +377,23 @@ struct NewConversationSheet: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("03-row-directory")
                 Divider().overlay(T.border).padding(.leading, 44)
-                row(label: "模型与思考等级",
-                    value: "\(settings.value.model) · \(settings.value.thoughtLevel.label)",
-                    icon: "cpu")
+                if isRemote, let info = modelInfo, !info.models.isEmpty {
+                    modelSelectionRow
+                    Divider().overlay(T.border).padding(.leading, 44)
+                    thoughtSelectionRow
+                } else {
+                    row(label: "模型与思考等级",
+                        value: "\(settings.value.model) · \(settings.value.thoughtLevel.label)",
+                        icon: "cpu", trailing: "info.circle")
+                }
             }
             .background(T.bgCard)
             .clipShape(RoundedRectangle(cornerRadius: T.rL))
         }
     }
 
-    private func row(label: String, value: String, icon: String) -> some View {
+    private func row(label: String, value: String, icon: String,
+                     trailing: String = "chevron.up.chevron.down") -> some View {
         HStack(spacing: T.sp2) {
             Image(systemName: icon)
                 .font(.system(size: 13))
@@ -383,14 +406,107 @@ struct NewConversationSheet: View {
                 .foregroundColor(T.text3)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            // G-029：模型切换属桌面写面，移动端只读展示——无 chevron 非可点行
-            Image(systemName: "info.circle")
-                .font(.system(size: 12))
+            // 连接态：可写面 chevron（switchModelConfig 链路已实证，新建会话经
+            // firstInput.modelSelection 会话前选择）；演示态保持 info.circle 只读口径
+            Image(systemName: trailing)
+                .font(.system(size: 11, weight: trailing == "info.circle" ? .regular : .semibold))
                 .foregroundColor(T.text3.opacity(0.7))
         }
         .padding(.horizontal, T.sp3)
         .frame(minHeight: 48)
         .contentShape(Rectangle())
+    }
+
+    // MARK: 模型 / 思考等级选择（连接态；数据源 model-selection.getView）
+
+    /// 模型行：按套餐分节（个人套餐/体验套餐），选中项打勾；默认跟随桌面端当前绑定
+    private var modelSelectionRow: some View {
+        Menu {
+            if let info = modelInfo {
+                if info.planGroups.isEmpty {
+                    ForEach(info.models, id: \.self) { model in
+                        modelPickerRow(model)
+                    }
+                } else {
+                    ForEach(info.planGroups) { group in
+                        Section(group.plan) {
+                            ForEach(group.models, id: \.self) { model in
+                                modelPickerRow(model)
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            row(label: "模型", value: selectedModel ?? "--", icon: "cpu")
+        }
+        .accessibilityIdentifier("03-row-model")
+    }
+
+    private func modelPickerRow(_ model: String) -> some View {
+        Button {
+            selectedModel = model
+            selectedThought = nil
+            Task { await reloadThoughtOptions() }
+            UISelectionFeedbackGenerator().selectionChanged()
+        } label: {
+            if model == selectedModel {
+                Label(model, systemImage: "checkmark")
+            } else {
+                Text(model)
+            }
+        }
+    }
+
+    /// 思考档行：词表按当前模型查询（workspace-config），缺席退化为 getView 词表 →
+    /// 静态梯（web 端别名表归纳；不支持的档位由桌面端校验拒绝）
+    private var thoughtSelectionRow: some View {
+        Menu {
+            ForEach(displayedThoughtLevels, id: \.self) { level in
+                Button {
+                    selectedThought = level
+                    UISelectionFeedbackGenerator().selectionChanged()
+                } label: {
+                    if level == selectedThought {
+                        Label(level, systemImage: "checkmark")
+                    } else {
+                        Text(level)
+                    }
+                }
+            }
+        } label: {
+            row(label: "思考等级",
+                value: selectedThought?.isEmpty == false ? selectedThought! : "默认",
+                icon: "brain")
+        }
+        .accessibilityIdentifier("03-row-thought")
+    }
+
+    private var displayedThoughtLevels: [String] {
+        if !thoughtOptions.isEmpty { return thoughtOptions }
+        if let levels = modelInfo?.thoughtLevels, !levels.isEmpty { return levels }
+        return ["off", "minimal", "low", "medium", "high", "max"]
+    }
+
+    private func reloadThoughtOptions() async {
+        guard let model = selectedModel else {
+            thoughtOptions = []
+            return
+        }
+        thoughtOptions = await conversationStore.thoughtLevels(for: model)
+        // 未显式选择时回填桌面端当前档（仅当该档位在词表内）
+        if selectedThought == nil, let active = modelInfo?.activeThoughtLevel,
+           thoughtOptions.contains(active) {
+            selectedThought = active
+        }
+    }
+
+    /// 会话前选择组装：未选模型返回 nil（桌面端以默认模型开跑，不阻断新建）
+    private func pendingModelSelection() -> NewSessionModelSelection? {
+        guard isRemote, let model = selectedModel else { return nil }
+        let provider = modelInfo?.modelProviders[model] ?? ""
+        let thought = selectedThought ?? modelInfo?.activeThoughtLevel ?? ""
+        return NewSessionModelSelection(providerId: provider, modelId: model, reasoningLevel: thought)
     }
 
     private var suggestionSection: some View {

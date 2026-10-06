@@ -80,7 +80,8 @@ actor MockConversationStore: @preconcurrency ConversationStore {
         }
     }
 
-    func createConversation(title: String, directory: String, executor: ExecutorKind) async -> Conversation {
+    func createConversation(title: String, directory: String, executor: ExecutorKind,
+                            modelSelection: NewSessionModelSelection? = nil) async -> Conversation {
         var conversation = Conversation(
             id: UUID().uuidString, title: title.isEmpty ? "新会话" : title,
             summary: "刚刚创建 · \(executor.label)",

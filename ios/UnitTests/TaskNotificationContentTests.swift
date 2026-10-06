@@ -12,7 +12,8 @@ final class TaskNotificationContentTests: XCTestCase {
         XCTAssertEqual(content?.title, "任务完成")
         XCTAssertTrue(content?.body.contains("重构会话持久层") == true, "正文应带任务标题")
         XCTAssertTrue(content?.body.contains("文件 3 · +120/-40") == true, "正文应带变更规模摘要")
-        XCTAssertEqual(content?.dedupKey, "(done,task-1)", "去重键应为 (status,taskId)")
+        // G-016②：去重键升级为三元组 (status,taskId,requestId)；requestID 缺省段 "-"
+        XCTAssertEqual(content?.dedupKey, "(done,task-1,-)", "去重键应为 (status,taskId,requestId缺省-)")
         XCTAssertEqual(content?.taskID, "task-1")
     }
 
@@ -23,7 +24,7 @@ final class TaskNotificationContentTests: XCTestCase {
         XCTAssertNotNil(content, "waiting（待审批）状态应产生通知")
         XCTAssertEqual(content?.title, "等待你的批准")
         XCTAssertTrue(content?.body.contains("待审批") == true)
-        XCTAssertEqual(content?.dedupKey, "(waiting,task-2)")
+        XCTAssertEqual(content?.dedupKey, "(waiting,task-2,-)")
     }
 
     func testFailedMapping() {
@@ -33,7 +34,7 @@ final class TaskNotificationContentTests: XCTestCase {
         XCTAssertNotNil(content)
         XCTAssertEqual(content?.title, "任务失败")
         XCTAssertTrue(content?.body.contains("执行失败") == true)
-        XCTAssertEqual(content?.dedupKey, "(failed,task-3)")
+        XCTAssertEqual(content?.dedupKey, "(failed,task-3,-)")
     }
 
     func testRunningProducesNoNotification() {

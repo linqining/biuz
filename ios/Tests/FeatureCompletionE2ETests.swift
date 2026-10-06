@@ -814,4 +814,67 @@ final class FeatureCompletionE2ETests: XCTestCase {
         XCTAssertEqual(stub.blockedWriteCommandCount, 0,
                        "目标切换与发送全程不应产生任何直写/配置写类命令")
     }
+
+    // MARK: - 项 8：新建会话模型/思考等级选择 → createSession firstInput.modelSelection
+
+    /// 连接态新建 Sheet 的「模型」「思考等级」两行可点（getView 投影驱动），
+    /// 选中的模型/思考档随 firstInput.modelSelection 下发（web U7e 形态：
+    /// {providerId, modelId, options:{reasoningLevel}}）。
+    func test08_newConversationModelSelectionCarriedInFirstInput() throws {
+        let application = connectAndEnterMain(launchFresh())
+        XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 15),
+                      "连接后应呈现替身会话列表")
+
+        // ① 打开新建 Sheet → 模型/思考等级两行出现（restoreContext 拉替身 getView）
+        element(application, "04-tab-chat").tap()
+        let newButton = element(application, "04-act-new")
+        XCTAssertTrue(newButton.waitForExistence(timeout: 8), "会话页应有新建入口")
+        newButton.tap()
+        XCTAssertTrue(element(application, "03-input-title").waitForExistence(timeout: 8),
+                      "新建 Sheet 应弹出（连接态完整表单）")
+        let modelRow = element(application, "03-row-model")
+        XCTAssertTrue(modelRow.waitForExistence(timeout: 10),
+                      "连接态应呈现可点模型行（替身 getView providers 投影）")
+        let thoughtRow = element(application, "03-row-thought")
+        XCTAssertTrue(thoughtRow.waitForExistence(timeout: 6),
+                      "连接态应呈现可点思考等级行")
+        waitLabel(modelRow, contains: "GLM-5.3", timeout: 8,
+                  "模型行应回显替身 preferredSelection 的当前模型")
+
+        // ② 打开思考等级菜单 → 选「medium」→ 行 label 回显（SwiftUI Menu + XCUI
+        // 点选有 flaky 风险：一次 tap 可能不生效——以「行 label 变为所选档位」为
+        // 成功判据，未中则重开菜单重选，有界轮询）
+        let thoughtTrigger = element(application, "03-row-thought")
+        let selected = waitUntil(timeout: 24, "思考等级行应回显所选档位 medium") {
+            // 菜单未开或行未回显时重试一轮：开菜单 → 点 medium
+            if !application.buttons["medium"].exists {
+                thoughtTrigger.tap()
+                _ = application.buttons["medium"].waitForExistence(timeout: 3)
+            }
+            application.buttons["medium"].tap()
+            // 行 label 回显 selectedThought（思考等级行 value=选中档位）
+            let rowLabel = thoughtTrigger.label
+            return rowLabel.contains("medium")
+        }
+        XCTAssertTrue(selected, "点选 medium 后思考等级行应回显（菜单点选生效）")
+
+        // ③ 输入首条指令提交 → createSession.firstInput 携带 modelSelection
+        let titleInput = element(application, "03-input-title")
+        tapAndWaitKeyboard(titleInput, application: application)
+        titleInput.typeText("model-selection-e2e")
+        element(application, "03-submit-start").tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "替身应收到携带 modelSelection 的 createSession") {
+            guard let selection = stub.lastCreateSessionModelSelection else { return false }
+            // 元素为 StubRPC 枚举（lastCreateSessionModelSelection: [String: StubRPC]）：
+            // 经 stringValue/objectValue 提取，不得 as? String（恒 nil）；
+            // selection["options"] 先经 StubRPC.objectValue 解包再取档位
+            let level = selection["options"]?.objectValue?["reasoningLevel"]?.stringValue
+            return selection["providerId"]?.stringValue == "zai"
+                && selection["modelId"]?.stringValue == "GLM-5.3"
+                && level == "medium"
+        }, "firstInput.modelSelection 应携带 {providerId, modelId, options:{reasoningLevel}}；"
+            + "实际=\(String(describing: stub.lastCreateSessionModelSelection))")
+        XCTAssertEqual(stub.blockedWriteCommandCount, 0,
+                       "模型选择全程不应产生任何直写/配置写类命令")
+    }
 }

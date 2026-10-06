@@ -223,11 +223,18 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 8),
                       "切回「全部」后替身会话行应回归")
 
-        // ③ 持久化：切「我的 Mac」→ 重启后档位保持（list.sourceFilter.v1）且 mac 行仍在
+        // ③ 持久化：切「我的 Mac」→ 重启后档位保持（list.sourceFilter.v1）且 mac 行仍在。
+        // 选中态判别（防假阳性）：替身只有 mac 会话，「全部」档回退同样能显示该行——
+        // 故必须断言 mac chip 处于选中态（背景 accent = 选中），且回退判别用 c1
+        //（stub 会话 source=mac；若回退「全部」则 demo c1 行也会出现）
         element(application, "04-chip-source-mac").tap()
         relaunchKeepState(application)
-        XCTAssertTrue(element(app, "04-chip-source-mac").waitForExistence(timeout: 10),
+        let macChip = element(app, "04-chip-source-mac")
+        XCTAssertTrue(macChip.waitForExistence(timeout: 10),
                       "重启后来源 chips 应在场")
+        XCTAssertTrue(macChip.isSelected,
+                      "重启后「我的 Mac」chip 应保持选中（list.sourceFilter.v1 持久化；"
+                      + "回退「全部」档该断言失败）")
         XCTAssertTrue(element(app, "04-row-sess-e2e-1").waitForExistence(timeout: 15),
                       "重启后（mac 档持久化）替身会话行应仍归档显示")
         snap(app, "matrix-g010-source-filter-persisted")
@@ -280,6 +287,12 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
                       "进度点计数 2/4 应显示（done 节点数/总节点数）")
         XCTAssertTrue(panel.staticTexts["产物 2"].waitForExistence(timeout: 4),
                       "容量行应显示产物计数（artifacts 只读展示）")
+        // G-021②：无 sessionId 的 actor 不渲染下钻入口——演示 actor（demo-site-0#1）
+        // 未携 sessionId → 按钮挂 .disabled（映射 a11y 不可用态，XCUI isEnabled=false）
+        let actor = element(application, "05-workflow-actor-demo-site-0#1")
+        XCTAssertTrue(actor.waitForExistence(timeout: 4), "子代理实例卡应在场（负向断言载体）")
+        XCTAssertFalse(actor.isEnabled,
+                       "无 sessionId 的 actor 应为禁用态（不渲染下钻入口，G-021②）")
         snap(application, "req5-workflow-panel")
     }
 
@@ -570,20 +583,18 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         let followup = element(application, "06-act-followup")
         XCTAssertTrue(followup.waitForExistence(timeout: 8), "审批 Sheet 应有「追问」出口")
 
-        // 追问：先弹文本输入 → 发送 → 真实反馈 + Sheet 保持（任务仍在待操作）
+        // 追问：先弹文本输入 → 发送 → 真实反馈 + Sheet 保持（任务仍在待操作）。
+        // SwiftUI .alert 内的 TextField/Button 由 UIAlertController（UIKit）托管，
+        // accessibilityIdentifier 不透传（诊断实据：alert 在场、键盘已弹而
+        // 06-field-followup / 06-act-followup-send 恒查不到）——按 alert 容器内
+        // 首 TextField 与「发送」动作按钮定位
         followup.tap()
-        let field = element(application, "06-field-followup")
-        if !field.waitForExistence(timeout: 6) {
-            // 诊断：alert 是否在场 / Sheet 上按钮集合（判定 tap 未生效还是 alert a11y 形态差异）
-            let alertLabel = application.alerts.firstMatch.exists
-                ? application.alerts.firstMatch.label : "<无 alert>"
-            let dump = application.buttons.allElementsBoundByIndex.prefix(14)
-                .map { "\($0.label)|\($0.identifier)" }.joined(separator: " ; ")
-            NSLog("test09 追问诊断 alerts=\(alertLabel) buttons=\(dump)")
-        }
-        XCTAssertTrue(field.waitForExistence(timeout: 6), "追问应先弹文本输入")
+        let followupAlert = application.alerts.firstMatch
+        XCTAssertTrue(followupAlert.waitForExistence(timeout: 6), "追问应先弹文本输入")
+        let field = followupAlert.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 4), "追问输入框应在 alert 内")
         XCTAssertTrue(typeInto(application, field, text: "迁移期间会锁表吗"), "追问输入框应可输入")
-        element(application, "06-act-followup-send").tap()
+        followupAlert.buttons.matching(NSPredicate(format: "label == '发送'")).firstMatch.tap()
         XCTAssertTrue(waitStaticText(application, containing: "已把追问发送给 Agent", timeout: 8,
                                      "追问发送后应有真实反馈 toast（不再是无声假反馈）"))
         XCTAssertTrue(element(application, "06-act-approve").exists
@@ -619,6 +630,30 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         // 语言页选中态仍在 English（选项 label 恒为 "English"）
         XCTAssertTrue(element(app, "12-language-en").exists, "语言页应保留 English 选项")
         snap(app, "matrix-g008-english-after-relaunch")
+
+        // G-005②：切「跟随系统」→ AppleLanguages 键被移除 → 重启后随系统首选语言。
+        // 判别依据：本模拟器系统语言为 zh-Hans-CN——若键残留（仍为 en），重启后界面
+        // 保持英文；键被真正移除则回中文。跟随系统行为因此可判别。
+        element(app, "12-language-system").tap()
+        XCTAssertTrue(element(app, "12-language-restart-hint").waitForExistence(timeout: 6),
+                      "切换跟随系统后应提示重启生效")
+        application.terminate()
+        app.launchArguments = []
+        app.launch()
+        XCTAssertTrue(element(app, "04-row-c1").waitForExistence(timeout: 10),
+                      "跟随系统重启后应进入主界面")
+        // 移除 AppleLanguages 后应随系统语言（本模拟器 zh-Hans-CN）回中文——
+        // 若键残留为 en，此断言失败（G-005②键级移除的行为级判别）
+        element(app, "12-tab-me").tap()
+        let pairingRowAfterSystem = element(app, "12-row-pairing")
+        XCTAssertTrue(pairingRowAfterSystem.waitForExistence(timeout: 8), "设置页应出现设备与配对行")
+        XCTAssertTrue(pairingRowAfterSystem.label.contains("设备与配对"),
+                      "移除 AppleLanguages 后应随系统语言回中文；实际 label=\(pairingRowAfterSystem.label)")
+        // 语言页当前生效语言行应显示简体中文（Locale.preferredLanguages 首选已回落系统值）
+        openSettingsPage(app, rowIdentifier: "12-row-language")
+        XCTAssertTrue(app.staticTexts["简体中文"].waitForExistence(timeout: 6),
+                      "当前界面语言行应显示简体中文（跟随系统）")
+        snap(app, "matrix-g005-system-follows-key-removal")
         // 还原为简体中文（防污染；下个用例的 -ZCodeE2EResetState 亦会复位 AppleLanguages）
         element(app, "12-language-zh-Hans").tap()
     }
@@ -777,5 +812,128 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
                 || stub.rpcCallLog.contains { $0.1 == "useCodingPlanReset" }
         }, "一键领取应经 usage-stats 频道下发")
         snap(application, "matrix-g042-reset-claimed")
+    }
+
+    // MARK: - G-008②③ 替身注入 workflowRuns：订阅重放（冷快照恢复）+ 运行中整键翻转
+
+    /// 通路 B 替身注入面（区别于 test17 的演示 Mock）：
+    /// ③ 冷快照恢复——stub 在 subscribeConversationV4 时重放 workflowRuns 状态，
+    ///   重启（冷启重连）后运行中 run 不消失；
+    /// ② 帧实时整键同步——运行中 fireWorkflowRunsStateForTest 以新 runs 整键替换，
+    ///   UI 状态胶囊/阶段随之更新（不做字段级合并）。
+    func test19_workflowRunsStubColdSnapshotAndLiveFlip() throws {
+        stub.setWorkflowRunsState(sessionId: "sess-e2e-1", runs: [[
+            "runId": "run-e2e-wf-1",
+            "name": "stub 注入工作流",
+            "status": "running",
+            "currentPhase": "执行",
+            "phases": [["name": "准备"], ["name": "执行"], ["name": "校验"]],
+        ]])
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        let planRow = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(planRow.waitForExistence(timeout: 15), "重连后应呈现替身会话行")
+        var inDetail = false
+        for _ in 0..<6 where !inDetail {
+            planRow.tap()
+            inDetail = element(application, "05-composer-input").waitForExistence(timeout: 2)
+        }
+        XCTAssertTrue(inDetail, "进入 sess-e2e-1 详情")
+
+        // ③ 冷快照恢复：订阅重放的 workflowRuns → 面板渲染（重启链路同一重放点）
+        let panel = element(application, "05-workflow-panel")
+        XCTAssertTrue(panel.waitForExistence(timeout: 12),
+                      "订阅重放的 workflowRuns 应渲染工作流面板（G-008③ 冷恢复）")
+        XCTAssertTrue(panel.staticTexts["stub 注入工作流"].waitForExistence(timeout: 6),
+                      "面板应显示替身注入的 run 名")
+
+        // ② 运行中整键翻转：fire 新 runs（全部阶段 settled ok → completed）→ UI 同步
+        stub.fireWorkflowRunsStateForTest(sessionId: "sess-e2e-1", runs: [[
+            "runId": "run-e2e-wf-1",
+            "name": "stub 注入工作流",
+            "status": "completed",
+            "currentPhase": "校验",
+            "phases": [["name": "准备"], ["name": "执行"], ["name": "校验"]],
+        ]])
+        let completed = panel.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS '已完成' OR label CONTAINS 'completed'"))
+        XCTAssertTrue(completed.firstMatch.waitForExistence(timeout: 8),
+                      "workflowRuns 整键替换后 UI 应同步为完成态（G-008②）")
+        snap(application, "g008-stub-workflow-flip")
+    }
+
+    // MARK: - G-011/G-022/G-024/G-025 能力读面：连接态真实清单 + 零写入口
+
+    /// 七个只读页逐页：替身提供的真实清单行渲染（源=capabilityReads 记录的 RPC 读）
+    /// + 无写入口（启用/安装/卸载/创建/新建议钮零命中）
+    func test20_capabilityPagesRenderStubListsAndNoWriteEntries() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+
+        let pages: [(row: String, stubTitle: String, method: String)] = [
+            ("12-row-memory", "zcode_mobile 记忆库", "listProjectMemories"),
+            ("12-row-skills", "e2e-skill-a", "getSkillReferenceCatalog"),
+            ("12-row-mcp", "e2e-mcp-server", "listMcpServerStatuses"),
+            ("12-row-plugins", "e2e-plugin", "listPlugins"),
+            ("12-row-workflows", "登录链路工作流", "listSavedWorkflows"),
+            ("12-row-offpeak", "错峰回归任务 · stub", "off-peak.list"),
+            ("12-row-feedback", "E2E 工单 · stub", "feedback.list"),
+        ]
+        let writePatterns = NSPredicate(
+            format: "label CONTAINS '启用' OR label CONTAINS '停用' OR label CONTAINS '安装'"
+                + " OR label CONTAINS '卸载' OR label CONTAINS '创建' OR label CONTAINS '新建'")
+        for page in pages {
+            openSettingsPage(application, rowIdentifier: page.row)
+            let stubRow = application.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH '12-capability-row-'")).firstMatch
+            XCTAssertTrue(stubRow.waitForExistence(timeout: 10),
+                          "\(page.method) 页应渲染替身真实清单行（G-011 真实数据源）")
+            let stubTitle = application.staticTexts
+                .matching(NSPredicate(format: "label CONTAINS %@", page.stubTitle)).firstMatch
+            XCTAssertTrue(stubTitle.waitForExistence(timeout: 4),
+                          "\(page.method) 清单应含替身条目「\(page.stubTitle)」")
+            XCTAssertFalse(application.buttons.matching(writePatterns).firstMatch.exists,
+                           "\(page.method) 页不得出现写入口（G-011 零写入口）")
+            XCTAssertTrue(waitUntil(timeout: 6, "\(page.method) 应真实到达替身") {
+                stub.capabilityReads.contains(page.method)
+            }, "页面数据应来自替身读面（capabilityReads）；实际=\(stub.capabilityReads)")
+            application.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        snap(application, "g011-capability-pages")
+    }
+
+    // MARK: - G-017 移动端→桌面任务组同步写
+
+    /// 长按会话行 → 移入分组 → 建组命名：createTaskGroup + applyGroupedTaskViewOrder
+    /// 真实到达替身（记录面断言）+ 列表出现新组且会话归组（UI 面）。
+    /// 组名输入为 SwiftUI alert（identifier 不透传，test09 同款教训）——按 alert 容器定位
+    func test21_taskGroupSyncWriteReachesStubAndRegroups() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        let row = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "重连后应呈现替身会话行")
+
+        row.press(forDuration: 1.2)
+        let moveMenuItem = element(application, "04-ctx-group-sess-e2e-1")
+        XCTAssertTrue(moveMenuItem.waitForExistence(timeout: 6), "长按菜单应有「移入分组」项")
+        moveMenuItem.tap()
+        let groupAlert = application.alerts.firstMatch
+        XCTAssertTrue(groupAlert.waitForExistence(timeout: 6), "移入分组应弹组名输入 alert")
+        let groupField = groupAlert.textFields.firstMatch
+        XCTAssertTrue(groupField.waitForExistence(timeout: 4), "组名输入框应在 alert 内")
+        XCTAssertTrue(typeInto(application, groupField, text: "e2e-group-x"), "组名应可输入")
+        groupAlert.buttons.matching(NSPredicate(format: "label == '移入'")).firstMatch.tap()
+
+        // 同步写：两条命令真实到达替身（移动端→桌面方向）
+        XCTAssertTrue(waitUntil(timeout: 10, "createTaskGroup 应到达替身") {
+            stub.taskGroupWrites.contains { $0.command == "createTaskGroup" }
+        }, "建组写应真实下发（G-017 同步）")
+        XCTAssertTrue(waitUntil(timeout: 10, "applyGroupedTaskViewOrder 应到达替身") {
+            stub.taskGroupWrites.contains { $0.command == "applyGroupedTaskViewOrder" }
+        }, "入组顺序写应真实下发（G-017 同步）")
+        // UI 面：新组头出现且会话归组
+        XCTAssertTrue(element(application, "04-group-e2e-group-x").waitForExistence(timeout: 8),
+                      "列表应出现新组头（会话归组 UI 面）")
+        snap(application, "g017-task-group-sync")
     }
 }
