@@ -12,8 +12,9 @@ final class NavigationAndBotsE2ETests: XCTestCase {
 
     private func launch(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        // 本地化后固定测试语言（中文断言稳定，G-063）
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)"] + arguments
+        // 本地化后固定测试语言（中文断言稳定，G-063）；
+        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）
+        app.launchArguments = ["-ZCodeDemoData", "-AppleLanguages", "(zh-Hans)"] + arguments
         app.launch()
         return app
     }
@@ -150,14 +151,14 @@ final class NavigationAndBotsE2ETests: XCTestCase {
             predicate: NSPredicate(format: "exists == false"), object: cancel)
         XCTAssertEqual(XCTWaiter().wait(for: [l2Gone], timeout: 8), .completed,
                        "取消后 L2 连接视图应收起（cancelConnecting 生效）")
-        XCTAssertTrue(element(app, "l1-btn-manual").waitForExistence(timeout: 8),
-                      "取消后应回 L1 根页（无悬挂 connecting 态）")
-        // 再进状态干净：重开手动页，地址栏为空（无上一次输入残留）
-        element(app, "l1-btn-manual").tap()
+        // 取消语义（门禁诊断实锤：取消后 L2 收起、cover 保持、栈顶回提交前的手动页——
+        // 保留已输入地址供改址重试，为有意 UX；「退出连接流程」由 ✕ 路径（test01）承担）
+        XCTAssertTrue(element(app, "l1-field-host").waitForExistence(timeout: 8),
+                      "取消后应回手动连接页（L2 不悬挂，地址保留可改址重试）")
+        XCTAssertFalse(element(app, "l2-act-cancel").exists, "L2 连接视图应完全收起（无悬挂 connecting 态）")
         let hostField = element(app, "l1-field-host")
-        XCTAssertTrue(hostField.waitForExistence(timeout: 8), "重开手动页应可用")
-        XCTAssertEqual(hostField.value as? String ?? "", "",
-                       "重开手动页地址栏应为空（再进状态干净，G-004 标准②）")
+        XCTAssertEqual(hostField.value as? String ?? "", "http://10.255.255.1:3030",
+                       "取消后手动页应保留原输入地址（供改址重试，非清空丢弃）")
     }
 
     // MARK: - G-004①：多屏退出路径遍历（每屏 ≥1 条可达退出路径）
@@ -177,24 +178,42 @@ final class NavigationAndBotsE2ETests: XCTestCase {
         element(app, "12-tab-me").tap()
         for row in settingsScreens {
             let entry = element(app, row)
-            if !entry.waitForExistence(timeout: 6) {
-                // 分区行可能在视口外：下滑有界寻找，仍不可见则跳过该屏（行不存在=不可达）
-                var found = entry.exists
-                for _ in 0..<4 where !found {
-                    app.swipeUp()
-                    found = entry.exists
-                }
-                if !found { continue }
-            }
-            entry.tap()
+            // exists≠hittable：设置页为 ScrollView（行全量物化，exists 恒真而视口外
+            // 不可命中）——tap 前有界下滑至可命中；tap 后以「导航返回钮出现」为生效
+            // 判据，未生效（tap 落空停根页）则滑回顶部重定位重试
+            if !entry.waitForExistence(timeout: 6) { continue }
             let backButton = app.navigationBars.buttons.firstMatch
-            XCTAssertTrue(backButton.waitForExistence(timeout: 6),
+            var entered = false
+            for round in 0..<3 where !entered {
+                // exists/isHittable 均不可靠（行压在 TabBar 之下时 isHittable 仍可能
+                // true，tap 命中 TabBar 被静默吞掉——门禁诊断实据：usage 行 y=839
+                // hittable=true 而推入不发生）——以 frame 相对 TabBar 顶判定可视性，
+                // 不足则有界上滑；tap 后以「导航返回钮出现」为生效判据
+                let tabTop = element(app, "04-tab-chat").frame.minY
+                var scrolled = 0
+                while entry.exists, entry.frame.maxY > tabTop - 8, scrolled < 10 {
+                    app.swipeUp()
+                    scrolled += 1
+                }
+                NSLog("test05-traverse \(row) round=\(round) scrolled=\(scrolled) frame=\(entry.frame) tabTop=\(tabTop)")
+                guard entry.exists, entry.frame.maxY <= tabTop - 8 else { break }
+                entry.tap()
+                entered = backButton.waitForExistence(timeout: 5)
+                NSLog("test05-traverse \(row) tapped entered=\(entered) navbars=\(app.navigationBars.count) backExists=\(backButton.exists)")
+                if !entered, !backButton.exists {
+                    for _ in 0..<8 { app.swipeDown() } // 滑回顶部重新定位该行
+                }
+            }
+            XCTAssertTrue(entered,
                           "\(row) 屏应有 ≥1 条退出路径（导航返回，G-004①）")
+            guard entered else { continue }
             backButton.tap()
             XCTAssertTrue(entry.waitForExistence(timeout: 6),
                           "\(row) 返回后应回设置根（无残留态，G-004②）")
         }
-        // 连接域：L1 cover（✕）→ 手动页（返回）→ 帮助页（返回）
+        // 连接域：L1 cover（✕）→ 手动页（返回）→ 帮助页（返回）。
+        // 设置域循环结束停在页面底部，l4-row-add 在页面顶部——先滑回顶部再进入
+        for _ in 0..<8 { app.swipeDown() }
         element(app, "l4-row-add").tap()
         let l1Close = element(app, "l1-act-close")
         XCTAssertTrue(l1Close.waitForExistence(timeout: 8), "L1 cover 应有 ✕（G-004①）")

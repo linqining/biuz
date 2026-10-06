@@ -820,7 +820,8 @@ final class E2ELoginStubServer {
             "grantWorkspaceHookTrust", "listMcpServerStatuses", "generateWorkspaceText",
             "testModelConnectivity", "createAutomation", "updateAutomation", "deleteAutomation",
             "setAutomationEnabled", "restartAutomation", "runAutomationNow", "deleteAutomationRun",
-            "installPlugin", "uninstallPlugin", "updatePlugin", "setPluginEnabled",
+            // P3-11：installPlugin/uninstallPlugin 已过 gate 放行（桌面代执行），同步移出
+            "updatePlugin", "setPluginEnabled",
             "writeWorkspaceFile", "saveFile", "writeFile", "applyEdits",
         ]
         let blockedTerminal: Set<String> = ["create", "write", "resize", "dispose"]
@@ -1346,6 +1347,14 @@ final class E2ELoginStubServer {
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
                 "result": ["groupId": "group-e2e-1"]])))
+        case "listGroupedTaskViewStructure" where channelName == "zcode-task":
+            // B-2 web 实证回执形状 {groups, members, topLevelOrders}（空结构 = 桌面无分组态；
+            // 移入分组全链先拉结构作全量视图写基线，缺此应答流程会在 apply 前如实失败）
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "groups": [] as [Any],
+                "members": [] as [Any],
+                "topLevelOrders": [] as [Any],
+            ])))
         case "applyGroupedTaskViewOrder" where channelName == "zcode-task":
             lock.lock()
             _taskGroupWrites.append((command: "applyGroupedTaskViewOrder", args: self.rpcArgDict(body)))

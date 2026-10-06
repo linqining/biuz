@@ -56,7 +56,7 @@ targets:
               - zcode
         # 系统权限（L1「系统权限三闸」：本地网络 / 相机；剪贴板为系统级「允许粘贴」无 Info 键）
         NSLocalNetworkUsageDescription: 用于查找并连接同一局域网内的桌面端 Agent 服务（ZCode 社区版桌面端）
-        NSCameraUsageDescription: 扫描桌面端出示的连接二维码，用于配对连接
+        NSCameraUsageDescription: 用于扫描桌面端出示的连接二维码配对连接，以及拍摄照片作为会话附件发送
         # ATS 例外：局域网 http（zcode --web 无 TLS）；OAuth 令牌端点保持 https 不受影响
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

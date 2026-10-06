@@ -77,7 +77,8 @@ final class LayoutAuditTests: XCTestCase {
     /// 演示模式冷启动（无服务器配置）
     @discardableResult
     private func launchDemo() -> XCUIApplication {
-        app.launchArguments = ["-ZCodeE2EResetState", "-AppleLanguages", "(zh-Hans)"]
+        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）
+        app.launchArguments = ["-ZCodeE2EResetState", "-ZCodeDemoData", "-AppleLanguages", "(zh-Hans)"]
         app.launch()
         wait(element(app, "04-row-c1"), timeout: 10, "演示会话列表应加载")
         return app
@@ -85,7 +86,7 @@ final class LayoutAuditTests: XCTestCase {
 
     /// 连接替身直达已连接态（手动输入 stub 地址令牌）；内部自行冷启动
     private func connectStub(_ application: XCUIApplication) {
-        application.launchArguments = ["-ZCodeE2EResetState", "-AppleLanguages", "(zh-Hans)"]
+        application.launchArguments = ["-ZCodeE2EResetState", "-ZCodeDemoData", "-AppleLanguages", "(zh-Hans)"]
         application.launch()
         let meTab = element(application, "12-tab-me")
         wait(meTab, timeout: 10, "Tab 栏应出现")
@@ -253,7 +254,7 @@ final class LayoutAuditTests: XCTestCase {
 
     func test04_loginHomeAndAuthorizeSheet() throws {
         stub.holdAuthorizePage = true
-        app.launchArguments = ["-ZCodeE2EResetState", "-AppleLanguages", "(zh-Hans)", "-ZCodeOpenLoginFlow",
+        app.launchArguments = ["-ZCodeE2EResetState", "-ZCodeDemoData", "-AppleLanguages", "(zh-Hans)", "-ZCodeOpenLoginFlow",
                                "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
                                "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
                                "-ZCodeOAuthClientID", "stub-client-e2e"]

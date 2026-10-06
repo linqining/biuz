@@ -3,12 +3,14 @@ import SwiftUI
 /// 屏 04 · 会话列表（Tab「会话」根）
 /// v3 纠偏增量：行长按菜单（重命名 / 标记未读 / 复制会话 ID）与「已归档」分区
 /// （连接态 listArchivedTasks + unarchiveTask；演示态 rename/markUnread 走本地 mock）。
-/// 项 5 增量（Qoder 对照屏 1）：顶部来源过滤 chips（全部 / 我的 Mac / 云端沙盒，
-/// 数据复用设备列表口径）；会话按项目/工作区分组（📁 项目名可折叠组）优先于日期分组，
+/// 项 5 增量（Qoder 对照屏 1）：顶部来源过滤 chips（全部 / 我的 Mac；
+/// 「云端沙盒」档 H7 隐藏——cloud 会话源接入后恢复，见 sourceChips 注释），
+/// 数据复用设备列表口径；会话按项目/工作区分组（📁 项目名可折叠组）优先于日期分组，
 /// 未绑定项目的会话保持日期分组兜底。既有 04-row-* / 04-empty 测试标识不变。
 struct ConversationListView: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.conversationStore) private var store
+    @Environment(AppSession.self) private var session
     @State private var conversations: [Conversation] = []
     @State private var archivedConversations: [Conversation] = []
     @State private var query = ""
@@ -26,6 +28,9 @@ struct ConversationListView: View {
     /// cloud=云端沙盒（source=="cloud"，BiuZ 尚无云端会话数据源，选中显示对应空态提示）
     enum SourceFilter: String, CaseIterable, Identifiable {
         case all, mac, cloud
+        /// HIDDEN(对齐修复) H7/L-4：「云端沙盒」档隐藏（无 cloud 会话数据源，恒空档；
+        /// Mock seed c3/c4=cloud 移除后恒不可选）· 恢复条件：cloud 会话源接入
+        static var visibleCases: [SourceFilter] { allCases.filter { $0 != .cloud } }
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -47,7 +52,11 @@ struct ConversationListView: View {
     static let sourceFilterKey = "list.sourceFilter.v1"
 
     static func loadSourceFilter() -> SourceFilter {
-        SourceFilter(rawValue: UserDefaults.standard.string(forKey: sourceFilterKey) ?? "") ?? .all
+        // HIDDEN(对齐修复) H7/L-4：cloud 档已隐藏，残留持久化值（演示态点过）回退「全部」
+        // · 恢复条件：cloud 会话源接入
+        guard let filter = SourceFilter(rawValue: UserDefaults.standard.string(forKey: sourceFilterKey) ?? ""),
+              filter != .cloud else { return .all }
+        return filter
     }
 
     private var pinned: [Conversation] { filtered.filter(\.isPinned) }
@@ -107,6 +116,22 @@ struct ConversationListView: View {
     @State private var newGroupName = ""
     /// 失败任务清理目标（桌面失败任务同款删除；确认后 zcode-task.deleteTask）
     @State private var cleanupTarget: Conversation?
+
+    // MARK: 工作区切换器（P3-10）
+
+    /// 待确认切换的目标工作区（confirmationDialog 确认后经 AppSession.switchWorkspace）
+    @State private var switchTarget: ServerWorkspaceInfo?
+    /// 切换中（Menu 禁用 + 胶囊「切换中…」，重复确认被拦）
+    @State private var isSwitching = false
+    /// 切换结果提示（成功/失败 toast，3s 自动清除；ChatView switchHint 同款通道）
+    @State private var switchHint: String?
+    @State private var switchHintClear: Task<Void, Never>?
+
+    /// G-017 移入分组结果提示（成功/失败 3s 轻提示，showSwitchHint 同款通道）；
+    /// 失败态为写面如实回传（B-3 配套：写面禁止静默），红色与 T.text3 区分
+    @State private var groupHint: String?
+    @State private var groupHintIsError = false
+    @State private var groupHintClear: Task<Void, Never>?
 
     /// 来源过滤后为空（仅非「全部」档可能；给可行动提示而非静默空白）
     private var isSourceFilteredEmpty: Bool {
@@ -172,7 +197,9 @@ struct ConversationListView: View {
 } message: {
             Text("新名称会同步到桌面端任务列表")
         }
-        // G-017：移入分组（组名输入 → createTaskGroup 幂等建组 + applyGroupedTaskViewOrder 入组）
+        // G-017：移入分组（B-3 修正：全链走 moveConversationToGroup——拿 createTaskGroup
+        // 回执真实 groupId、applyGroupedTaskViewOrder 按全量视图形状提交；旧实现丢弃
+        // 回执、以组名充当 groupId，恒静默无效）。失败必须提示（写面禁止静默）。
         .alert("移入分组", isPresented: Binding(
             get: { groupTarget != nil },
             set: { if !$0 { groupTarget = nil } })) {
@@ -182,11 +209,7 @@ struct ConversationListView: View {
                 guard let target = groupTarget else { return }
                 let name = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !name.isEmpty {
-                    Task {
-                        _ = await store.createTaskGroup(named: name, color: nil)
-                        await store.applyGroupedTaskViewOrder(
-                            groupID: nil, order: [(target.id, name)])
-                    }
+                    Task { await moveConversationToGroup(target, groupName: name) }
                 }
                 groupTarget = nil
             }
@@ -211,6 +234,20 @@ struct ConversationListView: View {
             }
         } message: {
             Text("将删除失败任务「\(cleanupTarget?.title ?? "")」及其本地记录，桌面端同步删除")
+        }
+        // 工作区切换确认（P3-10 §10.5：影响三面板数据面，确认层保留；主键「切换」为
+        // 普通按钮——切换不丢数据且桌面任务不受影响，非 destructive）
+        .confirmationDialog(
+            "切换到 \(switchTarget?.label ?? switchTarget?.path ?? "")？",
+            isPresented: Binding(
+                get: { switchTarget != nil },
+                set: { if !$0 { switchTarget = nil } }),
+            titleVisibility: .visible) {
+            Button(String(localized: "切换")) { confirmSwitch() }
+                .accessibilityIdentifier("04-switcher-confirm")
+            Button(String(localized: "取消"), role: .cancel) { switchTarget = nil }
+        } message: {
+            Text("将断开当前工作区的会话与文件面板并重连；桌面端连接保持，进行中的桌面任务不受影响。")
         }
         .task { await reload() }
         .refreshable { await reload(showSpinner: true) }
@@ -237,6 +274,9 @@ struct ConversationListView: View {
         // 落空——门禁 Matrix test01 line202 确定性复现，连拍 frame 证实 filter 停留 cloud）。
         // 提为固定 VStack 头后元素帧稳定，identifier（04-search / 04-chip-source-*）全保留。
         VStack(spacing: 0) {
+            // 工作区切换器（P3-10）：连接态且桌面工作区清单非空时渲染在列表头部
+            //（未连接/清单空不渲染，演示态布局零变化）
+            workspaceSwitcher
             SearchField(text: $query, placeholder: String(localized: "搜索会话"), identifier: "04-search")
                 .padding(.horizontal, T.sp4)
                 .padding(.top, T.sp1)
@@ -246,17 +286,26 @@ struct ConversationListView: View {
             sourceChips
                 .padding(.horizontal, T.sp4)
                 .padding(.top, T.sp1)
+            if let groupHint {
+                // G-017 移入分组结果行（成功灰/失败红，3s 自动清除）
+                Text(groupHint)
+                    .font(T.font(11.5))
+                    .foregroundColor(groupHintIsError ? T.red : T.text3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, T.sp4)
+                    .padding(.top, T.sp1)
+                    .accessibilityIdentifier("04-group-hint")
+            }
             List {
                 // 来源过滤为空的显式提示（不静默空白；默认「全部」不触发）
+            // HIDDEN(对齐修复) H7/L-4：cloud 空态分支随档位隐藏 · 恢复条件：cloud 会话源接入
             if isSourceFilteredEmpty {
                 Section {
                     HStack(spacing: T.sp2) {
-                        Image(systemName: sourceFilter == .cloud ? "cloud" : "laptopcomputer")
+                        Image(systemName: "laptopcomputer")
                             .font(.system(size: 13))
                             .foregroundColor(T.text3)
-                        Text(sourceFilter == .cloud
-                             ? "暂无云端沙盒会话 · 云端任务源接入后将在此聚合"
-                             : "暂无「我的 Mac」会话 · 连接桌面端后同步")
+                        Text("暂无「我的 Mac」会话 · 连接桌面端后同步")
                             .font(T.font(12.5))
                             .foregroundColor(T.text3)
                         Spacer()
@@ -346,12 +395,13 @@ struct ConversationListView: View {
         }
     }
 
-    /// 来源过滤 chips（全部 / 我的 Mac / 云端沙盒；选中深色实底胶囊，Qoder 屏 1 口径）。
-    /// G-010：「云端沙盒」档在数据源中尚无 source=="cloud" 会话时置灰禁用（BiuZ 云端
-    /// 执行端尚未接入会话通道），避免呈现静默空档；云端源接入后该档自动恢复可选。
+    /// 来源过滤 chips（全部 / 我的 Mac；选中深色实底胶囊，Qoder 屏 1 口径）。
+    /// HIDDEN(对齐修复) H7/L-4：「云端沙盒」档整档不渲染（BiuZ 无 cloud 会话数据源，
+    /// 恒空档/置灰死档，审查报告 §六 L-4）· 恢复条件：cloud 会话源接入（还原
+    /// visibleCases 过滤与 cloud 空态分支即可）。
     private var sourceChips: some View {
         HStack(spacing: T.sp2) {
-            ForEach(SourceFilter.allCases) { filter in
+            ForEach(SourceFilter.visibleCases) { filter in
                 let unavailable = filter == .cloud && !conversations.contains { $0.source == "cloud" }
                 Button {
                     guard !unavailable else { return }
@@ -382,6 +432,160 @@ struct ConversationListView: View {
                 .accessibilityHint(unavailable ? "云端沙盒执行端尚未接入会话" : "")
             }
             Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: 工作区切换器（P3-10：会话列表区域入口；切换中/失败态见状态矩阵）
+
+    /// 连接态工作区清单（中继连接期 workspace-list-response 采集 + workspace-list-updated
+    /// 推送刷新，active 首位；未连接为空 → 切换器整体不渲染）
+    private var workspaceEntries: [ServerWorkspaceInfo] {
+        session.connection.serverInfo?.workspaces ?? []
+    }
+
+    @ViewBuilder
+    private var workspaceSwitcher: some View {
+        if case .connected = session.mode, !workspaceEntries.isEmpty {
+            HStack(spacing: T.sp2) {
+                switcherPill
+                Spacer(minLength: 0)
+                if let hint = switchHint {
+                    Text(hint)
+                        .font(T.font(11))
+                        .foregroundColor(T.text3)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                        .accessibilityIdentifier("04-switcher-hint")
+                }
+            }
+            .padding(.horizontal, T.sp4)
+            .padding(.top, T.sp1)
+        }
+    }
+
+    /// 切换器胶囊：多工作区+中继 = 可点 Menu（上下 chevron）；单工作区/局域网 = 只读
+    /// 胶囊（无 chevron，诚实不可切）；切换中 = 「切换中…」+ Spinner（重复确认被拦）
+    @ViewBuilder
+    private var switcherPill: some View {
+        let current = session.connection.workspace
+        let switchable = workspaceEntries.count > 1
+            && session.connection.supportsWorkspaceSwitching
+            && !isSwitching
+        if isSwitching {
+            switcherPillLabel(
+                String(localized: "切换中…"), chevron: false, spinner: true)
+                .accessibilityIdentifier("04-switcher-workspace-switching")
+        } else if switchable {
+            Menu {
+                switcherMenuItems(currentPath: current?.path)
+                Section {
+                    Text("切换将重建会话/文件/任务面板")
+                        .font(T.font(11))
+                }
+            } label: {
+                switcherPillLabel(
+                    "工作区 \(current?.label ?? current?.path ?? "--")", chevron: true, spinner: false)
+            }
+            .accessibilityIdentifier("04-switcher-workspace")
+        } else {
+            switcherPillLabel(
+                "工作区 \(current?.label ?? current?.path ?? "--")", chevron: false, spinner: false)
+                .accessibilityIdentifier("04-switcher-workspace-readonly")
+        }
+    }
+
+    /// 胶囊样式（executionTargetMenu ChatView 同款：bgInput 底 + Capsule）
+    private func switcherPillLabel(_ text: String, chevron: Bool, spinner: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 11))
+            Text(text)
+                .font(T.font(11.5, .medium))
+                .lineLimit(1)
+            if spinner {
+                ProgressView()
+                    .scaleEffect(0.65)
+                    .frame(width: 10, height: 10)
+            } else if chevron {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+        }
+        .foregroundColor(T.text2)
+        .padding(.horizontal, T.sp2)
+        .frame(minHeight: 32)
+        .background(T.bgInput)
+        .clipShape(Capsule())
+    }
+
+    /// 菜单项：当前工作区 ✓ 禁选（modelMenu 选中态先例）；其余项点击弹确认
+    private func switcherMenuItems(currentPath: String?) -> some View {
+        ForEach(workspaceEntries, id: \.path) { entry in
+            if entry.path == currentPath {
+                Button {} label: {
+                    Label(entry.label ?? entry.path, systemImage: "checkmark")
+                }
+                .disabled(true)
+            } else {
+                Button {
+                    switchTarget = entry
+                } label: {
+                    Text(entry.label ?? entry.path)
+                }
+            }
+        }
+    }
+
+    /// 确认后执行切换（AppSession.switchWorkspace：原态保持由其失败口径保证）
+    private func confirmSwitch() {
+        guard let target = switchTarget else { return }
+        switchTarget = nil
+        isSwitching = true
+        UISelectionFeedbackGenerator().selectionChanged()
+        Task {
+            if let error = await session.switchWorkspace(to: target) {
+                showSwitchHint(error)
+            } else {
+                showSwitchHint(String(localized: "已切换到 \(target.label ?? target.path)"))
+            }
+            isSwitching = false
+        }
+    }
+
+    private func showSwitchHint(_ message: String) {
+        switchHintClear?.cancel()
+        switchHint = message
+        switchHintClear = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { switchHint = nil }
+        }
+    }
+
+    // MARK: G-017 移入分组（B-3：全链走 store.moveConversationToGroup——拿真实
+    // groupId、全量视图形状提交；失败必须提示，禁止静默）
+
+    private func moveConversationToGroup(_ target: Conversation, groupName: String) async {
+        let failure = await store.moveConversationToGroup(target.id, groupName: groupName)
+        showGroupHint(
+            failure ?? String(localized: "已移入「\(groupName)」"),
+            isError: failure != nil)
+    }
+
+    private func showGroupHint(_ message: String, isError: Bool) {
+        groupHintClear?.cancel()
+        groupHint = message
+        groupHintIsError = isError
+        if isError {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        }
+        groupHintClear = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                groupHint = nil
+                groupHintIsError = false
+            }
         }
     }
 
@@ -473,7 +677,8 @@ struct ConversationListView: View {
                 Label("派生会话", systemImage: "arrow.triangle.branch")
             }
             .accessibilityIdentifier("04-ctx-fork-\(conversation.id)")
-            // G-017：移入分组（createTaskGroup + applyGroupedTaskViewOrder 索引元数据写）
+            // G-017：移入分组（moveConversationToGroup 全链：createTaskGroup 零参 + 真实
+            // groupId + rename 落名 + applyGroupedTaskViewOrder 全量视图写，B-3）
             Button {
                 groupTarget = conversation
                 newGroupName = ""

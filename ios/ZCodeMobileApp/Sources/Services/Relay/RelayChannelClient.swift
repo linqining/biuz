@@ -50,12 +50,27 @@ actor RelayChannelClient: RPCChannelTransport {
         var workspaces: [RelayWorkspaceSummary] = []
     }
 
-    /// workspace-list-response 的条目（宽容解析：键 workspaceKey|path；身份/名可选）
+    /// workspace-list-response 的条目（宽容解析：键 workspaceKey|workspaceIdentity|path 逐级
+    /// 取原始 key；身份/名/kind 可选——kind/remoteSessionId 为 canBridge 门控字段，C-15）
     struct RelayWorkspaceSummary: Equatable {
         var workspaceKey: String
         var path: String?
         var workspaceIdentity: String?
         var name: String?
+        var kind: String?
+        var remoteSessionId: String?
+
+        /// C-15 canBridge 门控（web 同款判别，bundle 实证）：
+        /// `kind!=='remote' || !!(workspaceIdentity && remoteSessionId)`
+        /// ——本地工作区恒可桥；remote 工作区需 identity+remoteSessionId 双全（远端会话
+        /// 在场才可开桥，否则 web 侧退 home-only 不开桥）。kind 缺席视为非 remote
+        ///（web 对 undefined!==`remote` 同判真，旧桌面不携带 kind 时行为不变）。
+        var canBridge: Bool {
+            guard kind == "remote" else { return true }
+            let hasIdentity = workspaceIdentity.map { !$0.isEmpty } ?? false
+            let hasSession = remoteSessionId.map { !$0.isEmpty } ?? false
+            return hasIdentity && hasSession
+        }
     }
 
     private(set) var state: State = .uninitialized
@@ -77,6 +92,9 @@ actor RelayChannelClient: RPCChannelTransport {
     private var bridgeGeneration = 0
     private var lastRecoveryId: String?
     private var bridgeIdentity: RelayFrameCodec.Identity?
+    /// 桥重建互斥（degraded 快速重建 / paired 恢复重建两路汇入，防并发 openBridge
+    /// 互踩单槽 bridgeOpenWaiter）
+    private var bridgeRebuildInFlight = false
     private(set) var desktopAppVersion: String?
     private(set) var initialViewState: JSONValue?
     private(set) var taskListJSON: JSONValue?
@@ -106,6 +124,11 @@ actor RelayChannelClient: RPCChannelTransport {
         }
         await transport.setPairedRecoveryHandler { [weak self] in
             Task { await self?.transportDidPair() }
+        }
+        // 桥退化回调（C-13）：先于 transport.start 注册（帧 handler 先于订阅/建桥纪律，
+        // 桌面宣告可能在任意时点到达）
+        await transport.setBridgeDegradedHandler { [weak self] reason in
+            Task { await self?.handleBridgeDegraded(reason: reason) }
         }
 
         // 1. WS + auth（auth_init/auth_challenge/auth_response/auth_ack）
@@ -153,18 +176,24 @@ actor RelayChannelClient: RPCChannelTransport {
             workspaces: workspaceSummaries)
     }
 
-    /// workspace-list-response 条目宽容解析（web 同源：条目带 workspaceKey，path/身份可选）
+    /// workspace-list-response 条目宽容解析（web 同源：条目优先带 workspaceKey 原始键；
+    /// 缺席时按 web tc(path,identity) 公开式补算 = identity 优先、path 兜底——identity
+    /// 缺席的本地工作区 key 即 path，与切换面「未收录路径冒充 key」的反查兜底不同，
+    /// 此处是桌面侧同款键构造，非臆造）
     nonisolated static func parseWorkspaceSummaries(_ value: JSONValue?) -> [RelayWorkspaceSummary] {
         (value?.arrayValue ?? []).compactMap { item in
             guard let d = item.objectValue else { return nil }
             let key = d["workspaceKey"]?.stringValue
+                ?? d["workspaceIdentity"]?.stringValue
                 ?? d["path"]?.stringValue ?? ""
             guard !key.isEmpty else { return nil }
             return RelayWorkspaceSummary(
                 workspaceKey: key,
                 path: d["path"]?.stringValue,
                 workspaceIdentity: d["workspaceIdentity"]?.stringValue,
-                name: d["name"]?.stringValue ?? d["title"]?.stringValue)
+                name: d["name"]?.stringValue ?? d["title"]?.stringValue,
+                kind: d["kind"]?.stringValue,
+                remoteSessionId: d["remoteSessionId"]?.stringValue)
         }
     }
 
@@ -202,6 +231,9 @@ actor RelayChannelClient: RPCChannelTransport {
             bridgeGeneration: bridge?["bridgeGeneration"]?.intValue ?? bridgeGeneration,
             recoveryId: lastRecoveryId)
         await transport.bindFrameChannel(identity: bridgeIdentity!)
+        // 视图状态采用 ready 回包值（web P() 同构：s=bridge.workspaceKey、c=bridge.initialTaskId）
+        activeWorkspaceKey = bridge?["workspaceKey"]?.stringValue ?? workspaceKey
+        activeTaskId = bridge?["initialTaskId"]?.stringValue ?? taskId
         log(.ok, "workspace-bridge-ready · kind=\(bridge?["kind"]?.stringValue ?? "?")"
             + " · path=\(bridge?["workspacePath"]?.stringValue ?? "?")"
             + (lastRecoveryId.map { " · recoveryId=\($0.prefix(10))…" } ?? ""))
@@ -215,6 +247,11 @@ actor RelayChannelClient: RPCChannelTransport {
             recoveryId: lastRecoveryId,
             sessionCount: taskCount,
             workspaces: workspaceSummaries)
+
+        // C-11 场景①（bridge-open 成功）：上报 mobile-view-state-update——含首连/切换/
+        // 重连重建全部开桥路径（web P() 内 M(bridge.workspaceKey, bridge.initialTaskId)；
+        // 桌面以 mobileViewState 优先于 initialViewState 决定断线重连后的落点，bundle 实证）
+        await sendMobileViewStateUpdate(taskId: activeTaskId)
 
         // 桥内桌面即推 Initialize（探针实测 04 01 06 c8 01 00 = serialize([200])+serialize(undefined)）
         try await waitForInitialize(timeout: 10)
@@ -277,7 +314,9 @@ actor RelayChannelClient: RPCChannelTransport {
     /// transport 重连成功（paired）后的桥重建：generation 递增 + recoveryId，
     /// 未确认帧不跨桥重放（replay 语义保守化：pending RPC 失败，Store 层 resync）。
     func rebuildBridgeAfterReconnect() async {
-        guard state == .idle, let workspaceKey = activeWorkspaceKey else { return }
+        guard state == .idle, !bridgeRebuildInFlight, let workspaceKey = activeWorkspaceKey else { return }
+        bridgeRebuildInFlight = true
+        defer { bridgeRebuildInFlight = false }
         log(.info, "重连恢复 · 重建 workspace 桥（gen=\(bridgeGeneration + 1)）")
         let errored = pendingResponses
         pendingResponses.removeAll()
@@ -297,6 +336,166 @@ actor RelayChannelClient: RPCChannelTransport {
         // connectRelay 编排期间（state==uninitialized）不处理，避免与首连竞争
         guard state == .idle else { return }
         await rebuildBridgeAfterReconnect()
+    }
+
+    /// 桥退化快速重建（C-13；web T(reason) 的移动端同构）：桌面宣告 bridge-degraded /
+    /// 无 requestId 的 workspace-bridge-error，或本地 45s 无 ack 判退化后，pending RPC
+    /// 立即失败（死桥上等待只会逐条 30s 超时）→ 同 transport 重开桥（不重走 auth/pair，
+    /// recoveryId 随开携回）。传输已失联时不动（等 paired 恢复链路接管重建）。
+    private func handleBridgeDegraded(reason: String) async {
+        guard state == .idle, !bridgeRebuildInFlight else { return }
+        guard let workspaceKey = activeWorkspaceKey else { return }
+        guard await transport.isPaired else {
+            log(.info, "桥退化但传输未配对 · 等 paired 恢复后重建（\(reason)）")
+            return
+        }
+        bridgeRebuildInFlight = true
+        defer { bridgeRebuildInFlight = false }
+        log(.error, "桥退化 · \(reason) · 快速重建（gen=\(bridgeGeneration + 1)）")
+        let errored = pendingResponses
+        pendingResponses.removeAll()
+        for (_, continuation) in errored {
+            continuation.resume(throwing: RPCError(
+                message: "桥退化重建，请求已中断（\(reason)）", name: "Reconnecting"))
+        }
+        do {
+            try await openBridge(workspaceKey: workspaceKey, taskId: activeTaskId)
+            log(.ok, "退化桥已重建 · 活跃订阅已随开桥重发")
+        } catch {
+            if await transport.isPaired {
+                log(.error, "退化桥重建失败：\(error.localizedDescription)")
+                handleTerminalFailure(.relayUnavailable("退化桥重建失败"))
+            } else {
+                // 重建途中传输失联：不走终态，paired 恢复链路（transportDidPair）接管
+                log(.info, "退化桥重建中断（传输失联）· 等 paired 恢复后重建")
+            }
+        }
+    }
+
+    // MARK: 工作区切换（P3-10；C-10/C-11/C-12 对齐 web：bridge-open + view-state，无 reconnect 前置）
+
+    /// 目标工作区的 workspaceKey 解析（C-12 严格口径）：**一律取清单原始 workspaceKey**
+    /// ——先按 workspaceIdentity（远端工作区判别键）命中，再按 path；清单未收录返回 nil。
+    /// 不再以 path 冒充 key（未取证兜底会发非法 key 致切换必败；web 同构判别
+    /// Ia({workspacePath,workspaceIdentity}) = identity 优先、path 兜底——但那是桌面侧
+    /// 清单条目的键构造，移动端反查必须落在清单既有条目上，落空即如实报「不在清单」）。
+    func resolvedWorkspaceKey(forPath path: String, identity: String? = nil) -> String? {
+        if let identity, !identity.isEmpty,
+           let match = workspaceSummaries.first(where: { $0.workspaceIdentity == identity }) {
+            return match.workspaceKey
+        }
+        if let match = workspaceSummaries.first(where: { $0.path == path }) {
+            return match.workspaceKey
+        }
+        return nil
+    }
+
+    /// mobile-view-state-update 发送（C-11；web M(e,n) 同构，bundle 实证）：
+    /// `{zcode_type, viewState:{activeWorkspaceKey, activeTaskId?, updatedAt:毫秒},
+    ///   deviceInfo:{platform,version:appVersion,name}}`
+    /// 单向通知（web sendPayload 面：无 requestId、无响应等待）；activeTaskId 缺席时
+    /// 整键省略（web `...n?{activeTaskId:n}:{}` 同款）。appVersion 以 **version** 键入帧。
+    func sendMobileViewStateUpdate(taskId: String? = nil) async {
+        guard let key = activeWorkspaceKey, !key.isEmpty else { return }
+        var viewState: [String: JSONValue] = [
+            "activeWorkspaceKey": .string(key),
+            "updatedAt": .int(Int(Date().timeIntervalSince1970 * 1000)),
+        ]
+        if let taskId, !taskId.isEmpty {
+            viewState["activeTaskId"] = .string(taskId)
+        }
+        await transport.sendAppNotification(
+            [
+                "zcode_type": .string("mobile-view-state-update"),
+                "viewState": .object(viewState),
+                "deviceInfo": .object(Self.mobileDeviceInfo(appVersion: appVersion)),
+            ],
+            zcodeType: "mobile-view-state-update")
+    }
+
+    /// web u4t({appVersion}) 的移动端裁剪：platform/version/name 必带，浏览器专属键
+    /// （viewport/userAgent/timezone 等）iOS 无对应面不带。platform 值域未取证——web
+    /// 实测恒 `web`/`mobile-browser`，移动端如实报 `ios`（单向通知，被弃亦无功能回退）
+    nonisolated static func mobileDeviceInfo(appVersion: String) -> [String: JSONValue] {
+        [
+            "platform": .string("ios"),
+            "version": .string(appVersion.isEmpty ? "1.0.0" : appVersion),
+            "name": .string("ZCode Mobile"),
+        ]
+    }
+
+    /// 视图状态上报（C-11 场景②「打开任务」与切换后清空任务两用；web
+    /// updateMobileViewState(r, taskId) 由活动任务变化 effect 触发，M(e,n) 的
+    /// n=undefined 同步清模块态）。本地 activeTaskId 随之刷新——退化/重连重建以它为
+    /// 落点（web T() 捕获 s/c 同构）。打开任务调用面由视图与 Store 波次接线。
+    func updateActiveTask(_ taskId: String?) async {
+        activeTaskId = (taskId?.isEmpty == false) ? taskId : nil
+        await sendMobileViewStateUpdate(taskId: activeTaskId)
+    }
+
+    /// 工作区切换的桥落地（复用既有 WS/auth，不重建配对）：在途 RPC 按重连同口径失败
+    /// （未确认帧不跨桥重放）→ 三路 dynamic eventListen 的 workspacePath 参数改写到
+    /// 新工作区 → openBridge 重开桥（generation 递增、新身份绑定、Initialize 等待、
+    /// 活跃 eventListen 重发）。失败回滚原工作区桥（尽力）后原样上抛。
+    func switchBridgeWorkspace(workspaceKey: String, workspacePath: String) async throws {
+        guard state == .idle else {
+            throw RPCError(message: "通道未就绪（state=\(state)）", name: "NotInitialized")
+        }
+        // 切换全程持重建互斥（含失败回滚）：degraded 快速重建/paired 恢复重建在切换
+        // 在途时并发 openBridge 会互踩单槽 bridgeOpenWaiter
+        bridgeRebuildInFlight = true
+        defer { bridgeRebuildInFlight = false }
+        let previousKey = activeWorkspaceKey
+        let previousTaskId = activeTaskId
+        let previousPath = activeEventListeners.values.lazy.compactMap {
+            $0.arg.jsonValue?["workspacePath"]?.stringValue
+        }.first
+        // 未确认 RPC 不跨桥重放（rebuildBridgeAfterReconnect 同口径）
+        let errored = pendingResponses
+        pendingResponses.removeAll()
+        for (_, continuation) in errored {
+            continuation.resume(throwing: RPCError(message: "工作区切换，请求已中断", name: "Reconnecting"))
+        }
+        redirectListenerWorkspacePath(to: workspacePath)
+        activeWorkspaceKey = workspaceKey
+        activeTaskId = nil
+        do {
+            try await openBridge(workspaceKey: workspaceKey, taskId: nil)
+        } catch {
+            let switchError = error
+            // 回滚（尽力）：恢复原工作区桥与事件参数，保持当前工作区可用态；回滚失败
+            // 将其错误并进上抛信息（不静默吞——切换失败与回滚失败都要回到 UI）
+            log(.error, "工作区桥切换失败，回滚原工作区：\(switchError.localizedDescription)")
+            redirectListenerWorkspacePath(to: previousPath)
+            activeWorkspaceKey = previousKey
+            activeTaskId = previousTaskId
+            if let previousKey {
+                do {
+                    try await openBridge(workspaceKey: previousKey, taskId: previousTaskId)
+                } catch {
+                    let combined = "\(switchError.localizedDescription)"
+                        + "（回滚原工作区亦失败：\(error.localizedDescription)，可断开重连恢复）"
+                    throw RPCError(
+                        message: combined,
+                        name: (switchError as? RPCError)?.name ?? "SwitchFailed")
+                }
+            }
+            throw switchError
+        }
+    }
+
+    /// dynamic eventListen 参数重定向（conversation / sessions-index / workspace-config
+    /// 三路按 workspacePath 定向；无该键的监听不动）
+    private func redirectListenerWorkspacePath(to path: String?) {
+        guard let path else { return }
+        for (id, listener) in activeEventListeners {
+            guard var fields = listener.arg.jsonValue?.objectValue,
+                  fields["workspacePath"] != nil else { continue }
+            fields["workspacePath"] = .string(path)
+            var updated = listener
+            updated.arg = .json(.object(fields))
+            activeEventListeners[id] = updated
+        }
     }
 
     func disconnect() async {

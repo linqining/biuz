@@ -268,6 +268,19 @@ final class ZCodeServerConnection {
     /// manuallyCancelled 守卫先行返回，不会误触发。
     var onConnectionDropped: (@MainActor (String) -> Void)?
 
+    /// 工作区清单推送回调（workspace-list-updated，P3-10）：AppSession 据此刷新
+    /// 任务聚合清单（conversationStore.setAllWorkspaces）；清单本体已先行回写
+    /// serverInfo.workspaces（切换器菜单经 @Observable 联动）
+    var onWorkspaceListUpdated: (@MainActor ([ServerWorkspaceInfo]) -> Void)?
+
+    /// 工作区切换能力（P3-10）：切换 = workspace-bridge-open 重开 + mobile-view-state-update
+    /// （C-10 对齐 web；workspace-reconnect-request 已收敛为断连重连专用面，不再前置到
+    /// 切换流程），relay WS 原生 zcode_type 消息仅云中继连接具备；局域网直连诚实只读
+    /// （UI 不出可点菜单）
+    var supportsWorkspaceSwitching: Bool {
+        relayClient != nil && isActive
+    }
+
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
 
     var isActive: Bool {
@@ -477,6 +490,13 @@ final class ZCodeServerConnection {
         let transport = RelayTransport(config: link) { [weak self] kind, text in
             Task { @MainActor [weak self] in self?.log(kind, text) }
         }
+        // 工作区清单推送（P3-10）：transport 拆出的独立 case 在此接线（先于任何
+        // 桥/订阅建立——推送可能在握手后任意时点到达）
+        await transport.setWorkspaceListUpdatedHandler { [weak self] payload in
+            Task { @MainActor [weak self] in
+                self?.handleWorkspaceListUpdated(payload)
+            }
+        }
         let client = RelayChannelClient(transport: transport, link: link, appVersion: appVersion)
         self.relayTransport = transport
         self.client = client
@@ -504,17 +524,16 @@ final class ZCodeServerConnection {
 
             // 步骤 5：桥 workspacePath → ServerWorkspaceInfo（Store 装配与局域网同构）。
             // 多 workspace（2026-10-06 取证 workspace-list-response）：全部工作区入 info，
-            // active（桥）保持首位——任务列表按全清单聚合，单工作区行为不变
+            // active（桥）保持首位——任务列表按全清单聚合，单工作区行为不变；
+            // C-15 canBridge 门控（web 同款 `kind!=='remote' || (identity && remoteSessionId)`）：
+            // 不可桥条目从切换菜单过滤（web「不可桥不开桥、退 home-only」的菜单面等价）
             progress.workspace.phase = .running
             state = .connecting(progress)
             let activeEntry = summary.workspaces.first { $0.workspaceKey == summary.workspaceKey }
                 ?? summary.workspaces.first
-            var relayWorkspaces: [ServerWorkspaceInfo] = summary.workspaces.map { entry in
-                ServerWorkspaceInfo(
-                    path: entry.path ?? entry.workspaceKey,
-                    label: entry.name,
-                    workspaceIdentity: entry.workspaceIdentity)
-            }
+            var relayWorkspaces: [ServerWorkspaceInfo] = summary.workspaces
+                .filter { $0.canBridge }
+                .map(Self.workspaceInfo(from:))
             if let activeEntry, !relayWorkspaces.contains(where: {
                 $0.path == (activeEntry.path ?? activeEntry.workspaceKey)
             }) {
@@ -605,6 +624,197 @@ final class ZCodeServerConnection {
         if progress.handshake.phase == .running { progress.handshake.phase = .failed }
         if progress.workspace.phase == .running { progress.workspace.phase = .failed }
     }
+
+    // MARK: 工作区切换（P3-10；C-10/C-11/C-12 对齐 web：bridge-open 重开 + mobile-view-state-update）
+
+    /// 中继工作区切换（web 同构，C-10）：**不前置 workspace-reconnect-request**——web 的
+    /// reconnect 仅用于「重连已断开的远程工作区」专用面（见 reconnectRelayWorkspace），
+    /// 与切换无关。切换 = ①按清单解析原始 workspaceKey（C-12 严格口径，未收录即失败，
+    /// 不再以 path 冒充 key）②桥重开到目标 key（三路 dynamic 事件与 workspace-config
+    /// 订阅重定向，失败回滚）③补发 mobile-view-state-update（C-11 切换场景；bridge-open
+    /// 成功场景已在 RelayChannelClient.openBridge 内发送）④workspace/清单 active 序更新。
+    /// 局域网直连无此消息面。
+    func switchRelayWorkspace(to target: ServerWorkspaceInfo) async -> Result<ServerWorkspaceInfo, ConnectError> {
+        guard isActive, let relayClient, workspace != nil else {
+            return .failure(.transport("工作区切换仅支持云中继连接"))
+        }
+        guard let current = workspace, current.path != target.path else {
+            return .failure(.transport("目标已是当前工作区"))
+        }
+        // C-12：workspaceKey 一律取清单原始 key；未收录返回失败（非法 key 切换必败）
+        guard let key = await relayClient.resolvedWorkspaceKey(
+            forPath: target.path, identity: target.workspaceIdentity) else {
+            log(.error, "目标工作区不在桌面清单（无原始 workspaceKey）· \(target.path)")
+            return .failure(.transport("目标工作区不在桌面清单"))
+        }
+        log(.working, "workspace-bridge-open（切换）→ \(target.path)")
+        // 桥重开 + 订阅重定向；先清 workspace-config 重放缓存（旧工作区帧不重放给新
+        // Store——重放面在 setFrameHandler 按 topic 精确匹配双保险）
+        workspaceConfigReplay.removeAll()
+        do {
+            try await relayClient.switchBridgeWorkspace(workspaceKey: key, workspacePath: target.path)
+        } catch {
+            // 错误文本含 reason（切换在途的 workspace-bridge-error 帧经 C-14 收口后以
+            // reason:error 组合上抛，不再被误判成功）
+            log(.error, "工作区桥切换失败 · \(error.localizedDescription)")
+            return .failure(.transport(error.localizedDescription))
+        }
+        await resubscribeWorkspaceConfig(path: target.path)
+        updateWorkspace(to: target)
+        // C-11 场景③（切换工作区）：显式上报无任务的视图状态并清空本地 activeTaskId
+        // （web 任务首页切换路径 `switchWorkspace` 后 `updateMobileViewState(key)` 同款
+        // ——M(e,n) 的 n=undefined 会同时清掉模块态 c，重连落点随之不带任务）
+        await relayClient.updateActiveTask(nil)
+        log(.ok, "工作区已切换 · \(target.path) · 清单 \(serverInfo?.workspaces.count ?? 0) 个")
+        return .success(target)
+    }
+
+    /// 重连已断开的远程工作区（C-10 保留项；web 侧栏「重连已断开的远程工作区」按钮
+    /// 专用面，与切换流程解耦）：3 键形态 `{zcode_type, requestId, workspaceKey}`
+    /// （bundle 实证——不带 workspacePath/workspaceIdentity），响应按 requestId 配对；
+    /// `reason`/`error` 字符串或 ok=false 判失败（C-14 reason 识别）。移动端当前无该
+    /// UI 入口，保留协议面供断连工作区恢复场景接线。
+    func reconnectRelayWorkspace(workspaceKey: String) async -> Result<JSONValue, ConnectError> {
+        guard isActive, let relayTransport else {
+            return .failure(.transport("工作区重连仅支持云中继连接"))
+        }
+        do {
+            let response = try await relayTransport.requestAppPayload(
+                [
+                    "zcode_type": .string("workspace-reconnect-request"),
+                    "workspaceKey": .string(workspaceKey),
+                ],
+                zcodeType: "workspace-reconnect-request", timeout: 8)
+            // 响应面拒绝形态（在途错误帧走 app-error/workspace-bridge-error，已被
+            // RelayTransport 按 requestId reject 到 catch 分支）
+            if let reason = response["reason"]?.stringValue, !reason.isEmpty {
+                log(.error, "workspace-reconnect 被拒 · \(reason)")
+                return .failure(.handshakeFailed("workspace-reconnect: \(reason)"))
+            }
+            if let errorText = response["error"]?.stringValue, !errorText.isEmpty {
+                log(.error, "workspace-reconnect 被拒 · \(errorText)")
+                return .failure(.handshakeFailed("workspace-reconnect: \(errorText)"))
+            }
+            if response["ok"]?.boolValue == false {
+                log(.error, "workspace-reconnect 被拒（ok=false）")
+                return .failure(.handshakeFailed("workspace-reconnect rejected"))
+            }
+            log(.ok, "workspace-reconnect 完成 · \(workspaceKey)")
+            return .success(response)
+        } catch let error as RPCError {
+            log(.error, "workspace-reconnect 失败 · \(error.localizedDescription)")
+            return .failure(Self.mapRelayError(error))
+        } catch {
+            log(.error, "workspace-reconnect 失败 · \(error.localizedDescription)")
+            return .failure(.transport(error.localizedDescription))
+        }
+    }
+
+    /// C-11 场景②（打开任务）：向桌面上报当前查看的任务（web `updateMobileViewState`
+    /// 由活动任务变化 effect 触发）。仅云中继有此帧面（局域网直连静默跳过）；单向通知
+    /// 无响应等待，未 paired 仅记连接日志。调用面（会话/任务打开处）由视图与 Store 波次接线。
+    func reportActiveTask(_ taskId: String?) async {
+        guard let relayClient else { return }
+        await relayClient.updateActiveTask(taskId)
+    }
+
+    /// 切换成功后的连接态工作区更新：workspace 字段直读本连接（FileTreeView.headerPath /
+    /// DiffReviewView.loadGitSummary 等处消费），不同步则切换后头部仍显旧工作区；
+    /// serverInfo.workspaces 同步重排（active 首位，与连接期同构）。
+    private func updateWorkspace(to target: ServerWorkspaceInfo) {
+        workspace = target
+        if var list = serverInfo?.workspaces {
+            list.removeAll { $0.path == target.path }
+            list.insert(target, at: 0)
+            serverInfo?.workspaces = list
+        }
+    }
+
+    /// 工作区切换后的 workspace-config 重订（新 topic）：旧订阅退订（best-effort，
+    /// 旧桥已弃无强一致要求）+ 新 topic 重订；新快照在 Store 注册 handler 前到达的
+    /// 部分走既有 workspaceConfigReplay 缓存重放路径（先于订阅注册纪律的缓存面）
+    private func resubscribeWorkspaceConfig(path: String) async {
+        let previousTopic = workspaceConfigTopicPath
+        let previousSubscriptionId = workspaceConfigSubscriptionId
+        workspaceConfigTopicPath = nil
+        workspaceConfigSubscriptionId = nil
+        guard let client else { return }
+        if let previousTopic, let previousSubscriptionId {
+            var unsubscribe = JSONObjectBuilder()
+            unsubscribe.set("topic", previousTopic)
+            unsubscribe.set("workspacePath", workspacePath(fromConfigTopic: previousTopic))
+            unsubscribe.set("subscriptionId", previousSubscriptionId)
+            _ = try? await client.call(
+                "zcode-agent", "unsubscribeWorkspaceConfigV4",
+                .json(.object(unsubscribe.fields)), timeout: 3)
+        }
+        let configTopic = "workspace-config/\(path)"
+        var builder = JSONObjectBuilder()
+        builder.set("topic", configTopic)
+        builder.set("workspacePath", path)
+        builder.set("runtimePolicy", "existing-only")
+        if let value = try? await client.call(
+            "zcode-agent", "subscribeWorkspaceConfigV4",
+            .json(.object(builder.fields)), timeout: 5) {
+            workspaceConfigSubscriptionId = value.jsonValue?["subscriptionId"]?.stringValue
+            workspaceConfigTopicPath = configTopic
+        }
+        log(.ok, workspaceConfigSubscriptionId != nil
+            ? "subscribeWorkspaceConfigV4 · 新工作区订阅完成"
+            : "subscribeWorkspaceConfigV4 · 新工作区订阅未获回执（chips 走缺省展示）")
+    }
+
+    /// workspace-list-updated 推送（桌面端工作区清单变化）：宽容解析清单与
+    /// activeWorkspaceKey（result.workspaces | workspaces | 顶层数组多形态），active
+    /// 首位回写 serverInfo（切换器菜单经 @Observable 联动刷新），再上抛 AppSession
+    /// 刷新任务聚合清单。activeWorkspaceKey 与本地当前工作区不一致时仅刷新清单不跟随
+    /// 切换（桌面侧动作不突袭打断移动端进行中的会话）。
+    /// C-15：菜单（serverInfo.workspaces）按 canBridge 过滤（active 首位恒保留——桥已
+    /// 在其上打开即为可桥事实）；完整清单仍上抛 AppSession（任务聚合不受门控影响，
+    /// bootstrap.tasks 才是跨工作区任务主源）。
+    private func handleWorkspaceListUpdated(_ payload: JSONValue) {
+        let result = payload["result"] ?? payload
+        var listValue = result["workspaces"] ?? payload["workspaces"]
+        if listValue == nil, result.arrayValue != nil { listValue = result }
+        if listValue == nil, payload.arrayValue != nil { listValue = payload }
+        let summaries = RelayChannelClient.parseWorkspaceSummaries(listValue)
+        guard !summaries.isEmpty else {
+            log(.info, "workspace-list-updated · 清单为空或形状未识别（忽略）")
+            return
+        }
+        let activeKey = result["activeWorkspaceKey"]?.stringValue
+            ?? payload["activeWorkspaceKey"]?.stringValue
+        var ordered = summaries
+        if let activeKey,
+           let index = ordered.firstIndex(where: {
+               ($0.path ?? $0.workspaceKey) == activeKey || $0.workspaceIdentity == activeKey
+           }),
+           index > 0 {
+            ordered.insert(ordered.remove(at: index), at: 0)
+        }
+        let infos = ordered.map(Self.workspaceInfo(from:))
+        // C-15：菜单只留可桥条目 + active 首位
+        serverInfo?.workspaces = ordered.enumerated()
+            .filter { $0.offset == 0 || $0.element.canBridge }
+            .map { Self.workspaceInfo(from: $0.element) }
+        log(.ok, "workspace-list-updated · 清单 \(infos.count) 个工作区"
+            + "（菜单 \(serverInfo?.workspaces.count ?? 0) 个可桥）"
+            + (activeKey.map { " · activeKey=\($0)" } ?? ""))
+        onWorkspaceListUpdated?(infos)
+    }
+
+    /// 清单条目 → 连接态工作区描述（菜单/Store 装配共用映射；path 缺席以 workspaceKey 兜底）
+    private static func workspaceInfo(from entry: RelayChannelClient.RelayWorkspaceSummary) -> ServerWorkspaceInfo {
+        ServerWorkspaceInfo(
+            path: entry.path ?? entry.workspaceKey,
+            label: entry.name,
+            workspaceIdentity: entry.workspaceIdentity)
+    }
+
+    // A-4（2026-10-06 删除）：自造传输帧 `zcode_type="attachmentPut"` 已移除——web 出站
+    // zcode_type 全集 9 种无此帧（attachmentPut 是 web 客户端高层函数名，非传输帧）；
+    // 附件上传事务改为四条 channel RPC（attachmentBeginV4/ChunkV4/CommitV4/AbortV4，
+    // 见 RemoteConversationStore 附件事务节）。否定性结论已录协议文档 §12。
 
     /// 中继错误 → L3 连接错误映射
     private static func mapRelayError(_ error: RPCError) -> ConnectError {
@@ -804,7 +1014,9 @@ final class ZCodeServerConnection {
         if topic.hasPrefix("workspace-config/") {
             let replay = workspaceConfigReplay
             workspaceConfigReplay.removeAll()
-            for frame in replay {
+            // 按 topic 精确匹配重放：工作区切换瞬间的旧工作区残帧不重放给新 Store
+            //（缓存与重放本就单 workspace 同 topic，语义不变；P3-10 切换面加严）
+            for frame in replay where frame.topic == topic {
                 handler(frame)
             }
         }

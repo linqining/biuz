@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 屏 05 · Agent 对话（Push L2）
 /// 连接态与演示态共用发送/应答链路（v3 纠偏：客户端发命令、桌面代执行）；
@@ -84,10 +86,26 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 // 待审批交互卡（常驻 composer 上方：不随消息滚动，新消息不再顶走；
-                // 连接态 permission/plan/escalation 类挂起交互，resolveInteraction 下发）
+                // 连接态 permission/plan/workspaceHookReview/escalation 类挂起交互，按
+                // kind 分派应答命令——permission/plan 走 resolveInteraction，
+                // workspaceHookReview 走 respondWorkspaceHookReview）
                 ForEach(viewModel.pendingInteractions) { interaction in
                     if interaction.isPlanApproval {
                         PlanApprovalCard(viewModel: viewModel, interaction: interaction)
+                            .padding(.horizontal, T.sp4)
+                            .padding(.top, T.sp2)
+                    } else if interaction.isWorkspaceHookReview {
+                        WorkspaceHookReviewCard(
+                            interaction: interaction,
+                            onTrust: { ids in
+                                await viewModel.trustWorkspaceHooks(interaction, reviewItemIds: ids)
+                            },
+                            onRequest: {
+                                await viewModel.requestWorkspaceHookReview()
+                            },
+                            onRevoke: { ids in
+                                await viewModel.revokeWorkspaceHookTrust(reviewItemIds: ids)
+                            })
                             .padding(.horizontal, T.sp4)
                             .padding(.top, T.sp2)
                     } else if interaction.isPermission
@@ -96,6 +114,16 @@ struct ChatView: View {
                             .padding(.horizontal, T.sp4)
                             .padding(.top, T.sp2)
                     }
+                }
+                // P2-7B「稍后处理」反馈行（3s 自动清除）：卡片可能随即被回流撤下，
+                // 提示需在卡片之外存活（switchHint 同款一行橙字口径）
+                if let snoozeFeedback = viewModel.snoozeFeedback {
+                    Text(snoozeFeedback)
+                        .font(T.font(10.5))
+                        .foregroundColor(T.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, T.sp4)
+                        .accessibilityIdentifier("05-approval-snooze-hint")
                 }
                 // 桌面同构：排队消息紧贴 composer 上方（pending 队列；无排队不渲染）
                 if viewModel.isReadOnly, let queue = viewModel.queueInfo {
@@ -202,12 +230,25 @@ struct ChatView: View {
                     }
                     let visible = viewModel.searchQuery.isEmpty
                         ? viewModel.messages : viewModel.filteredMessages
-                    ForEach(visible) { message in
-                        MessageView(message: message, sessionID: conversationID) { reply in
-                            Task { await viewModel.answerQuestion(reply) }
-                        } onRetryToolCall: { _, rowId in
-                            Task { await viewModel.retryTurn(rowId: rowId) }
-                        }
+                    ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
+                        MessageView(
+                            message: message, sessionID: conversationID,
+                            feedbackState: viewModel.assistantFeedback[message.id],
+                            ordinal: index + 1,
+                            onQuickReply: { reply in
+                                Task { await viewModel.answerQuestion(reply) }
+                            },
+                            onRetryToolCall: { _, rowId in
+                                Task { await viewModel.retryTurn(rowId: rowId) }
+                            },
+                            // P1-3：回调仅连接态接线——演示态传 nil，反馈行/长按编辑项
+                            // 不渲染（命令不可达不渲染死入口；游标门槛在 MessageView 内）
+                            onFeedback: viewModel.isReadOnly ? { value in
+                                await viewModel.setAssistantFeedback(message, value: value)
+                            } : nil,
+                            onEditResend: viewModel.isReadOnly ? { newText in
+                                await viewModel.editAndResend(message, newText: newText)
+                            } : nil)
                         .id(message.id)
                         .transition(.opacity.animation(.easeIn(duration: 0.12)))
                     }
@@ -333,33 +374,142 @@ struct ActorTranscriptSheet: View {
     }
 }
 
+// MARK: - 权限审批 optionId 推导（A-3 / 设计稿 §3.2 规则 2/3；两处权限 UI 共用：
+// 会话内 ApprovalInteractionCard 与任务页 ApprovalSheetView）
+//
+// web 四族词表 allowOnce/allowAlways/rejectOnce/rejectAlways（bundle 归一化函数
+// dQ 实证：小写包含 allow|approve → allow 族、reject|deny → reject 族、含 always
+// 升 Always 档，否则 custom）。应答 answer={optionId}——优先回传服务端原生
+// optionId（web 调用点 {optionId: t.optionId}，按钮即选项）；options 空时按
+// 设计稿拼规范 id：(approved ? "allow" : "reject") + (always ? "Always" : "Once")。
+
+enum PermissionFamily {
+    case allowOnce, allowAlways, rejectOnce, rejectAlways, custom
+}
+
+struct PermissionOptionMatrix: Equatable {
+    let allowOnce: RemoteInteractionOption?
+    let allowAlways: RemoteInteractionOption?
+    let rejectOnce: RemoteInteractionOption?
+    let rejectAlways: RemoteInteractionOption?
+    /// 全非四族 options（单选即决形态：chips 即选项，点选即发原生 id）
+    let customOptions: [RemoteInteractionOption]
+
+    init(options: [RemoteInteractionOption]) {
+        var once = RemoteInteractionOption?.none
+        var always = RemoteInteractionOption?.none
+        var rOnce = RemoteInteractionOption?.none
+        var rAlways = RemoteInteractionOption?.none
+        var custom: [RemoteInteractionOption] = []
+        for option in options {
+            switch Self.family(of: option.id) {
+            case .allowOnce where once == nil: once = option
+            case .allowAlways where always == nil: always = option
+            case .rejectOnce where rOnce == nil: rOnce = option
+            case .rejectAlways where rAlways == nil: rAlways = option
+            case .allowOnce, .allowAlways, .rejectOnce, .rejectAlways: break // 重复项忽略
+            case .custom: custom.append(option)
+            }
+        }
+        allowOnce = once
+        allowAlways = always
+        rejectOnce = rOnce
+        rejectAlways = rAlways
+        customOptions = custom
+    }
+
+    /// web dQ 同款归一（子串判定，兼容 always allow 等变体写法）
+    static func family(of id: String) -> PermissionFamily {
+        let normalized = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isAllow = normalized.contains("allow") || normalized.contains("approve")
+        let isReject = normalized.contains("reject") || normalized.contains("deny")
+        let isAlways = normalized.contains("always")
+        if isAllow && isAlways { return .allowAlways }
+        if isAllow { return .allowOnce }
+        if isReject && isAlways { return .rejectAlways }
+        if isReject { return .rejectOnce }
+        return .custom
+    }
+
+    /// 无任一四族命中（服务端 options 全为自定义档）
+    var isAllCustom: Bool {
+        allowOnce == nil && allowAlways == nil && rejectOnce == nil && rejectAlways == nil
+    }
+
+    /// 档位可见性（设计稿规则 3）：仅本次 ⇔ allowOnce/rejectOnce 任一在场；始终允许
+    /// ⇔ allowAlways/rejectAlways 任一在场。无四族时两档恒可见（规则 2 默认形态，
+    /// 该形态下方向钮恒可用、optionId 走拼接）。
+    var showsOnceChip: Bool { isAllCustom || allowOnce != nil || rejectOnce != nil }
+    var showsAlwaysChip: Bool { isAllCustom || allowAlways != nil || rejectAlways != nil }
+
+    /// 方向钮可用性（混合态核心）：选中档对应方向的四族项不在场则禁用
+    /// （拼出即词表外 optionId，必被服务端拒）
+    func canDecide(approved: Bool, always: Bool) -> Bool {
+        guard !isAllCustom else { return true }
+        if approved { return always ? allowAlways != nil : allowOnce != nil }
+        return always ? rejectAlways != nil : rejectOnce != nil
+    }
+
+    /// 应答 optionId：优先服务端原生 id；无四族（options 空）按设计稿拼规范 id；
+    /// 组合无效（该方向四族缺席）返回 nil——调用方不出手
+    func optionId(approved: Bool, always: Bool) -> String? {
+        let matched = approved
+            ? (always ? allowAlways : allowOnce)
+            : (always ? rejectAlways : rejectOnce)
+        if let matched { return matched.id }
+        guard isAllCustom else { return nil }
+        return (approved ? "allow" : "reject") + (always ? "Always" : "Once")
+    }
+
+    /// 默认档（设计稿规则 3）：首个两方向齐全的档；无齐全档选首个可见档
+    func defaultScopeAlways() -> Bool {
+        if canDecide(approved: true, always: false), canDecide(approved: false, always: false) {
+            return false
+        }
+        if canDecide(approved: true, always: true), canDecide(approved: false, always: true) {
+            return true
+        }
+        return !showsOnceChip && showsAlwaysChip
+    }
+}
+
 // MARK: - 连接态审批卡（pendingInteractions.permission 投影：命令/路径/影响结构化排版）
 
 struct ApprovalInteractionCard: View {
     @Bindable var viewModel: ChatViewModel
     let interaction: RemotePendingInteraction
 
+    /// 授权范围两档（A-3/设计稿 §3.2 规则 4：原 task 档在 wire 四族值域无对应，删除；
+    /// 服务端携带等效自定义 id 时经 customOptions 直选呈现，不进两步矩阵）
     enum AuthScope: String, CaseIterable, Identifiable {
-        case once, task, always
+        case once, always
         var id: String { rawValue }
         var label: String {
             switch self {
             case .once: return "仅本次"
-            case .task: return "本任务内"
             case .always: return "始终允许"
             }
         }
         var identifier: String {
             switch self {
             case .once: return "05-choice-once"
-            case .task: return "05-choice-task"
             case .always: return "05-choice-always"
             }
         }
     }
 
+    private var matrix: PermissionOptionMatrix {
+        PermissionOptionMatrix(options: interaction.options)
+    }
+
     @State private var scope: AuthScope = .once
     @State private var deciding = false
+    // P2-7B「稍后处理」进行中（批准/拒绝同步 disabled，deciding 机制同款）
+    @State private var snoozing = false
+    // 旧桌面端无 snooze 命令（viewModel 依回执宽容判定）→ 按钮降级纯关闭（§7B）
+    @State private var snoozeUnsupported = false
+    // A-3/U-5：决议失败如实回显（回执拒绝/未送达），按钮恢复可点、卡片不撤
+    @State private var decisionError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
@@ -401,59 +551,138 @@ struct ApprovalInteractionCard: View {
                         .foregroundColor(T.text2)
                 }
             }
-            // 授权范围三档（answer.scope 注入；热区 ≥44pt）
-            HStack(spacing: T.sp2) {
-                ForEach(AuthScope.allCases) { item in
-                    Button {
-                        scope = item
-                    } label: {
-                        Text(item.label)
-                            .font(T.font(12, .medium))
-                            .foregroundColor(scope == item ? T.onAccent : T.text2)
-                            .padding(.horizontal, T.sp2)
-                            .frame(minHeight: 44)
-                            .background(scope == item ? T.accent : T.bgInput)
-                            .clipShape(Capsule())
+            if matrix.isAllCustom, !matrix.customOptions.isEmpty {
+                // 设计稿 §3.2 规则 3 末条：options 全为非四族 id → chips 即选项，
+                // 单选即决（自带方向语义，点选即发原生 optionId），批准/拒绝两钮整组隐藏
+                FlowChips(items: matrix.customOptions.map(\.label), identifierPrefix: "05-choice") { label in
+                    if let option = matrix.customOptions.first(where: { $0.label == label }) {
+                        decideWith(optionId: option.id)
                     }
-                    .accessibilityIdentifier(item.identifier)
                 }
-                Spacer()
-            }
-            HStack(spacing: 10) {
-                Button {
-                    decide(approved: false)
-                } label: {
-                    Text("拒绝")
-                        .font(T.font(14, .semibold))
-                        .foregroundColor(T.red)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.redLine, lineWidth: 1))
+            } else {
+                // 授权范围两档 chips（answer={optionId} 拼接依据；热区 ≥44pt）。
+                // 可见性按四族命中推导（规则 3）；服务端自定义档追加直选 chip
+                HStack(spacing: T.sp2) {
+                    if matrix.showsOnceChip {
+                        scopeChip(.once)
+                    }
+                    if matrix.showsAlwaysChip {
+                        scopeChip(.always)
+                    }
+                    ForEach(matrix.customOptions) { option in
+                        directChip(option)
+                    }
+                    Spacer()
                 }
-                .disabled(deciding)
-                .accessibilityIdentifier("05-act-reject")
+                HStack(spacing: 10) {
+                    Button {
+                        decide(approved: false)
+                    } label: {
+                        Text("拒绝")
+                            .font(T.font(14, .semibold))
+                            .foregroundColor(T.red)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.redLine, lineWidth: 1))
+                    }
+                    .disabled(deciding || snoozing
+                              || !matrix.canDecide(approved: false, always: scope == .always))
+                    .accessibilityIdentifier("05-act-reject")
 
-                Button {
-                    decide(approved: true)
-                } label: {
-                    Text("批准执行")
-                        .font(T.font(14, .semibold))
-                        .foregroundColor(T.onAccent)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(T.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                    Button {
+                        decide(approved: true)
+                    } label: {
+                        Text("批准执行")
+                            .font(T.font(14, .semibold))
+                            .foregroundColor(T.onAccent)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .background(T.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                    }
+                    .disabled(deciding || snoozing
+                              || !matrix.canDecide(approved: true, always: scope == .always))
+                    .accessibilityIdentifier("05-act-approve")
                 }
-                .disabled(deciding)
-                .accessibilityIdentifier("05-act-approve")
             }
+            if let decisionError {
+                // U-5：失败态错误行（controlFeedback 口径，reasonCode 透出）
+                Text(decisionError)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("05-approval-decision-error")
+            }
+            // P2-7B「稍后处理」（设计稿 §7B：批准/拒绝行下方第三动作，text3 居中行，
+            // 样式照抄 ApprovalSheetView 同名动作）。成功后卡片由桌面 pendingInteractions
+            // 回流撤下（>1s 未至 viewModel 本地遮罩兜底）；hint 走 viewModel.snoozeFeedback
+            // 通道（卡片可能随即收起，提示不能挂在卡片内）。命令不存在（旧桌面端）时
+            // 降级为纯关闭——仅本地收起，不改桌面挂起态
+            TextActionButton(
+                title: snoozeUnsupported
+                    ? "关闭"
+                    : (snoozing ? "稍后中…" : "稍后处理"),
+                tint: T.text3,
+                action: {
+                    if snoozeUnsupported {
+                        Task { await viewModel.dismissInteractionLocally(interaction) }
+                    } else {
+                        snooze()
+                    }
+                },
+                identifier: "05-approval-act-later")
+                .disabled(snoozing)
         }
         .padding(T.sp3)
         .background(T.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: T.rM))
         .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.orange.opacity(0.55), lineWidth: 1))
+        // 首帧按服务端 options 组合定默认档（首个两方向齐全的档）
+        .onAppear {
+            scope = matrix.defaultScopeAlways() ? .always : .once
+        }
         // 透明容器：容器可定位（05-approval-card），子元素保留各自 identifier
         // （05-choice-*/05-act-*；否则容器 identifier 会覆盖全部后代，门禁实证）
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-approval-card")
+    }
+
+    /// 范围 chip（44pt 胶囊，ApprovalSheetView chips 化后两处同构）
+    private func scopeChip(_ item: AuthScope) -> some View {
+        Button {
+            scope = item
+        } label: {
+            HStack(spacing: T.sp1) {
+                Text(item.label)
+                if item == .always {
+                    Text("需谨慎")
+                        .font(T.font(10.5, .semibold))
+                        .foregroundColor(scope == item ? T.onAccent : T.red)
+                }
+            }
+            .font(T.font(12, .medium))
+            .foregroundColor(scope == item ? T.onAccent : T.text2)
+            .padding(.horizontal, T.sp2)
+            .frame(minHeight: 44)
+            .background(scope == item ? T.accent : T.bgInput)
+            .clipShape(Capsule())
+        }
+        .accessibilityIdentifier(item.identifier)
+    }
+
+    /// 服务端自定义选项 chip（单选即决：点选即发该原生 optionId）
+    private func directChip(_ option: RemoteInteractionOption) -> some View {
+        Button {
+            decideWith(optionId: option.id)
+        } label: {
+            Text(option.label)
+                .font(T.font(12, .medium))
+                .foregroundColor(T.text2)
+                .padding(.horizontal, T.sp2)
+                .frame(minHeight: 44)
+                .background(T.bgInput)
+                .clipShape(Capsule())
+        }
+        .disabled(deciding || snoozing)
+        .accessibilityIdentifier("05-choice-custom-\(option.id)")
     }
 
     private func structureRow(icon: String, label: String, value: String) -> some View {
@@ -474,12 +703,41 @@ struct ApprovalInteractionCard: View {
         }
     }
 
+    /// 两步矩阵决议：按 scope 拼/选 optionId（A-3：answer={optionId}）
     private func decide(approved: Bool) {
+        guard let optionId = matrix.optionId(approved: approved, always: scope == .always) else {
+            decisionError = String(localized: "该授权范围无对应选项，请切换范围")
+            return
+        }
+        decideWith(optionId: optionId)
+    }
+
+    /// 决议下发 + 如实回执（U-5：失败不撤卡、错误行透出 reasonCode；成功卡片由
+    /// 桌面 pendingInteractions 回流撤下）
+    private func decideWith(optionId: String) {
         deciding = true
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
         Task {
-            await viewModel.decide(interaction, approved: approved, scope: scope.rawValue)
+            if let failure = await viewModel.decide(interaction, optionId: optionId) {
+                decisionError = failure
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            } else {
+                decisionError = nil
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
             deciding = false
+        }
+    }
+
+    /// 「稍后处理」（snoozeInteractionAutoResolution；hint 由 viewModel.snoozeFeedback
+    /// 通道给出）。旧桌面端无该命令（回执宽容判定）→ 按钮降级纯关闭（§7B 状态矩阵）
+    private func snooze() {
+        snoozing = true
+        Task {
+            let failure = await viewModel.snoozeInteraction(interaction)
+            snoozing = false
+            if failure != nil, viewModel.snoozeUnsupported {
+                snoozeUnsupported = true
+            }
         }
     }
 }
@@ -491,6 +749,8 @@ struct PlanApprovalCard: View {
     @Bindable var viewModel: ChatViewModel
     let interaction: RemotePendingInteraction
     @State private var deciding = false
+    // A-3/U-5：计划决议失败如实回显（回执拒绝/未送达），卡片不撤、按钮恢复
+    @State private var decisionError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
@@ -550,6 +810,14 @@ struct PlanApprovalCard: View {
                 .disabled(deciding)
                 .accessibilityIdentifier("05-act-plan-approve")
             }
+            if let decisionError {
+                // U-5：失败态错误行（「计划决议」语境，controlFeedback 口径）
+                Text(decisionError)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("05-plan-decision-error")
+            }
         }
         .padding(T.sp3)
         .background(T.bgCard)
@@ -559,14 +827,314 @@ struct PlanApprovalCard: View {
         .accessibilityIdentifier("05-plan-card")
     }
 
+    /// A-3：计划族 answer={action:"accept"|"decline"}（原 approved/scope 平铺形态是
+    /// wire 不存在的键）。cancel 不设按钮——「稍后处理」snooze 独立命令承担挂起语义
+    /// （设计稿 §3.3）；content（可选理由）首版不做输入，键缺省不发。
     private func decide(approved: Bool) {
         deciding = true
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
         Task {
-            // 计划决议不带 scope（桌面 plan_approval 语义为通过/驳回二值）
-            await viewModel.decide(interaction, approved: approved, scope: "once")
+            if let failure = await viewModel.decidePlan(interaction, action: approved ? "accept" : "decline") {
+                decisionError = failure
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            } else {
+                decisionError = nil
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
             deciding = false
         }
+    }
+}
+
+// MARK: - workspace hook 信任审核卡（web 对齐 2026-10-06：pendingInteractions
+// payload.kind='workspaceHookReview' 的专属卡——应答走 respondWorkspaceHookReview
+//（trust_selected+reviewItemIds，web 实证唯一 action），与权限审批卡是姊妹 kind。
+// 闭包驱动（ChatView 经 ChatViewModel / ApprovalSheetView 直连 conversationStore
+// 两路复用同一 UI）；写面（信任/撤销）均带确认弹层，失败经 error 行如实透出）
+
+struct WorkspaceHookReviewCard: View {
+    let interaction: RemotePendingInteraction
+    /// 信任所选（入参=reviewItemIds；返回失败文案，nil=成功/已受理）
+    let onTrust: ([String]) async -> String?
+    /// 重新请求审核（返回失败文案，nil=成功/已受理）
+    let onRequest: () async -> String?
+    /// 撤销已信任项（入参=reviewItemIds；UI 侧确认弹层后由本卡调用）
+    let onRevoke: (([String]) async -> String?)?
+
+    @State private var selectedIds: Set<String> = []
+    @State private var deciding = false
+    @State private var requesting = false
+    @State private var decisionError: String?
+    @State private var showTrustConfirm = false
+    @State private var pendingRevokeItem: WorkspaceHookReviewItem?
+
+    private var items: [WorkspaceHookReviewItem] { interaction.hookReviewItems }
+    private var selectedItems: [WorkspaceHookReviewItem] {
+        items.filter { selectedIds.contains($0.id) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            header
+            summaryRow
+            if items.isEmpty {
+                emptyHint
+            } else {
+                ForEach(items) { item in
+                    itemRow(item)
+                }
+                trustActionButton
+            }
+            if let decisionError {
+                Text(decisionError)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("05-hook-decision-error")
+            }
+        }
+        .padding(T.sp3)
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.orange.opacity(0.55), lineWidth: 1))
+        .onAppear {
+            preselectPendingItems()
+        }
+        // 审核项随快照/补拉晚于首帧到达时补一次默认全选（onAppear 已过）
+        .onChange(of: interaction.hookReviewItems) {
+            preselectPendingItems()
+        }
+        // 信任确认（写桌面信任账本——放行 hook 在桌面执行）
+        .confirmationDialog(
+            "信任所选 \(selectedItems.count) 个 hook 项？",
+            isPresented: $showTrustConfirm,
+            titleVisibility: .visible) {
+            Button("信任") {
+                Task { await trustSelected() }
+            }
+            .accessibilityIdentifier("05-hook-confirm-trust")
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("桌面端将按信任账本放行所选 hook 的执行。")
+        }
+        // 撤销确认（可逆性未知——从严 destructive）
+        .confirmationDialog(
+            pendingRevokeItem.map { item in
+                item.title.map { "撤销「\($0)」的信任？" } ?? "撤销该 hook 项的信任？"
+            } ?? "",
+            isPresented: Binding(
+                get: { pendingRevokeItem != nil },
+                set: { if !$0 { pendingRevokeItem = nil } }),
+            titleVisibility: .visible) {
+            Button("撤销信任", role: .destructive) {
+                if let item = pendingRevokeItem {
+                    Task { await revoke(item) }
+                }
+                pendingRevokeItem = nil
+            }
+            .accessibilityIdentifier("05-hook-confirm-revoke")
+            Button("取消", role: .cancel) { pendingRevokeItem = nil }
+        } message: {
+            Text("桌面端将不再放行该 hook，下次触发会重新进入审核。")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-hook-card")
+    }
+
+    private var header: some View {
+        HStack(spacing: T.sp2) {
+            Image(systemName: "curlybraces.square")
+                .font(.system(size: 13))
+                .foregroundColor(T.orange)
+            Text("工作区 Hook 待信任")
+                .font(T.font(13.5, .semibold))
+                .foregroundColor(T.text)
+            Spacer()
+            StatusPill(text: "待信任", kind: .wait, compact: true)
+        }
+    }
+
+    /// 默认全选待信任项（审核项本就是待信任集——web 逐项信任按钮的批量等价）；
+    /// 已信任项不预选（撤销语义独立）。仅在无手选时执行，不覆盖用户取消。
+    private func preselectPendingItems() {
+        guard selectedIds.isEmpty else { return }
+        let pending = items.filter { !$0.isTrusted }.map(\.id)
+        guard !pending.isEmpty else { return }
+        selectedIds = Set(pending)
+    }
+
+    @ViewBuilder
+    private var summaryRow: some View {
+        if let summary = interaction.impact ?? interaction.title, !summary.isEmpty {
+            Text(summary)
+                .font(T.font(12))
+                .foregroundColor(T.text2)
+                .lineLimit(3)
+                .accessibilityIdentifier("05-hook-summary")
+        }
+    }
+
+    /// 审核项未随交互到达（元素 schema 未取证/桌面未携）——诚实空态 + 重发请求入口，
+    /// 不虚构条目（U-5 同口径：无数据不假成功）
+    private var emptyHint: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            Text("审核项尚未同步到移动端")
+                .font(T.font(12))
+                .foregroundColor(T.text3)
+            requestButton
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(T.sp2)
+        .background(T.bgCode)
+        .clipShape(RoundedRectangle(cornerRadius: T.rS))
+    }
+
+    private var requestButton: some View {
+        Button {
+            Task { await requestReview() }
+        } label: {
+            HStack(spacing: 5) {
+                if requesting {
+                    SpinnerView(size: 11)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11))
+                }
+                Text(requesting ? "请求中…" : "重新请求审核")
+                    .font(T.font(11.5, .medium))
+            }
+            .foregroundColor(T.accentText)
+            .padding(.horizontal, T.sp3)
+            .frame(minHeight: 30)
+            .background(T.accentDim)
+            .clipShape(Capsule())
+        }
+        .disabled(requesting || deciding)
+        .accessibilityIdentifier("05-hook-act-request")
+    }
+
+    /// 单项行：选择圈（待信任项）+ 标题/说明 + 状态胶囊；已信任项呈撤销入口
+    private func itemRow(_ item: WorkspaceHookReviewItem) -> some View {
+        HStack(alignment: .top, spacing: T.sp2) {
+            if item.isTrusted {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(T.accentText)
+                    .frame(width: 24)
+            } else {
+                Button {
+                    if selectedIds.contains(item.id) {
+                        selectedIds.remove(item.id)
+                    } else {
+                        selectedIds.insert(item.id)
+                    }
+                } label: {
+                    Image(systemName: selectedIds.contains(item.id)
+                          ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16))
+                        .foregroundColor(selectedIds.contains(item.id) ? T.accentText : T.text3)
+                        .frame(width: 24, minHeight: 30)
+                }
+                .disabled(deciding)
+                .accessibilityIdentifier("05-hook-select-\(item.id)")
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title ?? item.id)
+                    .font(T.font(12.5, .medium))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                if let detail = item.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(T.mono(10.5))
+                        .foregroundColor(T.text3)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+            if let trustState = item.trustState, !trustState.isEmpty {
+                Text(trustState == "trusted_persistent" ? "已信任" : trustState)
+                    .font(T.font(10))
+                    .foregroundColor(item.isTrusted ? T.accentText : T.text3)
+            }
+            if item.isTrusted, onRevoke != nil {
+                Button {
+                    pendingRevokeItem = item
+                } label: {
+                    Text("撤销")
+                        .font(T.font(11, .medium))
+                        .foregroundColor(T.red)
+                }
+                .disabled(deciding)
+                .accessibilityIdentifier("05-hook-revoke-\(item.id)")
+            }
+        }
+        .padding(.horizontal, T.sp2)
+        .padding(.vertical, 4)
+        .background(T.bgCode.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: T.rS))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-hook-item-\(item.id)")
+    }
+
+    /// 信任所选（主按钮；无待信任项时整组不渲染——空态由 emptyHint 承载）
+    @ViewBuilder
+    private var trustActionButton: some View {
+        let pendingItems = items.filter { !$0.isTrusted }
+        if !pendingItems.isEmpty {
+            HStack(spacing: T.sp2) {
+                Button {
+                    showTrustConfirm = true
+                } label: {
+                    Text(deciding ? "信任中…" : "信任所选（\(selectedItems.count)）")
+                        .font(T.font(14, .semibold))
+                        .foregroundColor(selectedItems.isEmpty ? T.text3 : T.onAccent)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(selectedItems.isEmpty ? T.bgInput : T.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                }
+                .disabled(deciding || selectedItems.isEmpty)
+                .accessibilityIdentifier("05-hook-act-trust")
+                requestButton
+            }
+        }
+    }
+
+    private func trustSelected() async {
+        guard !selectedItems.isEmpty else { return }
+        deciding = true
+        let ids = selectedItems.map(\.id)
+        if let failure = await onTrust(ids) {
+            decisionError = failure
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        } else {
+            decisionError = nil
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            // 卡片撤下依赖桌面 pendingInteractions 回流；失败态卡片保留可重试
+        }
+        deciding = false
+    }
+
+    private func requestReview() async {
+        requesting = true
+        if let failure = await onRequest() {
+            decisionError = failure
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        } else {
+            decisionError = nil
+        }
+        requesting = false
+    }
+
+    private func revoke(_ item: WorkspaceHookReviewItem) async {
+        guard let onRevoke else { return }
+        deciding = true
+        if let failure = await onRevoke([item.id]) {
+            decisionError = failure
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        } else {
+            decisionError = nil
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
+        deciding = false
     }
 }
 
@@ -759,22 +1327,102 @@ struct QueueBarView: View {
 
 struct ComposerBar: View {
     @Environment(AppSettingsModel.self) private var settings
+    @Environment(AppSession.self) private var session
     @Bindable var viewModel: ChatViewModel
     @FocusState private var inputFocused: Bool
+    /// U-6 发送失败持久错误行（非 3s 自动消失）：失败时置位 + 草稿已由 viewModel
+    /// 回填；清除时机 = 发送成功 / 用户手动编辑 draft / 离开会话（数据安全提示
+    /// 必须显式关闭，设计稿 §5.1）
+    @State private var sendFailure: String?
+    @State private var retryingSend = false
+    /// U-6：未送达时回填的草稿快照——用户手动编辑（draft 与快照不一致）即清错误行
+    @State private var restoredDraftText: String?
     /// 执行目标偏好（G-012 如实口径）：☁️ 云端沙盒 / 💻 我的 Mac——当前仅记录发送偏好
     /// 并持久化；sendText 信封无目标路由字段，消息仍经当前连接的会话链路下发
     /// （客户端发命令、桌面代执行边界不变）。UI 已按验收 B 以「偏好」如实标注。
     @State private var executionTarget = DeviceOption.cloudSandbox
 
+    // P1-1 附件三来源（设计稿 1.3①：confirmationDialog 拍照/照片图库/文件）
+    @State private var showAttachmentSource = false
+    @State private var showPhotoPicker = false
+    @State private var showCamera = false
+    @State private var showFileImporter = false
+    @State private var photoPickerItems: [PhotosPickerItem] = []
+
+    // P2-7 压缩入口（设计稿 §7A：contextMeter 即入口，点击弹确认；进行中不可再点）
+    @State private var showCompactConfirm = false
+    // P1-2 模式行一次性标注（设计稿 §2.7③：协作模式无桌面读面，首屏显示本机偏好）
+    @State private var modeDisclaimerShown = false
+
     var body: some View {
         VStack(spacing: T.sp2) {
-            targetRow
-            if let message = switchHint {
+            // HIDDEN(对齐修复): composer 执行目标菜单隐藏（sendText 信封无目标路由字段，
+            // 「仅记录偏好」的本地菜单构成假选择——设计稿 H5）· 恢复条件：sendText 有
+            // 目标路由字段。E2E 兼容：-ZCodeDemoData 演示开关下保留（FeatureCompletion
+            // test07 目标选择器用例依赖该行）；ExecutionTargetStore 本体保留（持久化面）
+            if AppSession.isDemoDataEnabled {
+                targetRow
+            }
+            // P1-2 模式行（设计稿 §2.2：独立 modeRow 插在 targetRow 与 switchHint 之间
+            // ——不挤 targetRow 一行，窄屏溢出；仅连接态渲染，同 remoteChips 口径）
+            if viewModel.isReadOnly {
+                modeRow
+            }
+            // U-6 发送失败持久错误行（优先级高于 3s 轻提示——数据安全提示不自动消失）
+            if let sendFailure {
+                HStack(spacing: T.sp2) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(T.red)
+                    Text(sendFailure)
+                        .font(T.font(12))
+                        .foregroundColor(T.red)
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { await retrySend() }
+                    } label: {
+                        Text(retryingSend ? String(localized: "重试中…") : String(localized: "重试"))
+                            .font(T.font(12, .semibold))
+                            .foregroundColor(T.red)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .disabled(retryingSend)
+                    .accessibilityIdentifier("05-composer-send-retry")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("05-composer-send-fail")
+            } else if viewModel.isCompacting {
+                // P2-7 压缩进行中（提示不自动消失，覆盖 3s 清除口径；switchHint 同通道）
+                Text(String(localized: "压缩中…"))
+                    .font(T.font(10.5))
+                    .foregroundColor(T.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("05-composer-compact-hint")
+            } else if let message = switchHint {
                 Text(message)
                     .font(T.font(10.5))
                     .foregroundColor(T.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("05-composer-switch-hint")
+            }
+            // P1-1 待发附件条 + 失败/提示行（无待发不渲染整行——「无排队不渲染」同口径）
+            if !viewModel.uploads.isEmpty {
+                attachmentStrip
+            }
+            if let hint = viewModel.uploads.hint {
+                Text(hint)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("05-attach-hint")
+            } else if let failure = viewModel.uploads.firstFailureText {
+                Text(failure)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("05-attach-fail-hint")
             }
             if let selection = viewModel.modelSelection {
                 remoteChips(selection)
@@ -791,6 +1439,51 @@ struct ComposerBar: View {
         .task(id: viewModel.conversationID) {
             // 恢复该会话执行目标（per-conversation → 全局默认 → 云端沙盒）
             executionTarget = ExecutionTargetStore.target(for: viewModel.conversationID)
+        }
+        // U-6：用户手动编辑草稿（与回填快照不一致）即清发送失败行；回填写回本身
+        // 不触发（写回后 draft == 快照）。离开会话视图销毁，行随之消失
+        .onChange(of: viewModel.draft) { _, newDraft in
+            if let restored = restoredDraftText, newDraft != restored {
+                sendFailure = nil
+                restoredDraftText = nil
+            }
+        }
+        .confirmationDialog(String(localized: "添加附件"), isPresented: $showAttachmentSource, titleVisibility: .visible) {
+            Button(String(localized: "拍照")) { showCamera = true }
+            Button(String(localized: "照片图库")) { showPhotoPicker = true }
+            Button(String(localized: "文件")) { showFileImporter = true }
+            Button(String(localized: "取消"), role: .cancel) {}
+        }
+        // P2-7 压缩确认（设计稿 §7A：主键普通按钮非 destructive——压缩不丢数据、
+        // 回执失败即无副作用；文案照设计稿）
+        .confirmationDialog(
+            String(localized: "压缩上下文？"), isPresented: $showCompactConfirm,
+            titleVisibility: .visible) {
+            Button(String(localized: "压缩")) {
+                Task { await runCompact() }
+            }
+            .accessibilityIdentifier("05-compact-confirm")
+            Button(String(localized: "取消"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "让桌面端把历史对话压缩为摘要，释放上下文空间。压缩可能持续数十秒，期间请勿下发新指令。"))
+        }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, matching: .images)
+        .onChange(of: photoPickerItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            photoPickerItems = []
+            Task { await addPhotoPickerItems(newItems) }
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true) { result in
+            importFiles(result)
+        }
+        .sheet(isPresented: $showCamera) {
+            CameraPicker { image in
+                addCameraImage(image)
+            }
+            .ignoresSafeArea()
         }
     }
 
@@ -858,6 +1551,173 @@ struct ComposerBar: View {
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
+    // MARK: P1-2 模式行（协作 Plan/Build + 投递 立即/排队/引导；设计稿 §2.2）
+    //
+    // 胶囊样式照抄 executionTargetMenu（11.5pt medium、bgInput、Capsule、minHeight 44）；
+    // identifier 挂 Menu 本体（同 05-act-target 教训：挂 label 会被运行时逐层拼接）。
+    // 状态单源在 viewModel——切换成功才落态并持久化，send() 同读该值携
+    // requestedDelivery，UI 态与发送参数不两张皮。
+
+    private var modeRow: some View {
+        HStack(spacing: T.sp2) {
+            collaborationModeMenu
+            deliveryModeMenu
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-composer-mode-row")
+        .onAppear {
+            // §2.7③：协作模式无桌面读面（全 Sources 无投影），首屏只能显示本机偏好
+            // ——一次性如实标注；点按切换即真实 CAS 下发并按回执落态。
+            // §4.3：now 档投递同为纯本机态（A-2 后不下发命令），改显投递侧同句式
+            guard !modeDisclaimerShown else { return }
+            modeDisclaimerShown = true
+            showSwitchHint(viewModel.deliveryMode == "now"
+                ? String(localized: "投递模式显示为本机偏好 · 桌面端会话模式以执行行为为准")
+                : String(localized: "显示为本机偏好 · 桌面端实际模式以执行行为为准"))
+        }
+    }
+
+    /// 协作模式胶囊（Plan=先出计划 / Build=直接执行；switchCollaborationMode CAS）
+    private var collaborationModeMenu: some View {
+        Menu {
+            ForEach(ComposerModeStore.collaborationModes, id: \.self) { mode in
+                Button {
+                    selectCollaborationMode(mode)
+                } label: {
+                    modeMenuItem(
+                        title: mode == "plan" ? "Plan" : "Build",
+                        detail: mode == "plan" ? "先出计划，改动需经你确认" : "直接执行改动",
+                        icon: mode == "plan" ? "list.clipboard" : "hammer",
+                        selected: viewModel.collaborationMode == mode)
+                }
+            }
+        } label: {
+            modePill(
+                icon: viewModel.collaborationMode == "plan" ? "list.clipboard" : "hammer",
+                text: viewModel.collaborationMode == "plan" ? "Plan" : "Build")
+        }
+        .accessibilityIdentifier("05-chip-mode")
+    }
+
+    /// 投递模式胶囊（立即/排队/引导）。A-2：now 档不下发 setFollowupMode（web 枚举
+    /// 仅 queue|guide），仅本地态 + send 恒携 requestedDelivery:"startNow"；
+    /// queue/guide 照常 CAS 下发 + requestedDelivery 联动）
+    private var deliveryModeMenu: some View {
+        Menu {
+            ForEach(ComposerModeStore.deliveryModes, id: \.self) { mode in
+                Button {
+                    selectDeliveryMode(mode)
+                } label: {
+                    modeMenuItem(
+                        title: Self.deliveryLabel(mode),
+                        detail: mode == "now"
+                            ? "本机默认 · 不下发模式命令，消息逐条直接投递"
+                            : mode == "queue"
+                                ? "回合进行中发送将排队，回合结束后自动投递（桌面默认）"
+                                : "作为引导补充注入当前回合",
+                        icon: Self.deliveryIcon(mode),
+                        selected: viewModel.deliveryMode == mode)
+                }
+            }
+            // guide 桌面语义未取证（仅盘点报告词表口述；设计稿 §2.2 要求菜单项标注）
+            Section {
+                Text(String(localized: "引导模式桌面语义以实际执行行为为准"))
+            }
+        } label: {
+            modePill(
+                icon: Self.deliveryIcon(viewModel.deliveryMode),
+                text: Self.deliveryLabel(viewModel.deliveryMode))
+        }
+        .accessibilityIdentifier("05-chip-delivery")
+    }
+
+    /// 模式胶囊 label（executionTargetMenu :833-847 同款：11.5pt medium、bgInput、
+    /// Capsule、minHeight 44——与工具行 26pt 小 chip 区分，模式是常驻一级控件）
+    private func modePill(icon: String, text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+            Text(text)
+                .font(T.font(11.5, .medium))
+                .lineLimit(1)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+        }
+        .foregroundColor(T.text2)
+        .padding(.horizontal, T.sp2)
+        .frame(minHeight: 44)
+        .background(T.bgInput)
+        .clipShape(Capsule())
+    }
+
+    static func deliveryLabel(_ mode: String) -> String {
+        switch mode {
+        case "queue": return String(localized: "排队")
+        case "guide": return String(localized: "引导")
+        default: return String(localized: "立即发送")
+        }
+    }
+
+    static func deliveryIcon(_ mode: String) -> String {
+        switch mode {
+        case "queue": return "list.number"
+        case "guide": return "arrow.triangle.merge"
+        default: return "bolt.fill"
+        }
+    }
+
+    /// 菜单项（✓ 标当前 = modelRow 先例；副文案设计稿 §2.2 关键文案）
+    private func modeMenuItem(title: String, detail: String, icon: String, selected: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(detail)
+                    .font(T.font(10))
+                    .foregroundColor(T.text3)
+            }
+            if selected {
+                Spacer(minLength: 12)
+                Image(systemName: "checkmark")
+            }
+        }
+    }
+
+    private func selectCollaborationMode(_ mode: String) {
+        Task {
+            if let message = await viewModel.switchCollaborationMode(mode) {
+                showSwitchHint(message)
+            } else {
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
+        }
+    }
+
+    private func selectDeliveryMode(_ mode: String) {
+        Task {
+            if let message = await viewModel.setDeliveryMode(mode) {
+                showSwitchHint(message)
+            } else {
+                UISelectionFeedbackGenerator().selectionChanged()
+                // 设计稿 §4.4 三段式：now 档成功=本地默认（桌面会话模式不变）；
+                // queue/guide 成功=「本条消息起按「X」投递」
+                showSwitchHint(mode == "now"
+                    ? String(localized: "已设为本机默认 · 桌面端会话模式不变")
+                    : String(localized: "本条消息起按「\(Self.deliveryLabel(mode))」投递"))
+            }
+        }
+    }
+
+    // MARK: P2-7 压缩入口（contextMeter 即入口：用量条是压缩动机，就地可发现）
+
+    /// 压缩确认后的下发与完成判定（设计稿 §7A：完成 hint / 失败 hint 各 3s；
+    /// 「压缩中…」由 viewModel.isCompacting 驱动、不自动消失）
+    private func runCompact() async {
+        let message = await viewModel.compactContext()
+        showSwitchHint(message)
+    }
+
     /// 桌面端模型/思考档切换（switchModelConfig 桌面代执行；onDidChange 回流同步 chips。
     /// 原只读口径随命令链路打通升级：模型按套餐分组，思考档独立菜单）
     @State private var switchHint: String?
@@ -869,7 +1729,24 @@ struct ComposerBar: View {
             thoughtMenu(selection)
             Spacer(minLength: 0)
             if let usage = viewModel.contextUsage {
-                contextMeter(usage, demo: false)
+                // P2-7 压缩入口（设计稿 §7A：用量条即压缩动机，就地可发现）。
+                // 显式连接态 gating——不以 contextMeter 条件渲染作隐式门槛（演示态
+                // Mock 恒返回非 nil usage，toolsRow 照样渲染「上下文·演示」，无 gating
+                // 则入口会出现在命令不可达的演示态）；进行中禁点防重复下发
+                if viewModel.isReadOnly {
+                    Button {
+                        showCompactConfirm = true
+                    } label: {
+                        contextMeter(usage, demo: false)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isCompacting)
+                    .accessibilityIdentifier("05-compact-entry")
+                } else {
+                    contextMeter(usage, demo: false)
+                }
             }
         }
         .accessibilityIdentifier("05-composer-remote-chips")
@@ -995,6 +1872,20 @@ struct ComposerBar: View {
 
     private var inputRow: some View {
         HStack(spacing: T.sp2) {
+            // P1-1：附件入口（设计稿 1.2——inputRow 首位 📎 44pt 热区；连接态渲染，
+            // 演示态无上传面不出入口）
+            if viewModel.isReadOnly {
+                Button {
+                    showAttachmentSource = true
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .font(T.font(20))
+                        .foregroundColor(T.text2)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityIdentifier("05-attach-button")
+            }
+
             TextField("发送消息…", text: $viewModel.draft, axis: .vertical)
                 .font(T.font(16))
                 .foregroundColor(T.text)
@@ -1005,7 +1896,7 @@ struct ComposerBar: View {
                 .clipShape(Capsule())
                 .focused($inputFocused)
                 .submitLabel(.send)
-                .onSubmit { Task { await viewModel.send() } }
+                .onSubmit { Task { await sendAndHintDelivery() } }
                 .accessibilityIdentifier("05-composer-input")
 
             // G-023：麦克风死按钮移除（原仅图标动画无录音/听写行为；语音输入走 iOS
@@ -1017,18 +1908,125 @@ struct ComposerBar: View {
 
     private var sendButton: some View {
         Button {
-            Task { await viewModel.send() }
+            Task { await sendAndHintDelivery() }
             inputFocused = false
         } label: {
             Image(systemName: "arrow.up")
                 .font(.system(size: 17, weight: .bold))
                 .foregroundColor(T.onAccent)
                 .frame(width: 44, height: 44)
-                .background(viewModel.draft.isEmpty ? T.bgInput : T.accent)
+                .background(viewModel.canSend ? T.accent : T.bgInput)
                 .clipShape(Circle())
         }
-        .disabled(viewModel.draft.isEmpty)
+        .disabled(!viewModel.canSend)
         .accessibilityIdentifier("05-composer-send")
+    }
+
+    /// 发送 + 投递提示（设计稿 §2.3：queue 档送达后 hint「已加入排队」，消息随后
+    /// 经 QueueBarView 回流呈现；now/guide 档无额外提示）。
+    /// U-6：失败不再静默——持久错误行（断线子文案区分）+ 草稿已由 viewModel 回填
+    /// + 焦点回输入框 + error 触觉；重试钮复用本方法。
+    private func sendAndHintDelivery() async {
+        let delivered = await viewModel.send()
+        if delivered {
+            sendFailure = nil
+            restoredDraftText = nil
+            if viewModel.deliveryMode == "queue" {
+                showSwitchHint(String(localized: "已加入排队"))
+            }
+        } else if let failedText = viewModel.lastSendUndeliveredText, failedText == viewModel.draft {
+            // 真正的未送达（guard 路径不算）：草稿已回填，错误行持久在场直至
+            // 成功/手动编辑/离开展示（设计稿 §5.1 状态矩阵）
+            let disconnected: Bool
+            if case .connected = session.mode { disconnected = false } else { disconnected = true }
+            sendFailure = disconnected
+                ? String(localized: "消息未送达 · 连接已断开，草稿已保留")
+                : String(localized: "消息未送达 · 已恢复草稿")
+            restoredDraftText = failedText
+            inputFocused = true
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        }
+    }
+
+    /// U-6 重试：携回填后的 draft 重发；成功清错误行，再失败行保留
+    private func retrySend() async {
+        retryingSend = true
+        defer { retryingSend = false }
+        await sendAndHintDelivery()
+    }
+
+    // MARK: P1-1 待发附件条（设计稿 1.2：横向滚动 72×72 缩略卡 + 进度 + 角标）
+
+    private var attachmentStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: T.sp2) {
+                ForEach(viewModel.uploads.items) { item in
+                    PendingAttachmentThumb(
+                        item: item,
+                        onRemove: { viewModel.uploads.remove(item.id) },
+                        onRetry: { viewModel.uploads.retry(item.id) })
+                }
+            }
+            .padding(.horizontal, T.sp1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-attach-strip")
+    }
+
+    // MARK: 附件三来源入队（设计稿 1.3②：选定后立即建上传事务，不等发送）
+
+    private func addPhotoPickerItems(_ items: [PhotosPickerItem]) {
+        Task {
+            for item in items {
+                let contentType = item.supportedContentTypes.first
+                let ext = contentType?.preferredFilenameExtension ?? "jpg"
+                let mediaType = contentType?.preferredMIMEType ?? "image/jpeg"
+                guard let data = try? await item.loadTransferable(type: Data.self) else {
+                    viewModel.uploads.setHint(String(localized: "照片读取失败，已跳过"))
+                    continue
+                }
+                if viewModel.uploads.add(
+                    name: "IMG_\(Int(Date().timeIntervalSince1970 * 1000)).\(ext)",
+                    mediaType: mediaType, data: data) {
+                    await startUploadIfNeeded()
+                }
+            }
+        }
+    }
+
+    private func addCameraImage(_ image: UIImage) {
+        guard let data = image.jpegData(compressionQuality: 0.9) else {
+            viewModel.uploads.setHint(String(localized: "照片编码失败，已跳过"))
+            return
+        }
+        if viewModel.uploads.add(
+            name: "IMG_\(Int(Date().timeIntervalSince1970 * 1000)).jpg",
+            mediaType: "image/jpeg", data: data) {
+            Task { await startUploadIfNeeded() }
+        }
+    }
+
+    private func importFiles(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result else { return }
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                viewModel.uploads.setHint(String(localized: "《\(url.lastPathComponent)》读取失败，已跳过"))
+                continue
+            }
+            if viewModel.uploads.add(
+                name: url.lastPathComponent,
+                mediaType: AttachmentUploadService.mediaType(forFileExtension: url.pathExtension),
+                data: data) {
+                Task { await startUploadIfNeeded() }
+            }
+        }
+    }
+
+    /// 设计稿 1.3②：选定后立即建上传事务（不等发送）；已在上传中的项自动跳过
+    private func startUploadIfNeeded() async {
+        _ = await viewModel.uploads.ensureAllCommitted()
     }
 
     private func pill(icon: String?, text: String, chevron: Bool = false) -> some View {
@@ -1048,5 +2046,152 @@ struct ComposerBar: View {
         .frame(height: 26)
         .background(T.bgInput)
         .clipShape(Capsule())
+    }
+}
+
+// MARK: - 待发附件缩略卡（P1-1 设计稿 1.2/1.4）
+//
+// 72×72 缩略规格 = AttachmentThumbView（132×96+T.rM+T.border 描边）等比缩；
+// 底部 4px ThinProgressBar + mono 百分比；成功勾角标 / 失败橙角标（点按重试）；
+// 右上角 ✕ 移除（44pt 热区、T.bgCard 半透明圆底）。非图片 doc.icon 占位
+// （mediaType 判定同 AttachmentThumbView）。
+struct PendingAttachmentThumb: View {
+    let item: PendingAttachment
+    var onRemove: () -> Void
+    var onRetry: () -> Void
+
+    private var previewImage: UIImage? {
+        guard item.isImage, let image = UIImage(data: item.data) else { return nil }
+        return image
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            thumbnail
+            Text(item.name)
+                .font(T.mono(10))
+                .foregroundColor(T.text3)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 72, alignment: .leading)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-attach-item")
+    }
+
+    private var thumbnail: some View {
+        ZStack(alignment: .topTrailing) {
+            ZStack(alignment: .bottom) {
+                base
+                if item.state == .uploading {
+                    VStack(spacing: 1) {
+                        ThinProgressBar(progress: item.progress, height: 4, tint: T.accent)
+                        Text(item.percentText)
+                            .font(T.mono(9.5))
+                            .foregroundColor(T.text2)
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 3)
+                }
+                if item.state == .pending {
+                    SpinnerView(size: 14).padding(4)
+                }
+            }
+            .frame(width: 72, height: 72)
+            .overlay(alignment: .topLeading) { statusBadge }
+
+            // ✕ 移除（44pt 热区包住 18pt 圆底——同 targetRow 热区口径）
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(T.text2)
+                    .frame(width: 18, height: 18)
+                    .background(T.bgCard.opacity(0.9))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .frame(width: 44, height: 44, alignment: .topTrailing)
+            .accessibilityIdentifier("05-attach-remove")
+        }
+    }
+
+    private var base: some View {
+        Group {
+            if let image = previewImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                T.bgInput
+                    .overlay(
+                        Image(systemName: item.isImage ? "photo" : "doc.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(T.text3))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: T.rS))
+        .overlay(RoundedRectangle(cornerRadius: T.rS).stroke(T.border, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: T.rS))
+        .onTapGesture {
+            // 失败点条目重试（设计稿 1.2 失败角标「点条目重试」）
+            if item.state == .failed { onRetry() }
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch item.state {
+        case .committed:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 15))
+                .foregroundColor(T.accentText)
+                .padding(3)
+        case .failed:
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 15))
+                .foregroundColor(T.orange)
+                .padding(3)
+        default:
+            EmptyView()
+        }
+    }
+}
+
+// MARK: - 相机拍摄（P1-1 附件来源①：UIImagePickerController camera 封装）
+//
+// 权限键 NSCameraUsageDescription（project.yml：扫码 + 附件拍摄双用途文案）。
+struct CameraPicker: UIViewControllerRepresentable {
+    var onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let controller = UIImagePickerController()
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            controller.sourceType = .camera
+        }
+        controller.delegate = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ parent: CameraPicker) { self.parent = parent }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onImage(image)
+            }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
     }
 }

@@ -24,6 +24,8 @@ struct NewConversationSheet: View {
     @State private var isLoadingProjects = true
     @State private var showProjectPicker = false
     @State private var showFilePicker = false
+    /// 新建失败提示（未连接态 Empty store 防御路径；正常路径恒 nil）
+    @State private var createFailure: String?
     /// 连接态标记（G-013）：当前连接的桌面端即执行端，无信封级执行端路由——
     /// 连接态隐藏执行端单选卡、机器胶囊只读展示当前连接；演示态保留单选（Mock 语义）
     @State private var isRemote = false
@@ -83,6 +85,15 @@ struct NewConversationSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
 
+            // §0.4 防御兜底：未连接态 Empty store 的 createConversation 返回空 id（写面
+            // 如实失败）——如实提示，不产生 onCreated → openChat 假成功导航
+            if let createFailure {
+                Text(createFailure)
+                    .font(T.font(11))
+                    .foregroundColor(T.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("03-create-fail")
+            }
             PrimaryButton(title: "开始任务", identifier: "03-submit-start") {
                 Task {
                     // 项目层选择随 createSession 的 workspaceId 下发（directory 参数承载）；
@@ -91,6 +102,12 @@ struct NewConversationSheet: View {
                     let conversation = await conversationStore.createConversation(
                         title: title, directory: projectPath, executor: executor,
                         modelSelection: selection)
+                    guard !conversation.id.isEmpty else {
+                        createFailure = String(localized: "未连接桌面端 · 连接后再新建会话")
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        return
+                    }
+                    createFailure = nil
                     NewSessionContextStore.save(
                         NewSessionContext(machineID: machineID, projectPath: projectPath))
                     onCreated(conversation)
@@ -144,13 +161,18 @@ struct NewConversationSheet: View {
         Menu {
             if let userInfo = session.oauthUserInfo {
                 Text("\(userInfo.displayName) · @\(userInfo.username)")
-            } else {
+            } else if session.isDemo {
                 Text("未登录 · 演示模式")
+            } else {
+                Text("未登录")
             }
         } label: {
+            // H13 连带：兜底字样「演示」仅 -ZCodeDemoData（E2E 演示开关）保留，
+            // 正式路径兜底改「未登录」（未连接 ≠ 演示）
             ContextCapsule(
                 icon: "person.crop.circle",
-                text: session.oauthUserInfo?.displayName ?? (session.isOAuthLoggedIn ? "Z.ai 账号" : "演示"),
+                text: session.oauthUserInfo?.displayName
+                    ?? (session.isOAuthLoggedIn ? "Z.ai 账号" : (session.isDemo ? "演示" : "未登录")),
                 identifier: "03-pill-account")
         }
     }
@@ -289,7 +311,9 @@ struct NewConversationSheet: View {
     }
 
     /// 上下文 chips（G-024）：「引用文件 @」接文件选择器（FileStore 数据源）真实可用；
-    /// 「附件/仓库/语音」无实现，置视觉禁用态（不可点）——不再呈现可点无效的假交互
+    /// 「仓库/语音」无实现置视觉禁用态（不可点）——不再呈现可点无效的假交互。
+    /// 「附件」保持置灰（P1-1 设计稿 1.1：新建会话尚未有目标会话、无法建上传事务，
+    /// 仅 hint 文案改为「进入会话后可用」——发送侧附件入口在会话页 composer）
     private var contextChips: some View {
         FlexibleFlow(spacing: T.sp2) {
             Button {
@@ -307,13 +331,20 @@ struct NewConversationSheet: View {
             }
             .accessibilityIdentifier("03-chip-atfile")
 
-            disabledChip("附件", icon: "paperclip", id: "03-chip-attach")
-            disabledChip("仓库", icon: "shippingbox", id: "03-chip-repo")
-            disabledChip("语音", icon: "mic", id: "03-chip-voice")
+            disabledChip("附件", icon: "paperclip", id: "03-chip-attach",
+                         hint: String(localized: "进入会话后可用"))
+            // HIDDEN(对齐修复): 新建会话「仓库/语音」chip 隐藏（无对应能力实装，置灰 chip
+            // 仍构成假入口——设计稿 H4）· 恢复条件：对应能力实装。
+            // E2E 兼容：-ZCodeDemoData 演示开关下保留（Matrix 布局断言 03-chip-repo/voice 在场）
+            if AppSession.isDemoDataEnabled {
+                disabledChip("仓库", icon: "shippingbox", id: "03-chip-repo")
+                disabledChip("语音", icon: "mic", id: "03-chip-voice")
+            }
         }
     }
 
-    private func disabledChip(_ text: String, icon: String, id: String) -> some View {
+    private func disabledChip(_ text: String, icon: String, id: String,
+                              hint: String = String(localized: "即将支持")) -> some View {
         HStack(spacing: 5) {
             Image(systemName: icon).font(.system(size: 11))
             Text(text).font(T.font(12.5, .medium))
@@ -324,7 +355,7 @@ struct NewConversationSheet: View {
         .background(T.bgInput.opacity(0.6))
         .clipShape(Capsule())
         .accessibilityIdentifier(id)
-        .accessibilityHint("即将支持")
+        .accessibilityHint(hint)
     }
 
     private var executorSection: some View {

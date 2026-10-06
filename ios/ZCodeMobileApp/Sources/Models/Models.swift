@@ -234,6 +234,35 @@ struct SubagentSessionSummary: Identifiable, Equatable {
     }
 }
 
+/// 待处理交互的服务端选项（A-3：应答=回传 optionId，label 仅作展示）。
+/// 元素形状宽容（对象 id/optionId + label/title；裸字符串 id=label=该串）。
+struct RemoteInteractionOption: Identifiable, Equatable {
+    var id: String
+    var label: String
+}
+
+/// workspaceHookReview 审核项（web 对齐 2026-10-06）。应答键 `reviewItemId` 为
+/// web 实证（bundle respondWorkspaceHookReview 调用点 `reviewItemIds:[t.reviewItemId]`）；
+/// 其余展示字段（title/detail/trustState）宽容解析【未取证——元素 schema 在共享 chunk，
+/// webshell2.js 未含】。trustState 已实证值域：pending_trust / revoked / stale_digest /
+/// trusted_persistent（bundle w8e 集合与 trusted_persistent 判定逐字取证）。
+struct WorkspaceHookReviewItem: Identifiable, Equatable {
+    /// reviewItemId（应答时逐字回传）
+    let id: String
+    /// 展示名（title|name|hookName 宽容链）
+    var title: String?
+    /// 说明（summary|description|command 宽容链）
+    var detail: String?
+    /// 信任态（见结构注释；nil = 服务端未携）
+    var trustState: String?
+
+    /// 是否已信任（trusted* 前缀；撤销信任入口仅对已信任项呈现）
+    var isTrusted: Bool {
+        guard let trustState else { return false }
+        return trustState.hasPrefix("trusted")
+    }
+}
+
 /// 连接态待处理交互投影（conversation state.pendingInteractions 的移动端映射）：
 /// permission = 权限审批卡（命令/路径/影响结构化排版）；userInput / elicitation =
 /// Agent 提问（快捷回复/输入框应答）。字段宽容解析（id/kind 必有，其余可缺）。
@@ -244,14 +273,20 @@ struct RemotePendingInteraction: Identifiable, Equatable {
     var command: String?
     var path: String?
     var impact: String?
-    var options: [String] = []
+    /// 服务端选项（A-3：(id,label) 对——应答回传 optionId，label 展示）
+    var options: [RemoteInteractionOption] = []
     /// 计划审批（G-017）：renderContext.kind == "plan_approval" 时的计划文本
     var planText: String?
+    /// workspaceHookReview 审核项（payload 宽容解析；非该 kind 恒空）
+    var hookReviewItems: [WorkspaceHookReviewItem] = []
 
     /// 是否权限审批类（批准/拒绝下发 resolveInteraction）
     var isPermission: Bool { kind == "permission" }
     /// 是否计划审批类（G-017：桌面 ElicitationDialog renderContext.kind="plan_approval"）
     var isPlanApproval: Bool { kind == "plan_approval" || kind == "plan" || kind == "plan-approval" }
+    /// 是否 workspace hook 信任审核类（web payload.kind='workspaceHookReview'；
+    /// 应答走 respondWorkspaceHookReview，与 resolveInteraction 是姊妹 kind）
+    var isWorkspaceHookReview: Bool { kind == "workspaceHookReview" }
 }
 
 /// 会话消息：用户气泡 / Agent 正文 / 内嵌思考折叠块、工具卡、todo 卡、提问卡
@@ -267,12 +302,21 @@ struct ChatMessage: Identifiable, Equatable {
     /// 附件引用（G-014：会话流图片/文件缩略图数据源；桌面行 attachments/ref 宽容解析，
     /// 空数组 = 无附件 → 不渲染任何占位块）
     var attachments: [String] = []
+    /// P1-3 行元数据游标（服务端行 entityId 提取——C-1 修正后无 turnId 回退，
+    /// 仅行合成消息携带；setAssistantFeedback / editUserQuery 与 retryTurn 同款
+    /// 精确游标之一，nil = 无游标不渲染入口、store 拒发）
+    var entityId: String?
+    /// P1-3 行来源标记（rebuildMessages 合成时打标："userInput"/"assistantText"）。
+    /// 助手反馈行仅对 assistantText 渲染——reasoning/subagent/artifact/state-todos
+    /// 等合成消息（rowKind 为 nil）天然排除，不做字符串前缀判断的脆弱门槛
+    var rowKind: String?
     var timestamp: Date
 
     init(id: String, role: MessageRole, text: String,
          status: MessageStatus = .done, timestamp: Date,
          toolCall: ToolCall? = nil, todos: [TodoItem]? = nil, question: AgentQuestion? = nil,
-         thinking: ThinkingContent? = nil, attachments: [String] = []) {
+         thinking: ThinkingContent? = nil, attachments: [String] = [],
+         entityId: String? = nil, rowKind: String? = nil) {
         self.id = id
         self.role = role
         self.text = text
@@ -283,6 +327,8 @@ struct ChatMessage: Identifiable, Equatable {
         self.question = question
         self.thinking = thinking
         self.attachments = attachments
+        self.entityId = entityId
+        self.rowKind = rowKind
     }
 }
 

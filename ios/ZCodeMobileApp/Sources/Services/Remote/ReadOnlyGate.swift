@@ -84,16 +84,19 @@ enum ReadOnlyGate {
     /// 随消息面纠偏一并放行，不再列入；仍拦截：会话配置切换（set*）、编辑器保存类
     /// 文件直写（writeWorkspaceFile/saveFile/writeFile/applyEdits）、harness 配置写
     /// （respondSessionRuntimePreferences/grantWorkspaceHookTrust）、MCP 真实探测、
-    /// 模型调用（generateWorkspaceText/testModelConnectivity）、插件写 12 族、
+    /// 模型调用（generateWorkspaceText/testModelConnectivity）、插件写族、
     /// workflow 文件写与自动化写族。
     private static let zcodeAgentDirectWriteCommands: Set<String> = [
         "setModel", "setThoughtLevel", "setMode",
         "writeWorkspaceFile", "saveFile", "writeFile", "applyEdits",
         "respondSessionRuntimePreferences", "grantWorkspaceHookTrust",
         "listMcpServerStatuses", "generateWorkspaceText", "testModelConnectivity",
-        // 插件写族（改变 harness 插件工具面）
+        // 插件写族（改变 harness 插件工具面）。install/uninstall 放行（P3-11 插件
+        // 卸载：桌面代执行，对齐 v1.5 git 写族分类先例——web 端同参同面；卸载 UI 带
+        // confirmationDialog 确认；安装 UI 待市场浏览面后续版本接入，gate 先按分类
+        // 放行）。updatePlugin 等其余插件写未接 UI，维持拦截。
         "addPluginMarketplace", "removePluginMarketplace", "updatePluginMarketplace",
-        "installPlugin", "cancelPluginOperation", "uninstallPlugin", "updatePlugin",
+        "cancelPluginOperation", "updatePlugin",
         "restoreBuiltinPlugin", "configurePlugin", "resetPluginConfig",
         "validatePlugin", "setPluginEnabled",
         // workflow 文件写（修改/删除/移动被引用的定义）
@@ -105,15 +108,25 @@ enum ReadOnlyGate {
     ]
 
     /// 其余频道的直写命令黑名单（频道 → 命令集；未列入的频道走 default 放行）。
-    /// 覆盖口径：宿主执行面（terminal）、桌面配置写（setting/onboarding-record/
-    /// settings-sync）、仓库快照写（git-checkpoint）、凭据与 OAuth 写（credential/oauth
+    /// 覆盖口径：宿主执行面（terminal）、桌面配置写（setting/settingService/
+    /// onboarding-record/settings-sync）、仓库快照写（git-checkpoint）、凭据与 OAuth 写（credential/oauth
     /// 写族）、远端写（conversation-share/usage-stats 重置操作）、bot 凭据与配置写、
     /// harness 能力面配置写（skills/mcp-sync/plugin-sync/plugins/plugin-management/
     /// subagents/commands/hooks）、交易写（coding-plan-subscription/off-peak-task）、
     /// 窗口级 mutation（window-controller.mutateTask）。
     private static let channelDirectWriteCommands: [String: Set<String>] = [
         "terminal": ["create", "write", "resize", "dispose"],
-        "setting": ["update", "updateDataBaseDir"],
+        // setting.update 放行（P3-11 桌面设置同步：桌面代执行写，移动端「桌面设置」
+        // 页修改入口，UI 带 confirmationDialog 确认后下发；与 git 写族同分类）。
+        // updateDataBaseDir（桌面数据库目录迁移写）不属远控面，维持拦截。
+        "setting": ["updateDataBaseDir"],
+        // settingService：盘点报告 :54 记 `settingService.get/update`，gate 历史词表
+        // 只有 `setting` 频道——真实频道名未取证（本轮桌面端不在线），客户端 get/update
+        // 按两候选频道依次尝试（DesktopSettingsPage.settingCall）。本频道此前完全走
+        // default 放行（设计稿 §11C 指出的「写面静默绕过拦截面」），现按同裁决补词表：
+        // update 放行（同 setting.update）；updateDataBaseDir 维持拦截（宽容补拦，
+        // 该命令在 settingService 频道是否存在未取证，拦截面从严）。
+        "settingService": ["updateDataBaseDir"],
         "onboarding-record": [
             "appendRecord", "dismissOnboarding", "claimAnonymousRecord",
             "syncSettingsFromRecord", "updateRecordPreferences", "clearRecords",
@@ -122,7 +135,11 @@ enum ReadOnlyGate {
             "copyClaudeAgentsFileToZcodeAgentsFile", "importSelected",
             "markFirstRunPromptHandled",
         ],
-        "git-checkpoint": ["createCheckpoint", "restoreBetweenCheckpoints", "deleteCheckpoint"],
+        // P3-11 放行（2026-10-06，设计稿 §11A 前置裁决）：createCheckpoint/
+        // restoreBetweenCheckpoints 与 web 对齐桌面代执行（gitCheckpointService 四方法
+        // 词表见立项报告 §8.1，gitCheckpoint.ts:14-17）；移动端恢复入口硬要求
+        // destructive 确认弹层。deleteCheckpoint 无 UI 入口，维持拦截。
+        "git-checkpoint": ["deleteCheckpoint"],
         "credential": ["save", "delete"],
         "oauth": [
             "startOAuth", "startOAuthWithPolling", "handleCallback", "refreshToken",

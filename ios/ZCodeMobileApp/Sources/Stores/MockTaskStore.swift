@@ -36,22 +36,27 @@ actor MockTaskStore: @preconcurrency TaskStore {
         taskContinuations.values.forEach { $0.yield(current) }
     }
 
-    func approve(taskID: String) async {
+    /// U-4 签名同步：optionId 形参（A-3 wire 形态）；演示路径忽略参数保持原行为
+    @discardableResult
+    func approve(taskID: String, optionId: String) async -> TaskDecisionOutcome {
         mutate(taskID: taskID) { task in
             task.status = .running
             task.pendingCommand = nil
             task.pendingImpact = nil
             task.summary = "已批准执行，任务继续推进中。"
         }
+        return .accepted
     }
 
-    func reject(taskID: String) async {
+    @discardableResult
+    func reject(taskID: String, optionId: String) async -> TaskDecisionOutcome {
         mutate(taskID: taskID) { task in
             task.status = .running
             task.pendingCommand = nil
             task.pendingImpact = nil
             task.summary = "已拒绝执行命令，Agent 正在调整方案。"
         }
+        return .accepted
     }
 
     func stop(taskID: String) async {

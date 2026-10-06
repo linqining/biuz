@@ -8,7 +8,7 @@ import XCTest
 /// - 拦截负例：非 `/remote/` 路径、以及路径为 `/remote/` 但带 `token=` 的链接，均不得进中继分支，
 ///   应按直连规则报「缺端口」（l1-field-host-err）且不出现 L2/L3；
 /// - `-ZCodeRelayLink` 冷启动钩子（真机验证入口，docs/relay-handoff.md §3.4）：有效链接直接发起
-///   中继连接（失败后以「连接失败 · 已回退演示数据」横幅收场，横幅仅在确曾发起连接时出现）；
+///   中继连接（失败后以「桌面端连接失败」横幅收场（对齐修复后无演示回退语义），横幅仅在确曾发起连接时出现）；
 ///   缺 hash 的无效链接解析拒绝 → 直接演示态，无连接动作、无横幅。
 ///
 /// 边界约定（如实声明）：**真实中继链路（zcode.z.ai 活会话）不做 XCUITest**——依赖外部桌面端
@@ -43,7 +43,8 @@ final class RelayLinkE2ETests: XCTestCase {
     private func launch(args: [String]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(zh-Hans)"] // 本地化后固定测试语言（中文断言稳定）
-        app.launchArguments = ["-ZCodeE2EResetState"] + args
+        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）
+        app.launchArguments = ["-ZCodeE2EResetState", "-ZCodeDemoData"] + args
         app.launch()
         return app
     }
@@ -179,9 +180,9 @@ final class RelayLinkE2ETests: XCTestCase {
 
     /// 真机验证入口的回归（docs/relay-handoff.md §3.4：simctl launch -ZCodeRelayLink + 截图）：
     /// 钩子解析有效链接后直接发起中继连接（无 UI 驱动路径，AppSession.bootstrap:153-156）。
-    /// 回环拒连失败后出现「桌面端连接失败 · 已回退演示数据」横幅（RootView.swift:115-120，
-    /// 横幅仅在确曾发起连接时出现——若解析/拦截回归破坏，mode 恒为 demo，横幅永不出现）；
-    /// 失败后回退演示数据（会话行仍在）。
+    /// 回环拒连失败后出现「桌面端连接失败」横幅（对齐修复后标题不再含「已回退演示数据」
+    /// ——Mock 回退语义已消失；横幅仅在确曾发起连接时出现——若解析/拦截回归破坏，
+    /// mode 恒为 demo，横幅永不出现）；-ZCodeDemoData 下失败后回退演示数据（会话行仍在）。
     func test03_relayLinkLaunchArgParsesAndAttemptsRelayConnect() throws {
         let app = launch(args: ["-ZCodeRelayLink", relayLink])
 
@@ -190,8 +191,8 @@ final class RelayLinkE2ETests: XCTestCase {
         XCTAssertTrue(element(app, "13-banner-connection").waitForExistence(timeout: 30),
                       "-ZCodeRelayLink 应解析链接并发起中继连接，失败后出现连接失败横幅"
                       + "（至多 15s auth 超时）")
-        XCTAssertTrue(app.staticTexts["桌面端连接失败 · 已回退演示数据"].waitForExistence(timeout: 6),
-                      "横幅应表明已回退演示数据")
+        XCTAssertTrue(app.staticTexts["桌面端连接失败"].waitForExistence(timeout: 6),
+                      "横幅应表明桌面端连接失败")
         XCTAssertTrue(element(app, "04-row-c1").exists, "中继连接失败后应回退演示数据（会话行仍在）")
     }
 

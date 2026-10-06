@@ -11,6 +11,10 @@ final class ChatViewModel {
     var draft: String = ""
     var isLoading = true
 
+    /// 待发附件（P1-1：相册/拍照/文件三来源；会话维度实例。演示态 UI 不出附件
+    /// 入口——设计稿 1.4「非连接态 📎 不渲染」，本服务仅连接态被触达）
+    let uploads: AttachmentUploadService
+
     /// 连接态数据源（chips / 向上分页 / 待审批交互）。演示态全部保持 nil/false，
     /// 工具行沿用本机设置，演示交互完全不变。
     var modelSelection: ModelSelectionInfo?
@@ -64,6 +68,22 @@ final class ChatViewModel {
         return Self.controlFeedback(ack, verb: goalSummary?.isPaused == true ? "resume" : "pause")
     }
 
+    /// P2-5 编辑目标 sheet 显隐（GoalEditSheet 挂 SessionPanelsView 根部；
+    /// ✏️ 钮置位，sheet 内下发成功/取消经 dismiss 复位）
+    var editingGoalActive = false
+
+    /// 目标下发（sendGoalCommand；store 内 ensureStateRevision + sendCASWithRetry——
+    /// 非 §7.2 CAS 权威全集成员但写 state.goal，按 CAS 预期处理，探针裁决）。
+    /// 返回错误文案（nil = 成功；成功提示由面板反馈行承担，controlFeedback 口径）
+    func sendGoal(_ text: String) async -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return String(localized: "内容不能为空") }
+        guard goalSummary != nil else { return String(localized: "当前会话没有可编辑的目标") }
+        let ack = await store.sendGoalCommand(conversationID, text: trimmed)
+        recordControlDiag("send-goal", workId: nil, ack: ack)
+        return Self.controlFeedback(ack, verb: "goal")
+    }
+
     /// 子代理模型修改（amendWorkflowRunSettings；nil = 跟随主模型；workId 缺省 = 主 run）。
     /// 桌面端语义：对运行中 run 修改设置 = 停旧 run → 以新设置重启（新 runId），
     /// 故成功时也给出可见提示，避免「看起来没作用」
@@ -103,12 +123,212 @@ final class ChatViewModel {
         return Self.controlFeedback(ack, verb: "model")
     }
 
+    // MARK: P1-2 会话模式（plan/build）与投递模式（now/queue/guide）
+    //
+    // 状态单源在 ViewModel：胶囊 UI 态与 send() 的 requestedDelivery 实参同读此二值，
+    // 不存在「UI 一张皮、发送另一张皮」。本地持久化走 ComposerModeStore（设计稿 §2.1
+    // 照抄执行目标先例）；协作模式无桌面读面（全 Sources 无投影，设计稿 §2.7③），
+    // 首屏显示本机偏好，点按切换即真实 CAS 下发并按回执落态。
+
+    /// 协作模式（"plan"|"build"；switchCollaborationMode CAS 成功后才落态+持久化）
+    var collaborationMode: String = ComposerModeStore.collaborationDefault
+
+    /// 投递模式（移动端三档 "now"|"queue"|"guide"。A-2：now 为纯本机档——不下发
+    /// setFollowupMode，send 恒携 requestedDelivery:"startNow"；queue/guide CAS
+    /// 成功后落态+持久化，并即时驱动后续 send() 的 requestedDelivery 实参）
+    var deliveryMode: String = ComposerModeStore.deliveryDefault
+
+    /// 发送时随 sendText 携带的投递参数。A-2 修正（设计稿 §4.1 唯一方案）：
+    /// now 档恒携 requestedDelivery:"startNow"（web 立即语义的实证形态——
+    /// sendText delivery 枚举 startNow|queue|guide，bundle 实证；web 默认
+    /// followupMode=queue，now 档不下发命令后若不带键则桌面仍按 queue 处理）；
+    /// queue 形态已探针活体验证；guide 属三路 admission 词表【移植】
+    var requestedDeliveryKey: String? {
+        deliveryMode == "now" ? "startNow" : deliveryMode
+    }
+
+    /// 协作模式切换（Plan/Build 胶囊；switchCollaborationMode CAS）。成功：落态 +
+    /// 持久化 + 返回 nil（UI 给选中震动）；失败：态不变，返回拒绝文案供 hint。
+    func switchCollaborationMode(_ mode: String) async -> String? {
+        let ack = await store.switchCollaborationMode(conversationID, mode: mode)
+        recordControlDiag("collabMode=\(mode)", workId: nil, ack: ack)
+        if let failure = Self.controlFeedback(ack, verb: "collaborationMode") {
+            return failure
+        }
+        collaborationMode = mode
+        ComposerModeStore.setCollaborationMode(mode, conversationID: conversationID)
+        return nil
+    }
+
+    /// 投递模式切换（立即/排队/引导）。A-2 修正（设计稿 §4.1）：now 档不下发
+    /// setFollowupMode（web 枚举仅 queue|guide，「立即」不是 followupMode 值——
+    /// 下发必被拒），仅本地落态 + 持久化，立即语义由 send() 携
+    /// requestedDelivery:"startNow" 承载；queue/guide 照常 CAS 下发，成功才落态。
+    /// 返回 nil = 已生效（UI 给提示）；失败态不变并返回拒绝文案。
+    func setDeliveryMode(_ mode: String) async -> String? {
+        guard mode != "now" else {
+            deliveryMode = mode
+            ComposerModeStore.setDeliveryMode(mode, conversationID: conversationID)
+            return nil
+        }
+        let ack = await store.setFollowupMode(conversationID, mode: mode)
+        recordControlDiag("followupMode=\(mode)", workId: nil, ack: ack)
+        if let failure = Self.controlFeedback(ack, verb: "followupMode") {
+            return failure
+        }
+        deliveryMode = mode
+        ComposerModeStore.setDeliveryMode(mode, conversationID: conversationID)
+        return nil
+    }
+
+    // MARK: P2-7 上下文压缩（compact）
+
+    /// 压缩进行中（确认后置位，完成/失败清除；composer 提示行据此显示「压缩中…」
+    /// 且不自动消失——覆盖 switchHint 3s 清除口径）
+    var isCompacting = false
+
+    /// 压缩上下文（compact 非 CAS，普通信封直发）。回执 accepted 后等 contextUsage
+    /// 回落（state.runtime 回流，1s 轮询最多 5s）再报完成；5s 内无回落也报完成
+    /// （回执已 accepted，诚实口径）。返回提示文案（完成或失败）供 3s hint。
+    func compactContext() async -> String {
+        guard !isCompacting else { return String(localized: "压缩中…") }
+        isCompacting = true
+        defer { isCompacting = false }
+        let ack = await store.compact(conversationID)
+        recordControlDiag("compact", workId: nil, ack: ack)
+        if let failure = Self.controlFeedback(ack, verb: "compact") {
+            return failure
+        }
+        if let before = contextUsage?.used {
+            for _ in 0..<5 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                contextUsage = await store.sessionContextUsage(in: conversationID)
+                if let now = contextUsage?.used, now < before { break }
+            }
+        }
+        return String(localized: "压缩完成 · 上下文已释放")
+    }
+
     /// 思考强度切换（同三元组；model 沿用当前绑定）
     func switchThoughtLevel(_ level: String) async -> String? {
         guard let model = modelSelection?.activeModel else {
             return String(localized: "不在连接态，无法切换思考强度")
         }
         return await switchModel(model, thoughtLevel: level)
+    }
+
+    // MARK: P1-3 消息反馈与编辑重发（setAssistantFeedback / editUserQuery）
+
+    /// 助手消息反馈回显（会话级内存：message.id → true=赞 / false=踩；命令 accepted
+    /// 才写，再点同项 = 取消即移除，赞/踩天然互斥）。服务端 assistant 行的反馈读回
+    /// 字段【未取证】（设计稿 §3.7②），重启后清零——若桌面无读回字段则显示未反馈，
+    /// 与桌面实态可能不一致，如实降级不做假持久化。
+    var assistantFeedback: [String: Bool] = [:]
+
+    /// 点赞/点踩（setAssistantFeedback：CAS+row-target，store 侧 entityId 缺失拒发
+    /// 返回 nil——UI 入口已按游标在场门槛渲染，此处兜底再查一次）。返回失败文案
+    /// （nil = 成功静默，UI 自行高亮 + 震动）。
+    func setAssistantFeedback(_ message: ChatMessage, value: Bool?) async -> String? {
+        guard let rowId = Self.messageRowId(message), let entityId = message.entityId, !entityId.isEmpty else {
+            return String(localized: "该消息缺少行游标，无法反馈")
+        }
+        let ack = await store.setAssistantFeedback(
+            conversationID, rowId: rowId, entityId: entityId, value: value)
+        recordControlDiag("feedback=\(value.map(String.init) ?? "clear") row=\(rowId)", workId: nil, ack: ack)
+        if let failure = Self.controlFeedback(ack, verb: "feedback") { return failure }
+        if let value {
+            assistantFeedback[message.id] = value
+        } else {
+            assistantFeedback.removeValue(forKey: message.id)
+        }
+        return nil
+    }
+
+    /// 编辑并重发（editUserQuery：rewind 后以新文本重发，与 retryTurn 同族
+    /// CAS+row-target）。成功后不做乐观改动——消息流以桌面 rows 键级重建为准
+    /// （设计稿 §3.4「乐观不做」）。返回失败文案（nil = 成功，UI dismiss + 震动）。
+    func editAndResend(_ message: ChatMessage, newText: String) async -> String? {
+        let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return String(localized: "内容不能为空") }
+        guard let rowId = Self.messageRowId(message), let entityId = message.entityId, !entityId.isEmpty else {
+            return String(localized: "该消息缺少行游标，无法重发")
+        }
+        let ack = await store.editUserQuery(
+            conversationID, rowId: rowId, entityId: entityId, newText: trimmed)
+        recordControlDiag("editResend row=\(rowId)", workId: nil, ack: ack)
+        return Self.controlFeedback(ack, verb: "editResend")
+    }
+
+    /// 消息行 rowId（id 形如 "row-<n>"；本地回显 "local-send-*"/"state-todos" 等
+    /// 非行合成 id 返回 nil）
+    private static func messageRowId(_ message: ChatMessage) -> Int? {
+        guard message.id.hasPrefix("row-") else { return nil }
+        return Int(message.id.dropFirst(4))
+    }
+
+    // MARK: P2-7B 审批卡「稍后处理」（snoozeInteractionAutoResolution）
+
+    /// 本地遮罩的交互 id（「稍后处理」accepted 后桌面 pendingInteractions 回流 >1s
+    /// 未至的 UI 兜底——仅过滤投影，不改 store state 合并纪律，设计稿 §7B；
+    /// 降级路径「关闭」纯本地收起同用此遮罩）
+    var snoozedInteractionIds: Set<String> = []
+
+    /// 「稍后处理」反馈行（composer 上方卡片区间一行 hint，3s 自动清除——卡片可能
+    /// 随即被回流撤下，提示需在卡片之外存活；switchHint 同款一行橙字口径）
+    var snoozeFeedback: String?
+    private var snoozeFeedbackTask: Task<Void, Never>?
+
+    /// 旧桌面端无 snooze 命令（rejected 且 reasonCode/message 宽容匹配 unknown
+    /// 【未取证降级判定】）→ 审批卡按钮降级为纯关闭
+    var snoozeUnsupported = false
+
+    /// 「稍后处理」下发（snoozeInteractionAutoResolution {interactionId}；命令本体/
+    /// 回执/桌面重提醒行为全部未取证，payload 键名照 resolveInteraction 实证先例）。
+    /// 成功：优先依赖桌面回流撤卡，>1s 未至本地遮罩兜底。返回失败文案（nil = 成功，
+    /// 成功/失败 hint 均由本方法经 snoozeFeedback 通道给出）。
+    @discardableResult
+    func snoozeInteraction(_ interaction: RemotePendingInteraction) async -> String? {
+        let ack = await store.snoozeInteractionAutoResolution(
+            conversationID, interactionId: interaction.id)
+        recordControlDiag("snooze", workId: interaction.id, ack: ack)
+        if let failure = Self.controlFeedback(ack, verb: "snooze") {
+            let reason = (ack?["reasonCode"]?.stringValue ?? "")
+                + " " + (ack?["message"]?.stringValue ?? "")
+            snoozeUnsupported = reason.lowercased().contains("unknown")
+            showSnoozeFeedback(String(localized: "稍后失败 · \(failure)"))
+            return failure
+        }
+        showSnoozeFeedback(String(localized: "已稍后 · 桌面端稍后会再次提醒"))
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        // 回流撤卡优先：立即刷新仍在场 → 1s 后再刷一次 → 仍未至本地遮罩兜底
+        await refreshPendingInteractions()
+        if pendingInteractions.contains(where: { $0.id == interaction.id }) {
+            Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await refreshPendingInteractions()
+                if pendingInteractions.contains(where: { $0.id == interaction.id }) {
+                    snoozedInteractionIds.insert(interaction.id)
+                    await refreshPendingInteractions()
+                }
+            }
+        }
+        return nil
+    }
+
+    /// 纯本地收起（降级路径「关闭」：仅 UI 遮罩，不下发命令、不改桌面挂起态）
+    func dismissInteractionLocally(_ interaction: RemotePendingInteraction) async {
+        snoozedInteractionIds.insert(interaction.id)
+        await refreshPendingInteractions()
+    }
+
+    private func showSnoozeFeedback(_ text: String) {
+        snoozeFeedbackTask?.cancel()
+        snoozeFeedback = text
+        snoozeFeedbackTask = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            snoozeFeedback = nil
+        }
     }
 
     /// 当前模型的可用思考档（workspace-config 词表；懒加载一次并随模型切换重查）
@@ -243,6 +463,11 @@ final class ChatViewModel {
     init(store: ConversationStore, conversationID: String) {
         self.store = store
         self.conversationID = conversationID
+        self.uploads = AttachmentUploadService(store: store, sessionID: conversationID)
+        // P1-2 模式偏好恢复（per-conversation → 全局默认；协作模式无桌面读面，
+        // 首屏即本机偏好，点按切换才真实下发）
+        self.collaborationMode = ComposerModeStore.collaborationMode(for: conversationID)
+        self.deliveryMode = ComposerModeStore.deliveryMode(for: conversationID)
         // 诊断钩子：-ZCodeDiagPanelControl <pause|resume|cancel>（首条 workflowRun 到达后
         // 自动发一次控制命令；PTY 受限期间无点按路径的端到端验证入口）
         let args = ProcessInfo.processInfo.arguments
@@ -299,6 +524,8 @@ final class ChatViewModel {
     /// 订阅数据层事件（流式输出逐字经此刷新）
     func observe() async {
         for await event in store.observeConversations() {
+            // 会话级模型选择随 state delta 到达（便宜：内存字典读），逐事件覆盖
+            await refreshSessionModelOverlay()
             switch event {
             case .conversationsReplaced(let list):
                 if let match = list.first(where: { $0.id == conversationID }) {
@@ -384,17 +611,74 @@ final class ChatViewModel {
         UserDefaults.standard.synchronize()
     }
 
-    /// 待处理交互投影刷新（连接态；演示态空）
+    /// 待处理交互投影刷新（连接态；演示态空。「稍后处理」本地遮罩在此过滤——
+    /// 仅 UI 层，store 原始投影不动，§7B 口径）
     func refreshPendingInteractions() async {
         guard isReadOnly else { return }
-        pendingInteractions = await store.pendingInteractionList(in: conversationID)
+        let all = await store.pendingInteractionList(in: conversationID)
+        pendingInteractions = all.filter { !snoozedInteractionIds.contains($0.id) }
     }
 
-    /// 审批卡决议：批准/拒绝携带真实 interactionId + 三档 scope 注入 answer 下发
-    func decide(_ interaction: RemotePendingInteraction, approved: Bool, scope: String) async {
-        await store.resolveInteraction(
-            interaction.id, approved: approved, scope: scope, conversationID: conversationID)
+    /// 审批卡决议（A-3：权限族 answer={optionId}——四族 allowOnce/allowAlways/
+    /// rejectOnce/rejectAlways 由 UI 按服务端 options 组合拼好传入）。
+    /// 返回失败文案（nil = 成功/已受理；未送达与拒绝均如实透出，U-5 同口径）
+    @discardableResult
+    func decide(_ interaction: RemotePendingInteraction, optionId: String) async -> String? {
+        let ack = await store.resolveInteractionRaw(
+            conversationID,
+            interactionId: interaction.id,
+            answer: .object(["optionId": .string(optionId)]))
+        recordControlDiag("resolve optionId=\(optionId)", workId: interaction.id, ack: ack)
         await refreshPendingInteractions()
+        return Self.controlFeedback(ack, verb: "审批")
+    }
+
+    /// 计划决议（A-3：计划族 answer={action:"accept"|"decline"}；cancel 语义由
+    /// 「稍后处理」snooze 独立命令承担，不设按钮——设计稿 §3.3）。返回失败文案。
+    @discardableResult
+    func decidePlan(_ interaction: RemotePendingInteraction, action: String) async -> String? {
+        let ack = await store.resolveInteractionRaw(
+            conversationID,
+            interactionId: interaction.id,
+            answer: .object(["action": .string(action)]))
+        recordControlDiag("planResolve action=\(action)", workId: interaction.id, ack: ack)
+        await refreshPendingInteractions()
+        return Self.controlFeedback(ack, verb: "计划决议")
+    }
+
+    // MARK: workspace hook 信任审核（web 对齐：respond/request/revoke；返回失败文案，
+    // nil = 成功/已受理——与 decide/decidePlan 同口径）
+
+    /// 信任所选审核项（respondWorkspaceHookReview decision:{action:'trust_selected',
+    /// reviewItemIds}，web 实证唯一 action）。成功后卡片由桌面 pendingInteractions
+    /// 回流撤下（refresh 兜底）。
+    @discardableResult
+    func trustWorkspaceHooks(
+        _ interaction: RemotePendingInteraction, reviewItemIds: [String]
+    ) async -> String? {
+        let ack = await store.respondWorkspaceHookReview(conversationID, reviewItemIds: reviewItemIds)
+        recordControlDiag("hookTrust ids=\(reviewItemIds.count)", workId: interaction.id, ack: ack)
+        await refreshPendingInteractions()
+        return Self.controlFeedback(ack, verb: "信任")
+    }
+
+    /// 重新请求审核（requestWorkspaceHookReview；payload 缓存不在场/无 digest 时
+    /// 远端实现返回 nil → 如实提示，不虚构「已请求」）
+    @discardableResult
+    func requestWorkspaceHookReview() async -> String? {
+        let ack = await store.requestWorkspaceHookReview(conversationID)
+        recordControlDiag("hookReviewRequest", workId: nil, ack: ack)
+        return Self.controlFeedback(ack, verb: "请求审核")
+    }
+
+    /// 撤销已信任 hook 项（revokeWorkspaceHookTrust；写桌面信任账本——UI 侧确认
+    /// 弹层后才可调用本方法）
+    @discardableResult
+    func revokeWorkspaceHookTrust(reviewItemIds: [String]) async -> String? {
+        let ack = await store.revokeWorkspaceHookTrust(conversationID, reviewItemIds: reviewItemIds)
+        recordControlDiag("hookRevoke ids=\(reviewItemIds.count)", workId: nil, ack: ack)
+        await refreshPendingInteractions()
+        return Self.controlFeedback(ack, verb: "撤销信任")
     }
 
     /// 桌面端模型选择变化流（model-selection.onDidChange 驱动 chips 刷新 + 思考档词表重查）
@@ -403,8 +687,25 @@ final class ChatViewModel {
             if let info {
                 modelSelection = info
                 await refreshThoughtLevels()
+                await refreshSessionModelOverlay()
             }
         }
+    }
+
+    /// 会话级模型选择覆盖（用户报障「桌面改了手机不同步」：桌面 composer 改的是
+    /// state.modelSelection——会话级，不走 workspace 级 onDidChange；以 state 为
+    /// 权威源覆盖 chips 显示，词表/套餐分组仍取 getView）
+    func refreshSessionModelOverlay() async {
+        guard isReadOnly,
+              let session = await store.sessionModelSelection(in: conversationID) else { return }
+        if modelSelection == nil {
+            modelSelection = await store.modelSelectionView() ?? ModelSelectionInfo()
+        }
+        guard modelSelection?.activeModel != session.model
+            || modelSelection?.activeThoughtLevel != session.thought else { return }
+        modelSelection?.activeModel = session.model
+        modelSelection?.activeThoughtLevel = session.thought
+        await refreshThoughtLevels()
     }
 
     /// 向上分页：滚动触顶（顶部「加载更早消息」）拉更早历史，拼接去重在 Store 内完成
@@ -417,11 +718,45 @@ final class ChatViewModel {
         messages = await store.messages(in: conversationID)
     }
 
-    func send() async {
+    /// 发送可用：无待发附件沿用 draft 非空口径；有待发附件时须全部 committed
+    /// （P1-1 设计稿 1.3③④——上传中禁发、纯附件无文本不允许发送）
+    var canSend: Bool {
+        !draft.isEmpty && !uploads.blocksSend
+    }
+
+    /// U-6：最近一次 send 未送达时回填的文本（nil = 最近一次发送成功，或未真正
+    /// 发出——空稿/附件未就绪等本地 guard 路径不算「未送达」，附件失败走
+    /// uploads.firstFailureText 通道）。composer 据此渲染持久错误行 + 重试钮。
+    var lastSendUndeliveredText: String?
+
+    /// 发送（P1-2 投递联动）：按当前投递模式携带 requestedDelivery——now 档恒携
+    /// "startNow"（A-2 修正，见 requestedDeliveryKey），queue/guide 随 sendText
+    /// 走对应 admission。返回是否送达（false=未送达，连接中断或桌面拒收）。
+    /// U-6：失败时草稿回填（仅当用户尚未重新输入——失败时刻 draft 为空才写回，
+    /// 避免覆盖新输入）并记 lastSendUndeliveredText 供 composer 错误行。
+    @discardableResult
+    func send() async -> Bool {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else { return false }
+        // P1-1 发送联动：未完成附件先顺序补传（按钮禁用为主闸，此处为 onSubmit
+        // 等旁路兜底）；仍有失败项则本次不发送（直发文本会丢附件），保留失败态
+        guard await uploads.ensureAllCommitted() else { return false }
+        let attachments = uploads.takeCommitted()
         draft = ""
-        await store.send(text, in: conversationID)
+        let delivered = await store.sendWithAttachments(
+            text, attachments: attachments, requestedDelivery: requestedDeliveryKey,
+            in: conversationID)
+        if delivered {
+            lastSendUndeliveredText = nil
+        } else {
+            // 消息未送达：文本回填保稿（附件已随事务消费，不回填——重试为文本路径，
+            // 设计稿 §5.1 连带说明）
+            if draft.isEmpty {
+                draft = text
+            }
+            lastSendUndeliveredText = text
+        }
+        return delivered
     }
 
     /// G-021：子代理只读转录加载（actor.sessionId → store 只读拉一页）
@@ -440,5 +775,60 @@ final class ChatViewModel {
 
     func answerQuestion(_ reply: String) async {
         await store.answerQuestion(reply, in: conversationID, questionID: "pending")
+    }
+}
+
+// MARK: - P1-2 composer 模式偏好持久化（协作模式 + 投递模式）
+//
+// ExecutionTargetStore 同构（ContextPicker.swift：per-conversation 键 + 全局默认，
+// 写时双写）；值域白名单校验防手改 plist 的脏值逃过枚举。协作模式无桌面读面，
+// 持久值即首屏显示值（设计稿 §2.7③ 如实口径）；投递模式兼作 send()
+// requestedDelivery 的实参源——成功切换才写入，保证「UI 态 = 发送值」。
+enum ComposerModeStore {
+    /// 协作模式词表（switchCollaborationMode mode 值域；设计稿 §2 标题词）
+    static let collaborationModes = ["plan", "build"]
+    /// 投递模式词表（移动端三档。A-2：queue/guide 下发 setFollowupMode【实证 bundle
+    /// 枚举】并随 sendText 走对应 admission；now 为纯本机档——不下发命令，
+    /// send 恒携 requestedDelivery:"startNow"（sendText delivery 枚举【实证】））
+    static let deliveryModes = ["now", "queue", "guide"]
+
+    static let collaborationDefault = "plan"
+    static let deliveryDefault = "now"
+
+    private static func key(_ prefix: String, conversationID: String) -> String {
+        "chat.\(prefix).\(conversationID)"
+    }
+    private static let collaborationDefaultKey = "chat.collabMode.default.v1"
+    private static let deliveryDefaultKey = "chat.deliveryMode.default.v1"
+
+    /// 该会话的协作模式；未单独选择过回退全局默认；再无则 Plan
+    static func collaborationMode(for conversationID: String) -> String {
+        valid(UserDefaults.standard.string(forKey: key("collabMode", conversationID: conversationID)),
+              collaborationModes)
+            ?? valid(UserDefaults.standard.string(forKey: collaborationDefaultKey), collaborationModes)
+            ?? collaborationDefault
+    }
+
+    static func setCollaborationMode(_ mode: String, conversationID: String) {
+        UserDefaults.standard.set(mode, forKey: key("collabMode", conversationID: conversationID))
+        UserDefaults.standard.set(mode, forKey: collaborationDefaultKey)
+    }
+
+    /// 该会话的投递模式；未单独选择过回退全局默认；再无则立即发送
+    static func deliveryMode(for conversationID: String) -> String {
+        valid(UserDefaults.standard.string(forKey: key("deliveryMode", conversationID: conversationID)),
+              deliveryModes)
+            ?? valid(UserDefaults.standard.string(forKey: deliveryDefaultKey), deliveryModes)
+            ?? deliveryDefault
+    }
+
+    static func setDeliveryMode(_ mode: String, conversationID: String) {
+        UserDefaults.standard.set(mode, forKey: key("deliveryMode", conversationID: conversationID))
+        UserDefaults.standard.set(mode, forKey: deliveryDefaultKey)
+    }
+
+    private static func valid(_ value: String?, _ allowed: [String]) -> String? {
+        guard let value, allowed.contains(value) else { return nil }
+        return value
     }
 }

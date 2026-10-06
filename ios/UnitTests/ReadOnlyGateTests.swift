@@ -88,6 +88,19 @@ final class ReadOnlyGateTests: XCTestCase {
         }
     }
 
+    func testGitCheckpointCreateRestoreAllowed() {
+        // P3-11 检查点（2026-10-06，设计稿 §11A 前置裁决）：创建/恢复与 web 对齐桌面
+        // 代执行（gitCheckpointService 四方法词表，立项报告 §8.1:579，gitCheckpoint.ts:14-17）；
+        // 移动端恢复入口硬要求 destructive 确认弹层。deleteCheckpoint 无 UI 入口维持拦截。
+        for command in ["diffCheckpoints", "createCheckpoint", "restoreBetweenCheckpoints"] {
+            let verdict = ReadOnlyGate.inspect(channel: "git-checkpoint", command: command, arg: .undefined)
+            XCTAssertFalse(verdict.isBlocked, "git-checkpoint.\(command) 应放行（桌面代执行）")
+        }
+        let deleteVerdict = ReadOnlyGate.inspect(
+            channel: "git-checkpoint", command: "deleteCheckpoint", arg: .undefined)
+        XCTAssertTrue(deleteVerdict.isBlocked, "git-checkpoint.deleteCheckpoint 无 UI 入口应拦截")
+    }
+
     func testFileChannelDenyByDefaultWithReadWhitelist() {
         // 读白名单放行（RemoteFileStore 实际调用面 + 计划中的二进制预览读）
         for command in ["readdir", "readTextFile", "stat", "searchWorkspaceFiles", "readBinaryPreview"] {
@@ -142,7 +155,9 @@ final class ReadOnlyGateTests: XCTestCase {
             ("setting", "update"), ("setting", "updateDataBaseDir"),
             ("onboarding-record", "appendRecord"), ("onboarding-record", "clearRecords"),
             ("settings-sync", "importSelected"),
-            ("git-checkpoint", "createCheckpoint"), ("git-checkpoint", "restoreBetweenCheckpoints"),
+            // P3-11 放行（2026-10-06，设计稿 §11A 前置裁决）：createCheckpoint/
+            // restoreBetweenCheckpoints 移入放行面（testGitCheckpointCreateRestoreAllowed）；
+            // deleteCheckpoint 无 UI 入口维持拦截
             ("git-checkpoint", "deleteCheckpoint"),
             ("credential", "save"), ("credential", "delete"),
             ("oauth", "startOAuth"), ("oauth", "handleCallback"), ("oauth", "refreshToken"),

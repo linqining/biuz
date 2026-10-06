@@ -168,6 +168,8 @@ final class FeatureCompletionE2ETests: XCTestCase {
     private func launchFresh(openFlow: String? = nil) -> XCUIApplication {
         var arguments = [
             "-ZCodeE2EResetState",
+            // E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配；连接成功后换真实 Store）
+            "-ZCodeDemoData",
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthClientID", "stub-client-e2e",
@@ -188,6 +190,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
     private func relaunch(_ application: XCUIApplication, openFlow: String? = nil) -> XCUIApplication {
         application.terminate()
         var arguments = [
+            "-ZCodeDemoData",
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthClientID", "stub-client-e2e",
@@ -531,12 +534,12 @@ final class FeatureCompletionE2ETests: XCTestCase {
                       "无中继设备时登录直达应展示引导（既有连接不受影响）")
         snap(application, "42-login-direct-over-connected")
 
-        // 「开始使用」→ 落回的是真实（替身）会话列表：数据源仍「已连接」、服务器行替身名、
-        // 替身会话行在场（未回退演示数据）
+        // 「开始使用」→ 落回的是真实（替身）会话列表：页脚为执行边界口径、服务器行替身名、
+        // 替身会话行在场（未停留演示数据）
         tapStartUsing(application)
         let footDataSource = element(application, "12-foot-data-source")
         XCTAssertTrue(footDataSource.waitForExistence(timeout: 8), "主界面应有数据源脚标")
-        waitLabel(footDataSource, contains: "已连接", timeout: 6, "登录后数据源应保持实时数据")
+        waitLabel(footDataSource, contains: "指令经桌面端执行", timeout: 6, "登录后数据源应保持真实连接口径")
         let serverRow = element(application, "l4-row-server")
         XCTAssertTrue(serverRow.waitForExistence(timeout: 8), "设置页应有服务器行")
         waitLabel(serverRow, contains: "E2E Stub Desktop", timeout: 10,

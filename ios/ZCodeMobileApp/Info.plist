@@ -18,15 +18,6 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
-	</dict>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -38,14 +29,23 @@
 			</array>
 		</dict>
 	</array>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>用于查找并连接同一局域网内的桌面端 Agent 服务（ZCode 社区版桌面端）</string>
-	<key>NSCameraUsageDescription</key>
-	<string>扫描桌面端出示的连接二维码，用于配对连接</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>用于扫描桌面端出示的连接二维码配对连接，以及拍摄照片作为会话附件发送</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于查找并连接同一局域网内的桌面端 Agent 服务（ZCode 社区版桌面端）</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
 	</dict>
 	<key>UILaunchScreen</key>
 	<dict>

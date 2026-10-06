@@ -22,6 +22,7 @@ enum SettingsRoute: String, Hashable {
     case serverAccount, serverDetail
     // P2 批次只读页（G-022/G-024/G-025）
     case savedWorkflows, offPeakTasks, feedbackTickets
+    case desktopSettings // P3-11C 桌面设置同步（settingService get/update）
     case diagnostics // G-061 导出诊断日志
 }
 

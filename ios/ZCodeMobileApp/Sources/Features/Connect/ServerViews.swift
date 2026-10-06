@@ -522,9 +522,11 @@ struct ServerDetailView: View {
         return provider.map { "未登录 · \($0)" } ?? "未登录"
     }
 
-    /// 连接态刷新桌面只读信息（进入详情页时补拉一次，保持卡片新鲜）
+    /// 连接态刷新桌面只读信息（进入详情页时补拉一次，保持卡片新鲜）。
+    /// 对齐修复后以 isConnected gating（未连接 ≠ 演示；非连接态 refresh 内部
+    /// guard connection.isActive 会清空只读投影，断线快照随之如实过期）
     private func refreshDesktopInfo() {
-        guard !session.isDemo else { return }
+        guard session.isConnected else { return }
         Task { await session.refreshDesktopReadonlyInfo() }
     }
 

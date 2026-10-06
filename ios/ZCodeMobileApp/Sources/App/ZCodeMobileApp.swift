@@ -6,10 +6,15 @@ struct ZCodeMobileApp: App {
     @State private var badges = TabBadges()
     @State private var appSettings: AppSettingsModel
     @State private var session = AppSession()
-    // 装配策略：默认 mock；连接成功后由 AppSession 驱动切换为真实 Store
-    @State private var conversationStore: any ConversationStore = MockConversationStore()
-    @State private var taskStore: any TaskStore = MockTaskStore()
-    @State private var fileStore: any FileStore = MockFileStore()
+    // 装配策略（对齐修复，设计稿 §1.2）：未连接默认空实现（无假数据）；连接成功后由
+    // AppSession 驱动切换真实 Store。-ZCodeDemoData（E2E 演示开关）下初值/回退为
+    // Mock——用户裁决「Mock 假数据全部移除，仅测试用例允许」
+    @State private var conversationStore: any ConversationStore =
+        AppSession.isDemoDataEnabled ? MockConversationStore() : EmptyConversationStore()
+    @State private var taskStore: any TaskStore =
+        AppSession.isDemoDataEnabled ? MockTaskStore() : EmptyTaskStore()
+    @State private var fileStore: any FileStore =
+        AppSession.isDemoDataEnabled ? MockFileStore() : EmptyFileStore()
     /// G-015：分享链接入口（zcode://share/<code> 或 https://…/share/<code>）
     @State private var sharePreviewCode: String?
 
@@ -43,6 +48,12 @@ struct ZCodeMobileApp: App {
                 .tint(T.accent)
                 .task { await bootstrapIfNeeded() }
                 .task(id: session.mode) { await syncStoresWithSession() }
+                // P3-10 多工作区切换：同 .connected 内换工作区不改变 mode（Equatable 只含
+                // ServerConfig），由 AppSession.storeEpoch（assemble/teardown 时 +1）驱动
+                // syncStoresWithSession 重跑完成环境值换绑；mode 触发面保留（断线保留
+                // 快照、失败换空实现等装配切换）。函数幂等（读当前 session 态赋值），
+                // 双触发无冲突。
+                .task(id: session.storeEpoch) { await syncStoresWithSession() }
                 .task(id: appSettings.value.notificationsEnabled) {
                     // 「通知」开关真联动（P1-7）：授权请求 / 撤销待投递
                     await NotificationService.shared.syncEnabled(appSettings.value.notificationsEnabled)
@@ -78,7 +89,7 @@ struct ZCodeMobileApp: App {
         }
     }
 
-    /// 冷启动装配（需求：未配置时直接进入演示模式，e2e 行为不变）
+    /// 冷启动装配（未配置 → 连接引导页为根；E2E 演示开关下保持旧演示四 Tab）
     private func bootstrapIfNeeded() async {
         await session.bootstrap()
         await syncStoresWithSession()
@@ -97,7 +108,11 @@ struct ZCodeMobileApp: App {
         }
     }
 
-    /// 连接成功 → 真实 Store；失败/未配置 → mock 回退（离线可用）
+    /// 装配换源（对齐修复，设计稿 §1.2）：
+    /// - .connected → 真实 Store（AppSession.connectToSaved → assembleRemoteStores 装配）
+    /// - .disconnected / .connecting → 保留现有引用不动（断线保留最后快照、连接中不闪空）
+    /// - .demo / .connectFailed → 空实现（connectFailed 已 teardown，引用为 nil）；
+    ///   E2E 演示开关 -ZCodeDemoData 下回退 Mock 三件（仅测试用例允许，正式路径不装配）
     private func syncStoresWithSession() async {
         switch session.mode {
         case .connected:
@@ -108,11 +123,18 @@ struct ZCodeMobileApp: App {
                 taskStore = remoteTask
                 fileStore = remoteFile
             }
-        case .demo, .connectFailed, .disconnected, .connecting:
-            // 回退演示数据（mock 常驻内存，行为与既有验收一致）
-            conversationStore = MockConversationStore()
-            taskStore = MockTaskStore()
-            fileStore = MockFileStore()
+        case .connecting, .disconnected:
+            break
+        case .demo, .connectFailed:
+            if AppSession.isDemoDataEnabled {
+                conversationStore = MockConversationStore()
+                taskStore = MockTaskStore()
+                fileStore = MockFileStore()
+            } else {
+                conversationStore = EmptyConversationStore()
+                taskStore = EmptyTaskStore()
+                fileStore = EmptyFileStore()
+            }
         }
     }
 }

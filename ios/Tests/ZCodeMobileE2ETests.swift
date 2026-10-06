@@ -17,7 +17,9 @@ final class ZCodeMobileE2ETests: XCTestCase {
 
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(zh-Hans)"] // 本地化后固定测试语言（中文断言稳定）
+        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配，
+        // AppSession.isDemoDataEnabled；不携带则未连接态为连接引导页/空态）
+        app.launchArguments += ["-ZCodeDemoData", "-AppleLanguages", "(zh-Hans)"] // 本地化后固定测试语言（中文断言稳定）
         app.launch()
         return app
     }
@@ -430,7 +432,8 @@ final class ZCodeMobileE2ETests: XCTestCase {
     /// ① 分区渲染：置顶 + 项目分组头（要求 4：分组键=会话自带工作区字段——mock c1/c6→zcode、
     /// c3→notes、c4→api、c5→zcode-mobile 四组；c2 未携带 workspace 字段 → 归「其它」组不丢弃；
     /// 日期分组已被项目分组取代）；② 行信息层级：标题 + 运行中胶囊（c5）+ 未读徽章（c2=2）；
-    /// ③ 演示态用户卡额度回退演示值（68% · 340/500），连接态替身投影由登录套件 test14 断言。
+    /// ③ H10：演示态额度假值（68% · 340/500）已永久移除——无数据不渲染进度条与百分比、
+    ///    明细恒诚实文案；连接态替身投影由登录套件 test14 断言。
     func test08_listGroupHeadersRowHierarchyAndDemoQuota() throws {
         let app = launch()
 
@@ -462,20 +465,19 @@ final class ZCodeMobileE2ETests: XCTestCase {
         XCTAssertTrue(c5.waitForExistence(timeout: 6), "运行中会话行（c5）应显示")
         XCTAssertTrue(c5.staticTexts["运行中"].exists, "运行中会话行应带「运行中」胶囊")
         let c2 = element(app, "04-row-c2")
-        XCTAssertTrue(c2.waitForExistence(timeout: 6), "未读会话行（c2）应显示")
+        // c2 排在任务组内 c5 之后，揭示组头时可能刚好停在视口下缘外——继续滚动揭示
+        XCTAssertTrue(scrollReveal(app, "04-row-c2"), "未读会话行（c2）应显示（任务组滚动揭示）")
         XCTAssertTrue(c2.staticTexts["2"].waitForExistence(timeout: 4),
                       "未读徽章应显示计数 2（mock unreadCount=2）")
 
-        // 演示态用户卡额度回退演示值（68% · 340/500 · 9 月 2 日重置）。
-        // 额度百分比与明细是卡内独立 Text（容器聚合 label 不含它们，同登录套件 test14 口径），
-        // 以文本内容全局观测（主界面其余 Tab 无「68%」/「340 条已使用」文案，无歧义）。
+        // H10：演示态额度假值已移除——无真实数据时进度条与百分比整块不渲染，
+        // 明细恒诚实文案「额度未获取 · 连接后自动刷新」（付费承诺性假信息不得呈现）。
         element(app, "12-tab-me").tap()
         XCTAssertTrue(element(app, "12-usercard").waitForExistence(timeout: 8), "设置页应显示用户卡")
-        XCTAssertTrue(app.staticTexts
-            .containing(NSPredicate(format: "label CONTAINS %@", "68%")).firstMatch
-            .waitForExistence(timeout: 6), "演示额度百分比应回退演示值 68%")
-        XCTAssertTrue(app.staticTexts
-            .containing(NSPredicate(format: "label CONTAINS %@", "340 条已使用")).firstMatch
-            .waitForExistence(timeout: 4), "演示额度明细应显示「本月 500 条中的 340 条已使用」演示值")
+        XCTAssertFalse(app.staticTexts
+            .containing(NSPredicate(format: "label CONTAINS %@", "68%")).firstMatch.exists,
+                       "无额度数据时不得渲染演示百分比 68%")
+        XCTAssertTrue(app.staticTexts["额度未获取 · 连接后自动刷新"].waitForExistence(timeout: 4),
+                      "额度明细应为诚实文案「额度未获取 · 连接后自动刷新」")
     }
 }

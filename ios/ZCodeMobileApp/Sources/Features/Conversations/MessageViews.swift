@@ -6,14 +6,31 @@ struct MessageView: View {
     let message: ChatMessage
     /// 所属会话 ID（attachmentReadV4 的 sessionId 入参；message.id 是行合成 id，不能冒充）
     var sessionID: String = ""
+    /// P1-3 反馈回显（viewModel.assistantFeedback[id]；nil = 未反馈）
+    var feedbackState: Bool? = nil
+    /// 消息在流内序号（第 N 条；编辑重发确认文案用，0 = 未知走通用文案）
+    var ordinal: Int = 0
     var onQuickReply: (String) -> Void
     var onRetryToolCall: (ToolCall, Int) -> Void = { _, _ in }
+    /// P1-3 助手反馈点按（value：true=赞 / false=踩 / nil=取消；返回失败文案）。
+    /// nil 回调（演示态/未接线）= 反馈行不渲染——命令不可达不渲染死入口
+    var onFeedback: ((Bool?) async -> String?)? = nil
+    /// P1-3 编辑重发下发（新文本；返回失败文案）。nil 回调 = 长按菜单无「编辑重发」项
+    var onEditResend: ((String) async -> String?)? = nil
 
     /// 消息行 rowId（id 形如 "row-<n>"，G-015 retryTurn 游标之一）
     private var rowId: Int? {
         guard message.id.hasPrefix("row-") else { return nil }
         return Int(message.id.dropFirst(4))
     }
+
+    /// 编辑重发门槛（retryTurn「游标缺失不渲染入口」同纪律）：回调接线（连接态）
+    /// + 行合成消息（rowId 可解析）+ 行元数据游标在场
+    private var canEditResend: Bool {
+        onEditResend != nil && rowId != nil && message.entityId != nil
+    }
+
+    @State private var showEditResend = false
 
     var body: some View {
         switch message.role {
@@ -27,6 +44,34 @@ struct MessageView: View {
                         rowAlignment: .trailing)
                 }
                 UserBubble(text: message.text)
+                    // P1-3 长按菜单（全 App contextMenu 先例 ConversationListView）：
+                    // 「编辑重发」仅连接态且行游标在场才出现；「复制文本」恒有
+                    .contextMenu {
+                        if canEditResend {
+                            Button {
+                                showEditResend = true
+                            } label: {
+                                Label(String(localized: "编辑重发"), systemImage: "pencil")
+                            }
+                            .accessibilityIdentifier("05-msg-act-edit-resend")
+                        }
+                        Button {
+                            UIPasteboard.general.string = message.text
+                        } label: {
+                            Label(String(localized: "复制文本"), systemImage: "doc.on.doc")
+                        }
+                        .accessibilityIdentifier("05-msg-act-copy")
+                    }
+            }
+            .sheet(isPresented: $showEditResend) {
+                EditResendSheet(
+                    ordinal: ordinal,
+                    originalText: message.text,
+                    onResend: { newText in
+                        await onEditResend?(newText)
+                            ?? String(localized: "命令未送达（连接中断或不在连接态）")
+                    },
+                    onCancel: { showEditResend = false })
             }
         case .agent:
             VStack(alignment: .leading, spacing: T.sp2) {
@@ -59,7 +104,223 @@ struct MessageView: View {
                 if let question = message.question {
                     QuestionCardView(question: question, onReply: onQuickReply)
                 }
+                // P1-3 反馈行（设计稿 §3.1 门槛：仅助手正文行——reasoning/subagent/
+                // artifact/state-todos 等合成消息 rowKind ≠ assistantText 天然排除；
+                // 游标缺失/非连接态不渲染；流式首帧行空文本不渲染，文本抵达随重建出现）
+                if let onFeedback, message.rowKind == "assistantText",
+                   rowId != nil, message.entityId != nil, !message.text.isEmpty {
+                    MessageFeedbackRow(state: feedbackState) { value in
+                        await onFeedback(value)
+                    }
+                }
             }
+        }
+    }
+}
+
+/// 助手消息反馈行（P1-3 设计稿 §3.2：低调行，44pt 热区；未反馈 text3、已选中
+/// accentText 高亮；赞/踩互斥——再点已选项 = 取消反馈。失败：行旁一行橙字 3s，
+/// 不弹窗；成功本地记录由 viewModel 写入并回流为 feedbackState）。
+struct MessageFeedbackRow: View {
+    /// 当前反馈态（viewModel 会话级记录；nil = 未反馈）
+    let state: Bool?
+    /// 点按回调；返回失败文案（nil = 成功）
+    let onAction: (Bool?) async -> String?
+
+    @State private var failure: String?
+    @State private var failureClear: Task<Void, Never>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: T.sp1) {
+                feedbackButton(
+                    icon: "hand.thumbsup", selected: state == true, value: true,
+                    identifier: "05-feedback-like")
+                feedbackButton(
+                    icon: "hand.thumbsdown", selected: state == false, value: false,
+                    identifier: "05-feedback-dislike")
+                Spacer(minLength: 0)
+            }
+            .padding(.top, -6) // 44pt 热区外扩后收紧行距（低调行不与正文拉开大空档）
+            if let failure {
+                Text(failure)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.orange)
+                    .accessibilityIdentifier("05-feedback-failure")
+            }
+        }
+    }
+
+    private func feedbackButton(
+        icon: String, selected: Bool, value: Bool, identifier: String) -> some View {
+        Button {
+            let target: Bool? = selected ? nil : value // 再点已选项 = 取消反馈（§3.3）
+            Task {
+                if let result = await onAction(target) {
+                    failureClear?.cancel()
+                    failure = result
+                    failureClear = Task {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        failure = nil
+                    }
+                } else {
+                    failure = nil
+                    UISelectionFeedbackGenerator().selectionChanged()
+                }
+            }
+        } label: {
+            Image(systemName: selected ? icon + ".fill" : icon)
+                .font(.system(size: 14))
+                .foregroundColor(selected ? T.accentText : T.text3)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+        .accessibilityHint(selected ? String(localized: "再点一次取消反馈") : String(localized: "反馈这条回复"))
+    }
+}
+
+/// 编辑重发 sheet（P1-3 设计稿 §3.2：§0.1 sheet 范式——Capsule 把手 + 预填原文 +
+/// rewind 橙色说明行 + 主钮；§3.5 rewind 不可撤销 → 说明行 + destructive 确认弹层
+/// 双重确认。失败：sheet 内错误行不 dismiss，可改后重试或取消）。
+struct EditResendSheet: View {
+    /// 原消息在流内序号（确认文案「第 N 条」；0 = 未知走通用文案）
+    let ordinal: Int
+    let originalText: String
+    /// 下发回调（editUserQuery；返回失败文案，nil = 成功）
+    let onResend: (String) async -> String?
+    let onCancel: () -> Void
+
+    @State private var text: String
+    @State private var sending = false
+    @State private var failure: String?
+    @State private var showConfirm = false
+
+    init(ordinal: Int, originalText: String,
+         onResend: @escaping (String) async -> String?, onCancel: @escaping () -> Void) {
+        self.ordinal = ordinal
+        self.originalText = originalText
+        self.onResend = onResend
+        self.onCancel = onCancel
+        _text = State(initialValue: originalText) // 预填原文全文，不截断（§3.4）
+    }
+
+    private var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
+            HStack {
+                Text("编辑并重发")
+                    .font(T.font(17, .bold))
+                    .foregroundColor(T.text)
+                Spacer()
+                Button {
+                    onCancel()
+                } label: {
+                    Text("取消")
+                        .font(T.font(14, .medium))
+                        .foregroundColor(T.text2)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityIdentifier("05-edit-resend-cancel")
+            }
+            .padding(.horizontal, T.sp4)
+
+            TextField(String(localized: "消息内容"), text: $text, axis: .vertical)
+                .font(T.font(14.5))
+                .foregroundColor(T.text)
+                .lineSpacing(4)
+                .lineLimit(3...10)
+                .padding(T.sp3)
+                .background(T.bgInput)
+                .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                .padding(.horizontal, T.sp4)
+                .padding(.top, T.sp2)
+                .accessibilityIdentifier("05-edit-resend-field")
+
+            // rewind 语义说明行（§3.2：T.orange 11.5pt；与确认弹层构成双重确认）
+            HStack(alignment: .top, spacing: T.sp1) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(T.orange)
+                Text("重发将把对话回退到这条消息之前（rewind），它之后的所有回复会被替换，不可撤销。")
+                    .font(T.font(11.5))
+                    .foregroundColor(T.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, T.sp4)
+            .padding(.top, T.sp2)
+
+            if let failure {
+                Text(failure)
+                    .font(T.font(11.5))
+                    .foregroundColor(T.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, T.sp4)
+                    .padding(.top, T.sp1)
+                    .accessibilityIdentifier("05-edit-resend-failure")
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                showConfirm = true
+            } label: {
+                HStack(spacing: T.sp2) {
+                    if sending {
+                        SpinnerView(color: T.onAccent, size: 14)
+                    }
+                    Text(sending ? String(localized: "重发中…") : String(localized: "编辑并重发"))
+                        .font(T.font(15, .semibold))
+                }
+                .foregroundColor(T.onAccent)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(trimmedText.isEmpty ? T.accent.opacity(0.4) : T.accent)
+                .clipShape(RoundedRectangle(cornerRadius: T.rM))
+            }
+            .disabled(sending || trimmedText.isEmpty)
+            .padding(.horizontal, T.sp4)
+            .padding(.vertical, T.sp3)
+            .accessibilityIdentifier("05-act-edit-resend")
+        }
+        .background(T.bgElevated)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+        .interactiveDismissDisabled(sending) // 重发中防误滑关闭
+        .confirmationDialog(
+            String(localized: "确认重发并回退对话？"),
+            isPresented: $showConfirm, titleVisibility: .visible) {
+            Button(role: .destructive) {
+                Task { await resend() }
+            } label: {
+                Text("重发")
+            }
+            .accessibilityIdentifier("05-act-edit-resend-confirm")
+            Button(String(localized: "取消"), role: .cancel) {}
+        } message: {
+            Text(confirmMessage)
+        }
+    }
+
+    private var confirmMessage: String {
+        ordinal > 0
+            ? String(localized: "将回退到第 \(ordinal) 条消息之前，之后的回复会被替换。")
+            : String(localized: "将回退到这条消息之前，之后的回复会被替换。")
+    }
+
+    private func resend() async {
+        sending = true
+        failure = nil
+        let result = await onResend(text)
+        sending = false
+        if let result {
+            failure = result // sheet 内错误行；可改后重试或取消（§3.4）
+        } else {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            onCancel() // 成功：dismiss；消息流由桌面 rows 键级重建自动刷新（乐观不做）
         }
     }
 }

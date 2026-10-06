@@ -547,6 +547,8 @@ struct CommitGraphPage: View {
     @State private var comparisonText: String?
     @State private var isLoading = true
     @State private var failed = false
+    /// getCommitGraph hasMore：超出 maxCount(50) 的更早提交在桌面端查看
+    @State private var hasMore = false
 
     var body: some View {
         Group {
@@ -600,6 +602,14 @@ struct CommitGraphPage: View {
                             .accessibilityElement(children: .contain)
                             .accessibilityIdentifier("08-commit-\(commit.id)")
                         }
+                        if hasMore {
+                            Text(String(localized: "仅显示最近 50 条提交，更早的请在桌面端查看"))
+                                .font(T.font(11))
+                                .foregroundColor(T.text3)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, T.sp2)
+                                .accessibilityIdentifier("08-commit-more-notice")
+                        }
                     }
                     .padding(T.sp4)
                 }
@@ -626,18 +636,27 @@ struct CommitGraphPage: View {
         if let workspacePath = connection.workspace?.path {
             builder.set("workspacePath", workspacePath)
         }
-        // 提交链（getCommitGraph）：宽容取 commits[]/graph[]/[]
+        // 提交链（getCommitGraph）：web 恒带 {maxCount:50, skip:0}（bundle 取证 hW=50，
+        // 加载更多按 skip=已加载数翻页——移动端单页 50 条 + hasMore 提示）；
+        // 条目宽容取 commits[]/graph[]/[]，时间键 authoredAtMs（web 读法，兼容保留
+        // 旧 timestamp|authorDate 键）
+        var graphBuilder = builder
+        graphBuilder.set("maxCount", 50)
+        graphBuilder.set("skip", 0)
         if let result = try? await connection.call(
-            "git", "getCommitGraph", .json(.object(builder.fields))) {
+            "git", "getCommitGraph", .json(.object(graphBuilder.fields))) {
             let items = result.jsonValue?["commits"]?.arrayValue
                 ?? result.jsonValue?["graph"]?.arrayValue
                 ?? result.jsonValue?.arrayValue
                 ?? []
+            hasMore = result.jsonValue?["hasMore"]?.boolValue ?? false
             commits = items.compactMap { item in
                 guard let d = item.objectValue,
                       let hash = d["hash"]?.stringValue ?? d["id"]?.stringValue
                           ?? d["oid"]?.stringValue else { return nil }
-                let when = (d["timestamp"]?.intValue ?? d["authorDate"]?.intValue).map {
+                let ms = d["authoredAtMs"]?.intValue ?? d["timestamp"]?.intValue
+                    ?? d["authorDate"]?.intValue
+                let when = ms.map {
                     Self.relative.localizedString(
                         for: Date(timeIntervalSince1970: Double($0) / 1000), relativeTo: Date())
                 } ?? ""
@@ -652,17 +671,22 @@ struct CommitGraphPage: View {
                     when: when)
             }
         }
-        // 分支对比（getBranchComparison）：宽容呈现 ahead/behind 或对比摘要
+        // 分支对比（getBranchComparison）：web mock 形态 {baseRef, headRef,
+        // comparisonLabel, changes}（bundle 取证；changes 为结构化节，移动端不展开）。
+        // 宽容保留 ahead/behind/base/summary 旧键
         if let result = try? await connection.call(
             "git", "getBranchComparison", .json(.object(builder.fields))) {
             if let dict = result.jsonValue?.objectValue {
                 let ahead = dict["ahead"]?.intValue ?? dict["aheadCount"]?.intValue
                 let behind = dict["behind"]?.intValue ?? dict["behindCount"]?.intValue
                 if ahead != nil || behind != nil {
-                    let base = dict["base"]?.stringValue ?? dict["baseBranch"]?.stringValue ?? ""
+                    let base = dict["baseRef"]?.stringValue ?? dict["base"]?.stringValue
+                        ?? dict["baseBranch"]?.stringValue ?? ""
                     comparisonText = String(
                         format: String(localized: "对比 %@ · 领先 %lld / 落后 %lld"),
                         base, ahead ?? 0, behind ?? 0)
+                } else if let label = dict["comparisonLabel"]?.stringValue, !label.isEmpty {
+                    comparisonText = label
                 } else if let summary = dict["summary"]?.stringValue {
                     comparisonText = summary
                 }

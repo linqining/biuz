@@ -10,7 +10,8 @@ final class LanguageE2ETests: XCTestCase {
 
     private func launch(language: String, arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(\(language))", "-AppleLocale", language == "en" ? "en_US" : "zh_CN"] + arguments
+        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）
+        app.launchArguments = ["-ZCodeDemoData", "-AppleLanguages", "(\(language))", "-AppleLocale", language == "en" ? "en_US" : "zh_CN"] + arguments
         app.launch()
         return app
     }
@@ -25,8 +26,9 @@ final class LanguageE2ETests: XCTestCase {
         XCTAssertTrue(element(app, "04-row-c1").waitForExistence(timeout: 10), "zh 态应进入会话列表")
         element(app, "12-tab-me").tap()
         XCTAssertTrue(element(app, "12-usercard").waitForExistence(timeout: 6), "设置页用户卡应出现")
-        // 演示态用户卡回退演示名（G-020：非硬编码——演示名仍为「Zai 开发者」，经 xcstrings 查表）
-        XCTAssertTrue(app.staticTexts["Zai 开发者"].waitForExistence(timeout: 4), "zh 态演示名应为中文演示名")
+        // H10：用户卡兜底名「Zai 开发者」演示假名已移除——兜底改「未登录」（经 xcstrings 查表，
+        // 仍可作为 zh 态本地化断言锚点）
+        XCTAssertTrue(app.staticTexts["未登录"].waitForExistence(timeout: 4), "zh 态用户卡兜底名应为中文「未登录」")
     }
 
     /// en 态：Tab/设置/用户卡/连接页/登录页关键文案为英文，无中文残留。
@@ -37,13 +39,14 @@ final class LanguageE2ETests: XCTestCase {
         XCTAssertTrue(element(app, "04-row-c1").waitForExistence(timeout: 10), "en 态应进入会话列表")
         element(app, "12-tab-me").tap()
         XCTAssertTrue(element(app, "12-usercard").waitForExistence(timeout: 6), "设置页用户卡应出现")
-        // 关键断言①（收紧：两条独立断言，OR 不再放水）：演示名英文在场 + 中文演示名不在
-        let demoName = app.staticTexts["Zai Developer"]
-        let zhName = app.staticTexts["Zai 开发者"]
-        XCTAssertTrue(demoName.waitForExistence(timeout: 4),
-                      "en 态用户卡应为英文演示名（Zai Developer）")
+        // 关键断言①（收紧：两条独立断言，OR 不再放水）：兜底名英文在场 + 中文兜底名不在
+        //（H10：「Zai 开发者/Zai Developer」演示假名已移除，兜底改「未登录/Signed out」）
+        let fallbackName = app.staticTexts["Signed out"]
+        let zhName = app.staticTexts["未登录"]
+        XCTAssertTrue(fallbackName.waitForExistence(timeout: 4),
+                      "en 态用户卡兜底名应为英文（Signed out）")
         XCTAssertFalse(zhName.exists,
-                      "en 态不得残留中文演示名「Zai 开发者」")
+                      "en 态不得残留中文兜底名「未登录」")
         // 关键断言②：设置行标题英文（zh 源键 en 列：设备与配对→Devices & pairing、语言→Language）
         XCTAssertTrue(app.staticTexts["Devices & pairing"].waitForExistence(timeout: 4),
                       "en 态设置页「设备与配对」行应显示英文标题")

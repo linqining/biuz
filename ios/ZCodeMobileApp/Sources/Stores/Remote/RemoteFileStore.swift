@@ -5,7 +5,8 @@ import Foundation
 /// 真实实现：FileStore 协议按 mappingToApp 第 5 条落地。
 /// - fileTree() ← file.readdir 递归（深度限制，跳过隐藏目录）+ file-watcher 失效
 /// - content(of:) ← file.readTextFile（offset/length 有界读，首屏 256KiB）
-/// - diffFiles() ← git.refresh 前置 + git.getChanges（unstaged/staged）+ git.getDiff 逐文件 patch
+/// - diffFiles() ← git.refresh 前置 + git.getChanges（unstaged/staged）+ git.getDiff
+///   逐文件 patch（恒带 sourceId，web 同参；回执结构化 {availability, patch?, before/after}）
 /// - sessionDiffFiles() ← conversationFileChangesV4（会话维度变更，hunk 结构自解析）
 /// 已知边界（gaps）：服务端无「逐文件批准」接口——setFileDecision/approveAll 仅本地 UI 态。
 actor RemoteFileStore: @preconcurrency FileStore {
@@ -307,7 +308,7 @@ actor RemoteFileStore: @preconcurrency FileStore {
                 var lines: [DiffLine] = []
                 var added = dict["added"]?.intValue ?? 0
                 var removed = dict["removed"]?.intValue ?? 0
-                if let patch = await fetchPatch(path: path) {
+                if let patch = await fetchPatch(path: path, sourceId: sourceId) {
                     lines = Self.parsePatch(patch)
                     added = max(added, lines.filter { $0.kind == .add }.count)
                     removed = max(removed, lines.filter { $0.kind == .del }.count)
@@ -407,18 +408,44 @@ actor RemoteFileStore: @preconcurrency FileStore {
         }
     }
 
-    private func fetchPatch(path: String) async -> String? {
+    /// git.getDiff：web 恒带 sourceId（bundle 取证 `getDiff({workspacePath, path, sourceId})`，
+    /// GitPane 按页签传 unstaged|staged）——staged 页签漏传会被桌面按默认源解析，patch 口径错位。
+    private func fetchPatch(path: String, sourceId: String) async -> String? {
         guard let connection else { return nil }
         let arg = RPCValue.jsonObject { builder in
             builder.set("workspacePath", workspace.path)
             builder.set("path", path)
+            builder.set("sourceId", sourceId)
         }
         do {
             let result = try await connection.call("git", "getDiff", arg)
-            return result.jsonValue?.objectValue?["patch"]?.stringValue
+            guard let dict = result.jsonValue?.objectValue else {
+                // 宽容：旧桌面顶层字符串形态
+                return result.jsonValue?.stringValue
+            }
+            // web 结构化回执 {availability: "patch"|"unavailable", patch?, beforeContent?, afterContent?}
+            if let patch = dict["patch"]?.stringValue, !patch.isEmpty { return patch }
+            guard dict["availability"]?.stringValue != "unavailable" else { return nil }
+            // patch 缺席但前后全文在场（web 形态）：合成整文件替换 diff（行内容为服务端原文）
+            return Self.synthesizePatch(
+                beforeContent: dict["beforeContent"]?.stringValue,
+                afterContent: dict["afterContent"]?.stringValue)
         } catch {
             return nil
         }
+    }
+
+    /// before/after 全文 → 伪 unified diff（整文件替换）。仅用于 getDiff 结构化回执中
+    /// patch 键缺席的宽容回退：行内容均来自服务端回执，不虚构任何行；缺少最小化
+    /// hunk 切分（web 端此形态走前后双栏 diff 视图，移动端无等价组件，降级整读展示）。
+    static func synthesizePatch(beforeContent: String?, afterContent: String?) -> String? {
+        guard beforeContent != nil || afterContent != nil else { return nil }
+        let beforeLines = (beforeContent ?? "").components(separatedBy: "\n")
+        let afterLines = (afterContent ?? "").components(separatedBy: "\n")
+        var out = ["@@ -1,\(beforeLines.count) +1,\(afterLines.count) @@"]
+        out += beforeLines.map { "-\($0)" }
+        out += afterLines.map { "+\($0)" }
+        return out.joined(separator: "\n")
     }
 
     /// unified diff 文本 → DiffLine（kind 按行首 +/-/@@ 前缀映射）
@@ -534,6 +561,213 @@ actor RemoteFileStore: @preconcurrency FileStore {
         guard UserDefaults.standard.string(forKey: "diag.wf.mode") != nil else { return }
         UserDefaults.standard.set(
             "path=\(path) approved=\(String(describing: approved))", forKey: "diag.git.decision")
+        UserDefaults.standard.synchronize()
+    }
+
+    // MARK: 一站式提交（P3-8：git 写族 UI 化，gate 2026-10-06 与 web 对齐全放行）
+    // 协议事实：git.generateCommitMessage / git.commit 命令名来自上游 gitService
+    // 18 方法清单（立项报告 §8.1:578，git/git.ts:33-52）；参数与回执零记录【宽容】。
+
+    /// git.generateCommitMessage：参数按 web 形状（bundle 取证 GitActionMenu——
+    /// `generateCommitMessage({workspacePath, workspaceIdentity?, locale, includeUnstaged,
+    /// currentSessionFilePaths?, conversationContext?})`，选中集=includeUnstaged? staged+
+    /// unstaged : staged）。移动端从已暂存清单进入 → includeUnstaged 恒 false、所选文件
+    /// 经 currentSessionFilePaths 携带（协议形参 paths 仍为已暂存文件，仅载荷键名对齐）。
+    /// 回执 {providerId, model, message}（web 读法）；message|commitMessage|text 宽容兜底，
+    /// 空串视为失败。幂等读级：首败 1.2s 退避重试一次（中继瞬断纪律，AGENTS §5.8）。
+    func generateCommitMessage(paths: [String]) async -> String? {
+        guard let connection, !paths.isEmpty else { return nil }
+        let arg = RPCValue.jsonObject { builder in
+            builder.set("workspacePath", workspace.path)
+            builder.set("workspaceIdentity", workspace.workspaceIdentity)
+            builder.set("locale", Locale.current.identifier)
+            builder.set("includeUnstaged", false)
+            builder.set("currentSessionFilePaths", .array(paths.map { .string($0) }))
+        }
+        for attempt in 0..<2 {
+            do {
+                let result = try await connection.call("git", "generateCommitMessage", arg)
+                guard let dict = result.jsonValue?.objectValue else {
+                    // 顶层字符串形态兜底
+                    let text = result.jsonValue?.stringValue ?? result.stringValue ?? ""
+                    return text.isEmpty ? nil : text
+                }
+                let text = dict["message"]?.stringValue ?? dict["commitMessage"]?.stringValue
+                    ?? dict["text"]?.stringValue ?? ""
+                return text.isEmpty ? nil : text
+            } catch {
+                guard attempt == 0 else {
+                    gitWriteDiag(command: "generateCommitMessage", detail: "files=\(paths.count)", error: error)
+                    return nil
+                }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+            }
+        }
+        return nil
+    }
+
+    // MARK: 提交身份预检（git.getIdentity：email 配置缺失是桌面常见提交失败根因，
+    // 手机端预检省一次来回）
+
+    /// git.getIdentity {workspacePath}（web GitBranchSwitcher 与 getChanges('staged')
+    /// Promise.allSettled 并发同面，bundle 取证【移植·bundle 逆向】；web 侧回执
+    /// fulfilled→identity 直入提交上下文、rejected→null 禁用提交按钮并提示
+    /// identityMissing）。回执字段名未在 web 消费点出现——name|userName /
+    /// email|userEmail 宽容链【未取证】；对象在场但字段空 = 身份未配置（isComplete
+    /// 判定），调用方如实警示。幂等读级：首败 1.2s 退避重试一次（AGENTS §5.8）。
+    func gitIdentity() async -> GitIdentityInfo? {
+        guard let connection else { return nil }
+        let arg = RPCValue.jsonObject { builder in
+            builder.set("workspacePath", workspace.path)
+        }
+        for attempt in 0..<2 {
+            do {
+                let result = try await connection.call("git", "getIdentity", arg)
+                guard let dict = result.jsonValue?.objectValue else { return nil }
+                return GitIdentityInfo(
+                    name: dict["name"]?.stringValue ?? dict["userName"]?.stringValue,
+                    email: dict["email"]?.stringValue ?? dict["userEmail"]?.stringValue)
+            } catch {
+                guard attempt == 0 else {
+                    gitWriteDiag(command: "getIdentity", detail: "read", error: error)
+                    return nil
+                }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+            }
+        }
+        return nil
+    }
+
+    /// git.commit {workspacePath, message}：提交已暂存变更（提交集由桌面端 git
+    /// index 定义——stagePaths 的结果；不传 paths，未取证参数不臆造）。
+    /// 回执宽容：commitHash|hash|oid|id → 短 hash（prefix 8）；无 hash 字段视为
+    /// 成功返回空串。写命令不自动重试（防双重提交）。
+    func commit(message: String) async -> String? {
+        guard let connection else { return nil }
+        var builder = JSONObjectBuilder()
+        builder.set("workspacePath", workspace.path)
+        builder.set("message", message)
+        do {
+            let result = try await connection.call("git", "commit", .json(.object(builder.fields)))
+            guard let dict = result.jsonValue?.objectValue else { return "" }
+            let hash = dict["commitHash"]?.stringValue ?? dict["hash"]?.stringValue
+                ?? dict["oid"]?.stringValue ?? dict["id"]?.stringValue ?? ""
+            return String(hash.prefix(8))
+        } catch {
+            gitWriteDiag(command: "commit", detail: "msg=\(message.prefix(40))", error: error)
+            return nil
+        }
+    }
+
+    // MARK: 检查点（P3-11：git-checkpoint 频道，gate 已按设计稿 §11A 前置放行
+    // create/restore；命令名来自上游 gitCheckpointService 四方法清单——立项报告
+    // §8.1:579，git/gitCheckpoint.ts:14-17。参数与回执零记录【宽容】）
+    // ⚠️ HIDDEN(对齐修复 H3)：web bundle 三方法 0 命中且协议文档零实证条目（审查报告 §五），
+    // UI 入口已在 FileTreeView 注释隐藏；本节发送方法保留编译，真机取证立条后恢复入口。
+
+    /// git-checkpoint.diffCheckpoints {workspacePath}（读面）：检查点清单，按时间倒序。
+    /// 回执宽容：checkpoints[]|items[]|顶层数组。幂等读级：首败 1.2s 退避重试一次。
+    func checkpoints() async -> [CheckpointInfo]? {
+        guard let connection else { return nil }
+        var builder = JSONObjectBuilder()
+        builder.set("workspacePath", workspace.path)
+        let arg = RPCValue.json(.object(builder.fields))
+        for attempt in 0..<2 {
+            do {
+                let result = try await connection.call("git-checkpoint", "diffCheckpoints", arg)
+                let items = result.jsonValue?["checkpoints"]?.arrayValue
+                    ?? result.jsonValue?["items"]?.arrayValue
+                    ?? result.jsonValue?.arrayValue
+                    ?? []
+                let list = items.compactMap(Self.parseCheckpoint)
+                    .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+                return list
+            } catch {
+                guard attempt == 0 else {
+                    gitWriteDiag(command: "diffCheckpoints", detail: "read", error: error)
+                    return nil
+                }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+            }
+        }
+        return nil
+    }
+
+    /// git-checkpoint.createCheckpoint {workspacePath, message?}：创建检查点
+    /// （桌面代执行快照写；note 缺省时键省略）。写命令不自动重试。
+    func createCheckpoint(note: String?) async -> Bool {
+        guard let connection else { return false }
+        var builder = JSONObjectBuilder()
+        builder.set("workspacePath", workspace.path)
+        builder.set("message", note)
+        do {
+            _ = try await connection.call(
+                "git-checkpoint", "createCheckpoint", .json(.object(builder.fields)))
+            return true
+        } catch {
+            gitWriteDiag(command: "createCheckpoint", detail: "note=\(note.map { String($0.prefix(40)) } ?? "")", error: error)
+            return false
+        }
+    }
+
+    /// git-checkpoint.restoreBetweenCheckpoints：恢复工作区到检查点（破坏性——
+    /// UI 侧硬要求 destructive 确认弹层后才可达此处）。参数未取证，按最可能单参
+    /// 形态携 checkpointId（别名形态见 docEntries【宽容】注）。成功后失效文件树
+    /// 缓存（工作区文件已回退）。
+    func restoreCheckpoint(_ checkpoint: CheckpointInfo) async -> Bool {
+        guard let connection else { return false }
+        var builder = JSONObjectBuilder()
+        builder.set("workspacePath", workspace.path)
+        builder.set("checkpointId", checkpoint.id)
+        do {
+            _ = try await connection.call(
+                "git-checkpoint", "restoreBetweenCheckpoints", .json(.object(builder.fields)))
+            await invalidateTree()
+            return true
+        } catch {
+            gitWriteDiag(command: "restoreBetweenCheckpoints", detail: "id=\(checkpoint.id)", error: error)
+            return false
+        }
+    }
+
+    /// 检查点行宽容解析：id ← id|checkpointId|hash|revision；时间 ← timestamp|
+    /// createdAt|time|date（毫秒优先，<1e11 视为秒级兜底；ISO 字符串次之）；
+    /// 说明 ← message|label|description|note。id 与时间全缺的行丢弃。
+    static func parseCheckpoint(_ json: JSONValue) -> CheckpointInfo? {
+        guard let dict = json.objectValue else { return nil }
+        let id = dict["id"]?.stringValue ?? dict["checkpointId"]?.stringValue
+            ?? dict["hash"]?.stringValue ?? dict["revision"]?.stringValue
+        let date = parseCheckpointDate(dict)
+        guard id != nil || date != nil else { return nil }
+        let label = dict["message"]?.stringValue ?? dict["label"]?.stringValue
+            ?? dict["description"]?.stringValue ?? dict["note"]?.stringValue
+        return CheckpointInfo(
+            id: id ?? "", date: date, label: label)
+    }
+
+    /// 时间字段双形态解析（lastActivityAt 同口径：真实桌面推毫秒，ISO 字符串兜底）
+    private static func parseCheckpointDate(_ dict: [String: JSONValue]) -> Date? {
+        for key in ["timestamp", "createdAt", "time", "date"] {
+            let ms = dict[key]?.intValue ?? 0
+            if ms > 0 {
+                return Date(timeIntervalSince1970: ms > 100_000_000_000 ? Double(ms) / 1000 : Double(ms))
+            }
+            if let iso = dict[key]?.stringValue {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = formatter.date(from: iso) { return date }
+                if let date = ISO8601DateFormatter().date(from: iso) { return date }
+            }
+        }
+        return nil
+    }
+
+    /// git/git-checkpoint 命令失败取证（diag.wf.mode 存在才写；通道沿用 diag.git.write）
+    private func gitWriteDiag(command: String, detail: String, error: Error) {
+        guard UserDefaults.standard.string(forKey: "diag.wf.mode") != nil else { return }
+        UserDefaults.standard.set(
+            "git.\(command) \(detail) err=\(String(describing: error).prefix(300))",
+            forKey: "diag.git.write")
         UserDefaults.standard.synchronize()
     }
 }

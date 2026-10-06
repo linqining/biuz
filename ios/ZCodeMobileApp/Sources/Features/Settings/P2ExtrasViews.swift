@@ -77,8 +77,19 @@ struct UsageStatsView: View {
             .accessibilityIdentifier("12-usage-confirm-use")
             Button("取消", role: .cancel) { pendingResetType = nil }
         } message: {
-            Text(String(localized: "将核销一张重置卡并重置对应窗口的额度，核销后不可撤销。剩余：5 小时卡 ×\(session.codingPlanUsage?.resetCards?.fiveHourCount ?? 0) · 周卡 ×\(session.codingPlanUsage?.resetCards?.weekCount ?? 0)"))
+            Text(resetConfirmMessage)
         }
+    }
+
+    /// 重置二次确认文案（用户硬要求 2026-10-06：写明将重置哪个额度窗口与影响，严禁
+    /// 一点即发；web 弹层同按 resetType 区分 dialog.fiveHour/dialog.week，bundle 实证）
+    private var resetConfirmMessage: String {
+        let windowName = pendingResetType == .week
+            ? String(localized: "每周")
+            : String(localized: "5 小时")
+        let fiveHour = session.codingPlanUsage?.resetCards?.fiveHourCount ?? 0
+        let week = session.codingPlanUsage?.resetCards?.weekCount ?? 0
+        return String(localized: "将核销一张\(windowName)重置卡，并重置\(windowName)窗口的额度。当前剩余：5 小时卡 ×\(fiveHour) · 周卡 ×\(week)。核销后不可撤销。")
     }
 
     private var list: some View {
@@ -121,21 +132,42 @@ struct UsageStatsView: View {
                         .font(T.mono(10.5))
                         .foregroundColor(T.text3)
                 }
-                // 重置卡摘要（可领取明细见下方重置机会卡）
+                // 重置卡摘要（可领取明细见下方重置机会卡）。5h/周卡过期时间分开展示
+                // （用户裁决：两类卡作用窗口不同，不合并取最早）
                 if let cards = usage.resetCards,
                    cards.fiveHourCount > 0 || cards.weekCount > 0 {
-                    HStack(spacing: T.sp2) {
-                        Image(systemName: "giftcard")
-                            .font(.system(size: 11))
-                            .foregroundColor(T.orange)
-                        Text(String(localized: "重置卡：5 小时 ×\(cards.fiveHourCount) · 每周 ×\(cards.weekCount)"))
-                            .font(T.font(11))
-                            .foregroundColor(T.text2)
-                        Spacer(minLength: 0)
-                        if let earliest = cards.earliestExpireText {
-                            Text(String(localized: "\(earliest) 前有效"))
-                                .font(T.font(10.5))
-                                .foregroundColor(T.text3)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if cards.fiveHourCount > 0 {
+                            HStack(spacing: T.sp2) {
+                                Image(systemName: "giftcard")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(T.orange)
+                                Text(String(localized: "重置卡：5 小时 ×\(cards.fiveHourCount)"))
+                                    .font(T.font(11))
+                                    .foregroundColor(T.text2)
+                                Spacer(minLength: 0)
+                                if let earliest = cards.fiveHourEarliestText {
+                                    Text(String(localized: "\(earliest) 前有效"))
+                                        .font(T.font(10.5))
+                                        .foregroundColor(T.text3)
+                                }
+                            }
+                        }
+                        if cards.weekCount > 0 {
+                            HStack(spacing: T.sp2) {
+                                Image(systemName: "giftcard")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(T.orange)
+                                Text(String(localized: "重置卡：每周 ×\(cards.weekCount)"))
+                                    .font(T.font(11))
+                                    .foregroundColor(T.text2)
+                                Spacer(minLength: 0)
+                                if let earliest = cards.weekEarliestText {
+                                    Text(String(localized: "\(earliest) 前有效"))
+                                        .font(T.font(10.5))
+                                        .foregroundColor(T.text3)
+                                }
+                            }
                         }
                     }
                     .accessibilityIdentifier("12-usage-reset-cards-summary")
@@ -163,6 +195,9 @@ struct UsageStatsView: View {
                     .font(T.font(11.5))
                     .foregroundColor(T.text3)
             }
+            // 当前套餐权益子块（P3-9：getEntitlementSnapshot）——插在三分支之后，
+            // usage 为 nil/旧形态/无窗口三形态下都有渲染位（设计稿 §9.1）
+            entitlementSection
         }
         .card()
         .accessibilityIdentifier("12-usage-plan-card")
@@ -206,6 +241,104 @@ struct UsageStatsView: View {
         }
         .padding(.vertical, 3)
         .accessibilityIdentifier("12-usage-window-\(window.level)")
+    }
+
+    /// 当前套餐权益子块（P3-9：usage-stats.getEntitlementSnapshot，纯展示无交互）。
+    /// 状态矩阵（设计稿 §9.4 + web 口径 2026-10-06）：成功=权益行列表（≤8 行，多则
+    /// 「在桌面端查看全部」尾行）+ 档位头（quota.level，缺席回落首条 productName）+
+    /// 顶层 remaining 透出；未订阅（unavailableReason === "no_plan"）=单行如实空态；
+    /// 空（无在期订阅条目）=子块整体不渲染；失败（投影 nil 且页面已过加载态）=
+    /// 单行诚实提示；演示态/断开=整页已是未连接 EmptyStateView，子块不渲染。
+    /// 加载中由页面级 CenterLoadingView 覆盖（reload 期间整页 loading，无需子块级 Spinner）。
+    @ViewBuilder
+    private var entitlementSection: some View {
+        if let info = session.codingPlanEntitlements, info.noPlan {
+            // web 空态判定（sidebar.usage.plan.noPlan 同位）：未订阅套餐如实呈现
+            HStack(spacing: 4) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 11))
+                Text(String(localized: "当前账号未订阅 Coding Plan 套餐"))
+            }
+            .font(T.font(11))
+            .foregroundColor(T.text3)
+            .accessibilityIdentifier("12-usage-entitlement-no-plan")
+        } else if let info = session.codingPlanEntitlements, !info.entitlements.isEmpty {
+            VStack(alignment: .leading, spacing: T.sp1) {
+                HStack(spacing: T.sp2) {
+                    if let tier = info.tier, !tier.isEmpty {
+                        Text(String(localized: "当前套餐权益 · \(tier)"))
+                    } else {
+                        Text(String(localized: "当前套餐权益"))
+                    }
+                    Spacer(minLength: 0)
+                    // 顶层 remaining（web 仅做在场判定；单位语义未取证，原样透出不加解释）
+                    if let remaining = info.remainingText, !remaining.isEmpty {
+                        Text(String(localized: "剩 \(remaining)"))
+                            .font(T.mono(10.5))
+                            .foregroundColor(T.text3)
+                    }
+                }
+                .font(T.font(11.5, .semibold))
+                .foregroundColor(T.text3)
+                .accessibilityIdentifier("12-usage-entitlement-header")
+                ForEach(info.entitlements.prefix(8)) { item in
+                    entitlementRow(item)
+                }
+                if info.entitlements.count > 8 {
+                    Text(String(localized: "在桌面端查看全部"))
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text3)
+                        .accessibilityIdentifier("12-usage-entitlement-more")
+                }
+            }
+            .padding(T.sp2)
+            .background(T.bgInput)
+            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("12-usage-entitlement-section")
+        } else if session.codingPlanEntitlements == nil {
+            // 读取失败/未取到：单行诚实提示（空回执在上方分支整体不渲染，不到这里）
+            HStack(spacing: 4) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 11))
+                Text(String(localized: "权益信息不可用 · 下拉刷新重试"))
+            }
+            .font(T.font(11))
+            .foregroundColor(T.text3)
+            .accessibilityIdentifier("12-usage-entitlement-unavailable")
+        }
+    }
+
+    /// 权益行：✓ 图标 + 名称（+描述）+ 数值（mono）+「已含」角标（设计稿 §9.2；
+    /// 「已含」为展示文案——服务端 included 类字段未取证，不做未含态区分）
+    private func entitlementRow(_ item: CodingPlanEntitlement) -> some View {
+        HStack(spacing: T.sp2) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(T.accentText)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.name)
+                    .font(T.font(11.5))
+                    .foregroundColor(T.text2)
+                    .lineLimit(1)
+                if let detail = item.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(T.font(10))
+                        .foregroundColor(T.text3)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: T.sp2)
+            if let value = item.value, !value.isEmpty {
+                Text(value)
+                    .font(T.mono(11))
+                    .foregroundColor(T.text2)
+                    .lineLimit(1)
+            }
+            StatusPill(text: String(localized: "已含"), kind: .tag, compact: true)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("12-usage-entitlement-\(item.name)")
     }
 
     /// 重置机会卡（G-042：一键领取，桌面代执行）
@@ -533,17 +666,25 @@ struct UsageStatsView: View {
     }
 
     private func loadResetOpportunity() async {
+        // 参数对齐 AppSession.fetchCodingPlanUsage 同读【实证·§9.10】：preferredProviderId
+        // 必须用注册表完整 id（「zai」短 id 匹配不到 provider → 桌面落 no_bigmodel_api_key，
+        // 旧调用恒败致重置机会卡整体不显示）+ accountAccess web 形状（L-2 同源常量）。
+        // 5h/周两组任一有卡即呈现机会卡（expireAt 取在场组各自首个的最早值——
+        // 此前只看 fiveHour 组，仅有周卡时机会卡漏显示）。
         var builder = JSONObjectBuilder()
-        builder.set("preferredProviderId", "zai")
-        if let result = try? await session.connection.call(
+        builder.set("preferredProviderId", AppSession.codingPlanProviderID)
+        builder.set("accountAccess", AppSession.codingPlanAccountAccess)
+        guard let result = try? await session.connection.call(
             "usage-stats", "getCodingPlanResetStatus", .json(.object(builder.fields))),
-           let dict = result.jsonValue?.objectValue,
-           let first = dict["availableFiveHourResets"]?.arrayValue?.first?.objectValue,
-           let expireAt = first["expireAt"]?.doubleValue, expireAt > 0 {
-            resetOpportunity = ResetOpportunity(expireAt: Date(timeIntervalSince1970: expireAt / 1000))
-        } else {
+            let dict = result.jsonValue?.objectValue else {
             resetOpportunity = nil
+            return
         }
+        let expireAt = ["availableFiveHourResets", "availableWeekResets"]
+            .compactMap { dict[$0]?.arrayValue?.first?.objectValue?["expireAt"]?.doubleValue }
+            .filter { $0 > 0 }
+            .min()
+        resetOpportunity = expireAt.map { ResetOpportunity(expireAt: Date(timeIntervalSince1970: $0 / 1000)) }
     }
 
     static let shortTime: DateFormatter = {
@@ -583,29 +724,30 @@ struct DevicesPage: View {
                     deviceRow(server)
                 }
 
-                // 云端沙盒（无移动端执行通道——如实标注，不显示假在线）
-                HStack(spacing: T.sp3) {
-                    Image(systemName: "cloud")
-                        .font(.system(size: 15))
-                        .foregroundColor(T.text3)
-                        .frame(width: 30)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(String(localized: "云端沙盒"))
-                            .font(T.font(14, .medium))
-                            .foregroundColor(T.text)
-                        Text(String(localized: "执行端规划中 · 暂无移动端接入通道"))
-                            .font(T.font(11))
-                            .foregroundColor(T.text3)
-                    }
-                    Spacer()
-                    Text(String(localized: "未接入"))
-                        .font(T.font(10.5))
-                        .foregroundColor(T.text3)
-                }
-                .padding(T.sp3)
-                .background(T.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: T.rM))
-                .accessibilityIdentifier("12-devices-cloud")
+                // HIDDEN(对齐修复): 设备页「云端沙盒」行隐藏（无移动端执行通道，规划性
+                // 占位行——用户裁决隐藏）· 恢复条件：云端执行通道接入
+                // HStack(spacing: T.sp3) {
+                //     Image(systemName: "cloud")
+                //         .font(.system(size: 15))
+                //         .foregroundColor(T.text3)
+                //         .frame(width: 30)
+                //     VStack(alignment: .leading, spacing: 1) {
+                //         Text(String(localized: "云端沙盒"))
+                //             .font(T.font(14, .medium))
+                //             .foregroundColor(T.text)
+                //         Text(String(localized: "执行端规划中 · 暂无移动端接入通道"))
+                //             .font(T.font(11))
+                //             .foregroundColor(T.text3)
+                //     }
+                //     Spacer()
+                //     Text(String(localized: "未接入"))
+                //         .font(T.font(10.5))
+                //         .foregroundColor(T.text3)
+                // }
+                // .padding(T.sp3)
+                // .background(T.bgCard)
+                // .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                // .accessibilityIdentifier("12-devices-cloud")
 
                 Button {
                     session.requestConnectFlow(editTokenOnly: false)
@@ -794,13 +936,17 @@ struct RemoteCapabilityPlaceholderPage: View {
     }
 }
 
-// MARK: - G-011 桌面能力只读清单页（memory / skills / MCP / plugins）
+// MARK: - G-011 桌面能力清单页（memory / skills / MCP / plugins；余为只读）
 //
 // 连接态调桌面只读方法渲染真实清单（channel=zcode-agent，桌面 zcodeAgent.ts 接口族）：
 // memory→listProjectMemories、skills→getSkillReferenceCatalog、MCP→listMcpServerStatuses
 // （{workspacePath} 界定范围）、plugins→listPlugins。回执宽容解析（回执形态未逐项取证，
 // 服务端不识别/缺键时按占位降级，不臆造数据）；失败/空 → RemoteCapabilityPlaceholderPage
-// 诚实占位；零写入口（安装/卸载/启停等写面维持 ReadOnlyGate 拦截）。
+// 诚实占位。写面：plugins 接卸载 + 市场安装（P3-11/P3-11B：zcode-agent.uninstallPlugin /
+// installPlugin 桌面代执行，gate 已放行，UI 均 confirmationDialog 确认 + 行内结果通知；
+// 市场目录 = zcode-agent.getPluginsOverview 的 availablePlugins/installedPlugins——web
+// 端插件页同源双读合并），updatePlugin 等其余插件写面维持 ReadOnlyGate 拦截，
+// memory/skills/MCP 启停写面仍零写入口。
 
 struct RemoteCapabilityListPage: View {
     enum Capability {
@@ -819,10 +965,34 @@ struct RemoteCapabilityListPage: View {
         let title: String
         let subtitle: String
         let badge: String?
+        // P2-4 启动面（仅 savedWorkflows 工作流行携带）：startSavedWorkflow 命令 id
+        // （条目 id 键缺席时回落 name——条目键组 name|workflowName|id 宽容形态未冻结）
+        // + 行原始条目（启动 sheet 的参数 schema 解析源）
+        var workflowID: String?
+        var workflowEntry: JSONValue?
+        // P3-11 卸载面（仅 plugins 行携带）：uninstallPlugin 的 marketplace（web 实证
+        // 必填；listPlugins 条目缺该键时 performUninstall 经 getPluginsOverview 兜底）
+        var marketplace: String?
+    }
+
+    /// P3-11B 市场目录行（仅 plugins 能力）：zcode-agent.getPluginsOverview 的
+    /// availablePlugins[] 条目（web LSt 合并模型宽容投影——id/name/marketplace/
+    /// listing.description；installed 由 installedPlugins[].id + listPlugins 清单判定，
+    /// 同 web「installedPlugins 命中或清单已在场」口径）
+    struct MarketPlugin: Identifiable {
+        let id: String
+        let name: String
+        let marketplace: String?
+        let summary: String?
+        var installed: Bool
     }
 
     enum LoadPhase: Equatable {
         case loading, loaded, failed
+        /// U-7（审查报告 §六 / 设计稿 H11）：未连接与「已连接但读取失败」两相区分——
+        /// 未连接是引导连接，不是读面失败；此前未连接也渲染「移动端读面尚未接入」
+        /// 占位，用户（和审核员）会误以为功能是死的
+        case notConnected
     }
 
     let capability: Capability
@@ -830,50 +1000,68 @@ struct RemoteCapabilityListPage: View {
     let icon: String
 
     @Environment(AppSession.self) private var session
+    @Environment(AppRouter.self) private var router
     @State private var rows: [Row] = []
     @State private var phase: LoadPhase = .loading
     @State private var reloadToken = 0
+    // P3-11 插件卸载：待确认行 / 卸载中行 / 结果提示（claimNotice 同款行内通知）
+    @State private var pendingUninstall: Row?
+    @State private var uninstallingID: String?
+    @State private var notice: String?
+    @State private var noticeIsError = false
+    // P3-11B 插件市场（getPluginsOverview 读面）：市场目录行 + 读取态；overview 失败
+    // 时页面保留 listPlugins 已装清单（web 同构 list-only 降级），市场区呈失败态
+    @State private var marketPlugins: [MarketPlugin] = []
+    @State private var marketPlaceCount = 0
+    @State private var marketLoading = false
+    @State private var marketError: String?
+    // P3-11B 安装：待确认行 / 安装中行（结果走 notice 行内通知）
+    @State private var pendingInstall: MarketPlugin?
+    @State private var installingID: String?
+    // P2-4 工作流启动：启动 sheet 呈现行 / 已启动 workflowId（badge「运行中」，重拉前）
+    @State private var startTarget: Row?
+    @State private var startedWorkflowIDs: Set<String> = []
 
     var body: some View {
         Group {
             switch phase {
             case .loading:
                 CenterLoadingView(text: "正在读取桌面端数据…")
-            case .loaded where !rows.isEmpty:
+            case .loaded where !rows.isEmpty || !marketPlugins.isEmpty:
                 ScrollView {
                     VStack(spacing: T.sp2) {
+                        if let notice {
+                            Text(notice)
+                                .font(T.font(11.5, .semibold))
+                                .foregroundColor(noticeIsError ? T.red : T.accentText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityIdentifier("12-capability-notice")
+                        }
                         ForEach(rows) { row in
-                            HStack(spacing: T.sp3) {
-                                Image(systemName: row.icon)
-                                    .font(.system(size: 14))
-                                    .foregroundColor(T.accentText)
-                                    .frame(width: 30)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(row.title)
-                                        .font(T.font(14.5))
-                                        .foregroundColor(T.text)
-                                        .lineLimit(1)
-                                    Text(row.subtitle)
-                                        .font(T.font(11.5))
-                                        .foregroundColor(T.text3)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                if let badge = row.badge {
-                                    StatusPill(text: badge, kind: .tag, compact: true)
-                                }
-                            }
-                            .card()
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier("12-capability-row-\(row.id)")
+                            capabilityRow(row)
+                        }
+                        if capability == .plugins {
+                            // P3-11B：市场目录 + 安装闭环（getPluginsOverview 读面 +
+                            // installPlugin 写面；原「市场安装将在后续版本提供」占位移除）
+                            marketSection
                         }
                     }
                     .padding(T.sp4)
                 }
                 .background(T.bg)
                 .refreshable { await load() }
+            case .notConnected:
+                // U-7 两相区分：未连接 → 引导连接（EmptyStateView + 连接 CTA，
+                // UsageStatsView 未连接空态同构）；「已连接但读取失败/空」仍走下方占位
+                EmptyStateView(
+                    icon: icon,
+                    title: String(localized: "未连接桌面端"),
+                    detail: String(localized: "连接后可查看桌面端的\(title)"),
+                    cta: String(localized: "连接桌面端"),
+                    ctaAction: { session.requestConnectFlow(editTokenOnly: false) },
+                    ctaIdentifier: "12-capability-act-connect")
             case .loaded, .failed:
-                // 空清单/读取失败：诚实占位（不给假数据）
+                // 空清单/读取失败（已连接态）：诚实占位（不给假数据）
                 RemoteCapabilityPlaceholderPage(title: title, icon: icon)
             }
         }
@@ -881,6 +1069,487 @@ struct RemoteCapabilityListPage: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: reloadToken) { await load() }
+        // P3-11 卸载确认（硬要求）：其工具面从桌面端 Agent 移除，可重装恢复
+        .confirmationDialog(
+            String(localized: "卸载插件 \(pendingUninstall?.title ?? "")？"),
+            isPresented: Binding(
+                get: { pendingUninstall != nil },
+                set: { if !$0 { pendingUninstall = nil } }),
+            titleVisibility: .visible) {
+            Button(String(localized: "卸载"), role: .destructive) {
+                if let row = pendingUninstall {
+                    performUninstall(row)
+                }
+                pendingUninstall = nil
+            }
+            .accessibilityIdentifier("12-capability-confirm-uninstall")
+            Button("取消", role: .cancel) { pendingUninstall = nil }
+        } message: {
+            Text(String(localized: "其提供的工具将从桌面端 Agent 移除；可重新安装恢复。"))
+        }
+        // HIDDEN(对齐修复): startSavedWorkflow 不在 web 枚举、payload 零取证 · 恢复条件：桌面真机探针 accepted
+        // （P2-4 启动工作流 sheet 挂载整体隐藏，设计稿 H2；StartWorkflowSheet/performStart/interpretStartAck 保留编译）
+        /* HIDDEN(对齐修复) 同上
+        // P2-4 启动工作流 sheet（sheet 本身即确认层；下发经 store 统一信封出口）
+        .sheet(item: $startTarget) { row in
+            StartWorkflowSheet(
+                workflowName: row.title,
+                workflowDescription: row.workflowEntry?["description"]?.stringValue
+                    ?? row.workflowEntry?["summary"]?.stringValue,
+                entry: row.workflowEntry,
+                onSend: { args in await performStart(row, args: args) })
+        }
+        */
+    }
+
+    /// 行卡（长按 contextMenu 仅 plugins 能力接卸载；卸载中行内 Spinner）
+    @ViewBuilder
+    private func capabilityRow(_ row: Row) -> some View {
+        let card = HStack(spacing: T.sp3) {
+            Image(systemName: row.icon)
+                .font(.system(size: 14))
+                .foregroundColor(T.accentText)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.title)
+                    .font(T.font(14.5))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                Text(row.subtitle)
+                    .font(T.font(11.5))
+                    .foregroundColor(T.text3)
+                    .lineLimit(1)
+            }
+            Spacer()
+            /* HIDDEN(对齐修复): startSavedWorkflow 不在 web 命令枚举、payload {workflowId,args} 零取证
+               （审查报告 §五）· 恢复条件：桌面真机探针 accepted · 列表保留只读（设计稿 H2）
+            // P2-4 启动钮（仅 savedWorkflows 工作流行渲染；最近运行 run- 行不渲染；
+            // 样式照 TaskCardView「去审批」44pt 热区，accent 底替代橙底）
+            if capability == .savedWorkflows, row.id.hasPrefix("wf-") {
+                Button {
+                    startTarget = row
+                } label: {
+                    Text(String(localized: "启动"))
+                        .font(T.font(12.5, .semibold))
+                        .foregroundColor(T.onAccent)
+                        .padding(.horizontal, T.sp3)
+                        .frame(minHeight: 44)
+                        .background(T.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM - 2))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("12-capability-act-start-\(row.id)")
+            }
+            */
+            if uninstallingID == row.id {
+                ProgressView()
+                    .scaleEffect(0.7)
+            } else if let badge = row.badge {
+                StatusPill(text: badge, kind: .tag, compact: true)
+            }
+            // HIDDEN(对齐修复): 「运行中」badge 回显依赖启动钮写入 startedWorkflowIDs，随启动钮
+            // 一起隐藏（设计稿 H2）· 恢复条件：startSavedWorkflow 真机探针 accepted 后还原：
+            // else if capability == .savedWorkflows, let workflowID = row.workflowID,
+            //          startedWorkflowIDs.contains(workflowID) {
+            //     StatusPill(text: String(localized: "运行中"), kind: .run, compact: true)
+            // }
+        }
+        .card()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("12-capability-row-\(row.id)")
+        if capability == .plugins {
+            card.contextMenu {
+                Button(role: .destructive) {
+                    pendingUninstall = row
+                } label: {
+                    Label(String(localized: "卸载插件"), systemImage: "trash")
+                }
+                .accessibilityIdentifier("12-capability-act-uninstall-\(row.id)")
+                // updatePlugin 等其余插件写面维持 ReadOnlyGate 拦截，不接菜单项
+            }
+        } else {
+            card
+        }
+    }
+
+    // MARK: P3-11B 市场目录（getPluginsOverview 读面 + installPlugin 安装入口）
+
+    /// 市场区：读取态（loading/失败/空）+ 目录行；失败不拖垮已装清单（web list-only 降级同构）
+    @ViewBuilder
+    private var marketSection: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            Text(marketPlaceCount > 0
+                 ? String(localized: "插件市场 · \(marketPlaceCount) 个市场源")
+                 : String(localized: "插件市场"))
+                .font(T.font(12, .semibold))
+                .foregroundColor(T.text3)
+                .padding(.top, T.sp2)
+                .accessibilityIdentifier("12-capability-market-header")
+            if marketLoading {
+                HStack(spacing: T.sp2) {
+                    ProgressView().scaleEffect(0.7)
+                    Text(String(localized: "正在读取市场目录…"))
+                        .font(T.font(11.5))
+                        .foregroundColor(T.text3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("12-capability-market-loading")
+            } else if let marketError {
+                VStack(alignment: .leading, spacing: T.sp1) {
+                    Text(String(localized: "市场目录读取失败 · \(marketError)"))
+                        .font(T.font(11.5))
+                        .foregroundColor(T.red)
+                        .lineLimit(2)
+                    // 读面失败态给重试入口（不臆造目录）
+                    Button(String(localized: "重试")) {
+                        Task { await reloadMarket() }
+                    }
+                    .font(T.font(11.5, .semibold))
+                    .foregroundColor(T.accentText)
+                    .accessibilityIdentifier("12-capability-market-retry")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if marketPlugins.isEmpty {
+                Text(String(localized: "市场目录为空 · 暂无可安装插件"))
+                    .font(T.font(11.5))
+                    .foregroundColor(T.text3)
+                    .accessibilityIdentifier("12-capability-market-empty")
+            } else {
+                ForEach(marketPlugins) { plugin in
+                    marketRow(plugin)
+                }
+            }
+        }
+        // P3-11B 安装确认（挂在市场区，避免与根级卸载弹层同链冲突）：
+        // 往桌面宿主安装插件工具面（scope 恒 user，与 web 同参）
+        .confirmationDialog(
+            String(localized: "安装插件 \(pendingInstall?.name ?? "")？"),
+            isPresented: Binding(
+                get: { pendingInstall != nil },
+                set: { if !$0 { pendingInstall = nil } }),
+            titleVisibility: .visible) {
+            Button(String(localized: "安装")) {
+                if let plugin = pendingInstall {
+                    performInstall(plugin)
+                }
+                pendingInstall = nil
+            }
+            .accessibilityIdentifier("12-capability-confirm-install")
+            Button("取消", role: .cancel) { pendingInstall = nil }
+        } message: {
+            Text(String(localized: "将从「\(pendingInstall?.marketplace ?? "插件市场")」市场安装到桌面端（用户级），安装后其工具对桌面端 Agent 生效。"))
+        }
+    }
+
+    /// 市场行：已装 → 「已安装」胶囊；未装 → 长按菜单「安装」（与卸载同交互面：
+    /// 上下文菜单而非常驻按钮，避免清单页出现高误触写入口；已装/安装中行无菜单）
+    @ViewBuilder
+    private func marketRow(_ plugin: MarketPlugin) -> some View {
+        let card = HStack(spacing: T.sp3) {
+            Image(systemName: "puzzlepiece.extension")
+                .font(.system(size: 14))
+                .foregroundColor(T.accentText)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(plugin.name)
+                    .font(T.font(14.5))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                Text(plugin.marketplace.map { "\($0) · \(plugin.summary ?? "")" }
+                    ?? plugin.summary ?? String(localized: "市场插件"))
+                    .font(T.font(11.5))
+                    .foregroundColor(T.text3)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if installingID == plugin.id {
+                ProgressView()
+                    .scaleEffect(0.7)
+            } else if plugin.installed {
+                StatusPill(text: String(localized: "已安装"), kind: .done, compact: true)
+            } else {
+                StatusPill(text: String(localized: "可安装"), kind: .tag, compact: true)
+            }
+        }
+        .card()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("12-capability-market-row-\(plugin.id)")
+        if plugin.installed || installingID != nil {
+            card
+        } else {
+            // 安装入口（写面）：长按 + 确认弹层（confirmationDialog 在 body 根挂载）
+            card.contextMenu {
+                Button {
+                    pendingInstall = plugin
+                } label: {
+                    Label(String(localized: "安装插件"), systemImage: "arrow.down.circle")
+                }
+                .accessibilityIdentifier("12-capability-act-install-\(plugin.id)")
+            }
+        }
+    }
+
+    /// P3-11 卸载（桌面代执行；zcode-agent.uninstallPlugin 已过 gate）。
+    /// 参数【实证·bundle 逆向 2026-10-06，审查报告 B-8——原 {name: 行标题} 推翻】：
+    /// `{workspacePath(必填，缺失桌面报「请先打开一个工作区」), workspaceIdentity?,
+    /// pluginName, marketplace, scope:'user'}`。pluginName/marketplace 从 listPlugins
+    /// 条目取；条目缺 marketplace 时先读 getPluginsOverview 兜底（web 清单即
+    /// listPlugins+overview 双读合并，marketplace 本就来自 overview 侧），仍缺则
+    /// 如实提示不下发（宁可不卸载也不盲发必败键）。成功后重拉清单（badge 消失或行移除）。
+    private func performUninstall(_ row: Row) {
+        guard let connection = tryConnection(), uninstallingID == nil else { return }
+        guard let workspacePath = connection.workspace?.path else {
+            notice = "卸载失败 · 请先在桌面端打开一个工作区"
+            noticeIsError = true
+            return
+        }
+        uninstallingID = row.id
+        notice = nil
+        Task {
+            defer { uninstallingID = nil }
+            do {
+                let marketplace: String?
+                if let direct = row.marketplace, !direct.isEmpty {
+                    marketplace = direct
+                } else {
+                    marketplace = try await lookupPluginMarketplace(connection, pluginName: row.title)
+                }
+                guard let marketplace, !marketplace.isEmpty else {
+                    notice = "卸载失败 · 无法确定「\(row.title)」的插件市场来源（listPlugins/getPluginsOverview 均未返回 marketplace）"
+                    noticeIsError = true
+                    return
+                }
+                var builder = JSONObjectBuilder()
+                builder.set("workspacePath", workspacePath)
+                if let identity = connection.workspace?.workspaceIdentity, !identity.isEmpty {
+                    builder.set("workspaceIdentity", identity)
+                }
+                builder.set("pluginName", row.title)
+                builder.set("marketplace", marketplace)
+                builder.set("scope", "user")
+                _ = try await connection.call(
+                    "zcode-agent", "uninstallPlugin", .json(.object(builder.fields)))
+                notice = String(localized: "已卸载 \(row.title)")
+                noticeIsError = false
+                await load()
+            } catch {
+                notice = "卸载失败 · \(String(String(describing: error).prefix(160)))"
+                noticeIsError = true
+            }
+        }
+    }
+
+    /// marketplace 兜底：getPluginsOverview({workspacePath, workspaceIdentity?}) 的
+    /// availablePlugins[]/plugins[] 按 name|pluginName|id 匹配插件行取其 marketplace
+    /// （回执形态未逐项取证，键组宽容；两数组均无匹配或无 marketplace 键 → nil 如实上报）
+    private func lookupPluginMarketplace(
+        _ connection: ZCodeServerConnection, pluginName: String
+    ) async throws -> String? {
+        let result = try await connection.call(
+            "zcode-agent", "getPluginsOverview", .json(.object(workspaceScopeFields(connection))))
+        let json = result.jsonValue
+        let candidates = (json?["availablePlugins"]?.arrayValue ?? [])
+            + (json?["plugins"]?.arrayValue ?? [])
+        return candidates.compactMap { item -> String? in
+            guard let d = item.objectValue,
+                  d["name"]?.stringValue ?? d["pluginName"]?.stringValue
+                  ?? d["id"]?.stringValue == pluginName else { return nil }
+            return d["marketplace"]?.stringValue
+        }.first { !$0.isEmpty }
+    }
+
+    // MARK: P3-11B 市场目录读取 + 安装（getPluginsOverview / installPlugin）
+
+    /// 市场目录读取：zcode-agent.getPluginsOverview({workspacePath, workspaceIdentity?})。
+    /// 回执【移植·bundle 逆向】web 消费键：plugins[]/marketplaces[]/availablePlugins[]/
+    /// installedPlugins[{id, marketplace, componentTypes?}][]/restorableBuiltins[]/
+    /// diagnostics[{severity, message, pluginId?}][]（web 端由 zcodeAgentService +
+    /// pluginService 双频道并发合并，移动端单频道 zcode-agent 宽容取键——availablePlugins
+    /// 缺席 = 市场目录空，如实呈空态不臆造）。
+    private func loadPluginMarket(
+        _ connection: ZCodeServerConnection, installedKeys: Set<String>
+    ) async {
+        marketLoading = true
+        marketError = nil
+        do {
+            let result = try await connection.call(
+                "zcode-agent", "getPluginsOverview",
+                .json(.object(workspaceScopeFields(connection))))
+            let json = result.jsonValue
+            let available = json?["availablePlugins"]?.arrayValue ?? []
+            let installedIDs = Set(
+                (json?["installedPlugins"]?.arrayValue ?? [])
+                    .compactMap { $0.objectValue?["id"]?.stringValue })
+            marketPlaceCount = json?["marketplaces"]?.arrayValue?.count ?? 0
+            marketPlugins = available.compactMap { item in
+                guard let d = item.objectValue,
+                      let id = d["id"]?.stringValue ?? d["name"]?.stringValue else { return nil }
+                let listing = d["listing"]?.objectValue
+                let name = d["name"]?.stringValue ?? id
+                return MarketPlugin(
+                    id: id,
+                    name: name,
+                    marketplace: d["marketplace"]?.stringValue,
+                    summary: d["description"]?.stringValue
+                        ?? listing?["description"]?.stringValue,
+                    // web LSt 合并口径：installedPlugins 命中或已装清单在场（installed 键宽容）
+                    installed: installedIDs.contains(id)
+                        || installedKeys.contains(id)
+                        || installedKeys.contains(name)
+                        || (d["installed"]?.boolValue ?? false))
+            }
+        } catch {
+            // web 同构 list-only 降级：overview 失败保留已装清单，市场区如实呈失败态
+            marketPlugins = []
+            marketPlaceCount = 0
+            marketError = String(String(describing: error).prefix(160))
+        }
+        marketLoading = false
+    }
+
+    /// 市场区重试（读面失败态入口）：以当前已装清单行 id 为安装态判定基线
+    private func reloadMarket() async {
+        guard let connection = tryConnection() else { return }
+        await loadPluginMarket(connection, installedKeys: Set(rows.map(\.id)))
+    }
+
+    /// P3-11B 安装（桌面代执行；zcode-agent.installPlugin 已过 gate）。
+    /// 参数【移植·bundle 逆向，与卸载同基座】：`{workspacePath(必填——web 无工作区时报
+    /// 「请先打开一个工作区后再安装插件」), workspaceIdentity?, pluginName, marketplace,
+    /// scope:'user'}`（operationId 进度流面移动端不接，不携）。
+    /// 回执解读同 web 两消费点：diagnostics 含非 warning 项 → 失败（「pluginId: message」，
+    /// Hht 口径）；installedPlugins[] 在场但缺该 id → 失败（web "remote install did not
+    /// return X"）；键整缺 → 宽容按成功并重拉对账（该形态未取证，如实以清单为准）。
+    private func performInstall(_ plugin: MarketPlugin) {
+        guard let connection = tryConnection(), installingID == nil else { return }
+        guard let marketplace = plugin.marketplace, !marketplace.isEmpty else {
+            notice = "安装失败 · 无法确定「\(plugin.name)」的市场来源"
+            noticeIsError = true
+            return
+        }
+        guard let workspacePath = connection.workspace?.path else {
+            notice = "安装失败 · 请先在桌面端打开一个工作区"
+            noticeIsError = true
+            return
+        }
+        installingID = plugin.id
+        notice = nil
+        Task {
+            defer { installingID = nil }
+            do {
+                var builder = JSONObjectBuilder()
+                builder.set("workspacePath", workspacePath)
+                if let identity = connection.workspace?.workspaceIdentity, !identity.isEmpty {
+                    builder.set("workspaceIdentity", identity)
+                }
+                builder.set("pluginName", plugin.name)
+                builder.set("marketplace", marketplace)
+                builder.set("scope", "user")
+                let result = try await connection.call(
+                    "zcode-agent", "installPlugin", .json(.object(builder.fields)))
+                // diagnostics：非 warning（含缺 severity 键）即失败——web Hht/mqe 口径
+                if let diagnostics = result.jsonValue?["diagnostics"]?.arrayValue,
+                   let failure = diagnostics.first(where: {
+                       ($0.objectValue?["severity"]?.stringValue ?? "error") != "warning"
+                   }) {
+                    let d = failure.objectValue
+                    let who = d?["pluginId"]?.stringValue ?? plugin.id
+                    notice = "安装失败 · \(who): \(d?["message"]?.stringValue ?? String(localized: "未知错误"))"
+                    noticeIsError = true
+                    return
+                }
+                // installedPlugins 对账（web 同款：回执应含该插件 id）
+                if let installed = result.jsonValue?["installedPlugins"]?.arrayValue {
+                    let ids = Set(installed.compactMap { $0.objectValue?["id"]?.stringValue })
+                    if !ids.contains(plugin.id), !ids.contains(plugin.name) {
+                        notice = "安装失败 · 桌面端回执未包含 \(plugin.name)"
+                        noticeIsError = true
+                        return
+                    }
+                }
+                if let index = marketPlugins.firstIndex(where: { $0.id == plugin.id }) {
+                    marketPlugins[index].installed = true
+                }
+                notice = String(localized: "已安装 \(plugin.name)")
+                noticeIsError = false
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                await load()
+            } catch {
+                notice = "安装失败 · \(String(String(describing: error).prefix(160)))"
+                noticeIsError = true
+            }
+        }
+    }
+
+    private func tryConnection() -> ZCodeServerConnection? {
+        let connection = session.connection
+        guard connection.isActive else { return nil }
+        return connection
+    }
+
+    /// workspace 维度入参（web 实证 2026-10-06：workspacePath 恒带，workspaceIdentity
+    /// 在场才带——listPlugins/getSkillReferenceCatalog/getPluginsOverview 同一口径；
+    /// configScope web 亦仅在场才携，移动端无对应值不传）
+    private func workspaceScopeFields(_ connection: ZCodeServerConnection) -> [String: JSONValue] {
+        var builder = JSONObjectBuilder()
+        if let workspacePath = connection.workspace?.path {
+            builder.set("workspacePath", workspacePath)
+        }
+        if let identity = connection.workspace?.workspaceIdentity, !identity.isEmpty {
+            builder.set("workspaceIdentity", identity)
+        }
+        return builder.fields
+    }
+
+    // MARK: P2-4 工作流启动（startSavedWorkflow 桌面代执行）
+
+    /// 下发回调（StartWorkflowSheet onSend）：经装配的统一信封出口 store.startSavedWorkflow
+    /// （工作流库页无会话上下文 → conversationID 传 nil，信封 sessionId=null 与 createSession
+    /// 同路；args 经协议调用无默认值，恒显式传）。返回错误文案（nil = 成功）。
+    /// 成功：震动 + 行卡 badge「运行中」；回执携 sessionId 时跳转会话（fork openChat 先例）。
+    private func performStart(_ row: Row, args: [String: JSONValue]) async -> String? {
+        guard let store = session.remoteConversationStore else {
+            return String(localized: "命令未送达（连接中断或不在连接态）")
+        }
+        let ack = await store.startSavedWorkflow(
+            nil, workflowId: row.workflowID ?? row.title, args: args)
+        let (error, sessionId) = Self.interpretStartAck(ack)
+        guard error == nil else { return error }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        startedWorkflowIDs.insert(row.workflowID ?? row.title)
+        notice = String(localized: "已启动 · 运行面板在对应会话内")
+        noticeIsError = false
+        startTarget = nil
+        if let sessionId {
+            router.openChat(conversationID: sessionId)
+        }
+        return nil
+    }
+
+    /// startSavedWorkflow 回执解读（ChatViewModel.controlFeedback 同口径：nil ack = 未送达；
+    /// rejected 带 reasonCode + zod issue 首条 message）。sessionId 三形态宽容提取
+    /// （result.sessionId / result.session.sessionId / 顶层 sessionId——createSession
+    /// 探针同链路先例 RemoteConversationStore.swift:2577-2579），缺省 = 留页看 badge。
+    private static func interpretStartAck(_ ack: JSONValue?) -> (error: String?, sessionId: String?) {
+        guard let ack else { return (String(localized: "命令未送达（连接中断或不在连接态）"), nil) }
+        let status = ack["status"]?.stringValue
+            ?? ack.objectValue?["ack"]?.objectValue?["status"]?.stringValue
+        guard status == nil || ["accepted", "noop", "applied", "ok"].contains(status ?? "") else {
+            var detail = ack["reasonCode"]?.stringValue ?? status ?? "?"
+            // zod 校验类拒绝：message 为 issue 数组 JSON，取首条 message 字段
+            if let message = ack["message"]?.stringValue,
+               let range = message.range(of: "\"message\": \"") {
+                let tail = message[range.upperBound...]
+                if let end = tail.firstIndex(of: "\"") {
+                    detail += "：" + tail[..<end]
+                }
+            }
+            return (String(localized: "桌面端拒绝（\(detail)）"), nil)
+        }
+        let sessionId = ack["result"]?.objectValue?["sessionId"]?.stringValue
+            ?? ack["result"]?.objectValue?["session"]?.objectValue?["sessionId"]?.stringValue
+            ?? ack["sessionId"]?.stringValue
+        return (nil, sessionId)
     }
 
     private func load() async {
@@ -888,7 +1557,7 @@ struct RemoteCapabilityListPage: View {
         rows = []
         let connection = session.connection
         guard connection.isActive else {
-            phase = .failed
+            phase = .notConnected
             return
         }
         do {
@@ -915,8 +1584,13 @@ struct RemoteCapabilityListPage: View {
                         badge: nil)
                 }
             case .skills:
-                // getSkillReferenceCatalog → 宽容取 skills[]/catalog.skills[]/entries[]
-                let result = try await connection.call("zcode-agent", "getSkillReferenceCatalog", .undefined)
+                // getSkillReferenceCatalog → 宽容取 skills[]/catalog.skills[]/entries[]；
+                // 入参带 workspace 维度【实证·bundle 逆向，审查报告 C-9——web 恒携
+                // {workspacePath, workspaceIdentity?}（会话内另携 remoteSessionId/
+                // sessionId，能力页无会话上下文不带）】
+                let result = try await connection.call(
+                    "zcode-agent", "getSkillReferenceCatalog",
+                    .json(.object(workspaceScopeFields(connection))))
                 let items = result.jsonValue?["skills"]?.arrayValue
                     ?? result.jsonValue?["catalog"]?.objectValue?["skills"]?.arrayValue
                     ?? result.jsonValue?["entries"]?.arrayValue
@@ -971,8 +1645,12 @@ struct RemoteCapabilityListPage: View {
                         badge: badge)
                 }
             case .plugins:
-                // listPlugins → plugins[]/items[]
-                let result = try await connection.call("zcode-agent", "listPlugins", .undefined)
+                // listPlugins → plugins[]/items[]；入参 {workspacePath, workspaceIdentity?,
+                // configScope?}【实证·bundle 逆向，审查报告 C-8——web 恒带 workspace 维度
+                // （无参调用漏 workspace 级插件）；configScope 在场才携，无对应值不传】。
+                // marketplace 键在条目在场时捕获（uninstallPlugin 必填，缺席走 overview 兜底）
+                let result = try await connection.call(
+                    "zcode-agent", "listPlugins", .json(.object(workspaceScopeFields(connection))))
                 let items = result.jsonValue?["plugins"]?.arrayValue
                     ?? result.jsonValue?["items"]?.arrayValue
                     ?? result.jsonValue?.arrayValue
@@ -990,8 +1668,15 @@ struct RemoteCapabilityListPage: View {
                         subtitle: version.map { String(format: String(localized: "版本 %@"), $0) }
                             ?? d["description"]?.stringValue
                             ?? String(localized: "桌面端插件"),
-                        badge: enabled == nil ? nil : (enabled! ? String(localized: "已启用") : String(localized: "已停用")))
+                        badge: enabled == nil ? nil : (enabled! ? String(localized: "已启用") : String(localized: "已停用")),
+                        marketplace: d["marketplace"]?.stringValue)
                 }
+                // P3-11B 市场目录：getPluginsOverview 与 listPlugins 同基座双读（web 插件页
+                // 同源），overview 失败不影响已装清单（市场区呈失败态，list-only 降级）
+                let installedKeys = Set(
+                    rows.map(\.id)
+                        + items.compactMap { $0.objectValue?["id"]?.stringValue })
+                await loadPluginMarket(connection, installedKeys: installedKeys)
             case .savedWorkflows:
                 // G-022：已保存工作流库（桌面 <cwd>/.zcode/workflows）+ 最近运行；只读
                 let workflowsResult = try await connection.call(
@@ -1012,7 +1697,11 @@ struct RemoteCapabilityListPage: View {
                         subtitle: d["description"]?.stringValue
                             ?? d["path"]?.stringValue
                             ?? String(localized: "已保存工作流"),
-                        badge: nil)
+                        badge: nil,
+                        // P2-4：命令 id 取条目 id（键组宽容形态未冻结，缺席回落 name）；
+                        // 原始条目带进行卡供启动 sheet 解析参数 schema
+                        workflowID: d["id"]?.stringValue ?? d["workflowId"]?.stringValue ?? name,
+                        workflowEntry: item)
                 }
                 if let runsResult = try? await connection.call(
                     "zcode-agent", "listSavedWorkflowRuns", .undefined) {
@@ -1095,6 +1784,358 @@ struct RemoteCapabilityListPage: View {
     }()
 }
 
+// MARK: - P2-4 启动工作流 sheet（动态参数表单 + 启动三态）
+//
+// schema 来源 = listSavedWorkflows 行条目本身（不调 getSavedWorkflow——立项报告 :588
+// 清单在列但协议文档无其形状记录）。参数定义候选键 inputSchema/parametersSchema/
+// argsSchema/parameters/params/schema/args 全部【未取证】（调研 risks：全 Sources grep
+// 零命中），按 JSON-Schema 风格 properties/required 宽容解析（另兼容平铺 {key: def}
+// 与数组 [{name|key|id,…}] 两形态）；候选键在场但解析不出字段 → 「参数定义不可用」
+// 诚实占位、不出直启（宁可不启动也不丢参数盲发）；无候选键 → 「无需参数」直启。
+// 三态：表单校验缺项红字不发起 / 启动中主钮禁用 / 失败 sheet 内错误行可重发。
+
+/// 参数表单字段（schema 字段定义宽容解析结果；options 仅 choice 类使用）
+struct WorkflowParamField: Identifiable {
+    let key: String
+    let label: String
+    let kind: Kind
+    let required: Bool
+    let defaultValue: String?
+    let options: [String]
+    var id: String { key }
+
+    enum Kind { case text, number, toggle, choice }
+}
+
+struct StartWorkflowSheet: View {
+    let workflowName: String
+    let workflowDescription: String?
+    /// listSavedWorkflows 行原始条目（参数 schema 解析源；nil = 无条目直启）
+    let entry: JSONValue?
+    /// 下发回调（宿主经 store.startSavedWorkflow 统一信封出口；显式传 args）。
+    /// 返回错误文案（nil = 成功，宿主 dismiss + 跳转/行卡回显）
+    var onSend: ([String: JSONValue]) async -> String?
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var textValues: [String: String] = [:]
+    @State private var boolValues: [String: Bool] = [:]
+    @State private var choiceValues: [String: String] = [:]
+    @State private var missingKeys: Set<String> = []
+    @State private var sending = false
+    @State private var errorText: String?
+
+    private var parsed: (fields: [WorkflowParamField], schemaPresent: Bool) {
+        Self.parseFields(from: entry)
+    }
+    /// 候选键在场但解析不出可用字段：诚实占位（不按无参数盲发）
+    private var schemaUnreadable: Bool { parsed.schemaPresent && parsed.fields.isEmpty }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
+            HStack {
+                Text(String(localized: "启动「\(workflowName)」"))
+                    .font(T.font(17, .bold))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                Spacer()
+                Button(String(localized: "取消")) { dismiss() }
+                    .font(T.font(14, .medium))
+                    .foregroundColor(T.text2)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityIdentifier("12-wfstart-act-cancel")
+            }
+            .padding(.horizontal, T.sp4)
+            ScrollView {
+                VStack(alignment: .leading, spacing: T.sp3) {
+                    if let workflowDescription, !workflowDescription.isEmpty {
+                        Text(workflowDescription)
+                            .font(T.font(12))
+                            .foregroundColor(T.text2)
+                            .lineSpacing(3)
+                    }
+                    if schemaUnreadable {
+                        EmptyStateView(
+                            icon: "exclamationmark.triangle",
+                            title: String(localized: "参数定义不可用"),
+                            detail: String(localized: "桌面端返回了参数定义，但移动端暂无法解析其格式；可在桌面端启动，或下拉刷新本页后重试。"))
+                    } else if parsed.fields.isEmpty {
+                        Text(String(localized: "该工作流无需参数"))
+                            .font(T.font(12))
+                            .foregroundColor(T.text3)
+                    } else {
+                        Text(String(localized: "参数"))
+                            .font(T.font(12.5, .semibold))
+                            .foregroundColor(T.text3)
+                        ForEach(parsed.fields) { field in
+                            fieldRow(field)
+                        }
+                    }
+                    startButton
+                    if let errorText {
+                        Text(errorText)
+                            .font(T.font(11.5, .semibold))
+                            .foregroundColor(T.red)
+                            .accessibilityIdentifier("12-wfstart-error")
+                    }
+                }
+                .padding(T.sp4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(T.bgElevated)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+        .onAppear {
+            // 每次打开重置为 schema 默认值（state 键级整体替换口径；残留编辑不跨次携带）
+            textValues = Dictionary(
+                uniqueKeysWithValues: parsed.fields.filter { $0.kind != .toggle && $0.kind != .choice }
+                    .map { ($0.key, $0.defaultValue ?? "") })
+            boolValues = Dictionary(
+                uniqueKeysWithValues: parsed.fields.filter { $0.kind == .toggle }
+                    .map { ($0.key, $0.defaultValue == "true") })
+            choiceValues = Dictionary(
+                uniqueKeysWithValues: parsed.fields.filter { $0.kind == .choice }
+                    .map { ($0.key, $0.defaultValue ?? "") })
+            missingKeys = []
+            errorText = nil
+        }
+    }
+
+    // MARK: 字段行（string→文本框；number→数字键盘；boolean→Toggle；enum→Menu）
+
+    @ViewBuilder
+    private func fieldRow(_ field: WorkflowParamField) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Text(field.label)
+                    .font(T.font(12.5))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                if field.required {
+                    Text("*")
+                        .font(T.font(12.5, .semibold))
+                        .foregroundColor(T.red)
+                }
+            }
+            switch field.kind {
+            case .text:
+                TextField(String(localized: "请输入"), text: binding(for: field))
+                    .font(T.font(13))
+                    .foregroundColor(T.text)
+                    .padding(.horizontal, T.sp2)
+                    .padding(.vertical, 8)
+                    .background(T.bgInput)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                    .accessibilityIdentifier("12-wfstart-field-\(field.key)")
+            case .number:
+                TextField(String(localized: "请输入数字"), text: binding(for: field))
+                    .font(T.font(13))
+                    .foregroundColor(T.text)
+                    .keyboardType(.decimalPad)
+                    .padding(.horizontal, T.sp2)
+                    .padding(.vertical, 8)
+                    .background(T.bgInput)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                    .accessibilityIdentifier("12-wfstart-field-\(field.key)")
+            case .toggle:
+                Toggle("", isOn: Binding(
+                    get: { boolValues[field.key] ?? false },
+                    set: { boolValues[field.key] = $0 }))
+                    .labelsHidden()
+                    .tint(T.accent)
+                    .accessibilityIdentifier("12-wfstart-field-\(field.key)")
+            case .choice:
+                // identifier 挂 Menu 本体而非 label（门禁实证口径，§0.3）
+                Menu {
+                    ForEach(field.options, id: \.self) { option in
+                        Button(option) { choiceValues[field.key] = option }
+                    }
+                } label: {
+                    HStack {
+                        let current = choiceValues[field.key] ?? ""
+                        Text(current.isEmpty ? String(localized: "请选择") : current)
+                            .font(T.font(13))
+                            .foregroundColor(current.isEmpty ? T.text3 : T.text)
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(T.text3)
+                    }
+                    .padding(.horizontal, T.sp2)
+                    .padding(.vertical, 8)
+                    .background(T.bgInput)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                }
+                .accessibilityIdentifier("12-wfstart-field-\(field.key)")
+            }
+            if missingKeys.contains(field.key) {
+                Text(String(localized: "此项为必填"))
+                    .font(T.font(11))
+                    .foregroundColor(T.red)
+            }
+        }
+    }
+
+    private func binding(for field: WorkflowParamField) -> Binding<String> {
+        Binding(
+            get: { textValues[field.key] ?? "" },
+            set: {
+                textValues[field.key] = $0
+                missingKeys.remove(field.key)
+            })
+    }
+
+    private var startButton: some View {
+        Button {
+            start()
+        } label: {
+            HStack(spacing: T.sp2) {
+                if sending {
+                    SpinnerView(color: T.onAccent, size: 13)
+                }
+                Text(sending ? String(localized: "启动中…")
+                    : (parsed.fields.isEmpty && !schemaUnreadable
+                        ? String(localized: "直接启动") : String(localized: "启动")))
+                    .font(T.font(13.5, .semibold))
+            }
+            .foregroundColor(T.onAccent)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(sending ? T.accent.opacity(0.5) : T.accent)
+            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        }
+        .disabled(sending || schemaUnreadable)
+        .accessibilityIdentifier("12-wfstart-act-start")
+    }
+
+    private func start() {
+        guard !sending, !schemaUnreadable else { return }
+        guard let args = buildArgs() else { return } // 缺项红字已标，不发起命令
+        sending = true
+        errorText = nil
+        Task {
+            let error = await onSend(args)
+            sending = false
+            if let error {
+                errorText = error // 失败留在 sheet，主钮可重发
+            } else {
+                dismiss()
+            }
+        }
+    }
+
+    /// 表单值 → args（必填缺项/数字非法标红返回 nil；空表单返回空 dict=无参直启）
+    private func buildArgs() -> [String: JSONValue]? {
+        var args: [String: JSONValue] = [:]
+        var missing: Set<String> = []
+        for field in parsed.fields {
+            switch field.kind {
+            case .text:
+                let value = (textValues[field.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if value.isEmpty {
+                    if field.required { missing.insert(field.key) }
+                } else {
+                    args[field.key] = .string(value)
+                }
+            case .number:
+                let raw = (textValues[field.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if raw.isEmpty {
+                    if field.required { missing.insert(field.key) }
+                } else if let int = Int(raw) {
+                    args[field.key] = .int(int)
+                } else if let double = Double(raw) {
+                    args[field.key] = .double(double)
+                } else {
+                    missing.insert(field.key) // 非法数字视同缺项
+                }
+            case .toggle:
+                args[field.key] = .bool(boolValues[field.key] ?? false)
+            case .choice:
+                let value = choiceValues[field.key] ?? ""
+                if value.isEmpty {
+                    if field.required { missing.insert(field.key) }
+                } else {
+                    args[field.key] = .string(value)
+                }
+            }
+        }
+        missingKeys = missing
+        return missing.isEmpty ? args : nil
+    }
+
+    // MARK: schema 宽容解析（形状零取证，三形态兼容；字段序按 key 字典序稳定呈现）
+
+    static func parseFields(from entry: JSONValue?) -> (fields: [WorkflowParamField], schemaPresent: Bool) {
+        guard let entry else { return ([], false) }
+        // 候选键全部【未取证】，命中首个非空值即用
+        let candidateKeys = ["inputSchema", "parametersSchema", "argsSchema",
+                             "parameters", "params", "schema", "args", "inputs", "input"]
+        var schema: JSONValue?
+        for key in candidateKeys {
+            if let value = entry[key], !value.isNull {
+                schema = value
+                break
+            }
+        }
+        guard let schema else { return ([], false) }
+        var defs: [(key: String, def: JSONValue)] = []
+        var requiredKeys: Set<String> = []
+        if let properties = schema["properties"]?.objectValue {
+            // ① JSON-Schema 风格 {properties: {key: def}, required?: [key]}
+            requiredKeys = Set((schema["required"]?.arrayValue ?? []).compactMap { $0.stringValue })
+            defs = properties.map { ($0.key, $0.value) }.sorted { $0.key < $1.key }
+        } else if let array = schema.arrayValue {
+            // ② 数组形态 [{name|key|id, type?, enum?, required?…}]
+            defs = array.compactMap { item in
+                guard let d = item.objectValue,
+                      let key = d["name"]?.stringValue ?? d["key"]?.stringValue
+                          ?? d["id"]?.stringValue else { return nil }
+                return (key, item)
+            }
+        } else if let object = schema.objectValue {
+            // ③ 平铺 {key: def}：值含 type/enum 才认作字段定义（防把普通对象误拆）
+            let fieldLike = object.filter {
+                $0.value.objectValue?["type"] != nil || $0.value.objectValue?["enum"] != nil
+            }
+            if !object.isEmpty, fieldLike.count == object.count {
+                defs = object.map { ($0.key, $0.value) }.sorted { $0.key < $1.key }
+            }
+        }
+        let fields = defs.compactMap { key, def -> WorkflowParamField? in
+            guard let d = def.objectValue else { return nil }
+            let options = (d["enum"]?.arrayValue ?? []).compactMap { $0.stringValue }
+            let type = (d["type"]?.stringValue ?? "").lowercased()
+            let kind: WorkflowParamField.Kind
+            if !options.isEmpty {
+                kind = .choice
+            } else if type.contains("bool") {
+                kind = .toggle
+            } else if type.contains("number") || type.contains("int")
+                        || type.contains("float") || type.contains("double") {
+                kind = .number
+            } else {
+                kind = .text
+            }
+            let defaultValue: String? = {
+                if let v = d["default"]?.stringValue { return v }
+                if let v = d["default"]?.intValue { return String(v) }
+                if let v = d["default"]?.doubleValue { return String(v) }
+                if let v = d["default"]?.boolValue { return v ? "true" : "false" }
+                return nil
+            }()
+            return WorkflowParamField(
+                key: key,
+                label: d["title"]?.stringValue ?? d["label"]?.stringValue
+                    ?? d["description"]?.stringValue ?? key,
+                kind: kind,
+                required: requiredKeys.contains(key) || d["required"]?.boolValue == true,
+                defaultValue: defaultValue,
+                options: options)
+        }
+        return (fields, true)
+    }
+}
+
 // MARK: - 每日 Token 趋势折线（Canvas 多序列；桌面「每日 Token 趋势图」移动端等价）
 
 struct UsageTrendChart: View {
@@ -1152,5 +2193,406 @@ struct UsageTrendChart: View {
             }
         }
         .accessibilityIdentifier("12-usage-trend-canvas")
+    }
+}
+
+// MARK: - P3-11C 桌面设置同步（settingService.get 读 + settingService.update 写）
+//
+// 频道名二义（盘点报告 :54 记 `settingService.get/update`，gate 历史词表只有 `setting`
+// 频道；真实频道名未取证——本轮桌面端不在线）：get/update 按两候选频道依次尝试，
+// 首个成功者胜。读回执宽容解析（数组条目 / 包裹对象 / 整对象三形态，
+// 只收 bool/string/number 可渲染标量，不臆造渲染）；写参数 web 实证【实证·bundle 逆向
+// 2026-10-06】：update({设置名: 新值}) 单键补丁对象（原 {key,value} 推翻，审查报告 B-7）。
+// 写面属桌面配置写（gate 已放行 setting.update/settingService.update），UI 一律经
+// confirmationDialog 确认后下发；update 不自动重试（防双写），get 全候选失败后
+// 1.2s 退避整轮重试一次（同分页读首败退避口径）。
+
+struct DesktopSettingsPage: View {
+    private enum Phase: Equatable {
+        case loading, loaded, failed
+    }
+
+    /// 一条桌面设置项（value 只承载可渲染标量）
+    struct Entry: Identifiable {
+        let key: String
+        let value: JSONValue
+        let readonly: Bool
+        var id: String { key }
+    }
+
+    /// 待确认的修改（confirmationDialog 呈现中；nil = 无）
+    struct PendingChange: Identifiable {
+        let key: String
+        let newValue: JSONValue
+        var id: String { key }
+    }
+
+    /// 频道候选序（真实频道名未取证；与 ReadOnlyGate setting/settingService 词表同源）
+    private static let settingChannels = ["settingService", "setting"]
+    /// 读回执可能的包裹键（宽容形态；整对象兜底见 parseEntries）
+    private static let wrapperKeys = ["settings", "values", "data", "config", "items", "entries"]
+
+    @Environment(AppSession.self) private var session
+    @State private var entries: [Entry] = []
+    @State private var phase: Phase = .loading
+    @State private var errorText: String?
+    @State private var editingEntry: Entry?
+    @State private var editText = ""
+    @State private var pendingChange: PendingChange?
+    @State private var busyKey: String?
+    @State private var notice: String?
+    @State private var noticeIsError = false
+    /// get 首个命中的频道（update 同频道优先，避免读写分家；未命中前走候选序）
+    @State private var resolvedChannel: String?
+
+    private var isConnected: Bool {
+        if case .connected = session.mode { return true }
+        return false
+    }
+
+    var body: some View {
+        Group {
+            if !isConnected {
+                EmptyStateView(
+                    icon: "desktopcomputer",
+                    title: String(localized: "未连接桌面端"),
+                    detail: String(localized: "桌面设置读写自桌面端（settingService）；连接后可在此查看并修改"),
+                    cta: String(localized: "连接桌面端"),
+                    ctaAction: { session.requestConnectFlow(editTokenOnly: false) },
+                    ctaIdentifier: "12-desktop-act-connect")
+            } else {
+                switch phase {
+                case .loading:
+                    CenterLoadingView(text: "正在读取桌面设置…")
+                        .accessibilityIdentifier("12-desktop-loading")
+                case .loaded where !entries.isEmpty:
+                    list
+                case .loaded, .failed:
+                    // 空/失败：诚实占位（不给假数据；错误细节随占位展示）
+                    EmptyStateView(
+                        icon: "desktopcomputer",
+                        title: String(localized: "桌面端未返回设置数据"),
+                        detail: errorText ?? String(localized: "桌面端未提供 settingService 读面或回执形态未被识别"),
+                        cta: String(localized: "重新加载"),
+                        ctaAction: { Task { await load() } },
+                        ctaIdentifier: "12-desktop-act-reload")
+                }
+            }
+        }
+        .background(T.bg)
+        .navigationTitle(String(localized: "桌面设置"))
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("12-desktop-settings-page")
+        .task { await load() }
+        .refreshable { await load() }
+        // 字符串/数字项编辑（带 TextField 先例 ApprovalSheetView 追问弹层）
+        .alert(
+            String(localized: "修改 \(editingEntry?.key ?? "")"),
+            isPresented: Binding(
+                get: { editingEntry != nil },
+                set: { if !$0 { editingEntry = nil } }),
+            presenting: editingEntry) { entry in
+            TextField("新值", text: $editText)
+                .keyboardType(entry.value.stringValue == nil ? .numbersAndPunctuation : .default)
+                .accessibilityIdentifier("12-desktop-field-value")
+            Button("取消", role: .cancel) { editingEntry = nil }
+            Button(String(localized: "修改")) { commitEdit(entry) }
+                .accessibilityIdentifier("12-desktop-act-save")
+        } message: { _ in
+            Text(String(localized: "将把「\(editingEntry?.key ?? "")」改为输入的新值（当前：\(displayValue(editingEntry?.value))）。"))
+        }
+        // 修改确认（硬要求）：桌面配置写即时生效，影响所有正在运行的会话
+        .confirmationDialog(
+            String(localized: "修改桌面设置 \(pendingChange?.key ?? "")？"),
+            isPresented: Binding(
+                get: { pendingChange != nil },
+                set: { if !$0 { pendingChange = nil } }),
+            titleVisibility: .visible) {
+            Button(String(localized: "修改"), role: .destructive) {
+                if let change = pendingChange {
+                    performUpdate(change)
+                }
+                pendingChange = nil
+            }
+            .accessibilityIdentifier("12-desktop-confirm-update")
+            Button("取消", role: .cancel) { pendingChange = nil }
+        } message: {
+            Text(String(localized: "将立即作用于桌面端，影响所有正在运行的会话。"))
+        }
+    }
+
+    private var list: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: T.sp2) {
+                if let notice {
+                    Text(notice)
+                        .font(T.font(11.5, .semibold))
+                        .foregroundColor(noticeIsError ? T.red : T.accentText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("12-desktop-notice")
+                }
+                VStack(spacing: 0) {
+                    ForEach(entries) { entry in
+                        settingRow(entry)
+                        if entry.id != entries.last?.id {
+                            Divider().overlay(T.border)
+                        }
+                    }
+                }
+                .background(T.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: T.rL))
+                Text(String(localized: "设置项由桌面端 settingService 提供；修改即时生效，未知形态的值不在此展示。"))
+                    .font(T.font(10.5))
+                    .foregroundColor(T.text3)
+                    .padding(.top, T.sp1)
+            }
+            .padding(T.sp4)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    // MARK: 行渲染（boolean→toggle；string/number→可点编辑；readonly→无箭头）
+
+    @ViewBuilder
+    private func settingRow(_ entry: Entry) -> some View {
+        HStack(spacing: T.sp2) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.key)
+                    .font(T.font(14.5))
+                    .foregroundColor(T.text)
+                    .lineLimit(2)
+            }
+            Spacer()
+            if busyKey == entry.key {
+                ProgressView()
+                    .scaleEffect(0.7)
+            } else {
+                trailing(entry)
+            }
+        }
+        .padding(.horizontal, T.sp3)
+        .frame(minHeight: 48)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("12-desktop-setting-row-\(entry.key)")
+    }
+
+    @ViewBuilder
+    private func trailing(_ entry: Entry) -> some View {
+        switch entry.value {
+        case .bool:
+            // boolean→toggleRow 样式（SettingsView 同款）；开关不即时下发，
+            // 触发确认弹层后再改（取消自动回弹：值仍读 entries）
+            Toggle("", isOn: Binding(
+                get: { entry.value.boolValue == true },
+                set: { newValue in
+                    guard newValue != entry.value.boolValue else { return }
+                    pendingChange = PendingChange(key: entry.key, newValue: .bool(newValue))
+                }))
+                .labelsHidden()
+                .tint(T.accent)
+                .accessibilityIdentifier("12-desktop-toggle-\(entry.key)")
+        default:
+            if entry.readonly {
+                Text(displayValue(entry.value))
+                    .font(T.mono(11))
+                    .foregroundColor(T.text3)
+                    .lineLimit(1)
+            } else {
+                Button {
+                    editText = editSeed(entry.value)
+                    editingEntry = entry
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(displayValue(entry.value))
+                            .font(T.mono(11))
+                            .foregroundColor(T.text2)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(T.text3)
+                    }
+                }
+                .accessibilityIdentifier("12-desktop-edit-\(entry.key)")
+            }
+        }
+    }
+
+    // MARK: 读面（候选频道依次尝试；全失败 1.2s 退避整轮重试一次）
+
+    private func load() async {
+        phase = .loading
+        errorText = nil
+        do {
+            let result = try await settingCall("get", [:])
+            entries = Self.parseEntries(result.jsonValue)
+            phase = .loaded
+        } catch {
+            entries = []
+            errorText = String(String(describing: error).prefix(200))
+            phase = .failed
+        }
+    }
+
+    /// settingService/setting 双候选依次尝试（真实频道名未取证）。
+    /// 已解析频道优先（get 命中后 update 走同频道）；全候选失败 → 1.2s 退避整轮
+    /// 重试一次（中继瞬断同口径），allowRetry=false 供写命令关闭防双写。
+    private func settingCall(_ command: String, _ fields: [String: JSONValue],
+                             allowRetry: Bool = true) async throws -> RPCValue {
+        let connection = session.connection
+        func runOnce() async throws -> RPCValue {
+            var lastError: Error?
+            var candidates = Self.settingChannels
+            if let resolved = resolvedChannel {
+                candidates.removeAll { $0 == resolved }
+                candidates.insert(resolved, at: 0)
+            }
+            for channel in candidates {
+                do {
+                    let value = try await connection.call(channel, command, .json(.object(fields)))
+                    resolvedChannel = channel
+                    return value
+                } catch {
+                    lastError = error
+                }
+            }
+            throw lastError ?? RPCError(message: "桌面设置频道不可用", name: "NoSettingChannel")
+        }
+        do {
+            return try await runOnce()
+        } catch {
+            guard allowRetry else { throw error }
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            return try await runOnce()
+        }
+    }
+
+    // MARK: 写面（web 实证 2026-10-06：update({设置名: 新值}) 单键补丁对象——
+    // terminalFontFamily/taskAutoArchiveEnabled 等 15 处调用点同构；原 {key,value}
+    // 形态的键在 wire 层不存在，写面全坏。不做时间性自动重试，防双写）
+
+    private func performUpdate(_ change: PendingChange) {
+        guard session.connection.isActive, busyKey == nil else { return }
+        busyKey = change.key
+        notice = nil
+        Task {
+            defer { busyKey = nil }
+            // web 实证：update({设置名: 新值}) 单键补丁对象（如 update({terminalFontFamily:t})）
+            // ——{key,value} 是 wire 层不存在的键（审查报告 B-7）
+            let fields: [String: JSONValue] = [change.key: change.newValue]
+            do {
+                _ = try await settingCall("update", fields, allowRetry: false)
+                notice = String(localized: "已修改 \(change.key)")
+                noticeIsError = false
+                await load()
+            } catch {
+                // 失败：行值回弹（本地未改，读自 entries）+ 错误提示
+                notice = "修改失败 · \(String(String(describing: error).prefix(160)))"
+                noticeIsError = true
+            }
+        }
+    }
+
+    /// 编辑提交：按原值形态规整（int/double 校验可解析；其余按字符串下发），
+    /// 通过确认弹层二次确认后才实际下发
+    private func commitEdit(_ entry: Entry) {
+        let text = editText.trimmingCharacters(in: .whitespaces)
+        editingEntry = nil
+        guard !text.isEmpty else { return }
+        let newValue: JSONValue
+        switch entry.value {
+        case .int:
+            guard let parsed = Int(text) else {
+                notice = "「\(entry.key)」需要整数"
+                noticeIsError = true
+                return
+            }
+            newValue = .int(parsed)
+        case .double:
+            guard let parsed = Double(text) else {
+                notice = "「\(entry.key)」需要数字"
+                noticeIsError = true
+                return
+            }
+            newValue = .double(parsed)
+        default:
+            newValue = .string(text)
+        }
+        pendingChange = PendingChange(key: entry.key, newValue: newValue)
+    }
+
+    // MARK: 宽容解析
+
+    /// 回执三形态（全部【宽容·未取证】）：
+    /// A 顶层数组 [{key|name|id, value…}]；B 包裹对象 {settings|values|data|config|
+    /// items|entries: object 或 array}；C 整对象视为 {key: value} 映射。
+    /// 只收 bool/string/int/double 标量（对象/数组/空值不臆造渲染，直接跳过）。
+    static func parseEntries(_ json: JSONValue?) -> [Entry] {
+        var raw: [(key: String, value: JSONValue, readonly: Bool)] = []
+        if let array = json?.arrayValue {
+            raw = array.compactMap { item in
+                guard let d = item.objectValue,
+                      let key = d["key"]?.stringValue ?? d["name"]?.stringValue
+                          ?? d["id"]?.stringValue else { return nil }
+                let value = d["value"] ?? d["default"] ?? JSONValue.null
+                let readonly = d["readonly"]?.boolValue ?? d["readOnly"]?.boolValue
+                    ?? (d["editable"]?.boolValue == false)
+                return (key, value, readonly)
+            }
+        } else if let object = json?.objectValue {
+            var handled = false
+            for key in wrapperKeys {
+                guard let wrapper = object[key] else { continue }
+                if let wrapperObject = wrapper.objectValue {
+                    raw = wrapperObject.map { ($0.key, $0.value, false) }
+                    handled = true
+                    break
+                }
+                if let wrapperArray = wrapper.arrayValue {
+                    raw = wrapperArray.compactMap { item in
+                        guard let d = item.objectValue,
+                              let entryKey = d["key"]?.stringValue ?? d["name"]?.stringValue
+                                  ?? d["id"]?.stringValue else { return nil }
+                        return (entryKey, d["value"] ?? JSONValue.null,
+                                d["readonly"]?.boolValue ?? d["readOnly"]?.boolValue
+                                    ?? (d["editable"]?.boolValue == false))
+                    }
+                    handled = true
+                    break
+                }
+            }
+            // 形态 C：整对象兜底（含形态 B 各包裹键都缺席时）
+            if !handled {
+                raw = object.map { ($0.key, $0.value, false) }
+            }
+        }
+        return raw.compactMap { item in
+            switch item.value {
+            case .bool, .int, .double, .string:
+                return Entry(key: item.key, value: item.value, readonly: item.readonly)
+            default:
+                return nil
+            }
+        }
+        .sorted { $0.key < $1.key }
+    }
+
+    private func displayValue(_ value: JSONValue?) -> String {
+        switch value {
+        case .bool(let b): return b ? String(localized: "开") : String(localized: "关")
+        case .int(let i): return "\(i)"
+        case .double(let d): return "\(d)"
+        case .string(let s): return s.isEmpty ? String(localized: "（空）") : s
+        default: return "-"
+        }
+    }
+
+    /// 编辑弹层初值（bool/复合形态不进编辑弹层，走 toggle 或只读展示）
+    private func editSeed(_ value: JSONValue) -> String {
+        switch value {
+        case .int(let i): return "\(i)"
+        case .double(let d): return "\(d)"
+        case .string(let s): return s
+        default: return ""
+        }
     }
 }

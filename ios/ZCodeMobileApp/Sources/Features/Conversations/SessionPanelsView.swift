@@ -75,6 +75,18 @@ struct SessionPanelsView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-session-panels")
+        // P2-5 编辑目标 sheet（下发与反馈都走 showControlFeedback 既有通道；
+        // isPresented 手工 Binding——viewModel 为引用类型 let 属性，免 @Bindable 改签名）
+        .sheet(isPresented: Binding(
+            get: { viewModel.editingGoalActive },
+            set: { viewModel.editingGoalActive = $0 })) {
+            GoalEditSheet(
+                initialText: viewModel.goalSummary?.text ?? "",
+                onSend: { text in await viewModel.sendGoal(text) },
+                onSuccess: {
+                    showControlFeedback(String(localized: "目标已下发 · 桌面端将按新目标继续"))
+                })
+        }
         .onAppear {
             // 诊断钩子：-ZCodePanelExpand <kind> 冷启自动展开对应面板
             // （PTY 受限期间无 XCUITest 点按路径；模式同 -ZCodeOpenConversationId）
@@ -182,6 +194,8 @@ struct SessionPanelsView: View {
                     if let message = await viewModel.toggleGoalPause() {
                         showControlFeedback(message)
                     }
+                } onEditGoal: {
+                    viewModel.editingGoalActive = true
                 }
             }
         case .plan:
@@ -258,11 +272,13 @@ struct SessionPanelsView: View {
     }
 }
 
-// MARK: - 目标面板（goal 文本 + 暂停/继续；命令面：pauseGoal/resumeGoal）
+// MARK: - 目标面板（goal 文本 + 编辑 + 暂停/继续；命令面：sendGoalCommand + pauseGoal/resumeGoal）
 
 struct GoalPanelView: View {
     let goal: RemoteGoalSummary
     var onTogglePause: () async -> Void
+    /// P2-5 编辑目标（✏️ → viewModel.editingGoalActive → GoalEditSheet 下发）
+    var onEditGoal: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
@@ -274,6 +290,21 @@ struct GoalPanelView: View {
                     .font(T.font(12.5, .semibold))
                     .foregroundColor(T.text)
                 Spacer(minLength: 0)
+                // 编辑目标（暂停/继续左侧；面板小钮同暂停钮 Capsule 语言）
+                Button {
+                    onEditGoal()
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(T.text3)
+                        .padding(6)
+                        .background(T.bgInput)
+                        .clipShape(Capsule())
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("05-goal-act-edit")
+                .accessibilityLabel(String(localized: "编辑目标"))
                 Button {
                     Task { await onTogglePause() }
                 } label: {
@@ -300,6 +331,112 @@ struct GoalPanelView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-panel-goal")
+    }
+}
+
+// MARK: - P2-5 编辑目标 sheet（goal 面板 ✏️；sendGoalCommand 下发，与暂停/继续并存）
+//
+// 三态：空文本主钮禁用（editQueueItem 同口径）/ 下发中禁用防重 / 失败错误行留 sheet
+// 可重发。成功 dismiss + 面板反馈行 3s（成功也提示——setSubagentModel 先例：
+// 下发语义非即时可见，state.updated 回流前先给确认）。不设 destructive 确认层：
+// 改目标可逆（可再编辑纠正），sheet 内说明行承担知情义务（设计稿 §5.5）。
+
+struct GoalEditSheet: View {
+    let initialText: String
+    /// 下发回调（ChatViewModel.sendGoal）：返回错误文案（nil = 成功）
+    var onSend: (String) async -> String?
+    /// 成功回调（宿主 showControlFeedback 反馈行）
+    var onSuccess: () -> Void = {}
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var sending = false
+    @State private var errorText: String?
+
+    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
+            HStack {
+                Text(String(localized: "编辑目标"))
+                    .font(T.font(17, .bold))
+                    .foregroundColor(T.text)
+                Spacer()
+                Button(String(localized: "取消")) { dismiss() }
+                    .font(T.font(14, .medium))
+                    .foregroundColor(T.text2)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityIdentifier("05-goal-edit-act-cancel")
+            }
+            .padding(.horizontal, T.sp4)
+            ScrollView {
+                VStack(alignment: .leading, spacing: T.sp3) {
+                    TextEditor(text: $text)
+                        .font(T.font(13))
+                        .foregroundColor(T.text)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 96, alignment: .topLeading)
+                        .padding(T.sp2)
+                        .background(T.bgInput)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                        .accessibilityIdentifier("05-goal-edit-field")
+                    Text(String(localized: "将替换桌面端当前目标，Agent 会按新目标继续执行；进行中的回合不受影响。"))
+                        .font(T.font(11))
+                        .foregroundColor(T.text3)
+                        .lineSpacing(3)
+                    Button {
+                        send()
+                    } label: {
+                        HStack(spacing: T.sp2) {
+                            if sending {
+                                SpinnerView(color: T.onAccent, size: 13)
+                            }
+                            Text(sending ? String(localized: "下发中…") : String(localized: "下发目标"))
+                                .font(T.font(13.5, .semibold))
+                        }
+                        .foregroundColor(T.onAccent)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(trimmed.isEmpty || sending ? T.accent.opacity(0.5) : T.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                    }
+                    .disabled(trimmed.isEmpty || sending)
+                    .accessibilityIdentifier("05-goal-edit-act-send")
+                    if let errorText {
+                        Text(errorText)
+                            .font(T.font(11.5, .semibold))
+                            .foregroundColor(T.red)
+                            .accessibilityIdentifier("05-goal-edit-error")
+                    }
+                }
+                .padding(T.sp4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(T.bgElevated)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+        .onAppear {
+            // 每次打开预填当前 goal（state.updated 回流后的最新文本；残留编辑不跨次携带）
+            text = initialText
+            errorText = nil
+        }
+    }
+
+    private func send() {
+        guard !trimmed.isEmpty, !sending else { return }
+        sending = true
+        errorText = nil
+        Task {
+            let error = await onSend(trimmed)
+            sending = false
+            if let error {
+                errorText = error // 失败留在 sheet，主钮即重试
+            } else {
+                dismiss()
+                onSuccess()
+            }
+        }
     }
 }
 

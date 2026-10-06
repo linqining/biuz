@@ -11,6 +11,14 @@ struct FileTreeView: View {
     @State private var isLoading = true
     @State private var searchResults: [FileNode]?
     @State private var searchTask: Task<Void, Never>?
+    // P3-8：一站式提交（git 写族 UI 化，连接态 only）；P3-11 检查点入口已隐藏（H3）
+    @State private var stagedCount: Int?
+    @State private var showCommitSheet = false
+    // HIDDEN(对齐修复 H3)：git-checkpoint 三方法 web bundle 0 命中且协议文档零实证条目
+    // （审查报告 §五），真机取证立条后随入口一并恢复
+    // @State private var showCheckpointSheet = false
+    @State private var notice: String?
+    @State private var noticeIsError = false
 
     /// G-031：连接态组头显示当前连接 workspace 真实路径；演示态保留演示路径
     private var headerPath: String {
@@ -56,6 +64,9 @@ struct FileTreeView: View {
                             .listRowInsets(EdgeInsets(top: 4, leading: T.sp4, bottom: 4, trailing: T.sp4))
                             .listRowSeparator(.hidden)
                     }
+                    if store.isRemote {
+                        commitSection
+                    }
                     Section {
                         ForEach(visibleRows) { node in
                             row(node)
@@ -74,11 +85,38 @@ struct FileTreeView: View {
         .background(T.bg)
         .navigationTitle("工作区文件")
         .navigationBarTitleDisplayMode(.inline)
-        .task {
+        // P3-8：一站式提交 sheet；关闭即重取 staged 计数（提交后变化可见）
+        .sheet(isPresented: $showCommitSheet, onDismiss: {
+            Task { await refreshStagedCount() }
+        }) {
+            CommitSheet(onCommitted: { hash in
+                noticeIsError = false
+                let shortHash = hash ?? ""
+                notice = shortHash.isEmpty ? String(localized: "已提交") : String(localized: "已提交 · \(shortHash)")
+            })
+            .accessibilityIdentifier("09-commit-sheet")
+        }
+        // HIDDEN(对齐修复 H3)：检查点 sheet 挂载随入口一起注释（CheckpointSheet 本体
+        // 与 RemoteFileStore 发送方法保留编译；恢复条件：git-checkpoint 真机取证 + 协议文档立条）
+        // .sheet(isPresented: $showCheckpointSheet, onDismiss: {
+        //     Task { await refreshStagedCount() }
+        // }) {
+        //     CheckpointSheet(onRestored: {
+        //         noticeIsError = false
+        //         notice = String(localized: "已恢复")
+        //         Task { tree = await store.fileTree() } // 恢复后工作区文件已回退，重拉树
+        //     })
+        //     .accessibilityIdentifier("09-checkpoint-sheet")
+        // }
+        // id 绑定 store 实例（DiffReviewView/TaskBoardView 同款先例）：连接成功或 P3-10
+        // 工作区切换产生新 Store 时重拉文件树 + 重挂观察流（无 id 时已挂载页面永不刷新）
+        .task(id: ObjectIdentifier(store)) {
+            stagedCount = nil
             tree = await store.fileTree()
             isLoading = false
+            await refreshStagedCount()
         }
-        .task {
+        .task(id: ObjectIdentifier(store)) {
             // 文件树活性（file-watcher.onDynamicChange）：变更即重拉；演示态流立即结束
             for await _ in store.observeFileTreeChanges() {
                 tree = await store.fileTree()
@@ -107,6 +145,92 @@ struct FileTreeView: View {
                     expanded.insert((result.path as NSString).deletingLastPathComponent)
                 }
             }
+        }
+    }
+
+    // MARK: 一站式提交入口（P3-8：git 写族 UI 化，桌面代执行；检查点入口 HIDDEN(H3)）
+    // staged 计数独立取数（design §8.1：diffFiles(sourceId:"staged") 仅计数不装树）；
+    // stagedCount==nil/0 时提交入口灰置（design §8.4 状态矩阵）。
+
+    private func refreshStagedCount() async {
+        guard store.isRemote else {
+            stagedCount = nil
+            return
+        }
+        let staged = await store.diffFiles(sourceId: "staged")
+        stagedCount = staged.count
+    }
+
+    private var commitSection: some View {
+        Section {
+            if let notice {
+                HStack(spacing: T.sp2) {
+                    Image(systemName: noticeIsError ? "exclamationmark.circle" : "checkmark.circle")
+                        .font(.system(size: 12))
+                    Text(notice)
+                        .font(T.font(11.5, .semibold))
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                }
+                .foregroundColor(noticeIsError ? T.red : T.accentText)
+                .listRowBackground(T.bgCard)
+                .listRowSeparator(.hidden)
+                .accessibilityIdentifier("09-notice")
+            }
+            Button {
+                self.notice = nil
+                showCommitSheet = true
+            } label: {
+                HStack(spacing: T.sp2) {
+                    Image(systemName: "arrow.up.doc")
+                        .font(.system(size: 13))
+                        .foregroundColor(stagedCount == nil || stagedCount == 0 ? T.text3 : T.accentText)
+                    Text("提交")
+                        .font(T.font(14, .medium))
+                        .foregroundColor(T.text)
+                    Spacer()
+                    if let count = stagedCount, count > 0 {
+                        TabBadge(count: count, color: T.accent)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(T.text3)
+                }
+                .padding(.vertical, 6)
+            }
+            .disabled(stagedCount == nil || stagedCount == 0)
+            .listRowBackground(T.bgCard)
+            .listRowSeparator(.hidden)
+            .accessibilityIdentifier("09-row-commit-entry")
+            // HIDDEN(对齐修复 H3)：检查点入口行整块注释（git-checkpoint 三方法 web bundle
+            // 0 命中 + 协议文档零条目，审查报告 §五「全审计中最不可靠一环」——形状全靠猜，
+            // 真机取证立条后恢复；CheckpointSheet :932 起保留编译）
+            // Button {
+            //     notice = nil
+            //     showCheckpointSheet = true
+            // } label: {
+            //     HStack(spacing: T.sp2) {
+            //         Image(systemName: "clock.arrow.circlepath")
+            //             .font(.system(size: 13))
+            //             .foregroundColor(T.codeLab)
+            //         Text("检查点")
+            //             .font(T.font(14, .medium))
+            //             .foregroundColor(T.text)
+            //         Spacer()
+            //         Image(systemName: "chevron.right")
+            //             .font(.system(size: 11, weight: .semibold))
+            //             .foregroundColor(T.text3)
+            //     }
+            //     .padding(.vertical, 6)
+            // }
+            // .listRowBackground(T.bgCard)
+            // .listRowSeparator(.hidden)
+            // .accessibilityIdentifier("09-row-checkpoint-entry")
+        } header: {
+            // HIDDEN(H3)：检查点入口隐藏后组头不再提及（原「提交与检查点」）
+            Text("提交")
+                .font(T.font(11, .semibold))
+                .foregroundColor(T.text3)
         }
     }
 
@@ -521,4 +645,613 @@ struct ActivityView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - 一站式提交 Sheet（P3-8：git.generateCommitMessage + git.commit）
+// 桌面代执行（gate 2026-10-06 与 web 对齐放行）；提交集由桌面端 git index（stagePaths
+// 结果）定义——本 sheet 只传 message。参数/回执协议文档零记录【宽容】，见协议文档条目。
+
+struct CommitSheet: View {
+    @Environment(\.fileStore) private var store
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppSession.self) private var session
+    var onCommitted: (String?) -> Void
+
+    @State private var stagedFiles: [DiffFile] = []
+    @State private var isLoading = true
+    @State private var message = ""
+    @State private var isGenerating = false
+    @State private var isCommitting = false
+    @State private var errorMessage: String?
+    @State private var branchName: String?
+    @State private var showCommitConfirm = false
+    @State private var showOverwriteConfirm = false
+    /// 提交身份预检（git.getIdentity，web 对齐 2026-10-06）：web 端身份缺失时
+    /// 禁用提交（identityMissing）；移动端形态未取证——警示不阻断，读失败中性标注
+    @State private var identity: GitIdentityInfo?
+    @State private var identityFailed = false
+
+    private var branchDisplayName: String {
+        if let branchName, !branchName.isEmpty { return branchName }
+        return String(localized: "当前分支")
+    }
+
+    private var canCommit: Bool {
+        !isCommitting && !stagedFiles.isEmpty
+            && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
+            HStack {
+                Text("提交到 \(branchDisplayName)")
+                    .font(T.font(15, .bold))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Text("取消")
+                        .font(T.font(14, .medium))
+                        .foregroundColor(T.text2)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityIdentifier("09-commit-cancel")
+            }
+            .padding(.horizontal, T.sp4)
+
+            if isLoading {
+                CenterLoadingView(text: "正在读取已暂存变更…")
+            } else if stagedFiles.isEmpty {
+                EmptyStateView(
+                    icon: "tray",
+                    title: String(localized: "没有已暂存的变更"),
+                    detail: String(localized: "先在文件列表批准文件，或使用「全部批准」。"),
+                    cta: String(localized: "返回"),
+                    ctaAction: { dismiss() },
+                    ctaIdentifier: "09-commit-empty-back")
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: T.sp4) {
+                        stagedList
+                        identityRow
+                        messageSection
+                        if let errorMessage {
+                            HStack(spacing: T.sp2) {
+                                Image(systemName: "exclamationmark.circle")
+                                    .font(.system(size: 12))
+                                Text(errorMessage)
+                                    .font(T.font(11.5, .semibold))
+                                Spacer(minLength: 0)
+                            }
+                            .foregroundColor(T.orangeBright)
+                            .accessibilityIdentifier("09-commit-error")
+                        }
+                    }
+                    .padding(T.sp4)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                submitButton
+            }
+        }
+        .background(T.bgElevated)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+        .task {
+            stagedFiles = await store.diffFiles(sourceId: "staged")
+            isLoading = false
+            await loadBranch()
+            await loadIdentity()
+        }
+        // 提交确认（design §8.5 从严 destructive；弹层写明将提交哪些文件——用户硬要求）
+        .confirmationDialog(
+            "确认提交 \(stagedFiles.count) 个文件到 \(branchDisplayName)？",
+            isPresented: $showCommitConfirm,
+            titleVisibility: .visible) {
+            Button("提交", role: .destructive) {
+                Task { await performCommit() }
+            }
+            .accessibilityIdentifier("09-commit-confirm-submit")
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(commitConfirmMessage)
+        }
+        // 非空时重新生成 → 先确认覆盖（design §8.3.2 简化规则）
+        .alert("覆盖已编辑的提交信息？", isPresented: $showOverwriteConfirm) {
+            Button("覆盖", role: .destructive) {
+                Task { await generateAndFill() }
+            }
+            .accessibilityIdentifier("09-commit-overwrite-confirm")
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("当前内容将被 AI 生成结果替换。")
+        }
+    }
+
+    // MARK: 已暂存清单
+
+    private var stagedList: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            Text("已暂存（\(stagedFiles.count)）")
+                .font(T.font(12, .semibold))
+                .foregroundColor(T.text3)
+            VStack(spacing: 0) {
+                ForEach(Array(stagedFiles.enumerated()), id: \.element.id) { index, file in
+                    HStack(spacing: T.sp2) {
+                        Text(file.path)
+                            .font(T.mono(11.5))
+                            .foregroundColor(T.text)
+                            .lineLimit(1)
+                        Spacer(minLength: T.sp2)
+                        Text("+\(file.added)")
+                            .font(T.mono(10.5))
+                            .foregroundColor(T.add)
+                        Text("-\(file.removed)")
+                            .font(T.mono(10.5))
+                            .foregroundColor(T.del)
+                    }
+                    .padding(.horizontal, T.sp3)
+                    .frame(minHeight: 36)
+                    if index < stagedFiles.count - 1 {
+                        Divider().overlay(T.border)
+                    }
+                }
+            }
+            .background(T.bgCard)
+            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        }
+    }
+
+    // MARK: 提交信息（AI 生成 + 可编辑）
+
+    private var messageSection: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            HStack(spacing: T.sp2) {
+                Button {
+                    requestGenerate()
+                } label: {
+                    HStack(spacing: 5) {
+                        if isGenerating {
+                            SpinnerView(size: 11)
+                        } else {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 11))
+                        }
+                        Text(isGenerating
+                             ? "AI 生成中…"
+                             : (message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? "AI 生成提交信息" : "重新生成"))
+                            .font(T.font(11.5, .medium))
+                    }
+                    .foregroundColor(T.accentText)
+                    .padding(.horizontal, T.sp3)
+                    .frame(minHeight: 30)
+                    .background(T.accentDim)
+                    .clipShape(Capsule())
+                }
+                .disabled(isGenerating || isCommitting)
+                .accessibilityIdentifier("09-commit-ai")
+                Spacer()
+            }
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $message)
+                    .font(T.mono(13))
+                    .foregroundColor(T.text)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 96)
+                    .padding(T.sp2)
+                    .background(T.bgInput)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                    .accessibilityIdentifier("09-commit-field")
+                if message.isEmpty {
+                    Text("写一句提交信息，或让 AI 生成")
+                        .font(T.mono(13))
+                        .foregroundColor(T.text3)
+                        .padding(.leading, 14)
+                        .padding(.top, 13)
+                        .allowsHitTesting(false)
+                }
+            }
+            .disabled(isCommitting)
+        }
+    }
+
+    private var submitButton: some View {
+        Button {
+            showCommitConfirm = true
+        } label: {
+            Text(isCommitting ? "提交中…" : "提交")
+                .font(T.font(15, .semibold))
+                .foregroundColor(canCommit ? T.onAccent : T.text3)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(canCommit ? T.accent : T.bgInput)
+                .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        }
+        .disabled(!canCommit)
+        .accessibilityIdentifier("09-commit-submit")
+        .padding(.horizontal, T.sp4)
+        .padding(.vertical, T.sp2)
+        .background(T.bgElevated)
+    }
+
+    /// 确认弹层文案：逐个列出不超 5 条路径，更多以「等共 N 个文件」收口
+    private var commitConfirmMessage: String {
+        var lines = stagedFiles.prefix(5).map { "• \($0.path)" }
+        if stagedFiles.count > 5 {
+            lines.append(String(localized: "等共 \(stagedFiles.count) 个文件"))
+        }
+        return String(localized: "将提交以下文件（写入桌面端仓库历史）：\n\(lines.joined(separator: "\n"))")
+    }
+
+    // MARK: 动作
+
+    private func requestGenerate() {
+        guard !isGenerating, !isCommitting else { return }
+        if !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            showOverwriteConfirm = true
+            return
+        }
+        Task { await generateAndFill() }
+    }
+
+    private func generateAndFill() async {
+        isGenerating = true
+        errorMessage = nil
+        let text = await store.generateCommitMessage(paths: stagedFiles.map(\.path))
+        isGenerating = false
+        if let text {
+            message = text
+        } else {
+            errorMessage = String(localized: "生成失败 · 可手写提交信息")
+        }
+    }
+
+    // MARK: 提交身份预检（git.getIdentity）
+
+    /// 身份行（读面三态：完整=中性展示 / 已读但 name·email 缺失=橙色警示（web
+    /// identityMissing 同口径——email 配置缺失是桌面常见提交失败根因，预检省一次
+    /// 来回）/ 读取失败=中性标注不阻断。字段宽容解析未取证，警示不硬禁提交，
+    /// 提交被拒时既有失败行如实兜底）
+    @ViewBuilder
+    private var identityRow: some View {
+        HStack(spacing: T.sp2) {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: 11))
+                .foregroundColor(identityWarning ? T.orangeBright : T.text3)
+            Text(identityText)
+                .font(T.font(11.5))
+                .foregroundColor(identityWarning ? T.orangeBright : T.text3)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, T.sp3)
+        .frame(minHeight: 32)
+        .background(T.bgInput)
+        .clipShape(Capsule())
+        .accessibilityIdentifier("09-commit-identity")
+    }
+
+    private var identityWarning: Bool {
+        guard let identity, !identityFailed else { return false }
+        return !identity.isComplete
+    }
+
+    private var identityText: String {
+        if identityFailed {
+            return String(localized: "提交身份读取失败 · 提交仍可尝试")
+        }
+        guard let identity else { return String(localized: "提交身份…") }
+        if identity.isComplete {
+            return String(localized: "提交身份 \(identity.displayText)")
+        }
+        return String(localized: "桌面端未配置提交身份（name/email 缺失），提交可能被拒绝")
+    }
+
+    /// git.getIdentity 只读拉取（RemoteFileStore.gitIdentity；nil=调用失败）
+    private func loadIdentity() async {
+        guard store.isRemote else { return }
+        let result = await store.gitIdentity()
+        identity = result
+        identityFailed = result == nil
+    }
+
+    private func performCommit() async {
+        let body = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        isCommitting = true
+        errorMessage = nil
+        let hash = await store.commit(message: body)
+        isCommitting = false
+        if hash != nil {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            onCommitted(hash)
+            dismiss()
+        } else {
+            // 信息保留可重试（design §8.4：提交失败态）
+            errorMessage = String(localized: "提交失败 · 桌面端拒绝或连接异常，信息已保留可重试")
+        }
+    }
+
+    /// 分支名只读拉取（git.getRepositorySummary，DiffReviewView.loadGitSummary 同款；
+    /// 失败保持「当前分支」兜底，不阻塞提交流程）
+    private func loadBranch() async {
+        guard case .connected = session.mode, session.connection.isActive else { return }
+        var builder = JSONObjectBuilder()
+        if let ws = session.connection.workspace {
+            builder.set("workspacePath", ws.path)
+        }
+        guard let result = try? await session.connection.call(
+            "git", "getRepositorySummary", .json(.object(builder.fields))) else { return }
+        branchName = result.jsonValue?["branchName"]?.stringValue
+    }
+}
+
+// MARK: - 检查点 Sheet（P3-11：git-checkpoint.diffCheckpoints / createCheckpoint /
+// restoreBetweenCheckpoints）。恢复为破坏性操作（工作区回退）——destructive 确认弹层
+// 硬要求（design §11A）；命令词表见 ReadOnlyGate git-checkpoint 注。
+
+struct CheckpointSheet: View {
+    @Environment(\.fileStore) private var store
+    @Environment(\.dismiss) private var dismiss
+    var onRestored: () -> Void
+
+    @State private var checkpoints: [CheckpointInfo] = []
+    @State private var isLoading = true
+    @State private var loadFailed = false
+    @State private var isCreating = false
+    @State private var showCreateAlert = false
+    @State private var noteText = ""
+    @State private var pendingRestore: CheckpointInfo?
+    @State private var restoringId: String?
+    @State private var errorMessage: String?
+    @State private var notice: String?
+
+    static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
+    private func timeText(_ checkpoint: CheckpointInfo) -> String {
+        guard let date = checkpoint.date else { return String(localized: "时间未知") }
+        return Self.timeFormatter.string(from: date)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
+            HStack {
+                Text("检查点")
+                    .font(T.font(15, .bold))
+                    .foregroundColor(T.text)
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Text("取消")
+                        .font(T.font(14, .medium))
+                        .foregroundColor(T.text2)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityIdentifier("09-checkpoint-cancel")
+            }
+            .padding(.horizontal, T.sp4)
+
+            if isLoading {
+                CenterLoadingView(text: "正在读取检查点…")
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: T.sp3) {
+                        createButton
+                        if let notice {
+                            HStack(spacing: T.sp2) {
+                                Image(systemName: "checkmark.circle")
+                                    .font(.system(size: 12))
+                                Text(notice)
+                                    .font(T.font(11.5, .semibold))
+                                Spacer(minLength: 0)
+                            }
+                            .foregroundColor(T.accentText)
+                            .accessibilityIdentifier("09-checkpoint-notice")
+                        }
+                        if let errorMessage {
+                            HStack(spacing: T.sp2) {
+                                Image(systemName: "exclamationmark.circle")
+                                    .font(.system(size: 12))
+                                Text(errorMessage)
+                                    .font(T.font(11.5, .semibold))
+                                Spacer(minLength: 0)
+                            }
+                            .foregroundColor(T.orangeBright)
+                            .accessibilityIdentifier("09-checkpoint-error")
+                        }
+                        if loadFailed {
+                            failedBlock
+                        } else if checkpoints.isEmpty {
+                            EmptyStateView(
+                                icon: "camera.on.rectangle",
+                                title: String(localized: "还没有检查点"),
+                                detail: String(localized: "创建检查点后可随时把工作区回退到该时刻。"))
+                        } else {
+                            listCard
+                        }
+                    }
+                    .padding(T.sp4)
+                }
+            }
+        }
+        .background(T.bgElevated)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+        .task { await reload() }
+        // 创建：可选说明 alert（design §11A；带 TextField 先例 ApprovalSheetView）
+        .alert("创建检查点", isPresented: $showCreateAlert) {
+            TextField("说明（可选）", text: $noteText)
+                .accessibilityIdentifier("09-checkpoint-note")
+            Button("取消", role: .cancel) { noteText = "" }
+            Button("创建") {
+                Task { await performCreate() }
+            }
+            .accessibilityIdentifier("09-checkpoint-create-send")
+        } message: {
+            Text("为当前工作区状态创建快照，之后可随时恢复到该时刻。")
+        }
+        // 恢复确认（破坏性 · 硬要求 destructive，文案按 design §11A 逐字）
+        .confirmationDialog(
+            restoreTitle,
+            isPresented: Binding(
+                get: { pendingRestore != nil },
+                set: { if !$0 { pendingRestore = nil } }),
+            titleVisibility: .visible) {
+            Button("恢复", role: .destructive) {
+                if let target = pendingRestore {
+                    Task { await performRestore(target) }
+                }
+                pendingRestore = nil
+            }
+            .accessibilityIdentifier("09-checkpoint-confirm-restore")
+            Button("取消", role: .cancel) { pendingRestore = nil }
+        } message: {
+            Text("工作区文件将回退到该时刻，之后的改动会丢失（可通过再次恢复撤销）。")
+        }
+    }
+
+    private var restoreTitle: String {
+        if let target = pendingRestore {
+            return String(localized: "恢复到 \(timeText(target)) 的检查点？")
+        }
+        return String(localized: "恢复检查点？")
+    }
+
+    private var createButton: some View {
+        Button {
+            noteText = ""
+            showCreateAlert = true
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(isCreating ? "创建中…" : "创建检查点")
+                    .font(T.font(13, .semibold))
+            }
+            .foregroundColor(T.onAccent)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(isCreating ? T.bgInput : T.accent)
+            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        }
+        .disabled(isCreating)
+        .accessibilityIdentifier("09-checkpoint-create")
+    }
+
+    /// 失败诚实占位（design §11A：RemoteCapabilityPlaceholderPage 口径——sheet 内
+    /// 以诚实错误块 + 重试承载，不虚构清单）
+    private var failedBlock: some View {
+        VStack(spacing: T.sp2) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 20))
+                .foregroundColor(T.orangeBright)
+            Text("检查点信息不可用")
+                .font(T.font(13, .semibold))
+                .foregroundColor(T.text)
+            Text("当前桌面端未返回检查点清单，可稍后重试。")
+                .font(T.font(11.5))
+                .foregroundColor(T.text3)
+                .multilineTextAlignment(.center)
+            TextActionButton(
+                title: "重试", action: { Task { await reload() } },
+                identifier: "09-checkpoint-retry")
+        }
+        .frame(maxWidth: .infinity)
+        .card()
+    }
+
+    private var listCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(checkpoints.enumerated()), id: \.offset) { index, checkpoint in
+                HStack(spacing: T.sp2) {
+                    Image(systemName: "camera.on.rectangle")
+                        .font(.system(size: 12))
+                        .foregroundColor(T.codeLab)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(timeText(checkpoint))
+                            .font(T.mono(12))
+                            .foregroundColor(T.text)
+                        if let label = checkpoint.label, !label.isEmpty {
+                            Text(label)
+                                .font(T.font(11))
+                                .foregroundColor(T.text3)
+                                .lineLimit(2)
+                        }
+                    }
+                    Spacer()
+                    if restoringId == checkpoint.id {
+                        SpinnerView(size: 14)
+                            .frame(width: 44, height: 44)
+                    } else {
+                        Button {
+                            pendingRestore = checkpoint
+                        } label: {
+                            Text("恢复")
+                                .font(T.font(13, .semibold))
+                                .foregroundColor(T.red)
+                                .padding(.horizontal, T.sp3)
+                                .frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("09-checkpoint-restore-\(index)")
+                    }
+                }
+                .padding(.horizontal, T.sp3)
+                .frame(minHeight: 52)
+                if index < checkpoints.count - 1 {
+                    Divider().overlay(T.border)
+                }
+            }
+        }
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+    }
+
+    // MARK: 动作
+
+    private func reload() async {
+        isLoading = checkpoints.isEmpty
+        loadFailed = false
+        if let list = await store.checkpoints() {
+            checkpoints = list // 键级整体替换，绝不深合并
+        } else {
+            loadFailed = true
+        }
+        isLoading = false
+    }
+
+    private func performCreate() async {
+        isCreating = true
+        errorMessage = nil
+        let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ok = await store.createCheckpoint(note: trimmed.isEmpty ? nil : trimmed)
+        isCreating = false
+        noteText = ""
+        if ok {
+            notice = String(localized: "检查点已创建")
+            await reload()
+        } else {
+            errorMessage = String(localized: "创建失败 · 桌面端拒绝或连接异常")
+        }
+    }
+
+    private func performRestore(_ checkpoint: CheckpointInfo) async {
+        restoringId = checkpoint.id
+        errorMessage = nil
+        let ok = await store.restoreCheckpoint(checkpoint)
+        restoringId = nil
+        if ok {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            onRestored()
+            dismiss()
+        } else {
+            errorMessage = String(localized: "恢复失败 · 桌面端拒绝或连接异常")
+        }
+    }
 }

@@ -119,6 +119,12 @@ actor RelayTransport {
     private var rpcMessageHandler: (@Sendable (Data) -> Void)?
     /// 通道终态上抛（终态错误 / 重试耗尽）
     private var closedHandler: (@Sendable (RelayCloseReason) -> Void)?
+    /// 工作区清单推送上抛（workspace-list-updated，P3-10）：无 requestId 的主动推送，
+    /// 走 resolveAppRequest 永远无 waiter 会被当作「无匹配 requestId」丢弃——单独拆 case 消费
+    private var workspaceListUpdatedHandler: (@Sendable (JSONValue) -> Void)?
+    /// 桥退化上抛（bridge-degraded / 无 requestId 的 workspace-bridge-error / replay 宽限超时，
+    /// C-13）：RelayChannelClient 据此快速重建桥（对齐 web markDegraded → T(reason) 编排）
+    private var bridgeDegradedHandler: (@Sendable (String) -> Void)?
 
     init(config: RelayLinkConfig, onLog: @escaping @Sendable (ConnectLogLine.Kind, String) -> Void) {
         self.config = config
@@ -161,7 +167,20 @@ actor RelayTransport {
         pairedRecoveryHandler = handler
     }
 
+    /// 工作区清单推送回调（P3-10；连接层据此刷新切换器清单）
+    func setWorkspaceListUpdatedHandler(_ handler: @escaping @Sendable (JSONValue) -> Void) {
+        workspaceListUpdatedHandler = handler
+    }
+
+    /// 桥退化回调（C-13；RelayChannelClient 在 connectRelay 时接线，先于任何桥建立）
+    func setBridgeDegradedHandler(_ handler: @escaping @Sendable (String) -> Void) {
+        bridgeDegradedHandler = handler
+    }
+
     var desktopTerminalSid: String? { terminalSid }
+
+    /// 传输是否处于 paired（桥重建编排据以区分「传输失联等恢复」与「真失败走终态」）
+    var isPaired: Bool { state == .paired }
 
     // MARK: WS + auth
 
@@ -384,13 +403,89 @@ actor RelayTransport {
         case "rpc-frame", "rpc-frame-ack":
             handleRelayFramePayload(payload)
         case "bootstrap-response", "workspace-list-response", "platform-response",
-             "workspace-reconnect-response", "workspace-list-updated":
+             "workspace-reconnect-response":
+            // 带 requestId 的响应：经 waiter 配对（workspace-reconnect-response 属
+            // 请求-响应面，reconnect 请求经 requestAppPayload 发出即在此配对回来）
             resolveAppRequest(payload)
+        case "app-error", "workspace-bridge-error":
+            // web $2t.acceptPayload 首分支（bundle 实证）：带 requestId 的错误帧一律按
+            // 失败 reject 对应 waiter（L9(reason,error) 形态）；无 requestId 的
+            // workspace-bridge-error 按 bridgeSessionId 走桥退化（C-13/C-14）
+            rejectErrorPayload(payload, zcodeType: zcodeType)
+        case "bridge-degraded":
+            // 桌面宣告桥退化（无 requestId 主动推送；web 下行分发器按 bridgeSessionId
+            // 匹配当前桥后 markDegraded 快速重建，C-13）
+            handleBridgeDegradedFrame(payload, message: Self.errorText(payload))
+        case "workspace-list-updated":
+            // 桌面端主动推送（无 requestId，永远无 waiter）：从 resolveAppRequest 组
+            // 单独拆出上抛，否则落入「app 响应无匹配 requestId（忽略）」被丢弃（P3-10）
+            workspaceListUpdatedHandler?(payload)
         case "workspace-bridge-ready":
             resolveBridgeOpen(payload)
         default:
-            log(.info, "data 帧 · zcode_type=\(zcodeType)（未消费）")
+            // 新增 app 层请求-响应族（P1-1 附件上传会话 attachmentPut 等）响应类型名
+            // 未取证：凡携 requestId 且有在途 waiter 的 data 帧一律按 requestId 配对
+            // 回填（宽容形态，与 resolveAppRequest 同口径）；无 waiter 维持未消费日志
+            if let requestId = payload["requestId"]?.stringValue, appRequestWaiters[requestId] != nil {
+                resolveAppRequest(payload)
+            } else {
+                log(.info, "data 帧 · zcode_type=\(zcodeType)（未消费）")
+            }
         }
+    }
+
+    /// 错误帧的 reason+error 文本合成（web L9(reason,error) / K9(reason,error) 同口径：
+    /// reason 为错误码、error 为人类可读串，两者皆可缺席）
+    private static func errorText(_ payload: JSONValue) -> String {
+        let reason = payload["reason"]?.stringValue ?? ""
+        let error = payload["error"]?.stringValue ?? ""
+        return [reason, error].filter { !$0.isEmpty }.joined(separator: ": ")
+    }
+
+    /// app-error / workspace-bridge-error 统一收口（C-14，web acceptPayload 首分支 + 下行
+    /// 分发器合并）：
+    /// ① 带 requestId 且有在途 waiter → 按失败 reject（不再被当成功响应 resume）；
+    /// ② bridge-open 在途（bridgeSessionId 匹配面）→ 错误帧回带同桥 id 即失败，不等超时；
+    /// ③ 无 requestId 的 workspace-bridge-error → bridgeSessionId 命中当前桥走退化（C-13）；
+    /// ④ 其余（无 waiter 的 app-error）→ 仅记日志（web 上抛全局错误面 x(K9(reason,error))，
+    ///    移动端无对应 UI 面）。
+    private func rejectErrorPayload(_ payload: JSONValue, zcodeType: String) {
+        let message = Self.errorText(payload)
+        let error = RPCError(
+            message: message.isEmpty ? "\(zcodeType) 错误帧" : message,
+            name: "RelayAppError", detail: payload)
+        if let requestId = payload["requestId"]?.stringValue,
+           let waiter = appRequestWaiters.removeValue(forKey: requestId) {
+            log(.error, "\(zcodeType) · requestId=\(requestId.prefix(8))… · \(message)")
+            waiter.resume(throwing: error)
+            return
+        }
+        if let bridgeId = payload["bridgeSessionId"]?.stringValue,
+           let waiter = bridgeOpenWaiter, waiter.bridgeSessionId == bridgeId {
+            bridgeOpenWaiter = nil
+            log(.error, "\(zcodeType) · bridge=\(bridgeId.prefix(8))… · \(message)")
+            waiter.continuation.resume(throwing: error)
+            return
+        }
+        if zcodeType == "workspace-bridge-error" {
+            handleBridgeDegradedFrame(payload, message: message)
+        } else {
+            log(.error, "app-error（无在途 waiter）· \(message)")
+        }
+    }
+
+    /// 桥退化统一入口（bridge-degraded 帧 / 无 requestId 的 workspace-bridge-error /
+    /// replay 宽限超时）：bridgeSessionId 命中当前帧身份才生效（web 同款比对，异桥帧忽略）
+    private func handleBridgeDegradedFrame(_ payload: JSONValue, message: String) {
+        guard let identity = frameIdentity,
+              payload["bridgeSessionId"]?.stringValue == identity.bridgeSessionId else {
+            log(.info, "桥退化帧 bridgeSessionId 不匹配当前桥（忽略）")
+            return
+        }
+        frameDegraded = true
+        let reason = message.isEmpty ? "reason 未携带" : message
+        log(.error, "bridge-degraded · \(reason)")
+        bridgeDegradedHandler?(reason)
     }
 
     private func resolveAppRequest(_ payload: JSONValue) {
@@ -466,6 +561,21 @@ actor RelayTransport {
         waiter.resume(throwing: RPCError(message: "\(zcodeType) 响应超时", name: "TimeoutError"))
     }
 
+    /// app 层单向通知帧（web sendPayload 面，C-11）：mobile-view-state-update 无 requestId、
+    /// 不注册 waiter、不等待响应——用 requestAppPayload 会凭空挂 30s 超时 waiter，故单列
+    func sendAppNotification(_ payload: [String: JSONValue], zcodeType: String) {
+        guard state == .paired else {
+            log(.info, "\(zcodeType) 未发送（state=\(state)，非 paired）")
+            return
+        }
+        sendJSON([
+            "type": .string("data"),
+            "payload": .object(payload),
+            "client_ts": .int(Int(Date().timeIntervalSince1970 * 1000)),
+        ])
+        log(.working, "→ \(zcodeType)（单向通知）")
+    }
+
     // MARK: 心跳 / 看门狗
 
     private func startHeartbeat() {
@@ -477,10 +587,24 @@ actor RelayTransport {
                 let current = await self.state
                 guard current == .paired || current == .waiting else { return }
                 await self.sendPairStatusQuery()
+                // 桥本地退化监测（C-13 接线，原死代码）：45s 无 rpc-frame-ack 且尚有
+                // 未确认批次 → 本地判退化（对齐 web 桥 Qi(timeout) 看门狗），上抛快速重建；
+                // 桌面主动宣告走 bridge-degraded 帧，两路在 handleBridgeDegraded 汇合
+                if await self.checkReplayDeadline() {
+                    await self.notifyLocalBridgeDegraded()
+                }
                 let jitter = Double.random(in: 0...Self.heartbeatJitterMaxSeconds)
                 try? await Task.sleep(nanoseconds: UInt64((Self.heartbeatIntervalSeconds + jitter) * 1_000_000_000))
             }
         }
+    }
+
+    /// checkReplayDeadline 判退化的上抛（帧身份在场才通知——未开桥时无退化语义）
+    private func notifyLocalBridgeDegraded() {
+        guard frameIdentity != nil else { return }
+        let reason = "rpc-frame 45s 无 ack（replay 宽限超时）"
+        log(.error, reason)
+        bridgeDegradedHandler?(reason)
     }
 
     private func stopHeartbeat() {

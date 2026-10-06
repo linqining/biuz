@@ -84,10 +84,11 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         add(shot)
     }
 
-    /// 演示态冷启动（清空凭据态/服务器注册表/语言偏好）
+    /// 演示态冷启动（清空凭据态/服务器注册表/语言偏好）。
+    /// -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）
     @discardableResult
     private func launchDemo(extra: [String] = []) -> XCUIApplication {
-        app.launchArguments = ["-ZCodeE2EResetState", "-AppleLanguages", "(zh-Hans)"] + extra
+        app.launchArguments = ["-ZCodeE2EResetState", "-ZCodeDemoData", "-AppleLanguages", "(zh-Hans)"] + extra
         app.launch()
         return app
     }
@@ -178,21 +179,21 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         row.tap()
     }
 
-    // MARK: - G-010/G-006 会话来源过滤：三档各自非空（演示）+ 连接态如实降级 + 持久化
+    // MARK: - G-010/G-006 会话来源过滤：两档过滤（演示）+ 连接态隐藏 cloud 档 + 持久化
+    //（H7 后「云端沙盒」档整档隐藏，原三档断言改写为隐藏断言）
 
     func test01_sourceFilterRoundTripDemoAndConnected() throws {
         let application = launchDemo()
 
-        // ① 演示态三档各自非空（G-006：mock seed 补 source 演示值——c3/c4=cloud，其余=mac）
+        // ① 演示态两档各自非空（G-006：mock seed 补 source 演示值——c3/c4=cloud，其余=mac）
         XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 10),
                       "演示态应进入会话列表（mock 会话在场）")
         XCTAssertTrue(element(application, "04-chip-source-all").waitForExistence(timeout: 6),
                       "来源过滤 chips 应在场")
-        element(application, "04-chip-source-cloud").tap()
-        XCTAssertTrue(element(application, "04-row-c3").waitForExistence(timeout: 12),
-                      "演示态「云端沙盒」档应返回演示 cloud 会话集合（c3/c4）")
-        XCTAssertFalse(element(application, "04-row-c1").exists,
-                       "cloud 档不应混入 mac 会话（c1）")
+        // HIDDEN(对齐修复) H7/L-4：「云端沙盒」档已整档隐藏（无 cloud 会话数据源，
+        // 恒空档）· 恢复条件：cloud 会话源接入后还原档位与下述过滤断言
+        XCTAssertFalse(element(application, "04-chip-source-cloud").exists,
+                       "「云端沙盒」档应隐藏（H7：恒空档不渲染）")
         element(application, "04-chip-source-mac").tap()
         // 档位切换后 List 重排 + LazyVStack 重新物化，等待窗给足时序容忍（同等待遇用于三档）
         if !element(application, "04-row-c1").waitForExistence(timeout: 4) {
@@ -207,18 +208,16 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 12),
                       "切回「全部」后 mock 会话行应回归")
 
-        // ② 连接态：替身会话归「我的 Mac」档；无 cloud 数据时云端档置灰禁用
-        // （G-006 验收②/G-010：按数据源如实降级，不呈现恒空档）
+        // ② 连接态：替身会话归「我的 Mac」档；「云端沙盒」档按 H7 隐藏不渲染
+        // （G-006 验收②/G-010 原断言「置灰禁用」随 H7 升格为整档隐藏）
         connectAndEnterMain(application)
         let stubRow = element(application, "04-row-sess-e2e-1")
         XCTAssertTrue(stubRow.waitForExistence(timeout: 15), "连接态应呈现替身快照会话行")
         element(application, "04-chip-source-mac").tap()
         XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 8),
                       "连接态 mac 会话应出现在「我的 Mac」档")
-        let cloudChip = element(application, "04-chip-source-cloud")
-        XCTAssertTrue(cloudChip.waitForExistence(timeout: 6), "云端沙盒 chips 应在场")
-        XCTAssertFalse(cloudChip.isEnabled,
-                       "连接态无 cloud 数据源时云端档应置灰禁用（如实降级）")
+        XCTAssertFalse(element(application, "04-chip-source-cloud").exists,
+                       "连接态「云端沙盒」档应整档隐藏（H7，不再呈现置灰死档）")
         element(application, "04-chip-source-all").tap()
         XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 8),
                       "切回「全部」后替身会话行应回归")
@@ -618,7 +617,8 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         // 重启：不带 -ZCodeE2EResetState（否则会复位 AppleLanguages）也不带语言参数，
         // 验证应用内写入的 AppleLanguages 持久化生效
         application.terminate()
-        app.launchArguments = []
+        // -ZCodeDemoData 保持演示四 Tab（不带 reset：否则会复位 AppleLanguages）
+        app.launchArguments = ["-ZCodeDemoData"]
         app.launch()
         XCTAssertTrue(element(app, "04-row-c1").waitForExistence(timeout: 10),
                       "重启后应进入主界面")
@@ -638,7 +638,8 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         XCTAssertTrue(element(app, "12-language-restart-hint").waitForExistence(timeout: 6),
                       "切换跟随系统后应提示重启生效")
         application.terminate()
-        app.launchArguments = []
+        // -ZCodeDemoData 保持演示四 Tab（不带 reset：否则会复位 AppleLanguages）
+        app.launchArguments = ["-ZCodeDemoData"]
         app.launch()
         XCTAssertTrue(element(app, "04-row-c1").waitForExistence(timeout: 10),
                       "跟随系统重启后应进入主界面")
@@ -801,16 +802,20 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
                       "连接态用量页应呈现 Coding Plan 快照卡（usage-stats 真值）")
         waitStaticText(application, containing: "340", timeout: 8,
                        "额度用量应来自替身快照（usage=340/500）")
-        // G-042 重置机会卡（替身 availableFiveHourResets=1）+ 一键领取
+        // G-042 重置机会卡（替身 availableFiveHourResets=1）+ 领取（B-6 二次确认弹层穿透）
         XCTAssertTrue(element(application, "12-usage-reset-card").waitForExistence(timeout: 8),
                       "有重置机会时应出现领取卡")
-        let claim = element(application, "12-usage-act-claim")
+        let claim = element(application, "12-usage-act-claim-5h")
         XCTAssertTrue(claim.waitForExistence(timeout: 6), "领取卡应有一键领取入口")
         claim.tap()
+        // 扣费类接口硬要求：点击只弹 destructive 确认弹层，确认后才下发（严禁一点即发）
+        let confirmUse = element(application, "12-usage-confirm-use")
+        XCTAssertTrue(confirmUse.waitForExistence(timeout: 6), "使用重置卡必须先弹二次确认弹层")
+        confirmUse.tap()
         XCTAssertTrue(waitUntil(timeout: 10, "替身应收到领取请求（桌面代执行）") {
             stub.rpcCallLog.contains { $0.1 == "requestCodingPlanResetOpportunity" }
                 || stub.rpcCallLog.contains { $0.1 == "useCodingPlanReset" }
-        }, "一键领取应经 usage-stats 频道下发")
+        }, "确认后领取应经 usage-stats 频道下发")
         snap(application, "matrix-g042-reset-claimed")
     }
 
@@ -877,7 +882,9 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
             ("12-row-plugins", "e2e-plugin", "listPlugins"),
             ("12-row-workflows", "登录链路工作流", "listSavedWorkflows"),
             ("12-row-offpeak", "错峰回归任务 · stub", "off-peak.list"),
-            ("12-row-feedback", "E2E 工单 · stub", "feedback.list"),
+            // HIDDEN(对齐修复): 反馈工单入口已隐藏（feedback.list 双重未取证，设计稿 H1）
+            // · 恢复条件：真机探针回执成形后还原入口行与此断言
+            // ("12-row-feedback", "E2E 工单 · stub", "feedback.list"),
         ]
         let writePatterns = NSPredicate(
             format: "label CONTAINS '启用' OR label CONTAINS '停用' OR label CONTAINS '安装'"

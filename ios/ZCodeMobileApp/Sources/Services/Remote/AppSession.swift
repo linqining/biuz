@@ -14,7 +14,8 @@ struct DesktopOAuthInfo: Equatable {
     var userHandle: String?
 }
 
-/// Coding Plan 用量只读投影（SettingsView 用户卡连接态数据源；nil 字段回退演示值）
+/// Coding Plan 用量只读投影（SettingsView 用户卡连接态数据源；无数据 UI 不渲染
+/// 进度条与百分比——H10，不再回退演示值）
 struct CodingPlanUsageInfo: Equatable {
     var percentRemaining: Double?
     var used: Int?
@@ -33,8 +34,10 @@ struct CodingPlanUsageInfo: Equatable {
 struct CodingPlanResetCards: Equatable {
     var fiveHourCount: Int = 0
     var weekCount: Int = 0
-    /// 最早过期时间（任一卡）
-    var earliestExpireText: String?
+    /// 最早过期（5 小时卡组）——功能上 5h/周卡分别作用于对应窗口，分开展示
+    var fiveHourEarliestText: String?
+    /// 最早过期（周卡组）
+    var weekEarliestText: String?
     /// 最近一次使用（5h 窗）
     var lastFiveHourUsedText: String?
     /// 最近一次使用（周窗）
@@ -50,7 +53,9 @@ struct CodingPlanQuotaWindow: Equatable, Identifiable {
     var unit: String?
     var percentUsed: Double?
     var resetsAtText: String?
-    var id: String { level }
+    /// id 用 label（同 type 的两个窗——5 小时/每周都叫 TOKENS_LIMIT——level 作 id
+    /// 会触发 SwiftUI 重复 id 双渲染：第二行被画成第一行，用户见「两个 5 小时」）
+    var id: String { label.isEmpty ? level : label }
 
     /// 剩余比例（0~1；无 percentage 时由 used/limit 推导）
     var percentRemaining: Double? {
@@ -60,6 +65,31 @@ struct CodingPlanQuotaWindow: Equatable, Identifiable {
         guard let used, let limit, limit > 0 else { return nil }
         return max(0, min(1, Double(limit - used) / Double(limit)))
     }
+}
+
+/// 套餐权益条目（usage-stats.getEntitlementSnapshot 的 subscription.details[] 元素；
+/// web $Fe 同构：productName 为主名，expireTime 已过期的条目过滤不展示）
+struct CodingPlanEntitlement: Equatable, Identifiable {
+    var name: String
+    /// 数值/额度文案（web 回执无此层，恒 nil；保留渲染位）
+    var value: String?
+    var detail: String?
+    var id: String { name }
+}
+
+/// 套餐权益快照（P3-9 额度页；2026-10-06 按 web 口径重写——审查报告 B-5）：
+/// nil = 调用失败/未连接（UI 诚实降级）；noPlan = 未订阅套餐（web 空态判定）；
+/// entitlements 空 = 调用成功但无在期订阅条目（UI 不渲染子块）
+struct CodingPlanEntitlementInfo: Equatable {
+    /// 套餐档位（web IAt 同构：quota.level 优先，回落 subscription.details[0].productName）
+    var tier: String?
+    var entitlements: [CodingPlanEntitlement] = []
+    /// unavailableReason === "no_plan"（未订阅套餐——web 空态文案口径）
+    var noPlan = false
+    /// 其他不可用原因（not_configured/not_authenticated/unavailable 等；noPlan 时冗余）
+    var unavailableReason: String?
+    /// 顶层 remaining（web 仅做在场判定；单位语义未取证，原样字符串透出）
+    var remainingText: String?
 }
 
 /// 使用统计快照（usage-stats.getAppUsageSnapshot；桌面「使用统计」页同源数据）
@@ -126,20 +156,23 @@ struct ConversationQueueInfo: Equatable {
 
 // MARK: - 应用会话装配（OAuth 账户层 + 桌面配对连接层 + Store 装配策略）
 
-/// 装配策略（需求原文）：
-/// - OAuth 已登录或桌面配对成功 → 用真实 API 实现 Store 协议；
-/// - 未登录且未配置服务器、或连接失败 → 回退演示数据（mock），离线可用；
-/// - 冷启动未配置 → 直接进入演示模式（既有页面与 e2e 行为不变）。
+/// 装配策略（对齐修复后，《对齐修复与降级体验设计》§0/§1）：
+/// - 连接成功 → 真实 API 实现 Store 协议（remote 三件）；
+/// - 断线/连接中 → 保留现有 Store 引用（断线保留最后快照，不回落引导页）；
+/// - 未配对/连接失败 → 空实现 Store（**未连接 ≠ 演示**：无假数据；未配对=连接引导
+///   页为根，失败=空 Tab + 红横幅重试）。
+/// Mock 演示数据仅启动参数携带 `-ZCodeDemoData`（E2E 演示开关）时装配——用户裁决
+/// 「Mock 假数据全部移除，仅测试用例允许」；正式用户路径永不装配。
 @MainActor
 @Observable
 final class AppSession {
 
     enum Mode: Equatable {
-        case demo                              // mock 演示
+        case demo                              // 未配对（连接引导页为根；-ZCodeDemoData 下演示数据）
         case connecting(ServerConfig)          // 配对连接中
         case connected(ServerConfig)           // 已连接（真实 Store）
-        case connectFailed(ServerConfig, ConnectError) // 连接失败（回退 mock + 横幅）
-        case disconnected(ServerConfig, String) // 曾连接后断线
+        case connectFailed(ServerConfig, ConnectError) // 连接失败（空数据 + 红横幅重试）
+        case disconnected(ServerConfig, String) // 曾连接后断线（保留最后快照 + 橙横幅）
     }
 
     // MARK: 账户层（OAuth tokenSet）
@@ -190,6 +223,13 @@ final class AppSession {
     private(set) var remoteTaskStore: RemoteTaskStore?
     private(set) var remoteFileStore: RemoteFileStore?
 
+    /// Store 装配世代（P3-10 多工作区切换）：assembleRemoteStores 成功与
+    /// teardownRemoteStores 时 +1。App 层环境值换绑挂载点（ZCodeMobileApp 以
+    /// .task(id: storeEpoch) 驱动 syncStoresWithSession 重跑）——同 .connected 内换
+    /// 工作区不改变 mode（Mode: Equatable 只含 ServerConfig），需 epoch 变化触发环境值
+    /// 换绑，Store 新实例再经各页 .task(id: ObjectIdentifier(store)) 自动重拉
+    private(set) var storeEpoch = 0
+
     // MARK: 桌面端只读信息（oauth / usage-stats 只读面；连接态拉取，断开清空）
 
     /// 桌面端 OAuth 登录展示态（getProviders/getActiveProvider/restoreCachedSessionState
@@ -197,11 +237,32 @@ final class AppSession {
     private(set) var desktopOAuthInfo: DesktopOAuthInfo?
     /// Coding Plan 用量只读投影（getCodingPlanUsageSnapshot/getCodingPlanResetStatus）
     private(set) var codingPlanUsage: CodingPlanUsageInfo?
+    /// 套餐权益只读投影（getEntitlementSnapshot；P3-9 额度页「当前套餐权益」子块数据源）
+    private(set) var codingPlanEntitlements: CodingPlanEntitlementInfo?
 
-    /// 供 UI 判断是否处于演示数据
+    /// E2E Mock 激活开关（用户裁决「Mock 假数据全部移除，仅测试用例允许」的落地，
+    /// 设计稿 §1.7.2）：仅启动参数携带 `-ZCodeDemoData` 时未连接态装配 Mock 三件
+    /// （演示页脚/演示清单等演示态 UI 随之保留）；正式用户路径永不装配——未连接 =
+    /// 空数据/连接引导，非「演示」。测试面零 Mock 编译引用（调研实证），改动集中在
+    /// 启动参数与装配层一处 if。
+    static let demoDataArgument = "-ZCodeDemoData"
+    static var isDemoDataEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains(demoDataArgument)
+    }
+
+    /// Mock 演示数据是否在场（isDemo 语义清理：**未连接 ≠ 演示**——仅 E2E 开关激活
+    /// 且未连接时为 true；正式路径恒 false。连接态 gating 请用 isConnected）
     var isDemo: Bool {
+        guard Self.isDemoDataEnabled else { return false }
         if case .connected = mode { return false }
         return true
+    }
+
+    /// 是否已连接桌面端（便捷属性，设计稿 §1.6：横幅/DiffActionBar/入口 gating 用；
+    /// P2ExtrasViews 各页私有 isConnected 先例上移统一）
+    var isConnected: Bool {
+        if case .connected = mode { return true }
+        return false
     }
 
     var connectProgress: ConnectProgress? {
@@ -222,11 +283,20 @@ final class AppSession {
 
     init() {
         // 断线回落（13-③ 黄色横幅）：连接成功后 WS/中继通道意外中断 → mode 切
-        // .disconnected，RootView 展示「与桌面端的连接已断开 · 重连」；重连动作走
-        // reconnect()（横幅重试同入口）。手动断开/连接期失败不经此路径。
+        // .disconnected（不 teardown——remote Store 与缓存快照保留，RootView 展示
+        // 「已断开 · 显示断线前的数据 · 重连」）；重连动作走 reconnect()（横幅重试
+        // 同入口）。手动断开/连接期失败不经此路径。
         connection.onConnectionDropped = { [weak self] detail in
             guard let self, case .connected(let server) = self.mode else { return }
             self.mode = .disconnected(server, detail)
+        }
+        // 工作区清单推送（P3-10 workspace-list-updated）：清单本体已由 connection 回写
+        // serverInfo（切换器菜单联动）；此处刷新任务聚合清单（键级整体替换口径）
+        connection.onWorkspaceListUpdated = { [weak self] workspaces in
+            guard let self else { return }
+            Task {
+                await self.remoteConversationStore?.setAllWorkspaces(workspaces)
+            }
         }
         // E2E 钩子：须先于凭据加载执行（Keychain 跨进程启动持久，门禁用例需「未配置/未登录」起点）
         Self.performE2EStateResetIfNeeded()
@@ -264,7 +334,8 @@ final class AppSession {
 
     // MARK: 冷启动
 
-    /// 冷启动：已配置服务器 → 后台自动重连（失败回退演示 + 横幅）；未配置 → 演示模式。
+    /// 冷启动：已配置服务器 → 后台自动重连（失败空态 + 红横幅重试）；未配置 → 连接
+    /// 引导页为根（demo 态，无假数据）。
     /// QA/E2E 钩子：`-ZCodeOpenLoginFlow` 直开 O1 登录主页；`-ZCodeOpenConnectFlow` 直开 L1 连接页；
     /// `-ZCodeRelayLink <url>` 解析中继配对链接并直接发起云中继连接（无 UI 驱动的真机验证，
     /// 模式同 -ZCodeOpenConnectFlow；链接失效保持演示态）。
@@ -412,12 +483,16 @@ final class AppSession {
         guard connection.isActive else {
             desktopOAuthInfo = nil
             codingPlanUsage = nil
+            codingPlanEntitlements = nil
             appUsageSnapshot = nil
             return
         }
         desktopOAuthInfo = await Self.fetchDesktopOAuthInfo(connection: connection)
         codingPlanUsage = await Self.fetchCodingPlanUsage(connection: connection)
         appUsageSnapshot = await Self.fetchAppUsageSnapshot(connection: connection)
+        // 权益快照顺读链末位（usage-stats 对并发快照请求拒绝——见 usageStatsCall 注释，
+        // 与上方两读保持串行，不 async let）
+        codingPlanEntitlements = await Self.fetchCodingPlanEntitlements(connection: connection)
         await probeRemoteControlBootstrap()
     }
 
@@ -556,7 +631,7 @@ final class AppSession {
 
     /// usage-stats 两读 → 用量投影。accountAccess 按个人 Coding Plan 固定形态
     /// （zcodeProviderAccountAccessSchema：zai / individual-coding-plan）。
-    /// 请求被服务端拒绝时投影为 nil（UI 回退演示额度行）。
+    /// 请求被服务端拒绝时投影为 nil（UI 走「额度未获取」诚实文案，H10）。
     /// usage-stats 读面统一入口：桌面端对并发快照请求拒绝（"Request in progress,
     /// please wait"——连接刷新与用量页 task 竞态时实测），首败 1.2s 退避重试一次
     /// （同 loadOlder 中继瞬断口径）；重试仍败则原错误上抛（调用方取证）。
@@ -571,19 +646,30 @@ final class AppSession {
         }
     }
 
+    // MARK: usage-stats 个人 Coding Plan 统一参数（web bundle 取证 2026-10-06）
+
+    /// preferredProviderId 必须用注册表完整 id（「zai」短 id 匹配不到任何 provider，
+    /// 桌面端落到 bigmodel API-key 面 → no_bigmodel_api_key——§9.10 实证先例）
+    static let codingPlanProviderID = "account:zai-individual-coding-plan"
+
+    /// web 端 accountAccess 统一形状【实证·bundle 逆向】：所有 usage-stats 调用点恒传
+    /// `{type:'zhipu-account', family, planKind}`（换算函数 ET：access.accountType→family、
+    /// access.mode→planKind；family 由 provider id 推导——account:zai-* → 'zai'）。
+    /// 此前发注册表 access 形态 {accountType,mode,entitled}（bundle 另一 zod schema jb
+    /// 的形状）——当前桌面两种都收，按 web 对齐防未来收紧落错面（审查报告 L-2）。
+    static let codingPlanAccountAccess: JSONValue = .object([
+        "type": .string("zhipu-account"),
+        "family": .string("zai"),
+        "planKind": .string("individual-coding-plan"),
+    ])
+
     private static func fetchCodingPlanUsage(connection: ZCodeServerConnection) async -> CodingPlanUsageInfo? {
-        let accountAccess = JSONValue.object([
-            "type": .string("zhipu-account"),
-            "accountType": .string("zai"),
-            "mode": .string("individual-coding-plan"),
-            "entitled": .bool(true),
-        ])
+        let accountAccess = Self.codingPlanAccountAccess
         var usage = CodingPlanUsageInfo()
         var builder = JSONObjectBuilder()
         builder.set("range", "30d")
-        // preferredProviderId 必须用注册表完整 id（「zai」匹配不到任何 provider，
-        // 桌面端落到 bigmodel API-key 面 → no_bigmodel_api_key）；web 端另带 timeZone
-        builder.set("preferredProviderId", "account:zai-individual-coding-plan")
+        // preferredProviderId 完整 id 口径见 codingPlanProviderID 注释；web 端另带 timeZone
+        builder.set("preferredProviderId", Self.codingPlanProviderID)
         builder.set("accountAccess", accountAccess)
         builder.set("timeZone", TimeZone.current.identifier)
         let snapshotResult: RPCValue?
@@ -605,52 +691,94 @@ final class AppSession {
                 UserDefaults.standard.set(
                     String(describing: dict), forKey: "diag.usage.snapshot")
             }
-            // quota = {level:"max"|…, limits:[…]}；窗口真实形态（2026-10-05 取证）：
-            // ① {type:"TIME_LIMIT", unit:5, usage:总量, remaining, currentValue:已用,
-            //    percentage:已用%, nextResetTime, usageDetails[]} → 5 小时条数窗
-            // ②③ {type:"TOKENS_LIMIT", unit, number, percentage:已用%, nextResetTime}
-            //    → 每周/每月 token 窗（无绝对数值，只有百分比）
+            // quota = {level:"max"|…, limits:[…], mcpQuota?}。
+            // 窗口映射（2026-10-06 桌面 web bundle 精确取证，app.asar 内 U5/JH 选择器）：
+            // 按 type+unit+number 三元组匹配（与数组顺序无关）：
+            //   5 小时   = TOKENS_LIMIT, unit:3, number:5（v2/v3 百分比窗）
+            //   每周     = TOKENS_LIMIT, unit:6
+            //   工具调用 = TIME_LIMIT,   unit:5, number:1（v1 条数窗：usage 总量/
+            //            currentValue 已用/remaining 剩余）
+            //   ZCode MCP = quota.mcpQuota.aggregate（独立字段）
+            // 百分比口径（web vGt/yGt 同构，2026-10-06 校正——旧注释「0–1 已用小数」
+            // 是错误口径勿再引用）：percentage 为 **0–100 已用百分数** → 剩余 = 100 − pct；
+            // v1 条数套餐 percentage 缺席时 remaining/number×100 兜底（分母是 number，
+            // 不是 usage）。未识别条目回退 generic 行（≤3）。
             let limits = dict["quota"]?.objectValue?["limits"]?.arrayValue ?? []
-            var tokenWindowIndex = 0
-            usage.windows = limits.compactMap { limit in
-                guard let d = limit.objectValue else { return nil }
-                let type = d["type"]?.stringValue ?? ""
-                let isTimeLimit = type == "TIME_LIMIT"
-                let label: String
-                var used: Int?
-                var limitValue: Int?
-                if isTimeLimit {
-                    label = String(localized: "5 小时")
-                    used = d["currentValue"]?.intValue
-                    limitValue = d["usage"]?.intValue
-                } else {
-                    tokenWindowIndex += 1
-                    label = tokenWindowIndex == 1
-                        ? String(localized: "每周")
-                        : tokenWindowIndex == 2
-                            ? String(localized: "每月")
-                            : String(localized: "Token 窗口 \(tokenWindowIndex)")
+
+            func findLimit(_ type: String, unit: Int, number: Int? = nil) -> JSONValue? {
+                for limit in limits {
+                    guard let d = limit.objectValue,
+                          d["type"]?.stringValue?.uppercased() == type.uppercased(),
+                          d["unit"]?.intValue == unit else { continue }
+                    if let number, d["number"]?.intValue != number { continue }
+                    return limit
                 }
+                return nil
+            }
+
+            // 剩余百分比（web vGt 同构）：percentage 为 **0–100 已用百分数** → 剩余 = 100 − pct；
+            // v1 条数套餐 percentage 缺席时 remaining/number×100 兜底（分母 number，web
+            // vGt 原式——旧 remaining/usage×100 是拍脑袋口径，已校正）
+            func remainingPercent(_ d: [String: JSONValue]?) -> Double? {
+                guard let d else { return nil }
+                if let pct = d["percentage"]?.doubleValue {
+                    return max(0, min(100, 100 - pct))
+                }
+                if let remaining = d["remaining"]?.doubleValue,
+                   let number = d["number"]?.doubleValue, number > 0 {
+                    return max(0, min(100, remaining / number * 100))
+                }
+                return nil
+            }
+
+            func makeWindow(_ label: String, _ d: [String: JSONValue]?) -> CodingPlanQuotaWindow? {
+                guard let d else { return nil }
                 var window = CodingPlanQuotaWindow(
-                    level: type.isEmpty ? "window" : type,
+                    level: d["type"]?.stringValue ?? "window",
                     label: label,
-                    used: used,
-                    limit: limitValue,
-                    unit: isTimeLimit ? String(localized: "条") : nil,
-                    percentUsed: d["percentage"]?.doubleValue,
+                    used: d["currentValue"]?.intValue,
+                    limit: d["usage"]?.intValue,
+                    unit: d["currentValue"] != nil ? String(localized: "条") : nil,
+                    percentUsed: nil,
                     resetsAtText: nil)
+                if let remaining = remainingPercent(d) {
+                    window.percentUsed = 100 - remaining // struct: percentRemaining=1-percentUsed/100
+                }
                 if let nextReset = d["nextResetTime"]?.doubleValue, nextReset > 0 {
                     window.resetsAtText = Self.shortFormatter.string(
                         from: Date(timeIntervalSince1970: nextReset / 1000))
                 }
                 return window
             }
+
+            var windows: [CodingPlanQuotaWindow] = []
+            if let w = makeWindow(String(localized: "5 小时"),
+                                  findLimit("TOKENS_LIMIT", unit: 3, number: 5)?.objectValue) { windows.append(w) }
+            if let w = makeWindow(String(localized: "每周"),
+                                  findLimit("TOKENS_LIMIT", unit: 6)?.objectValue) { windows.append(w) }
+            if let w = makeWindow(String(localized: "工具调用"),
+                                  findLimit("TIME_LIMIT", unit: 5, number: 1)?.objectValue) { windows.append(w) }
+            // 未识别条目回退 generic 行（web：slice(0,3)，label「额度」）
+            if windows.isEmpty {
+                for d in limits.prefix(3).compactMap({ $0.objectValue }) {
+                    let type = d["type"]?.stringValue ?? ""
+                    if let w = makeWindow(type.isEmpty ? String(localized: "额度") : type, d) {
+                        windows.append(w)
+                    }
+                }
+            }
+            usage.windows = windows
+            // ZCode MCP（独立字段 mcpQuota.aggregate；web 同 label「ZCode MCP」）
+            if let mcp = dict["quota"]?.objectValue?["mcpQuota"]?.objectValue?["aggregate"]?.objectValue,
+               var w = makeWindow(String(localized: "ZCode MCP"), mcp) {
+                w.level = "MCP"
+                usage.windows.append(w)
+            }
             // 套餐档位（quota.level："max" 等）记入 unitText 供卡片角标
             usage.unitText = dict["quota"]?.objectValue?["level"]?.stringValue
-            // 主窗口（legacy 字段兼容 SettingsView 用户卡）：5 小时窗优先，否则首个
-            let primary = usage.windows.first {
-                $0.level == "TIME_LIMIT"
-            } ?? usage.windows.first
+            // 主窗口（legacy 字段兼容 SettingsView 用户卡）：5 小时窗优先
+            let primary = usage.windows.first { $0.label == String(localized: "5 小时") }
+                ?? usage.windows.first
             if let primary {
                 usage.used = primary.used
                 usage.limit = primary.limit
@@ -659,7 +787,7 @@ final class AppSession {
             }
         }
         var resetBuilder = JSONObjectBuilder()
-        resetBuilder.set("preferredProviderId", "account:zai-individual-coding-plan")
+        resetBuilder.set("preferredProviderId", Self.codingPlanProviderID)
         resetBuilder.set("accountAccess", accountAccess)
         if let dict = try? await usageStatsCall(
             connection, "getCodingPlanResetStatus", resetBuilder.fields),
@@ -676,13 +804,16 @@ final class AppSession {
             let week = dict["availableWeekResets"]?.arrayValue ?? []
             cards.fiveHourCount = fiveHour.count
             cards.weekCount = week.count
-            let allExpiries = (fiveHour + week).compactMap {
-                $0.objectValue?["expireAt"]?.doubleValue
-            }.filter { $0 > 0 }
-            if let earliest = allExpiries.min() {
-                cards.earliestExpireText = Self.shortFormatter.string(
-                    from: Date(timeIntervalSince1970: earliest / 1000))
+            // 过期时间按组分开展示（5h 卡只重置 5h 窗、周卡只重置周窗，语义不同
+            // ——用户裁决：不能合并取最早）
+            func earliestText(_ group: [JSONValue]) -> String? {
+                group.compactMap { $0.objectValue?["expireAt"]?.doubleValue }
+                    .filter { $0 > 0 }
+                    .min()
+                    .map { Self.shortFormatter.string(from: Date(timeIntervalSince1970: $0 / 1000)) }
             }
+            cards.fiveHourEarliestText = earliestText(fiveHour)
+            cards.weekEarliestText = earliestText(week)
             if let usedAt = dict["latestFiveHourResetHistory"]?.objectValue?["usedAt"]?.doubleValue,
                usedAt > 0 {
                 cards.lastFiveHourUsedText = Self.shortFormatter.string(
@@ -723,6 +854,108 @@ final class AppSession {
         return usage.used != nil || usage.limit != nil || usage.percentRemaining != nil ? usage : nil
     }
 
+    /// 套餐权益快照（usage-stats.getEntitlementSnapshot；P3-9 额度页）。
+    /// 入参与回执均按 web 口径【实证·bundle 逆向 2026-10-06，审查报告 B-5——原记录
+    /// 「仅 {preferredProviderId} + 回执 entitlements[]|benefits[]|features[]|items[]
+    /// 列表宽容解析」整体推翻：回执无任何列表键，旧解析在任何路径下都落空】：
+    /// 入参六键 {includeSubscription:true, preferredProviderId, accountAccess,
+    /// allowDisabledPreferredProvider:true, requirePreferredProvider:true,
+    /// allowEnvApiKey:false}；回执 {provider, authenticated?, unavailableReason?,
+    /// quota:{level,limits}, subscription:{details:[{productName,productId,
+    /// expireTime?}]}, remaining?}。
+    /// 调用失败 → nil；成功但无在期订阅条目 → 空 entitlements（UI 不渲染子块）。
+    /// 诊断：diag.usage.entitlement 一次性原始回执（diag.wf.mode 存在才写；§11 登记，验收后清理）。
+    private static func fetchCodingPlanEntitlements(connection: ZCodeServerConnection) async -> CodingPlanEntitlementInfo? {
+        var builder = JSONObjectBuilder()
+        builder.set("includeSubscription", true)
+        builder.set("preferredProviderId", Self.codingPlanProviderID)
+        builder.set("accountAccess", Self.codingPlanAccountAccess)
+        builder.set("allowDisabledPreferredProvider", true)
+        builder.set("requirePreferredProvider", true)
+        builder.set("allowEnvApiKey", false)
+        let result: RPCValue?
+        do {
+            result = try await usageStatsCall(connection, "getEntitlementSnapshot", builder.fields)
+        } catch {
+            if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
+                UserDefaults.standard.set(
+                    String("err=\(String(describing: error).prefix(500))"), forKey: "diag.usage.entitlement")
+                UserDefaults.standard.synchronize()
+            }
+            return nil
+        }
+        guard let json = result?.jsonValue else { return CodingPlanEntitlementInfo(tier: nil, entitlements: []) }
+        let dict = json.objectValue
+        // 一次性取证：原始回执形态（下次连真桌面验收后回写 §9.10 并清理诊断键）
+        if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil,
+           UserDefaults.standard.string(forKey: "diag.usage.entitlement") == nil {
+            UserDefaults.standard.set(
+                String(String(describing: json).prefix(2000)), forKey: "diag.usage.entitlement")
+            UserDefaults.standard.synchronize()
+        }
+        var info = CodingPlanEntitlementInfo(tier: nil, entitlements: [])
+        info.unavailableReason = dict?["unavailableReason"]?.stringValue
+        info.noPlan = info.unavailableReason == "no_plan"
+        // authenticated 显式为 false 时无订阅可言（web $Fe 同构过滤）；键缺席视为已认证
+        let authenticated = dict?["authenticated"]?.boolValue ?? true
+        let details = authenticated
+            ? (dict?["subscription"]?.objectValue?["details"]?.arrayValue ?? [])
+            : []
+        // 权益条目 = subscription.details[]（web $Fe：过期条目按 expireTime 过滤；
+        // 名称取 productName，缺席回落 productId）
+        let entitlements: [CodingPlanEntitlement] = details.compactMap { item in
+            guard let d = item.objectValue else { return nil }
+            let name = d["productName"]?.stringValue ?? d["productId"]?.stringValue
+            guard let name, !name.isEmpty, !Self.entitlementEntryExpired(d["expireTime"]) else { return nil }
+            let detail = Self.entitlementEntryDate(d["expireTime"]).map {
+                String(localized: "\(Self.shortFormatter.string(from: $0)) 前有效")
+            }
+            return CodingPlanEntitlement(name: name, value: nil, detail: detail)
+        }
+        // 档位（web IAt 同构）：quota.level 优先，回落首个条目名
+        info.tier = dict?["quota"]?.objectValue?["level"]?.stringValue
+            ?? entitlements.first?.name
+        info.entitlements = entitlements
+        // 顶层 remaining（web 仅做在场判定；单位语义未取证，原样透出不加解释）
+        if let remaining = dict?["remaining"], !remaining.isNull {
+            info.remainingText = remaining.stringValue
+                ?? remaining.intValue.map { String($0) }
+                ?? remaining.doubleValue.map { String(format: "%g", $0) }
+        }
+        return info
+    }
+
+    /// subscription.details[].expireTime → Date（web Date.parse 同构 = ISO 字符串；
+    /// 数字形态宽容按毫秒时间戳）。返回 nil = 无法解析（不过滤、不展示）
+    private static func entitlementEntryDate(_ value: JSONValue?) -> Date? {
+        if let ms = value?.doubleValue, ms > 0 {
+            return Date(timeIntervalSince1970: ms / 1000)
+        }
+        if let text = value?.stringValue {
+            if let date = Self.isoMilliFormatter.date(from: text) {
+                return date
+            }
+            return Self.isoFormatter.date(from: text)
+        }
+        return nil
+    }
+
+    private static func entitlementEntryExpired(_ value: JSONValue?) -> Bool {
+        guard let date = Self.entitlementEntryDate(value) else { return false }
+        return date <= Date()
+    }
+
+    private static let isoMilliFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        return formatter
+    }()
+
     private static let shortFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "M 月 d 日 HH:mm"
@@ -736,45 +969,56 @@ final class AppSession {
         case week = "WEEK"
     }
 
-    /// 使用重置卡（桌面代执行三步，web reset-cards 同构；用户要求仅接线不自动触发）：
-    /// ① requestCodingPlanResetOpportunity {scope, idempotencyKey} 幂等探测
-    /// ② useCodingPlanReset {scope, idempotencyKey, resetType} 使用（FIVE_HOUR|WEEK）
-    /// ③ markCodingPlanResetHistoryRead {scope} 清桌面未读角标
-    /// scope = {workspaceKey, remoteSessionId:"", sessionId:""}（web 端缺省空串）。
+    private static let usageStatsLogger = Logger(subsystem: "cn.biuz.mobile", category: "usage-stats")
+
+    /// 使用重置卡（桌面代执行三步，web reset-cards 同构；用户要求仅接线不自动触发）。
+    /// 参数口径【实证·bundle 逆向 2026-10-06，审查报告 B-6——原嵌套 scope 形态推翻】：
+    /// web 端「scope」只是前端内存变量名/去重键（序列化键 b1e 只用于 Map 缓存），服务端
+    /// 三步全部平铺：
+    /// ① requestCodingPlanResetOpportunity {preferredProviderId, accountAccess, idempotencyKey}
+    /// ② useCodingPlanReset {preferredProviderId, accountAccess, idempotencyKey, resetType}
+    /// ③ markCodingPlanResetHistoryRead {preferredProviderId, accountAccess}
     /// 成功后刷新额度/重置状态投影；返回用户可读反馈（nil = 成功）
     func useCodingPlanResetCard(type: CodingPlanResetType) async -> String? {
         guard connection.isActive else {
             return String(localized: "未连接桌面端")
         }
-        let scope: JSONValue = .object([
-            "workspaceKey": .string(
-                connection.workspace?.workspaceIdentity ?? connection.workspace?.path ?? ""),
-            "remoteSessionId": .string(""),
-            "sessionId": .string(""),
-        ])
         let idempotencyKey = UUID().uuidString
-        // ① 幂等探测领取机会
+        // ① 幂等探测领取机会（web 手动路径同构：探测失败不阻断用卡，仅记日志——
+        // 用卡资格以先前的 getCodingPlanResetStatus 读数为准，UI 按钮本就以它 gating）
         var request = JSONObjectBuilder()
-        request.set("scope", scope)
+        request.set("preferredProviderId", Self.codingPlanProviderID)
+        request.set("accountAccess", Self.codingPlanAccountAccess)
         request.set("idempotencyKey", idempotencyKey)
-        _ = try? await connection.call(
-            "usage-stats", "requestCodingPlanResetOpportunity", .json(.object(request.fields)))
-        // ② 使用重置卡
+        do {
+            _ = try await Self.usageStatsCall(
+                connection, "requestCodingPlanResetOpportunity", request.fields)
+        } catch {
+            Self.usageStatsLogger.warning(
+                "requestCodingPlanResetOpportunity 失败（不阻断用卡）: \(error.localizedDescription)")
+        }
+        // ② 使用重置卡（平铺四键；失败如实回传 UI）
         var use = JSONObjectBuilder()
-        use.set("scope", scope)
+        use.set("preferredProviderId", Self.codingPlanProviderID)
+        use.set("accountAccess", Self.codingPlanAccountAccess)
         use.set("idempotencyKey", idempotencyKey)
         use.set("resetType", type.rawValue)
         do {
-            _ = try await connection.call(
-                "usage-stats", "useCodingPlanReset", .json(.object(use.fields)))
+            _ = try await Self.usageStatsCall(connection, "useCodingPlanReset", use.fields)
         } catch {
             return String(localized: "领取失败 · \(error.localizedDescription)")
         }
-        // ③ 清历史未读角标（失败不影响结果）
+        // ③ 清历史未读角标（web fire-and-forget 同构：失败仅记日志，不影响用卡结果）
         var mark = JSONObjectBuilder()
-        mark.set("scope", scope)
-        _ = try? await connection.call(
-            "usage-stats", "markCodingPlanResetHistoryRead", .json(.object(mark.fields)))
+        mark.set("preferredProviderId", Self.codingPlanProviderID)
+        mark.set("accountAccess", Self.codingPlanAccountAccess)
+        do {
+            _ = try await Self.usageStatsCall(
+                connection, "markCodingPlanResetHistoryRead", mark.fields)
+        } catch {
+            Self.usageStatsLogger.warning(
+                "markCodingPlanResetHistoryRead 失败（不影响用卡结果）: \(error.localizedDescription)")
+        }
         // 额度/重置状态回流刷新
         await refreshDesktopReadonlyInfo()
         return nil
@@ -789,7 +1033,14 @@ final class AppSession {
 
     func cancelConnecting() {
         connection.cancelConnecting()
-        mode = .demo
+        // 取消落态按场景分流（设计稿 §1.4，防快照丢失）：从未连上（remote Store 无
+        // 实例）→ .demo（回连接引导页——无数据可保留）；断线重连中取消 →
+        // .disconnected（快照保留 + 橙横幅 detail「已取消重连」，可随时再点重连）
+        if remoteConversationStore != nil, case .connecting(let server) = mode {
+            mode = .disconnected(server, String(localized: "已取消重连"))
+        } else {
+            mode = .demo
+        }
     }
 
     /// L3「重新扫码更新令牌」：以新令牌更新已存服务器并重连
@@ -854,7 +1105,7 @@ final class AppSession {
                 forKey: "diag.autoConnect")
             await connect(server: target)
             if case .connected = mode { return .connected }
-            // 失败：清理失败覆盖态回演示底座，交由引导 UI（不静默、不留半开连接）
+            // 失败：清理失败覆盖态回引导底座（demo），交由引导 UI（不静默、不留半开连接）
             cancelConnecting()
             return .failed(target.displayName)
         }
@@ -900,6 +1151,9 @@ final class AppSession {
         remoteTaskStore = RemoteTaskStore(connection: connection, workspace: workspace, conversationStore: conversationStore)
         remoteFileStore = RemoteFileStore(connection: connection, workspace: workspace)
         _ = info
+        // 世代 +1：触发 .task(id: storeEpoch) 重跑 syncStoresWithSession 完成环境值换绑
+        //（P3-10 同 .connected 内换工作区时 mode 不变，靠 epoch 驱动）
+        storeEpoch += 1
     }
 
     private func teardownRemoteStores() {
@@ -908,6 +1162,30 @@ final class AppSession {
         remoteFileStore = nil
         desktopOAuthInfo = nil
         codingPlanUsage = nil
+        codingPlanEntitlements = nil
+        storeEpoch += 1
+    }
+
+    // MARK: 多工作区切换（P3-10）
+
+    /// 切换活动工作区（中继连接）：connection.switchRelayWorkspace（reconnect 请求 →
+    /// 桥重开 → 订阅重定向）→ 以新工作区重跑 assembleRemoteStores，epoch 触发环境值
+    /// 换绑（各页经新 Store 实例自动 loading → 新数据，会话/文件/任务三面板同换视角）。
+    /// 返回 nil = 成功；非 nil = 用户可读失败原因（原工作区 Store 与连接态保持不动，
+    /// 设计稿 P3-10 §10.3 失败口径：1.2s 退避重试一次由 connection 层完成）。
+    func switchWorkspace(to target: ServerWorkspaceInfo) async -> String? {
+        guard case .connected = mode else {
+            return String(localized: "未连接桌面端")
+        }
+        switch await connection.switchRelayWorkspace(to: target) {
+        case .success(let workspace):
+            if let info = connection.serverInfo {
+                assembleRemoteStores(info: info, workspace: workspace)
+            }
+            return nil
+        case .failure:
+            return String(localized: "切换失败 · 已保持当前工作区")
+        }
     }
 
     // MARK: 连接测试（L4-B：1.5s 超时，仅探测不建 WS）

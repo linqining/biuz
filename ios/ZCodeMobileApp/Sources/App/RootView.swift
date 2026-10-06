@@ -9,27 +9,35 @@ struct RootView: View {
     @Environment(\.conversationStore) private var conversationStore
     @Environment(\.taskStore) private var taskStore
     @Environment(\.fileStore) private var fileStore
+    // 连接引导根页（设计稿 §1.3：L1 资产复用——自带导航栈 + 扫码 cover + 帮助 push）
+    @State private var connectPath: [ConnectFlowView.ConnectRoute] = []
+    @State private var showScanner = false
+    @State private var scannerUpdateToken = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Tab 切换无动画直达、保留各栈滚动位置（spec 3.2）
-            ZStack {
-                chatTab
-                    .opacity(router.selectedTab == .chat ? 1 : 0)
-                    .allowsHitTesting(router.selectedTab == .chat)
-                    .accessibilityHidden(router.selectedTab != .chat)
-                tasksTab
-                    .opacity(router.selectedTab == .tasks ? 1 : 0)
-                    .allowsHitTesting(router.selectedTab == .tasks)
-                    .accessibilityHidden(router.selectedTab != .tasks)
-                filesTab
-                    .opacity(router.selectedTab == .files ? 1 : 0)
-                    .allowsHitTesting(router.selectedTab == .files)
-                    .accessibilityHidden(router.selectedTab != .files)
-                settingsTab
-                    .opacity(router.selectedTab == .settings ? 1 : 0)
-                    .allowsHitTesting(router.selectedTab == .settings)
-                    .accessibilityHidden(router.selectedTab != .settings)
+            if showsConnectRoot {
+                connectRoot
+            } else {
+                // Tab 切换无动画直达、保留各栈滚动位置（spec 3.2）
+                ZStack {
+                    chatTab
+                        .opacity(router.selectedTab == .chat ? 1 : 0)
+                        .allowsHitTesting(router.selectedTab == .chat)
+                        .accessibilityHidden(router.selectedTab != .chat)
+                    tasksTab
+                        .opacity(router.selectedTab == .tasks ? 1 : 0)
+                        .allowsHitTesting(router.selectedTab == .tasks)
+                        .accessibilityHidden(router.selectedTab != .tasks)
+                    filesTab
+                        .opacity(router.selectedTab == .files ? 1 : 0)
+                        .allowsHitTesting(router.selectedTab == .files)
+                        .accessibilityHidden(router.selectedTab != .files)
+                    settingsTab
+                        .opacity(router.selectedTab == .settings ? 1 : 0)
+                        .allowsHitTesting(router.selectedTab == .settings)
+                        .accessibilityHidden(router.selectedTab != .settings)
+                }
             }
 
             VStack(spacing: 0) {
@@ -38,11 +46,13 @@ struct RootView: View {
                     ConnectionBanner(model: banner)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                if router.showsDiffActionBar {
+                // §1.6：未连接不渲染 DiffActionBar（空态页无 diff 可批，Empty store 的
+                // approveAll 成死钮）
+                if router.showsDiffActionBar && session.isConnected {
                     DiffActionBar()
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                if !router.isPushing {
+                if !router.isPushing && !showsConnectRoot {
                     ZCodeTabBar()
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -59,8 +69,8 @@ struct RootView: View {
                 await refreshDiffBadge()
             }
         }
-        // mock→remote 换源后重绑观察器（否则角标停留在 mock 假数据——用户实测
-        // 文件角标恒为 3 即 mock 的 3 条假 diff 残留）
+        // mock→remote 换源后重绑观察器（store 换实例时角标重算——Empty↔remote 换源
+        // 同口径；用户实测教训：不重绑则角标停留在旧 store 残留）
         .task(id: ObjectIdentifier(conversationStore)) { await observeConversationBadge() }
         .task(id: ObjectIdentifier(taskStore)) { await observeTaskBadge() }
         .task(id: ObjectIdentifier(fileStore)) {
@@ -68,6 +78,54 @@ struct RootView: View {
             for await _ in fileStore.observeFileTreeChanges() {
                 await refreshDiffBadge()
             }
+        }
+    }
+
+    // MARK: - 未连接根页（连接引导，设计稿 §1.2/§1.3）
+
+    /// 根页替换条件：未配对（demo），或连接中且从未连上（remote Store 无实例——
+    /// 含冷启动自动重连与根页/cover 发起的连接，叠加整层连接中反馈）；断线重连
+    /// （有快照）保持四 Tab。E2E 演示开关 -ZCodeDemoData 下保持旧四 Tab 演示 UI。
+    private var showsConnectRoot: Bool {
+        guard !AppSession.isDemoDataEnabled else { return false }
+        switch session.mode {
+        case .demo:
+            return true
+        case .connecting:
+            return session.remoteConversationStore == nil
+        default:
+            return false
+        }
+    }
+
+    /// 根页版连接引导（复用 L1 ConnectHomeView 资产；与 cover 场景的三处差异：
+    /// 无 ✕ 关闭钮——根页无处可关；自带 NavigationStack/扫码 cover；
+    /// 连接中由本层 overlay 整层 ConnectingView 承担，失败后回落四 Tab + 红横幅）
+    private var connectRoot: some View {
+        NavigationStack(path: $connectPath) {
+            ConnectHomeView(
+                onScan: { scannerUpdateToken = false; showScanner = true },
+                onManual: { connectPath.append(.manual(tokenFocusOnly: false)) },
+                onHelp: { connectPath.append(.help) },
+                onFilled: { /* 剪贴板一键填充在 ConnectHomeView 内直接发起连接 */ })
+            .navigationDestination(for: ConnectFlowView.ConnectRoute.self) { route in
+                switch route {
+                case .manual(let tokenFocusOnly):
+                    ManualConnectView(tokenFocusOnly: tokenFocusOnly)
+                case .help:
+                    ConnectHelpView()
+                }
+            }
+        }
+        .overlay {
+            if case .connecting = session.mode {
+                ConnectingView(onCancel: { session.cancelConnecting() })
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.22), value: session.mode)
+        .fullScreenCover(isPresented: $showScanner) {
+            ScanView(updateTokenMode: scannerUpdateToken)
         }
     }
 
@@ -120,22 +178,37 @@ struct RootView: View {
         }
     }
 
-    // MARK: - 连接状态横幅（错误 UI：连接失败 / 断线重连 / OAuth 过期）
+    // MARK: - 连接状态横幅（错误 UI：连接失败 / 断线 / 断线重连中）
 
     private var connectionBanner: ConnectionBanner.Model? {
         switch session.mode {
+        case .connecting(let server):
+            // 断线重连中（快照在场，不打断浏览——设计稿 §1.4）；从未连上的
+            // connecting 由根页/cover 整层 ConnectingView 承担，横幅不重复出现
+            guard session.remoteConversationStore != nil else { return nil }
+            return ConnectionBanner.Model(
+                icon: "arrow.triangle.2.circlepath", tint: T.accent,
+                title: String(localized: "正在连接桌面端…"),
+                detail: "\(server.displayName) · \(server.displayAddress)",
+                action: String(localized: "取消"),
+                identifier: "13-banner-connecting") {
+                session.cancelConnecting()
+            }
         case .connectFailed(_, let error):
+            // 对齐修复（U-9/设计稿 §1.6）：删「已回退演示数据」——Mock 回退语义已消失，
+            // 失败态为空数据 + 重试；换台入口在设置页「添加服务器」
             return ConnectionBanner.Model(
                 icon: "exclamationmark.triangle.fill", tint: T.red,
-                title: String(localized: "桌面端连接失败 · 已回退演示数据"),
+                title: String(localized: "桌面端连接失败"),
                 detail: error.headline,
                 action: String(localized: "重试")) {
                 Task { await session.reconnect() }
             }
         case .disconnected(_, let detail):
+            // 断线保留最后快照（设计稿 §1.5）：如实声明数据时点，写面由各页失败提示兜底
             return ConnectionBanner.Model(
                 icon: "wifi.exclamationmark", tint: T.orange,
-                title: String(localized: "与桌面端的连接已断开"),
+                title: String(localized: "已断开 · 显示断线前的数据"),
                 detail: detail,
                 action: String(localized: "重连")) {
                 Task { await session.reconnect() }
@@ -177,6 +250,9 @@ struct ConnectionBanner: View {
         let detail: String
         let action: String
         let onAction: () -> Void
+        /// a11y identifier（设计稿 §1.4：connecting 横幅独立 id 13-banner-connecting；
+        /// 默认值令既有失败/断线两态与全部 E2E 断言不变）
+        var identifier: String = "13-banner-connection"
     }
 
     let model: Model
@@ -208,7 +284,7 @@ struct ConnectionBanner: View {
         }
         .padding(.leading, T.sp3)
         .padding(.trailing, T.sp1)
-        .accessibilityIdentifier("13-banner-connection")
+        .accessibilityIdentifier(model.identifier)
         .background(
             Rectangle()
                 .fill(.ultraThinMaterial)
@@ -318,9 +394,10 @@ struct DiffActionBar: View {
             Button {
                 router.pushFileTree()
             } label: {
-                // G-026：文案对齐 spec 5.10 语义（次按钮动作 = 在桌面端继续处理）；
+                // 对齐修复 H6（原 G-026「桌面端继续」）：动作实为 pushFileTree（浏览文件树），
+                // 无接力到桌面端的能力——文案降级为如实描述动作；
                 // testid 保留 08-act-desktop-continue（无 E2E 文案断言依赖，已核验）
-                Text(String(localized: "桌面端继续"))
+                Text(String(localized: "浏览文件"))
                     .font(T.font(15, .semibold))
                     .foregroundColor(T.text2)
                     .frame(maxWidth: .infinity, minHeight: 48)

@@ -103,11 +103,14 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         add(shot)
     }
 
-    /// 冷启动（清空凭据态 + OAuth 端点指向替身；可选直开登录流程）
+    /// 冷启动（清空凭据态 + OAuth 端点指向替身；可选直开登录流程）。
+    /// -ZCodeDemoData（E2E 演示开关，默认携带）：登录/连接流程用例收尾的「回主界面」
+    /// 断言保持旧演示四 Tab 口径；test09（未配对根页）以 demoData:false 关闭
     @discardableResult
-    private func launchFresh(openFlow: OpenFlow? = nil) -> XCUIApplication {
+    private func launchFresh(openFlow: OpenFlow? = nil, demoData: Bool = true) -> XCUIApplication {
         var arguments = [
             "-ZCodeE2EResetState",
+        ] + (demoData ? ["-ZCodeDemoData"] : []) + [
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthClientID", "stub-client-e2e",
@@ -411,7 +414,7 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertFalse(element(application, "13-banner-connection").exists,
                        "连接成功不应出现失败横幅")
 
-        // 冷启动自动重连（不带 reset）：脱离演示态，连接状态与替身 server-info 名称可见
+        // 冷启动自动重连（不带 reset）：连接状态与替身 server-info 名称可见
         relaunch(application)
         XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 10)
             || element(application, "04-empty").waitForExistence(timeout: 6),
@@ -422,8 +425,8 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         waitLabel(serverRow, contains: "E2E Stub Desktop", timeout: 10,
                   "服务器名应来自替身 server-info（E2E Stub Desktop）")
         waitLabel(serverRow, contains: "已连接", timeout: 15, "自动重连成功后应显示已连接")
-        waitLabel(element(application, "12-foot-data-source"), contains: "已连接", timeout: 6,
-                  "数据源应切为实时数据")
+        waitLabel(element(application, "12-foot-data-source"), contains: "指令经桌面端执行", timeout: 6,
+                  "数据源页脚应为执行边界口径（对齐修复后恒定文案）")
 
         // —— 纠偏后：新建会话 Sheet 恢复完整表单，标题/首条指令可输入 ——
         element(application, "04-tab-chat").tap()
@@ -546,24 +549,22 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertTrue(rowTimeout.waitForExistence(timeout: 30), "重试后（地址仍不可达）应回到失败态")
     }
 
-    // MARK: - 流程 9：未配置冷启动直接进入演示模式（既有行为）
+    // MARK: - 流程 9：未配置冷启动进入连接引导页（对齐修复：未配对=引导为根，设计稿 §1.3；
+    // 原「直接进入演示模式」行为随 Mock 移除废止——未连接 ≠ 演示）
 
-    func test09_coldStartWithoutConfigEntersDemoMode() throws {
-        let application = launchFresh()
+    func test09_coldStartWithoutConfigShowsConnectGuideRoot() throws {
+        // 不带 -ZCodeDemoData：正式用户路径（未配对 = 连接引导页为根）
+        let application = launchFresh(demoData: false)
 
-        XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 10),
-                      "未配置冷启动应进入演示会话列表（mock 置顶行可见）")
+        // 连接引导页为根：扫码 / 手动入口在场，四 Tab 主界面不在场
+        XCTAssertTrue(element(application, "l1-btn-scan").waitForExistence(timeout: 10),
+                      "未配置冷启动应以连接引导页为根（扫码入口可见）")
+        XCTAssertTrue(element(application, "l1-btn-manual").waitForExistence(timeout: 4),
+                      "连接引导页应有手动输入入口")
         XCTAssertFalse(element(application, "13-banner-connection").exists,
-                       "演示模式不应出现连接状态横幅")
-
-        element(application, "12-tab-me").tap()
-        XCTAssertTrue(element(application, "l4-row-add").waitForExistence(timeout: 8),
-                      "未配置时设置页应有「添加服务器」行")
-        XCTAssertFalse(element(application, "l4-row-server").exists, "未配置时不应有服务器行")
-        waitLabel(element(application, "l4-row-account"), contains: "未登录", timeout: 6,
-                  "未配置时应为未登录")
-        waitLabel(element(application, "12-foot-data-source"), contains: "演示", timeout: 6,
-                  "数据源应为本地演示 Mock")
+                       "未配对态不应出现连接状态横幅")
+        XCTAssertFalse(element(application, "04-tab-chat").exists,
+                       "未配对态不应出现四 Tab 主界面（无假数据可展示）")
     }
 
     // MARK: - 流程 10：设置页保存服务器配置后重连，展示连接状态
@@ -579,7 +580,9 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
                       "错误令牌应进入失败态")
 
         relaunch(application)
-        XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 10), "应进入会话列表")
+        // 对齐修复：重连失败不再回退演示数据——四 Tab 空态 + 失败横幅（设计稿 §1.6）
+        XCTAssertTrue(element(application, "04-tab-chat").waitForExistence(timeout: 10),
+                      "重连失败应保持四 Tab 主界面（空数据，不回退演示）")
         XCTAssertTrue(element(application, "13-banner-connection").waitForExistence(timeout: 20),
                       "保存的配置自动重连失败应以横幅展示")
 
@@ -605,8 +608,8 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         element(application, "12-tab-me").tap()
         waitLabel(element(application, "l4-row-server"), contains: "已连接", timeout: 15,
                   "重连成功后服务器行应显示已连接")
-        waitLabel(element(application, "12-foot-data-source"), contains: "已连接", timeout: 6,
-                  "数据源应为实时数据")
+        waitLabel(element(application, "12-foot-data-source"), contains: "指令经桌面端执行", timeout: 6,
+                  "数据源页脚应为执行边界口径（对齐修复后恒定文案）")
         XCTAssertFalse(element(application, "13-banner-connection").exists,
                        "已连接状态不应出现连接失败横幅")
     }
@@ -1280,13 +1283,14 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertTrue(application.staticTexts.matching(
             NSPredicate(format: "label CONTAINS '删除构建产物目录'")).firstMatch.exists,
             "审批卡应展示影响摘要行")
-        // 授权范围三档可切换（默认仅本次）。审批卡位于消息列表顶部，详情吸底滚动
+        // 授权范围 chips 可切换（A-3 后两档：仅本次/始终允许；默认仅本次）。
+        // 审批卡位于消息列表顶部，详情吸底滚动
         // （defaultScrollAnchor(.bottom)）后卡片可能滑出 LazyVStack 渲染窗口（元素出树，
         // 门禁第 1 轮实证 tap No matches）——tap 前先下滑回顶部揭示
         let choiceAlways = element(application, "05-choice-always")
         XCTAssertTrue(revealBySwipeDown(choiceAlways, application: application),
                       """
-                      下滑揭示后审批卡授权范围三档应可操作（05-choice-*）。
+                      下滑揭示后审批卡授权范围 chips 应可操作（05-choice-*）。
                       诊断：card.exists=\(approvalCard.exists)；容器 identifier 覆盖子元素时
                       05-choice-* 不进树（应用侧已改为 accessibilityElement(children: .contain)）
                       """)
@@ -1300,8 +1304,12 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertEqual(stub.lastResolveInteraction?.interactionId, "int-e2e-perm-1",
                        "应答应携带真实 interactionId；实际=\(String(describing: stub.lastResolveInteraction?.interactionId))")
         let approvedPayload = stub.lastResolveInteraction?.payload ?? [:]
-        XCTAssertEqual((approvedPayload["approved"] as? Bool) ?? (approvedPayload["answer"] as? [String: Any])?["approved"] as? Bool,
-                       true, "answer 应含 approved=true")
+        // A-3（web 实证 bundle）：answer 恒为对象按交互族分形——权限族 {optionId}。
+        // 替身交互不带 options → 默认两档矩阵，仅本次 + 批准 = 规范 id "allowOnce"
+        // （approved/scope 是 wire 不存在的旧形态，已随对齐修复移除）
+        let answerOptionId = (approvedPayload["answer"] as? [String: Any])?["optionId"] as? String
+        XCTAssertEqual(answerOptionId, "allowOnce",
+                       "answer 应为 {optionId:\"allowOnce\"}；实际 payload=\(approvedPayload)")
         XCTAssertTrue(waitDisappear(approvalCard, timeout: 10, "应答生效后审批卡应随 state 更新撤下"))
 
         // ② 停止闭环：任务看板 → 运行中任务详情 → 停止任务（二次确认）→ stop 到达 + 状态回流
@@ -1395,7 +1403,7 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
 
     /// 流程 17：断线自愈与状态横幅（13-③）。
     /// 连接替身后替身侧强制掐断 WS 通道（模拟桌面端断网）→ AppSession 切 .disconnected →
-    /// 黄色横幅「与桌面端的连接已断开 · 重连」；点「重连」→ 完整重连（server-info → WS →
+    /// 黄色横幅「已断开 · 显示断线前的数据 · 重连」；点「重连」→ 完整重连（server-info → WS →
     /// v4 握手）→ 横幅消失、列表恢复替身数据。全程不产生直写/配置写类命令。
     func test17_droppedConnectionShowsBannerAndRetryReconnects() throws {
         let application = connectAndEnterMain(launchFresh())
@@ -1409,13 +1417,14 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
 
         // 黄色断线横幅出现：标题 + 「重连」动作按钮（动作热区在横幅内、可点）。
         // 横幅容器 label 不聚合子文本（同 12-usercard 口径），标题以全局 Text 观测：
-        // 黄色断线态标题「与桌面端的连接已断开」≠ 红色回退态「桌面端连接失败 · 已回退演示数据」，
-        // 此断言同时验证断线路由（AppSession .disconnected）而非连接失败回退
+        // 黄色断线态标题「已断开 · 显示断线前的数据」（U-9：断线保留最后快照，无演示
+        // 回退语义）≠ 红色失败态「桌面端连接失败」，此断言同时验证断线路由
+        // （AppSession .disconnected）而非连接失败
         let banner = element(application, "13-banner-connection")
         XCTAssertTrue(banner.waitForExistence(timeout: 15),
                       "WS 通道被掐断后应出现断线横幅（AppSession .disconnected 投影）")
-        XCTAssertTrue(application.staticTexts["与桌面端的连接已断开"].waitForExistence(timeout: 8),
-                      "断线横幅应表明连接已断开（黄色断线态标题；若实际渲染红色回退态标题则断线路由错误）")
+        XCTAssertTrue(application.staticTexts["已断开 · 显示断线前的数据"].waitForExistence(timeout: 8),
+                      "断线横幅应表明已断开并显示断线前数据（黄色断线态标题；若实际渲染红色失败态标题则断线路由错误）")
         let reconnectButton = application.buttons["重连"].firstMatch
         XCTAssertTrue(reconnectButton.waitForExistence(timeout: 6),
                       "断线横幅应提供「重连」动作")
