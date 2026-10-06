@@ -1,0 +1,99 @@
+{
+  "skill": "check",
+  "generated_at": "2026-10-06T00:00:00+08:00",
+  "project_name": "BiuZ (zcode_mobile iOS 遥控台)",
+  "target": "iOS 全量 UI（4 Tab + 连接/登录/分享流程），对照 RPC 接口功能（协议文档 v1.10）",
+  "findings": [
+    {
+      "category": "edge-states",
+      "severity": "major",
+      "description": "会话列表无拉取失败错误态：只有加载/空态，订阅失败且兜底链也失败时用户看到空态+新建 CTA，会误以为会话全丢",
+      "suggestion": "复用 DiffReviewView 的整页错误+重试 / 旧数据+失败横幅双态（有缓存显旧数据，无缓存整页错误）",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Conversations/ConversationListView.swift:147-149"
+    },
+    {
+      "category": "edge-states",
+      "severity": "major",
+      "description": "TaskOutputView 零状态处理：无加载/错误/离线任何分支，中继瞬断时输出流静默停更，停止任务失败无提示",
+      "suggestion": "加页内连接态角标 + 停止操作失败错误行 + 流中断「等待重连」占位",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Tasks/TaskOutputView.swift"
+    },
+    {
+      "category": "copy",
+      "severity": "major",
+      "description": "DiffReviewView「回退此文件」用 destructive 红色样式，实际执行的是可逆的 git.unstagePaths；且未暂存段的文件不在 index，unstage 是语义空操作；真正想丢弃改动（discardPaths）反而无入口",
+      "suggestion": "分段感知：已暂存段改「取消暂存」（非 destructive）；未暂存段移除该操作或正式接 git.discardPaths（确认弹层+destructive，与 web 对齐）",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Files/DiffReviewView.swift:482-486,535-541"
+    },
+    {
+      "category": "feedback",
+      "severity": "major",
+      "description": "命令终态不可查：queryConversationCommandsV4 未接，中继瞬断重连后用户无法确认 stop/审批应答等时效命令是否送达",
+      "suggestion": "重连恢复后对 in-flight 命令做 ACK 回查；消息行增加发送中/已送达/已入队状态指示",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Conversations/ChatView.swift 发送链路 + Stores/Remote/RemoteConversationStore.swift"
+    },
+    {
+      "category": "feedback",
+      "severity": "minor",
+      "description": "DiffActionBar「全部批准」全局悬浮无计数无确认，设置页也可见，误触即批量 stage",
+      "suggestion": "按钮带待批计数 + 完成后 toast（可提示可逆路径）",
+      "location": "ios/ZCodeMobileApp/Sources/App/RootView.swift:373-458"
+    },
+    {
+      "category": "feedback",
+      "severity": "minor",
+      "description": "断连时 composer 无显式禁用态，靠发送失败错误行事后提示",
+      "suggestion": "断连时 composer 置灰 + 占位「已断开，等待重连」，与新建会话 sheet 未连接错误行口径一致",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Conversations/ChatView.swift composer"
+    },
+    {
+      "category": "copy",
+      "severity": "minor",
+      "description": "新建会话 sheet 置灰 chip（仓库/语音等）无不可用原因说明，用户易以为是 bug",
+      "suggestion": "加 hint「桌面端能力，移动端暂不支持」",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Conversations/NewConversationSheet.swift"
+    },
+    {
+      "category": "accessibility",
+      "severity": "minor",
+      "description": "状态单一依赖颜色点（运行蓝/待批橙/在线点），色盲用户不可辨",
+      "suggestion": "颜色+图标/文字双通道，从列表行开始补齐",
+      "location": "ConversationListView / RootView 角标 / DevicesPage"
+    },
+    {
+      "category": "responsive",
+      "severity": "minor",
+      "description": "小屏拥挤未验证：ChatView 五面板 chips + composer 四 chips + 用量条在 320pt 宽度有截断风险",
+      "suggestion": "iPhone SE 模拟器实测；chips 区横向滚动或折叠为 ⋯",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Conversations/ChatView.swift + SessionPanelsView.swift"
+    },
+    {
+      "category": "feedback",
+      "severity": "minor",
+      "description": "服务端搜索失败静默回退本地过滤，用户搜不到远端结果时无感知",
+      "suggestion": "搜索框下加轻提示「仅本地结果（远端搜索不可用）」",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Conversations/ConversationListView.swift:89"
+    },
+    {
+      "category": "components",
+      "severity": "minor",
+      "description": "新建会话 sheet「执行端单选卡」仅演示态存在，演示/生产两套 UI 结构易漂移",
+      "suggestion": "演示态走 mock store 而非独立 UI 分支",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Conversations/NewConversationSheet.swift"
+    },
+    {
+      "category": "ia",
+      "severity": "minor",
+      "description": "「任务」Tab 与「会话」Tab 是同一批数据（bootstrap.tasks）的两种视图，概念重叠，新用户难区分",
+      "suggestion": "任务看板头部加定位文案「跨会话的运行中任务一览」，或远期合并单 Tab 双视图",
+      "location": "ios/ZCodeMobileApp/Sources/Features/Tasks/TaskBoardView.swift"
+    }
+  ],
+  "summary": {
+    "blocker": 0,
+    "major": 4,
+    "minor": 8,
+    "pass": 3
+  },
+  "notes": "brief-consistency 类别跳过（无 Brief 上下文），按规则计入 pass。接口覆盖结论：已接能力映射完整且纪律性好；git 高危写族/会话级用量/命令终态回查为接口有 UI 未接，需产品裁决。"
+}

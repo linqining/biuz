@@ -14,11 +14,29 @@ struct FileTreeView: View {
     // P3-8：一站式提交（git 写族 UI 化，连接态 only）；P3-11 检查点入口已隐藏（H3）
     @State private var stagedCount: Int?
     @State private var showCommitSheet = false
+    /// 提交成功待对账标记（onCommitted 置位、sheet onDismiss 消费）：区分「提交后
+    /// 对账重拉」与普通开关 sheet 的计数刷新，差异提示只在提交路径挂
+    @State private var pendingCommitReconcile = false
     // HIDDEN(对齐修复 H3)：git-checkpoint 三方法 web bundle 0 命中且协议文档零实证条目
     // （审查报告 §五），真机取证立条后随入口一并恢复
     // @State private var showCheckpointSheet = false
     @State private var notice: String?
     @State private var noticeIsError = false
+    /// 读面三态（2026-10-06 用户回归「点击后列表无提示清空」）：文件树拉取失败文案
+    /// （nil=最近一次成功；存 old 树时仅挂横幅，首载失败呈错误空态），空态单独可辨
+    @State private var loadError: String?
+
+    /// 拉取文件树并对账失败信号。Store 端 last-good 兜底：重拉失败返回旧树（不清空），
+    /// 视图旧行保留（滚动位置不动），失败横幅如实声明「暂显示上次结果」。
+    private func loadTree() async {
+        let fresh = await store.fileTree()
+        tree = fresh
+        if let remote = store as? RemoteFileStore {
+            loadError = await remote.treeLoadFailure()
+        } else {
+            loadError = nil
+        }
+    }
 
     /// G-031：连接态组头显示当前连接 workspace 真实路径；演示态保留演示路径
     private var headerPath: String {
@@ -67,6 +85,46 @@ struct FileTreeView: View {
                     if store.isRemote {
                         commitSection
                     }
+                    if let loadError {
+                        // 读面失败横幅（旧树仍展示时声明数据可能过期；可重试）
+                        HStack(spacing: T.sp2) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 12))
+                            Text(loadError)
+                                .font(T.font(11.5, .semibold))
+                                .lineLimit(2)
+                            Spacer(minLength: 0)
+                            Button {
+                                Task { await loadTree() }
+                            } label: {
+                                Text(String(localized: "重试"))
+                                    .font(T.font(11.5, .semibold))
+                                    .foregroundColor(T.accentText)
+                                    .padding(.horizontal, T.sp2)
+                                    .frame(minHeight: 32)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityIdentifier("09-act-retry-tree")
+                        }
+                        .foregroundColor(T.orangeBright)
+                        .listRowBackground(T.bgCard)
+                        .listRowSeparator(.hidden)
+                        .accessibilityIdentifier("09-load-error-banner")
+                    }
+                    if tree.isEmpty, loadError == nil {
+                        // 真空态（工作区无文件/目录为空）：与加载态、失败态三者可区分
+                        HStack(spacing: T.sp2) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 13))
+                            Text("工作区没有可显示的文件")
+                                .font(T.font(12.5))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundColor(T.text3)
+                        .listRowBackground(T.bgCard)
+                        .listRowSeparator(.hidden)
+                        .accessibilityIdentifier("09-empty-tree")
+                    }
                     Section {
                         ForEach(visibleRows) { node in
                             row(node)
@@ -85,14 +143,25 @@ struct FileTreeView: View {
         .background(T.bg)
         .navigationTitle("工作区文件")
         .navigationBarTitleDisplayMode(.inline)
-        // P3-8：一站式提交 sheet；关闭即重取 staged 计数（提交后变化可见）
+        // P3-8：一站式提交 sheet。提交成功走「乐观同帧 + 后台对账」：onCommitted
+        // 与 loading 停止同一渲染帧清零 staged 计数（文件消失不再滞后于 loading）；
+        // sheet 关闭后重拉桌面实态对账（差异如实提示，以桌面为准）
         .sheet(isPresented: $showCommitSheet, onDismiss: {
-            Task { await refreshStagedCount() }
+            if pendingCommitReconcile {
+                pendingCommitReconcile = false
+                Task { await reconcileStagedAfterCommit() }
+            } else {
+                Task { await refreshStagedCount() }
+            }
         }) {
             CommitSheet(onCommitted: { hash in
+                // 提交成功（回执 hash 已验证）：同帧乐观更新——成功 notice + staged
+                // 计数清零（桌面实态由 sheet 关闭后的对账重拉校正）
                 noticeIsError = false
                 let shortHash = hash ?? ""
                 notice = shortHash.isEmpty ? String(localized: "已提交") : String(localized: "已提交 · \(shortHash)")
+                stagedCount = 0
+                pendingCommitReconcile = true
             })
             .accessibilityIdentifier("09-commit-sheet")
         }
@@ -112,14 +181,17 @@ struct FileTreeView: View {
         // 工作区切换产生新 Store 时重拉文件树 + 重挂观察流（无 id 时已挂载页面永不刷新）
         .task(id: ObjectIdentifier(store)) {
             stagedCount = nil
-            tree = await store.fileTree()
+            // 首load才给整页 loading；Store 换绑保留旧树（返回本页时滚动位置不跳）
+            isLoading = tree.isEmpty
+            await loadTree()
             isLoading = false
             await refreshStagedCount()
         }
         .task(id: ObjectIdentifier(store)) {
-            // 文件树活性（file-watcher.onDynamicChange）：变更即重拉；演示态流立即结束
+            // 文件树活性（file-watcher.onDynamicChange）：变更即重拉；演示态流立即结束。
+            // 重拉失败由 loadTree 保旧树 + 挂横幅（原实现失败即空列表无提示）
             for await _ in store.observeFileTreeChanges() {
-                tree = await store.fileTree()
+                await loadTree()
             }
         }
         .onChange(of: query) { _, newValue in
@@ -159,6 +231,23 @@ struct FileTreeView: View {
         }
         let staged = await store.diffFiles(sourceId: "staged")
         stagedCount = staged.count
+    }
+
+    /// 提交后对账（2026-10-06 假提交回归）：重拉桌面 staged 实态（git.getChanges）。
+    /// 桌面实态与乐观态（提交即清零）不符时以桌面为准并如实提示差异；对账拉取
+    /// 本身失败也如实声明（乐观态暂留，重进提交页会再次拉桌面实态）——不静默。
+    private func reconcileStagedAfterCommit() async {
+        await refreshStagedCount()
+        if let remote = store as? RemoteFileStore,
+           let failure = await remote.loadFailure(sourceId: "staged") {
+            noticeIsError = true
+            notice = String(localized: "已提交 · 提交后对账失败 · \(failure)")
+            return
+        }
+        if let count = stagedCount, count > 0 {
+            noticeIsError = false
+            notice = String(localized: "已提交 · 桌面端仍有 \(count) 个已暂存文件 · 已按桌面刷新")
+        }
     }
 
     private var commitSection: some View {
@@ -340,6 +429,10 @@ struct FilePreviewView: View {
     /// 二进制预览状态（readBinaryPreview 首块）
     @State private var binaryData: Data?
     @State private var binaryFailed = false
+    /// 读面三态（2026-10-06 用户回归「点击后结果清空」）：文本读失败不再渲染成空白
+    /// 内容区——空内容 + Store 失败信号 = 错误块 + 重试（区别于真空文件）
+    @State private var readFailed = false
+    @State private var readFailureMessage: String?
     /// G-027 分享态：内容临时文件 URL / 不可分享提示
     @State private var shareURL: URL?
     @State private var shareNotice: String?
@@ -392,6 +485,8 @@ struct FilePreviewView: View {
                     CenterLoadingView(text: "正在载入文件…").accessibilityIdentifier("09-loading-file")
                 } else if let kind = binaryKind {
                     binaryPreviewBody(kind)
+                } else if readFailed {
+                    readFailedBlock
                 } else {
                     switch segment {
                     case .preview:
@@ -455,23 +550,64 @@ struct FilePreviewView: View {
             Text(shareNotice ?? "")
         }
         .task {
-            // 二进制类别（图片/PDF）走 readBinaryPreview 单独通道
-            if binaryKind != nil {
-                binaryData = await store.binaryPreview(of: node.path, maxBytes: 2_000_000)
-                binaryFailed = binaryData == nil
-                isLoading = false
-                return
-            }
-            // 有界读首屏（256KiB；readTextFile offset/length + totalBytes 截断判定）。
-            // mock 默认实现整读返回不截断，演示行为不变。
-            let page = await store.contentPage(
-                of: node.path, offset: 0, length: Int.max)
-            content = page.content
-            totalBytes = page.totalBytes
-            loadedBytes = page.content.utf8.count
-            isTruncated = page.isTruncated
-            isLoading = false
+            await loadContent()
         }
+    }
+
+    /// 首屏装载（文本/二进制分派）。文本空内容 + Store 端 readTextFile 失败信号 =
+    /// 读取失败态（readFailed），不再渲染空白内容区冒充空文件。
+    private func loadContent() async {
+        // 二进制类别（图片/PDF）走 readBinaryPreview 单独通道
+        if binaryKind != nil {
+            binaryData = await store.binaryPreview(of: node.path, maxBytes: 2_000_000)
+            binaryFailed = binaryData == nil
+            isLoading = false
+            return
+        }
+        // 有界读首屏（256KiB；readTextFile offset/length + totalBytes 截断判定）。
+        // mock 默认实现整读返回不截断，演示行为不变。
+        let page = await store.contentPage(
+            of: node.path, offset: 0, length: Int.max)
+        content = page.content
+        totalBytes = page.totalBytes
+        loadedBytes = page.content.utf8.count
+        isTruncated = page.isTruncated
+        readFailed = false
+        readFailureMessage = nil
+        if page.content.isEmpty, let remote = store as? RemoteFileStore,
+           let failure = await remote.textReadFailureMessage() {
+            readFailed = true
+            readFailureMessage = failure
+        }
+        isLoading = false
+    }
+
+    /// 文本读取失败块（三态之错误态：图标 + 服务端 reason + 重试）
+    private var readFailedBlock: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            HStack(spacing: T.sp2) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 18))
+                    .foregroundColor(T.orangeBright)
+                Text("文件内容读取失败")
+                    .font(T.font(13.5, .semibold))
+                    .foregroundColor(T.text)
+            }
+            Text(readFailureMessage ?? String(localized: "桌面端未返回文件内容，可稍后重试。"))
+                .font(T.font(11.5))
+                .foregroundColor(T.text3)
+                .lineSpacing(4)
+            TextActionButton(
+                title: "重试",
+                action: { Task {
+                    isLoading = true
+                    await loadContent()
+                } },
+                identifier: "09-act-retry-content")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+        .accessibilityIdentifier("09-read-failed")
     }
 
     /// 图片 / PDF 只读预览体（失败降级说明，不虚构预览）
@@ -862,12 +998,16 @@ struct CommitSheet: View {
         Button {
             showCommitConfirm = true
         } label: {
-            Text(isCommitting ? "提交中…" : "提交")
-                .font(T.font(15, .semibold))
-                .foregroundColor(canCommit ? T.onAccent : T.text3)
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .background(canCommit ? T.accent : T.bgInput)
-                .clipShape(RoundedRectangle(cornerRadius: T.rM))
+            HStack(spacing: T.sp1) {
+                // 提交进行中指示（confirmationDialog 确认后）：桌面 commit 往返秒级
+                if isCommitting { SpinnerView(size: 14) }
+                Text(isCommitting ? "提交中…" : "提交")
+                    .font(T.font(15, .semibold))
+                    .foregroundColor(canCommit ? T.onAccent : T.text3)
+            }
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(canCommit ? T.accent : T.bgInput)
+            .clipShape(RoundedRectangle(cornerRadius: T.rM))
         }
         .disabled(!canCommit)
         .accessibilityIdentifier("09-commit-submit")
@@ -899,7 +1039,8 @@ struct CommitSheet: View {
     private func generateAndFill() async {
         isGenerating = true
         errorMessage = nil
-        let text = await store.generateCommitMessage(paths: stagedFiles.map(\.path))
+        // currentSessionFilePaths 携带原始路径（stagePath，web 同参；展示 path 可能是短名）
+        let text = await store.generateCommitMessage(paths: stagedFiles.map { $0.stagePath ?? $0.path })
         isGenerating = false
         if let text {
             message = text
@@ -962,15 +1103,21 @@ struct CommitSheet: View {
         guard !body.isEmpty else { return }
         isCommitting = true
         errorMessage = nil
-        let hash = await store.commit(message: body)
+        let result = await store.commit(message: body)
+        // loading 与结果同帧收口：isCommitting 复位后立即同帧落 onCommitted（乐观
+        // 更新）或错误上屏——回执到齐前 loading 不消失
         isCommitting = false
-        if hash != nil {
+        // 成功判定以回执为准：hash 非 nil 且非空才算提交生效（Store 层已保证，
+        // 此处再防空串兜底——绝不把未生效的提交渲染成「已提交」）
+        if let hash = result.hash, !hash.isEmpty {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             onCommitted(hash)
             dismiss()
         } else {
-            // 信息保留可重试（design §8.4：提交失败态）
-            errorMessage = String(localized: "提交失败 · 桌面端拒绝或连接异常，信息已保留可重试")
+            // 信息保留可重试（design §8.4：提交失败态）；失败原因如实上屏
+            //（服务端 fault reason 优先——写面禁止静默吞错）
+            let reason = result.errorMessage ?? String(localized: "桌面端拒绝或连接异常")
+            errorMessage = String(localized: "提交失败 · \(reason) · 信息已保留可重试")
         }
     }
 

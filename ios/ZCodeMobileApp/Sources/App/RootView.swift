@@ -13,6 +13,8 @@ struct RootView: View {
     @State private var connectPath: [ConnectFlowView.ConnectRoute] = []
     @State private var showScanner = false
     @State private var scannerUpdateToken = false
+    /// 未配对根页的设置入口（用户反馈「这一屏没有退出按钮」：设置 sheet 从根页可达）
+    @State private var showConnectSettings = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -108,12 +110,30 @@ struct RootView: View {
                 onManual: { connectPath.append(.manual(tokenFocusOnly: false)) },
                 onHelp: { connectPath.append(.help) },
                 onFilled: { /* 剪贴板一键填充在 ConnectHomeView 内直接发起连接 */ })
+            // 退出入口（用户 2026-10-06「这一屏没有退出按钮」）：未配对根页是终态页，
+            // 无处可「关」，但设置（账号/服务器管理）必须可达——齿轮开 Settings sheet。
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showConnectSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .accessibilityIdentifier("00-connect-root-settings")
+                }
+            }
             .navigationDestination(for: ConnectFlowView.ConnectRoute.self) { route in
                 switch route {
                 case .manual(let tokenFocusOnly):
                     ManualConnectView(tokenFocusOnly: tokenFocusOnly)
                 case .help:
                     ConnectHelpView()
+                }
+            }
+            .sheet(isPresented: $showConnectSettings) {
+                NavigationStack {
+                    SettingsView()
                 }
             }
         }
@@ -373,37 +393,58 @@ struct ZCodeTabBar: View {
 struct DiffActionBar: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.fileStore) private var store
+    /// 全部批准进行中（Spinner+disabled：桌面 stagePaths 往返期间无指示即「点了没反应」
+    /// ——2026-10-06 用户回归反馈）
+    @State private var isApprovingAll = false
+    /// 批准失败文案（含服务端 reason；写面禁止静默吞错）
+    @State private var errorText: String?
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button {
-                Task {
-                    await store.approveAll()
-                    router.diffReloadToken += 1
+        VStack(spacing: T.sp2) {
+            if let errorText {
+                HStack(spacing: T.sp2) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 12))
+                    Text(errorText)
+                        .font(T.font(11.5, .semibold))
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
                 }
-            } label: {
-                Text("全部批准")
-                    .font(T.font(15, .semibold))
-                    .foregroundColor(T.onAccent)
+                .foregroundColor(T.red)
+                .onTapGesture { self.errorText = nil }
+                .accessibilityIdentifier("08-approve-all-error")
+            }
+            HStack(spacing: 10) {
+                Button {
+                    approveAll()
+                } label: {
+                    HStack(spacing: T.sp1) {
+                        if isApprovingAll { SpinnerView(size: 14) }
+                        Text(isApprovingAll ? "批准中…" : "全部批准")
+                            .font(T.font(15, .semibold))
+                            .foregroundColor(isApprovingAll ? T.text2 : T.onAccent)
+                    }
                     .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(T.accent)
+                    .background(isApprovingAll ? T.bgInput : T.accent)
                     .clipShape(RoundedRectangle(cornerRadius: T.rM))
-            }
-            .accessibilityIdentifier("08-act-approve-all")
+                }
+                .disabled(isApprovingAll)
+                .accessibilityIdentifier("08-act-approve-all")
 
-            Button {
-                router.pushFileTree()
-            } label: {
-                // 对齐修复 H6（原 G-026「桌面端继续」）：动作实为 pushFileTree（浏览文件树），
-                // 无接力到桌面端的能力——文案降级为如实描述动作；
-                // testid 保留 08-act-desktop-continue（无 E2E 文案断言依赖，已核验）
-                Text(String(localized: "浏览文件"))
-                    .font(T.font(15, .semibold))
-                    .foregroundColor(T.text2)
-                    .frame(maxWidth: .infinity, minHeight: 48)
-                    .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                Button {
+                    router.pushFileTree()
+                } label: {
+                    // 对齐修复 H6（原 G-026「桌面端继续」）：动作实为 pushFileTree（浏览文件树），
+                    // 无接力到桌面端的能力——文案降级为如实描述动作；
+                    // testid 保留 08-act-desktop-continue（无 E2E 文案断言依赖，已核验）
+                    Text(String(localized: "浏览文件"))
+                        .font(T.font(15, .semibold))
+                        .foregroundColor(T.text2)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                }
+                .accessibilityIdentifier("08-act-desktop-continue")
             }
-            .accessibilityIdentifier("08-act-desktop-continue")
         }
         .padding(.horizontal, T.sp4)
         .padding(.top, T.sp2)
@@ -415,5 +456,23 @@ struct DiffActionBar: View {
                 .overlay(alignment: .top) { Divider().overlay(T.border) }
                 .ignoresSafeArea(edges: .bottom)
         )
+    }
+
+    /// 全部批准：失败文案上屏（按钮恢复可重试）；成功 haptic + bump 刷新令牌
+    /// （DiffReviewView .task(id: diffReloadToken) 据此 reload，卡片翻「已批准」）
+    private func approveAll() {
+        guard !isApprovingAll else { return }
+        isApprovingAll = true
+        errorText = nil
+        Task {
+            let error = await store.approveAll()
+            isApprovingAll = false
+            if let error {
+                errorText = error
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                router.diffReloadToken += 1
+            }
+        }
     }
 }

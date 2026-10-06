@@ -61,13 +61,14 @@ struct UsageStatsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await reload() }
         .refreshable { await reload() }
-        // 重置卡二次确认（扣费/消耗接口：确认后核销一张卡，不可撤销）
-        .confirmationDialog(
+        // 重置卡二次确认（扣费/消耗接口：确认后核销一张卡，不可撤销）。
+        // 用 .alert 而非 confirmationDialog（用户 2026-10-06：确认弹层渲染成锚定
+        // 玻璃泡贴在卡片上、长文案不可读——alert 居中呈现，长信息与两钮语义更清晰）
+        .alert(
             String(localized: "确认使用重置卡？"),
             isPresented: Binding(
                 get: { pendingResetType != nil },
-                set: { if !$0 { pendingResetType = nil } }),
-            titleVisibility: .visible) {
+                set: { if !$0 { pendingResetType = nil } })) {
             Button(String(localized: "使用"), role: .destructive) {
                 if let type = pendingResetType {
                     performResetUse(type)
@@ -132,7 +133,7 @@ struct UsageStatsView: View {
                         .font(T.mono(10.5))
                         .foregroundColor(T.text3)
                 }
-                // 重置卡摘要（可领取明细见下方重置机会卡）。5h/周卡过期时间分开展示
+                // 重置卡摘要（可使用明细见下方重置机会卡）。5h/周卡过期时间分开展示
                 // （用户裁决：两类卡作用窗口不同，不合并取最早）
                 if let cards = usage.resetCards,
                    cards.fiveHourCount > 0 || cards.weekCount > 0 {
@@ -341,14 +342,14 @@ struct UsageStatsView: View {
         .accessibilityIdentifier("12-usage-entitlement-\(item.name)")
     }
 
-    /// 重置机会卡（G-042：一键领取，桌面代执行）
+    /// 重置机会卡（G-042：一键使用，桌面代执行）
     private func resetCard(_ opportunity: ResetOpportunity) -> some View {
         VStack(alignment: .leading, spacing: T.sp2) {
             HStack(spacing: T.sp2) {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 13))
                     .foregroundColor(T.orange)
-                Text(String(localized: "有可领取的额度重置机会"))
+                Text(String(localized: "有可使用的额度重置机会"))
                     .font(T.font(12.5, .semibold))
                     .foregroundColor(T.text)
                 Spacer()
@@ -403,7 +404,7 @@ struct UsageStatsView: View {
         } label: {
             HStack {
                 if claiming { SpinnerView(color: T.onAccent, size: 14) }
-                Text(claiming ? String(localized: "领取中…") : title)
+                Text(claiming ? String(localized: "使用中…") : title)
             }
             .font(T.font(13, .semibold))
             .foregroundColor(enabled ? T.onAccent : T.text3)

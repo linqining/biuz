@@ -179,31 +179,41 @@ struct ScanView: View {
 
     private func handleRecognized(_ text: String) {
         guard !submitting else { return }
-        guard let parsed = ConnectURLParser.extractConnectLink(from: text) else {
+        guard let parsed = ConnectURLParser.extractLink(from: text) else {
             inlineError = "未识别到有效连接链接，请对准二维码后重试"
             return
         }
         submitting = true
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         Task {
-            if updateTokenMode, let existing = session.savedServer {
-                // L3 401 恢复：只更新令牌重连
+            switch parsed {
+            case .relay:
+                // 桌面端「远程控制」二维码即中继配对链接（sid+hash 自带凭据）——与
+                // 剪贴板/手动路径同款 connectRelayLink（用户 2026-10-06「扫码连接
+                // 根本没通」：扫码分支此前只认局域网直连链接，relay 二维码被当
+                // 无效码处理，永远不发起中继连接）
                 dismiss()
-                await session.updateToken(for: existing, token: parsed.token ?? "")
-            } else {
-                var server = ServerConfig(
-                    id: UUID().uuidString, name: nil, host: parsed.host, port: parsed.port,
-                    useTLS: parsed.useTLS, token: parsed.token ?? "", lastConnectedAt: nil,
-                    preferredWorkspacePath: nil, relay: nil)
-                if let existing = session.savedServer,
-                   existing.host == parsed.host, existing.port == parsed.port {
-                    server.id = existing.id
-                    server.name = existing.name
-                    server.preferredWorkspacePath = existing.preferredWorkspacePath
+                await session.connectRelayLink(text)
+            case .direct(let parsed):
+                if updateTokenMode, let existing = session.savedServer {
+                    // L3 401 恢复：只更新令牌重连
+                    dismiss()
+                    await session.updateToken(for: existing, token: parsed.token ?? "")
+                } else {
+                    var server = ServerConfig(
+                        id: UUID().uuidString, name: nil, host: parsed.host, port: parsed.port,
+                        useTLS: parsed.useTLS, token: parsed.token ?? "", lastConnectedAt: nil,
+                        preferredWorkspacePath: nil, relay: nil)
+                    if let existing = session.savedServer,
+                       existing.host == parsed.host, existing.port == parsed.port {
+                        server.id = existing.id
+                        server.name = existing.name
+                        server.preferredWorkspacePath = existing.preferredWorkspacePath
+                    }
+                    ServerRegistry.upsert(server)
+                    dismiss()
+                    await session.connect(server: server)
                 }
-                ServerRegistry.upsert(server)
-                dismiss()
-                await session.connect(server: server)
             }
         }
     }

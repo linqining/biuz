@@ -655,9 +655,12 @@ final class ZCodeServerConnection {
             try await relayClient.switchBridgeWorkspace(workspaceKey: key, workspacePath: target.path)
         } catch {
             // 错误文本含 reason（切换在途的 workspace-bridge-error 帧经 C-14 收口后以
-            // reason:error 组合上抛，不再被误判成功）
-            log(.error, "工作区桥切换失败 · \(error.localizedDescription)")
-            return .failure(.transport(error.localizedDescription))
+            // reason:error 组合上抛，不再被误判成功）。RPCError 非 LocalizedError
+            //（仅 CustomStringConvertible），localizedDescription 会丢真实 message——
+            // 取 message 原文上抛，失败提示链（AppSession → 切换器 hint）才有可行动原因
+            let detail = (error as? RPCError)?.message ?? error.localizedDescription
+            log(.error, "工作区桥切换失败 · \(detail)")
+            return .failure(.transport(detail))
         }
         await resubscribeWorkspaceConfig(path: target.path)
         updateWorkspace(to: target)

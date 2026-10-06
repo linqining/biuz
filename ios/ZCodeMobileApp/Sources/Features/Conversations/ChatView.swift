@@ -197,7 +197,23 @@ struct ChatView: View {
 
     private func messageList(_ viewModel: ChatViewModel) -> some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            // 三态可区分（真机报障「消息区空白且无提示」修复，2026-10-06）：
+            // 载入中=加载态；订阅/拉取失败=错误态+重试；订阅拉取成功但零行=空会话态
+            if viewModel.isLoading {
+                CenterLoadingView(text: "正在载入会话…", identifier: "05-messages-loading")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.messages.isEmpty, let failure = viewModel.loadFailure {
+                // 错误态要求「消息为空」双条件：observe 流晚于 load() 送达消息时
+                // 以列表为准，不误报失败
+                loadFailureView(viewModel, failure: failure)
+            } else if viewModel.messages.isEmpty {
+                EmptyStateView(
+                    icon: "text.bubble",
+                    title: String(localized: "还没有消息"),
+                    detail: String(localized: "发送第一条消息，开始与桌面端的对话"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
                 LazyVStack(alignment: .leading, spacing: T.sp4) {
                     // 待审批交互卡已移出滚动列表（用户报障：新消息把卡片顶出屏幕，
                     // 需上滚找批准按钮）——改固定在 composer 上方常驻，见 approvalBar(_:)
@@ -265,18 +281,49 @@ struct ChatView: View {
                 loadOlderAnchored(viewModel, proxy: proxy)
             })
             .onChange(of: viewModel.messages.count) { _, _ in
-                // loadOlder 顶部插入：保持阅读位置（button 已锚定原顶部消息），不滚底
-                if viewModel.messages.first?.id != nil,
-                   viewModel.messages.first?.id == prependGuardFirstID {
-                    prependGuardFirstID = nil
-                    return
-                }
+                // loadOlder 顶部插入：保持阅读位置——loadOlderAnchored 已锚定原顶部
+                // 消息并复位，这里不得滚底。旧守卫比较「新首条==旧首条」，插入后首条
+                // 必变，恒不成立 → 翻页必先跳底再锚回（用户 2026-10-06 反馈），改为
+                // 「本变更来自在途 loadOlder」判定
+                if prependGuardFirstID != nil { return }
                 scrollToBottom(proxy)
             }
             .onChange(of: viewModel.messages.last?.text) { _, _ in
                 scrollToBottom(proxy)
             }
+            }
         }
+    }
+
+    /// 消息区加载失败错误态（订阅/历史拉取失败透出 + 重试）：与空会话/加载中可区分
+    /// ——失败文本来自 store 最近一次记录（「订阅会话失败 · …」「拉取历史失败 · …」）
+    private func loadFailureView(_ viewModel: ChatViewModel, failure: String) -> some View {
+        VStack(spacing: T.sp3) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 30))
+                .foregroundColor(T.text3)
+            Text("会话加载失败")
+                .font(T.font(15, .semibold))
+                .foregroundColor(T.text)
+            Text(failure)
+                .font(T.font(12))
+                .foregroundColor(T.text3)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, T.sp6)
+            Button {
+                Task { await viewModel.retryLoad() }
+            } label: {
+                Label(String(localized: "重试"), systemImage: "arrow.clockwise")
+                    .font(T.font(14, .semibold))
+                    .foregroundColor(T.onAccent)
+                    .padding(.horizontal, T.sp4)
+                    .frame(minHeight: 44)
+                    .background(T.accent)
+                    .clipShape(Capsule())
+            }
+            .accessibilityIdentifier("05-act-chat-retry")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
@@ -285,16 +332,17 @@ struct ChatView: View {
         }
     }
 
-    /// 加载更早 + 锚定原顶部消息（保持阅读位置）；点击按钮与下拉到顶共用
+    /// 加载更早 + 锚定原顶部消息（保持阅读位置）；点击按钮与下拉到顶共用。
+    /// 完成后直接 scrollTo 复位（无动画）——onChange 滚底已被守卫拦下，不再有
+    /// 「先跳底再锚回」的跳变
     private func loadOlderAnchored(_ viewModel: ChatViewModel, proxy: ScrollViewProxy) {
         let anchor = viewModel.messages.first?.id
-        prependGuardFirstID = anchor
+        prependGuardFirstID = anchor ?? "prepend-empty"
         Task {
             await viewModel.loadOlder()
+            prependGuardFirstID = nil
             if let anchor {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    proxy.scrollTo(anchor, anchor: .top)
-                }
+                proxy.scrollTo(anchor, anchor: .top)
             }
         }
     }
@@ -1032,7 +1080,8 @@ struct WorkspaceHookReviewCard: View {
                           ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 16))
                         .foregroundColor(selectedIds.contains(item.id) ? T.accentText : T.text3)
-                        .frame(width: 24, minHeight: 30)
+                        .frame(width: 24)
+                        .frame(minHeight: 30)
                 }
                 .disabled(deciding)
                 .accessibilityIdentifier("05-hook-select-\(item.id)")

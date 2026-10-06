@@ -19,17 +19,20 @@ actor MockFileStore: @preconcurrency FileStore {
         contents[path] ?? "（二进制或未缓存内容：\(path)）"
     }
 
-    func setFileDecision(path: String, approved: Bool?) async {
-        guard let index = diffs.firstIndex(where: { $0.path == path }) else { return }
+    /// 演示路径：本地标记翻转即成功（返回 nil），忽略写面错误语义
+    func setFileDecision(path: String, approved: Bool?) async -> String? {
+        guard let index = diffs.firstIndex(where: { $0.path == path }) else { return nil }
         diffs[index].isApproved = approved == true
         diffs[index].isRejected = approved == false
+        return nil
     }
 
-    func approveAll() async {
+    func approveAll() async -> String? {
         for index in diffs.indices {
             diffs[index].isApproved = true
             diffs[index].isRejected = false
         }
+        return nil
     }
 
     // MARK: - 预置

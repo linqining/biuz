@@ -163,7 +163,7 @@
 		D61D8B3A9F83D69D99B7A644 /* ConnectingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectingView.swift; sourceTree = "<group>"; };
 		D684671D82D5D06BD34582F7 /* RPCSerialization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPCSerialization.swift; sourceTree = "<group>"; };
 		D6D51E2B40D70587E47F1E8A /* DiffReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffReviewView.swift; sourceTree = "<group>"; };
-		DBDFB6B2861B6F275C9CBE81 /* ZCodeMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ZCodeMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DBDFB6B2861B6F275C9CBE81 /* ZCodeMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZCodeMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E094796D4B74809F9343A250 /* MockConversationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockConversationStore.swift; sourceTree = "<group>"; };
 		E67D51DAE7C814996BEB7EA9 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		EAB8BEF41A67253CF6180862 /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
@@ -535,7 +535,6 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					2C4D7549E27B70322D29C541 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					478E9A29DB34707E984AB901 = {
@@ -761,6 +760,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3MLJ37C5NB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ZCodeMobileApp/Info.plist;
@@ -783,6 +783,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3MLJ37C5NB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ZCodeMobileApp/Info.plist;

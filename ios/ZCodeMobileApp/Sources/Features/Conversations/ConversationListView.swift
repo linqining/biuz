@@ -256,6 +256,12 @@ struct ConversationListView: View {
         // 而首个 .task { reload() } 仅在首次挂载（当时还是 mock）执行——若只 observe 不拉取，
         // 用户停留在列表页时远端会话永不加载（e2e 门禁第 1 轮 test12 实证）。
         .task(id: ObjectIdentifier(store)) {
+            // ⑥（2026-10-06）随 store 换绑复位归档行：归档行是 store 作用域（按工作区），
+            // 切换器跨工作区换 Store 后旧行不得残留——isEmpty 门只挡首展开，不覆盖换源
+            archivedConversations = []
+            if showArchived {
+                archivedConversations = await store.archivedConversations()
+            }
             await reload()
             for await event in store.observeConversations() {
                 if case .conversationsReplaced(let list) = event { conversations = list }
@@ -437,10 +443,14 @@ struct ConversationListView: View {
 
     // MARK: 工作区切换器（P3-10：会话列表区域入口；切换中/失败态见状态矩阵）
 
-    /// 连接态工作区清单（中继连接期 workspace-list-response 采集 + workspace-list-updated
-    /// 推送刷新，active 首位；未连接为空 → 切换器整体不渲染）
+    /// 连接态工作区清单（⑤修复 2026-10-06 真机报障「切换器只剩 mtt_mobile」）：
+    /// 不再只读 workspace-list-response 采集的桌面「当前打开」工作区——该请求非枚举源
+    /// （AGENTS §6 v1.5 实证，实测清单恒 1 项），AppSession.switcherWorkspaces 已并集
+    /// bootstrap.tasks 派生的跨工作区全量清单（web「所有项目目录」同源），按 path
+    /// 去重、active（当前）随 serverInfo 首位；可切换性门控（C-15 canBridge/中继能力）
+    /// 维持原口径不变。
     private var workspaceEntries: [ServerWorkspaceInfo] {
-        session.connection.serverInfo?.workspaces ?? []
+        session.switcherWorkspaces
     }
 
     @ViewBuilder

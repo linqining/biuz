@@ -95,6 +95,10 @@ actor RelayChannelClient: RPCChannelTransport {
     /// 桥重建互斥（degraded 快速重建 / paired 恢复重建两路汇入，防并发 openBridge
     /// 互踩单槽 bridgeOpenWaiter）
     private var bridgeRebuildInFlight = false
+    /// 切换互斥（并发切换串行守卫）：bridgeRebuildInFlight 只挡重建两路汇入，挡不住
+    /// 并发 switchBridgeWorkspace 互踩单槽 bridgeOpenWaiter——切换事务未完成时第二笔
+    /// 直接拒绝（AppSession.switchWorkspace 同口径拦截并提示，纵深防御）
+    private var switchInFlight = false
     private(set) var desktopAppVersion: String?
     private(set) var initialViewState: JSONValue?
     private(set) var taskListJSON: JSONValue?
@@ -375,10 +379,12 @@ actor RelayChannelClient: RPCChannelTransport {
     // MARK: 工作区切换（P3-10；C-10/C-11/C-12 对齐 web：bridge-open + view-state，无 reconnect 前置）
 
     /// 目标工作区的 workspaceKey 解析（C-12 严格口径）：**一律取清单原始 workspaceKey**
-    /// ——先按 workspaceIdentity（远端工作区判别键）命中，再按 path；清单未收录返回 nil。
-    /// 不再以 path 冒充 key（未取证兜底会发非法 key 致切换必败；web 同构判别
-    /// Ia({workspacePath,workspaceIdentity}) = identity 优先、path 兜底——但那是桌面侧
-    /// 清单条目的键构造，移动端反查必须落在清单既有条目上，落空即如实报「不在清单」）。
+    /// ——先按 workspaceIdentity（远端工作区判别键）命中，再按 path。清单未收录时按
+    /// web 同款公式合成键 `tc(path,identity)=identity.trim()||path`（【移植·bundle 逆向】
+    /// Ia/vM 同构：桌面以同一公式派生自身工作区的 workspaceKey，bridge-open 接受该键；
+    /// ⑤切换器并入 bootstrap.tasks 派生条目后，清单外工作区是常规路径而非非法 key——
+    /// 旧口径「未收录即失败」只覆盖 workspace-list-response 单源时代）。切换失败仍由
+    /// bridge-open 错误如实回传（AppSession.switchWorkspace hint）。
     func resolvedWorkspaceKey(forPath path: String, identity: String? = nil) -> String? {
         if let identity, !identity.isEmpty,
            let match = workspaceSummaries.first(where: { $0.workspaceIdentity == identity }) {
@@ -387,7 +393,9 @@ actor RelayChannelClient: RPCChannelTransport {
         if let match = workspaceSummaries.first(where: { $0.path == path }) {
             return match.workspaceKey
         }
-        return nil
+        let trimmedIdentity = identity?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedIdentity.isEmpty { return trimmedIdentity }
+        return path.isEmpty ? nil : path
     }
 
     /// mobile-view-state-update 发送（C-11；web M(e,n) 同构，bundle 实证）：
@@ -441,10 +449,20 @@ actor RelayChannelClient: RPCChannelTransport {
         guard state == .idle else {
             throw RPCError(message: "通道未就绪（state=\(state)）", name: "NotInitialized")
         }
+        // 并发切换串行守卫：上一笔切换事务未完成时新请求立即拒绝（UI 层 isSwitching
+        // 禁用之外的纵深防御；bridgeRebuildInFlight 只挡重建两路，挡不住并发 switch
+        // 互踩单槽 bridgeOpenWaiter）
+        guard !switchInFlight else {
+            throw RPCError(message: "已有工作区切换在进行中", name: "SwitchInProgress")
+        }
         // 切换全程持重建互斥（含失败回滚）：degraded 快速重建/paired 恢复重建在切换
         // 在途时并发 openBridge 会互踩单槽 bridgeOpenWaiter
         bridgeRebuildInFlight = true
-        defer { bridgeRebuildInFlight = false }
+        switchInFlight = true
+        defer {
+            bridgeRebuildInFlight = false
+            switchInFlight = false
+        }
         let previousKey = activeWorkspaceKey
         let previousTaskId = activeTaskId
         let previousPath = activeEventListeners.values.lazy.compactMap {

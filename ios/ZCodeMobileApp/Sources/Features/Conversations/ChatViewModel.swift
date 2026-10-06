@@ -11,6 +11,11 @@ final class ChatViewModel {
     var draft: String = ""
     var isLoading = true
 
+    /// 会话加载失败文本（连接态订阅/历史行拉取失败的 UI 透出面；nil = 无失败——
+    /// 含「订阅/拉取都成功但行为空」的正常空会话，空/载/失败三态据此区分。
+    /// 真机报障「二级页面消息区空白且无提示」2026-10-06 修复面）
+    var loadFailure: String?
+
     /// 待发附件（P1-1：相册/拍照/文件三来源；会话维度实例。演示态 UI 不出附件
     /// 入口——设计稿 1.4「非连接态 📎 不渲染」，本服务仅连接态被触达）
     let uploads: AttachmentUploadService
@@ -489,10 +494,25 @@ final class ChatViewModel {
             }
             UserDefaults.standard.set("1", forKey: "diag.wf.mode")
         }
-        let all = await store.conversations()
-        conversation = all.first { $0.id == conversationID }
+        // —— P0 首屏段：消息先行（本连接缓存命中=纯内存，立即渲染），不等跨区
+        // 任务索引聚合（26 区 listTaskList 串行）与已读上报 ——
         messages = await store.messages(in: conversationID)
-        await store.markRead(conversationID: conversationID)
+        // 失败透出（「订阅/拉取失败 UI 不可见」修复）：有消息=成功；空列表时读 store
+        // 最近一次失败——nil = 正常空会话（错误态与空态可区分）
+        loadFailure = messages.isEmpty
+            ? await store.conversationLoadFailure(in: conversationID) : nil
+        // 标题等元数据先行取纯内存投影（零 RPC；后台段全量对账后回填）
+        conversation = await store.cachedConversation(conversationID)
+        isLoading = false
+        // 消息区自动恢复（切换失败回滚/中继瞬断兜底）：load 以失败收尾时退避自动重试，
+        // 不必等用户点「重试」；成功收尾则复位预算并撤销挂起的重试
+        if loadFailure != nil {
+            scheduleAutoRetry()
+        } else {
+            autoRetryCount = 0
+            autoRetryTask?.cancel()
+        }
+        // —— P0 伴生段：chips/审批/面板投影（多为内存快照读，不再阻塞消息区）——
         contextUsage = await store.sessionContextUsage(in: conversationID)
         // 要求 5：workflow 只读投影（带内缓存命中为纯内存读；无数据不渲染）
         workflowRuns = await store.workflowRuns(in: conversationID)
@@ -509,7 +529,17 @@ final class ChatViewModel {
         }
         await refreshPendingInteractions()
         await refreshPanels()
-        isLoading = false
+        // —— P0 后台段：重数据与写面不阻塞首屏——跨区任务索引聚合（取会话元数据
+        // 全量对账）+ 已读上报；完成后回填 conversation ----
+        backgroundLoadTask?.cancel()
+        backgroundLoadTask = Task { [weak self] in
+            guard let self else { return }
+            let all = await self.store.conversations()
+            if let found = all.first(where: { $0.id == self.conversationID }) {
+                self.conversation = found
+            }
+            await self.store.markRead(conversationID: self.conversationID)
+        }
         // 诊断钩子：-ZCodeDiagLoadOlder 自动探测一次向上分页（「加载更早消息不生效」取证）
         if ProcessInfo.processInfo.arguments.contains("-ZCodeDiagLoadOlder"), isReadOnly, !messages.isEmpty {
             let before = messages.count
@@ -519,6 +549,53 @@ final class ChatViewModel {
                 "before=\(before) after=\(messages.count) canLoadOlder=\(canLoadOlder) isLoadingOlder=\(isLoadingOlder)",
                 forKey: "diag.loadolder")
         }
+    }
+
+    // MARK: 消息区自动恢复（切换失败/瞬断兜底链）
+
+    /// load 失败后的退避自动重试预算与挂起任务。场景：工作区切换在途会中断全部在途
+    /// RPC（RelayChannelClient.switchBridgeWorkspace 按重连同口径失败）——切换失败
+    /// 回滚虽会重发 eventListen（订阅存活则快照自动回流、loadFailure 随
+    /// messagesReplaced 清除），但订阅本身在切换窗口被打断时无人重新触发订阅/rows
+    /// 拉取，消息区只能停在错误态等手动重试；此处 1.2s/3s 两轮退避自动重入，仍失败
+    /// 保持错误态供手动重试（AGENTS §5.8 中继瞬断 1.2s 退避重试同口径）。
+    private var autoRetryCount = 0
+    private var autoRetryTask: Task<Void, Never>?
+    private let autoRetryLimit = 2
+
+    /// 后台补齐任务（P0 首屏提速：跨区任务索引聚合 + 已读上报移出首屏链路；
+    /// 重入 load 时取消旧任务避免重复聚合）
+    private var backgroundLoadTask: Task<Void, Never>?
+
+    private func scheduleAutoRetry() {
+        guard isReadOnly, autoRetryCount < autoRetryLimit else { return }
+        autoRetryCount += 1
+        let delayNanos: UInt64 = autoRetryCount == 1 ? 1_200_000_000 : 3_000_000_000
+        autoRetryTask?.cancel()
+        autoRetryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delayNanos)
+            guard let self, !Task.isCancelled else { return }
+            // 已恢复（订阅回流清 loadFailure）或正在加载（新一轮 load 在途）则放弃
+            guard self.loadFailure != nil, !self.isLoading else { return }
+            await self.reloadAfterFailure()
+        }
+    }
+
+    /// 错误态重试（消息区错误卡「重试」钮）：直重入 load()——store 侧订阅守卫对失败
+    /// 态放行（仅成功订阅去重）、rows 空表重新分页拉取；期间 isLoading 置位呈加载态。
+    /// 手动重试重置自动重试预算（用户显式要求 = 新一轮兜底）。
+    /// 连接恢复换源（store 身份变化）由 ChatView .task(id:) 重建 VM 自动兜底。
+    func retryLoad() async {
+        guard loadFailure != nil else { return }
+        autoRetryCount = 0
+        await reloadAfterFailure()
+    }
+
+    /// 重入 load（手动/自动共用；自动路径不重置预算——重试仍失败继续按退避计次）
+    private func reloadAfterFailure() async {
+        loadFailure = nil
+        isLoading = true
+        await load()
     }
 
     /// 订阅数据层事件（流式输出逐字经此刷新）
@@ -535,6 +612,8 @@ final class ChatViewModel {
                 conversation = updated
             case .messagesReplaced(let id, let replaced) where id == conversationID:
                 messages = replaced
+                // 帧已抵达 = 订阅存活：清除失败态（重试成功/自动恢复共用此口）
+                if !replaced.isEmpty { loadFailure = nil }
                 if ProcessInfo.processInfo.arguments.contains("-ZCodeDiagLoadOlder") {
                     UserDefaults.standard.set("delivered \(replaced.count)", forKey: "diag.loadolder.delivered")
                 }

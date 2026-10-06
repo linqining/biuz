@@ -329,18 +329,33 @@ struct EditResendSheet: View {
 struct UserBubble: View {
     let text: String
 
+    /// 超长粘贴截断（用户 2026-10-06「消息太大要想办法处理」）：> 6k 字先截断，
+    /// 「展开全部」按需全文——巨幅粘贴块渲染是滚动卡顿源之一
+    @State private var expanded = false
+    private static let displayLimit = 6_000
+
     var body: some View {
         HStack {
             Spacer(minLength: 56)
-            Text(text)
-                .font(T.font(14.5))
-                .foregroundColor(T.text)
-                .lineSpacing(4)
-                .padding(.horizontal, T.sp3)
-                .padding(.vertical, 10)
-                .background(T.gradBubble)
-                .clipShape(RoundedRectangle(cornerRadius: T.rL))
-                .overlay(RoundedRectangle(cornerRadius: T.rL).stroke(T.border, lineWidth: 1))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(expanded || text.count <= Self.displayLimit
+                     ? text : String(text.prefix(Self.displayLimit)) + "…")
+                    .font(T.font(14.5))
+                    .foregroundColor(T.text)
+                    .lineSpacing(4)
+                if text.count > Self.displayLimit {
+                    Button(expanded ? "收起" : "展开全部（\(text.count) 字）") {
+                        withAnimation { expanded.toggle() }
+                    }
+                    .font(T.font(11.5, .semibold))
+                    .foregroundColor(T.accentText)
+                }
+            }
+            .padding(.horizontal, T.sp3)
+            .padding(.vertical, 10)
+            .background(T.gradBubble)
+            .clipShape(RoundedRectangle(cornerRadius: T.rL))
+            .overlay(RoundedRectangle(cornerRadius: T.rL).stroke(T.border, lineWidth: 1))
         }
         .padding(.leading, T.sp6)
     }
@@ -351,10 +366,28 @@ struct MarkdownMessageBody: View {
     let text: String
     var streaming: Bool = false
 
+    /// 超长消息截断（同 UserBubble）：> 6k 字先截断再进 markdown 解析——巨幅
+    /// tool 输出/日志块的解析与渲染曾致列表卡顿；流式中不截断（光标语义优先）
+    @State private var expanded = false
+    private static let displayLimit = 6_000
+
+    private var displayText: String {
+        streaming || expanded || text.count <= Self.displayLimit
+            ? text : String(text.prefix(Self.displayLimit)) + "…"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
-            ForEach(TinyMarkdown.parse(text)) { block in
+            ForEach(TinyMarkdown.parse(displayText)) { block in
                 MarkdownBlockView(block: block)
+            }
+            if text.count > Self.displayLimit, !streaming {
+                Button(expanded ? "收起" : "展开全部（\(text.count) 字）") {
+                    withAnimation { expanded.toggle() }
+                }
+                .font(T.font(11.5, .semibold))
+                .foregroundColor(T.accentText)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             if streaming {
                 BlinkingCursor()

@@ -230,6 +230,10 @@ final class AppSession {
     /// 换绑，Store 新实例再经各页 .task(id: ObjectIdentifier(store)) 自动重拉
     private(set) var storeEpoch = 0
 
+    /// 当前装配的工作区路径（P1 重连缓存迁移判定用：teardown 清空；同路径重连
+    /// =export/adopt 行缓存跨 Store 重建保留，异路径=工作区切换不迁移）
+    private var assembledWorkspacePath: String?
+
     // MARK: 桌面端只读信息（oauth / usage-stats 只读面；连接态拉取，断开清空）
 
     /// 桌面端 OAuth 登录展示态（getProviders/getActiveProvider/restoreCachedSessionState
@@ -1137,7 +1141,18 @@ final class AppSession {
     private func assembleRemoteStores(info: ServerRemoteInfo, workspace: ServerWorkspaceInfo?) {
         UserDefaults.standard.set("assemble: workspace=\(workspace == nil ? "nil!" : (workspace?.path ?? "?")) info=\(String(describing: info).prefix(200))", forKey: "diag.assemble")
         guard let workspace else { return }
+        // P1 重连缓存迁移：同工作区重连时行/消息缓存跨 Store 重建保留（重连不再清空
+        // 全部会话首屏缓存）；工作区切换不迁移——会话行属于原工作区
+        let previousConversationStore = remoteConversationStore
+        let reuseCaches = assembledWorkspacePath == workspace.path
         let conversationStore = RemoteConversationStore(connection: connection, workspace: workspace)
+        assembledWorkspacePath = workspace.path
+        if let previousConversationStore, reuseCaches {
+            Task {
+                let caches = await previousConversationStore.exportCaches()
+                await conversationStore.adoptCaches(caches)
+            }
+        }
         // 多 workspace：连接期 workspace-list-response 采集的桌面全部工作区回写
         // （聚合任务列表用；active 在首位，单 workspace 行为不变）。store 是 actor，
         // 经 actor 方法回写（跨 actor 隔离）
@@ -1145,6 +1160,8 @@ final class AppSession {
         Task {
             await conversationStore.setAllWorkspaces(workspaces)
             let bootstrapTasks = await connection.relayBootstrapTasks
+            // ⑤切换器枚举源（bootstrapWorkspaces 文档）：派生与注入同源同批
+            bootstrapWorkspaces = Self.deriveBootstrapWorkspaces(bootstrapTasks)
             await conversationStore.setBootstrapTasks(bootstrapTasks)
         }
         remoteConversationStore = conversationStore
@@ -1163,28 +1180,101 @@ final class AppSession {
         desktopOAuthInfo = nil
         codingPlanUsage = nil
         codingPlanEntitlements = nil
+        bootstrapWorkspaces = []
+        assembledWorkspacePath = nil
         storeEpoch += 1
     }
 
     // MARK: 多工作区切换（P3-10）
 
-    /// 切换活动工作区（中继连接）：connection.switchRelayWorkspace（reconnect 请求 →
-    /// 桥重开 → 订阅重定向）→ 以新工作区重跑 assembleRemoteStores，epoch 触发环境值
-    /// 换绑（各页经新 Store 实例自动 loading → 新数据，会话/文件/任务三面板同换视角）。
-    /// 返回 nil = 成功；非 nil = 用户可读失败原因（原工作区 Store 与连接态保持不动，
-    /// 设计稿 P3-10 §10.3 失败口径：1.2s 退避重试一次由 connection 层完成）。
+    /// bootstrap.tasks 派生的工作区清单（⑤切换器枚举源，2026-10-06）：装配时自
+    /// connection.relayBootstrapTasks 派生，断开清空。workspace-list-request 只回桌面
+    /// 当前打开的工作区（AGENTS §6 v1.5 实测清单=1，非枚举源），跨工作区枚举只能靠
+    /// bootstrap.tasks（实测 256 行/26 工作区，web「所有项目目录」同源）。
+    private(set) var bootstrapWorkspaces: [ServerWorkspaceInfo] = []
+
+    /// bootstrap.tasks → 工作区条目（web 同构【移植·bundle 逆向】：任务行按键
+    /// `workspaceIdentity?.trim()||workspacePath` 归组进工作区，键即 workspaceKey
+    /// ——bundle tc/Ia 同款公式；行内 workspaceIdentity 可选）。按 path 去重保序；
+    /// label 取路径末段（Conversation.projectName 同款口径）。
+    nonisolated static func deriveBootstrapWorkspaces(_ tasks: JSONValue?) -> [ServerWorkspaceInfo] {
+        guard let items = tasks?.arrayValue else { return [] }
+        var byPath: [String: ServerWorkspaceInfo] = [:]
+        var order: [String] = []
+        for item in items {
+            guard let d = item.objectValue, let path = d["workspacePath"]?.stringValue,
+                  !path.isEmpty else { continue }
+            let identity = d["workspaceIdentity"]?.stringValue?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if byPath[path] == nil {
+                byPath[path] = ServerWorkspaceInfo(
+                    path: path,
+                    label: path.split(separator: "/").last.map(String.init),
+                    workspaceIdentity: identity?.isEmpty == false ? identity : nil)
+                order.append(path)
+            } else if let identity, !identity.isEmpty,
+                      byPath[path]?.workspaceIdentity == nil {
+                // 同工作区多行：补首个非空身份（远端工作区判别键，切换反查用）
+                byPath[path]?.workspaceIdentity = identity
+            }
+        }
+        return order.compactMap { byPath[$0] }
+    }
+
+    /// 切换器清单（⑤修复，2026-10-06 真机报障「切换器只剩 mtt_mobile」）：连接层采集
+    /// 清单（workspace-list-response/updated，C-15 canBridge 已过滤、active 首位）∪
+    /// bootstrap.tasks 派生全量，按 path 去重。派生条目无 kind 字段，按 C-15「kind
+    /// 缺席视为非 remote」恒可桥（web 对任务归组的工作区同口径，不过滤）。
+    var switcherWorkspaces: [ServerWorkspaceInfo] {
+        var merged: [ServerWorkspaceInfo] = []
+        var seenPaths: Set<String> = []
+        for entry in connection.serverInfo?.workspaces ?? [] where !seenPaths.contains(entry.path) {
+            seenPaths.insert(entry.path)
+            merged.append(entry)
+        }
+        for entry in bootstrapWorkspaces where !seenPaths.contains(entry.path) {
+            seenPaths.insert(entry.path)
+            merged.append(entry)
+        }
+        return merged
+    }
+
+    /// 切换在途守卫（并发切换串行化，P3-10 §10.3）：上一笔切换事务未完成时新请求
+    /// 拒绝并提示——切换器 UI 的 isSwitching 禁用只覆盖单视图入口，此处为会话级
+    /// 纵深防御（切换器之外的未来入口/竞态复入不得把 Store/桥留中间态）
+    private var isSwitchingWorkspace = false
+
+    /// 切换活动工作区（中继连接）：connection.switchRelayWorkspace（桥重开 →
+    /// 订阅重定向 → workspace-config 重订）→ 以新工作区重跑 assembleRemoteStores，
+    /// epoch 触发环境值换绑（各页经新 Store 实例自动 loading → 新数据，会话/文件/
+    /// 任务三面板同换视角）。返回 nil = 成功；非 nil = 用户可读失败原因（含底层
+    /// detail；失败时原工作区 Store、connection.workspace 与桥均保持不动——
+    /// 失败口径由 connection 层桥回滚保证，RelayChannelClient.switchBridgeWorkspace）。
     func switchWorkspace(to target: ServerWorkspaceInfo) async -> String? {
         guard case .connected = mode else {
             return String(localized: "未连接桌面端")
         }
+        guard !isSwitchingWorkspace else {
+            return String(localized: "已有工作区切换在进行中，请稍后再试")
+        }
+        isSwitchingWorkspace = true
+        defer { isSwitchingWorkspace = false }
         switch await connection.switchRelayWorkspace(to: target) {
         case .success(let workspace):
-            if let info = connection.serverInfo {
-                assembleRemoteStores(info: info, workspace: workspace)
+            // 完成后复核连接态：切换在途期间断线/重连会重装配 Store（connectToSaved），
+            // 迟到的成功事务不得覆盖重连链路的新 Store——重连自会以正确工作区装配
+            guard case .connected = mode, let info = connection.serverInfo else {
+                return String(localized: "切换结果未落定 · 连接已变化，请重试")
             }
+            assembleRemoteStores(info: info, workspace: workspace)
             return nil
-        case .failure:
-            return String(localized: "切换失败 · 已保持当前工作区")
+        case .failure(let error):
+            // 失败带出底层原因（原 Store/工作区不动）；.transport 携桥层原文
+            //（桌面拒绝 reason / 超时 / 并发拒绝），其余形态回退 headline
+            let detail: String
+            if case .transport(let message) = error { detail = message }
+            else { detail = error.headline }
+            return String(localized: "切换失败 · 已保持当前工作区（\(detail)）")
         }
     }
 

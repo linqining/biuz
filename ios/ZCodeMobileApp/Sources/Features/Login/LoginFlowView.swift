@@ -589,9 +589,16 @@ struct OAuthWebView: UIViewRepresentable {
     let onCallback: (URL) -> Void
     let onProgress: (Double) -> Void
 
+    /// iOS 17+ WKWebView 已知问题（用户 2026-10-06：登录页输入不唤起键盘——表单
+    /// 辅助条出现但键盘不渲染）：置空 inputAccessoryView 规避辅助条布局占位，
+    /// App Store 惯用修复；代价是失去网页表单的上下导航辅助条（页面自有 UI 可用）
+    final class KeyboardFixWebView: WKWebView {
+        override var inputAccessoryView: UIView? { nil }
+    }
+
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = KeyboardFixWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         webView.addObserver(context.coordinator, forKeyPath: "estimatedProgress", options: [.new], context: nil)

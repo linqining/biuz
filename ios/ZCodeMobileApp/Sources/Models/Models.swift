@@ -175,6 +175,10 @@ struct WorkflowRunSummary: Identifiable, Equatable {
     var cancellable: Bool = false
     /// 控制/设置命令的定位键（run 对象自带 workId；缺席时以 runId 充当，web 同构）
     var workId: String?
+    /// 起止时间（宽容解析：毫秒数/ISO 双形态，缺席 = nil——多 run 排序回退表序；
+    /// 字段未在桌面 §10 词表取证，仅移动端显示排序用）
+    var startedAt: Date?
+    var updatedAt: Date?
 
     /// 站点灯四态映射（stopped→pending，UI 另以文案区分「已停止」）
     var status: WorkflowStepStatus { WorkflowStepStatus.mapRunStatus(rawStatus) }
@@ -418,6 +422,10 @@ struct DiffFile: Identifiable, Equatable {
     var lines: [DiffLine]
     var isApproved: Bool = false
     var isRejected: Bool = false
+    /// git 写面（stagePaths/unstagePaths）携带的原始路径：web 同参——变更条目
+    /// `stagePath: n.path`（bundle 取证 TW=wW(e,t).map(e=>e.stagePath)），而非展示用
+    /// repoRelativePath/短名。nil = 演示/会话源未提供（回退 path）。
+    var stagePath: String? = nil
 }
 
 struct TerminalLine: Identifiable, Equatable {

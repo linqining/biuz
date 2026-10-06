@@ -267,8 +267,11 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
     /// 停止任务：委托 conversationStore.stopTurn（统一 sendCommand 信封——嵌套形态、
     /// 握手 clientId、epoch 毫秒 issuedAt、workspace 信封齐全）。状态回流由
     /// onDynamicTaskEvent 驱动卡片/状态条翻转。桌面代执行命令，边界内允许。
-    func stop(taskID: String) async {
-        await conversationStore?.stopTurn(sessionId: taskID)
+    func stop(taskID: String) async -> String? {
+        guard let conversationStore else { return "未连接桌面端，停止指令未送达" }
+        // M2 写面如实回传：stopTurn 回执 nil = 命令未送达（连接异常/被拒），此前静默
+        let ack = await conversationStore.stopTurn(sessionId: taskID)
+        return ack == nil ? "停止指令未送达 · 连接恢复后重试" : nil
     }
 
     /// 失败重试：retryTurn 需 target{rowId, entityId}（rewind 后重喂 agent 的精确

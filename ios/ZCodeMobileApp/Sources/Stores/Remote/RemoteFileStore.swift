@@ -8,7 +8,8 @@ import Foundation
 /// - diffFiles() ← git.refresh 前置 + git.getChanges（unstaged/staged）+ git.getDiff
 ///   逐文件 patch（恒带 sourceId，web 同参；回执结构化 {availability, patch?, before/after}）
 /// - sessionDiffFiles() ← conversationFileChangesV4（会话维度变更，hunk 结构自解析）
-/// 已知边界（gaps）：服务端无「逐文件批准」接口——setFileDecision/approveAll 仅本地 UI 态。
+/// 逐文件批准（2026-10-06 git 写族放开）：setFileDecision/approveAll 落地为
+/// git.stagePaths/unstagePaths 桌面代执行；失败文案随返回值上屏（写面禁止静默）。
 actor RemoteFileStore: @preconcurrency FileStore {
 
     private weak var connection: ZCodeServerConnection?
@@ -17,6 +18,19 @@ actor RemoteFileStore: @preconcurrency FileStore {
     private var localApprovals: Set<String> = []
     private var localRejections: Set<String> = []
     private var cachedTree: [FileNode] = []
+
+    // 读面三态支撑（2026-10-06 用户回归「点击后列表无提示清空」）：读失败不再折叠成
+    // 空成功——last-good 兜底 + 失败信号供 UI 区分 加载/错误/空 三态。
+    /// 文件树失效标记（onDynamicChange 置位；失败重拉保旧树，不再先清缓存再赌成功）
+    private var treeDirty = false
+    /// 最近一次文件树拉取失败文案（nil=成功）
+    private var treeFailure: String?
+    /// getChanges/sessionDiffFiles 最近一次成功回执（按源缓存；失败时兜底返回，防列表闪空）
+    private var lastGoodChanges: [String: [DiffFile]] = [:]
+    /// 最近一次变更拉取失败文案（键：unstaged/staged/session；nil=成功）
+    private var changesFailure: [String: String] = [:]
+    /// 最近一次 readTextFile 失败文案（nil=成功；预览页空内容三态判定用）
+    private var textReadFailure: String?
 
     /// 首屏有界读（file.readTextFile length 上限）：256KiB，超出走「加载更多」分页
     static let firstPageSizeBytes = 256 * 1024
@@ -57,13 +71,30 @@ actor RemoteFileStore: @preconcurrency FileStore {
     // MARK: 文件树
 
     func fileTree() async -> [FileNode] {
-        if cachedTree.isEmpty {
-            cachedTree = await readDirectory(path: workspace.path, depth: 0)
+        // 失效/空缓存才重拉；重拉失败保留旧树（last-good）并记失败信号——
+        // 树任何时刻不得因瞬时 RPC 失败无提示变空（watcher 事件驱动的重拉随时会到）
+        if cachedTree.isEmpty || treeDirty {
+            if let fresh = await readDirectory(path: workspace.path, depth: 0) {
+                cachedTree = fresh
+                treeDirty = false
+                treeFailure = nil
+            } else if cachedTree.isEmpty {
+                treeFailure = String(localized: "文件树读取失败 · 请检查桌面端连接后重试")
+            } else {
+                // 旧树继续展示（可能过期），失败文案供视图挂横幅；脏标记保留——
+                // 视图「重试」/下次事件到来时 fileTree() 会真正重拉
+                treeFailure = String(localized: "文件树刷新失败 · 暂显示上次结果")
+            }
         }
         if !cachedTree.isEmpty {
             await startWatching()
         }
         return cachedTree
+    }
+
+    /// 最近一次文件树拉取失败文案（nil=成功；FileTreeView 三态判定用）
+    func treeLoadFailure() async -> String? {
+        treeFailure
     }
 
     /// file-watcher.watch（recursive）：首载成功后启动；onDynamicChange 失效缓存并通知视图重拉。
@@ -92,9 +123,10 @@ actor RemoteFileStore: @preconcurrency FileStore {
         }
     }
 
-    /// 变更即失效：cachedTree 置空，下一次 fileTree() 重拉；同时通知 FileTreeView 即时刷新
+    /// 变更即失效：置脏标记（旧树保留兜底），下一次 fileTree() 重拉；同时通知
+    /// FileTreeView 即时刷新。原实现直接清空 cachedTree，重拉一旦失败视图即无提示变空。
     private func invalidateTree() async {
-        cachedTree = []
+        treeDirty = true
         for continuation in treeChangeContinuations.values {
             continuation.yield(())
         }
@@ -114,37 +146,53 @@ actor RemoteFileStore: @preconcurrency FileStore {
         treeChangeContinuations.removeValue(forKey: key)
     }
 
-    private func readDirectory(path: String, depth: Int) async -> [FileNode] {
-        guard let connection, depth < 3 else { return [] } // 3 层展示深度，够浏览主结构
+    /// 递归读目录（3 层展示深度，跳过隐藏目录）。返回 nil = RPC 失败（区别于真实空目录 [],
+    /// 三态判定依赖此区分）；子目录读失败该子树记空但不拖垮整树。幂等读级：首败 1.2s
+    /// 退避重试一次（中继瞬断纪律，AGENTS §5.8；generateCommitMessage 同款先例）。
+    private func readDirectory(path: String, depth: Int) async -> [FileNode]? {
+        guard let connection else { return nil } // 无连接=失败（区别于空目录，保旧树对账）
+        guard depth < 3 else { return [] } // 3 层展示深度，够浏览主结构
         let arg = RPCValue.jsonObject { builder in
             builder.set("path", path)
             builder.set("includeHidden", false)
         }
-        do {
-            let result = try await connection.call("file", "readdir", arg)
-            guard let entries = result.jsonValue?.arrayValue else { return [] }
-            var nodes: [FileNode] = []
-            for entry in entries {
-                guard let dict = entry.objectValue,
-                      let name = dict["name"]?.stringValue,
-                      let entryPath = dict["path"]?.stringValue else { continue }
-                let isDirectory = dict["type"]?.stringValue == "directory"
-                var node = FileNode(
-                    id: entryPath, name: name, path: entryPath,
-                    isDirectory: isDirectory, size: dict["size"]?.intValue, children: nil)
-                if isDirectory {
-                    let children = await readDirectory(path: entryPath, depth: depth + 1)
-                    node.children = children.isEmpty ? [] : children
+        for attempt in 0..<2 {
+            do {
+                let result = try await connection.call("file", "readdir", arg)
+                guard let entries = result.jsonValue?.arrayValue else {
+                    // 结构不符按失败走重试/上报（原实现折叠成空目录成功，静默吞错）
+                    if attempt == 0 {
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        continue
+                    }
+                    return nil
                 }
-                nodes.append(node)
+                var nodes: [FileNode] = []
+                for entry in entries {
+                    guard let dict = entry.objectValue,
+                          let name = dict["name"]?.stringValue,
+                          let entryPath = dict["path"]?.stringValue else { continue }
+                    let isDirectory = dict["type"]?.stringValue == "directory"
+                    var node = FileNode(
+                        id: entryPath, name: name, path: entryPath,
+                        isDirectory: isDirectory, size: dict["size"]?.intValue, children: nil)
+                    if isDirectory {
+                        // 子目录失败（nil）降级为空目录，不拖垮整树拉取
+                        let children = await readDirectory(path: entryPath, depth: depth + 1)
+                        node.children = (children ?? []).isEmpty ? [] : children
+                    }
+                    nodes.append(node)
+                }
+                return nodes.sorted { lhs, rhs in
+                    if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+                    return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                }
+            } catch {
+                guard attempt == 0 else { return nil }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
             }
-            return nodes.sorted { lhs, rhs in
-                if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            }
-        } catch {
-            return []
         }
+        return nil
     }
 
     // MARK: 服务端搜索（file.searchWorkspaceFiles；host 有界候选，named gap「本地过滤」升级）
@@ -217,7 +265,10 @@ actor RemoteFileStore: @preconcurrency FileStore {
     }
 
     private func readTextSlice(path: String, offset: Int, length: Int, knownTotal: Int? = nil) async -> FileContentPage {
-        guard let connection else { return FileContentPage(content: "", totalBytes: knownTotal ?? 0, isTruncated: false) }
+        guard let connection else {
+            textReadFailure = String(localized: "未连接桌面端 · 文件内容暂不可读")
+            return FileContentPage(content: "", totalBytes: knownTotal ?? 0, isTruncated: false)
+        }
         var builder = JSONObjectBuilder()
         builder.set("path", path)
         if offset > 0 {
@@ -229,6 +280,8 @@ actor RemoteFileStore: @preconcurrency FileStore {
         do {
             let result = try await connection.call("file", "readTextFile", .json(.object(builder.fields)))
             guard let dict = result.jsonValue?.objectValue else {
+                // 结构不符记失败信号（空串不再伪装成功空文件，预览页三态判定用）
+                textReadFailure = String(localized: "文件内容读取失败 · 回执结构不符")
                 return FileContentPage(content: "", totalBytes: knownTotal ?? 0, isTruncated: false)
             }
             let content = dict["content"]?.stringValue ?? ""
@@ -238,10 +291,17 @@ actor RemoteFileStore: @preconcurrency FileStore {
                 ?? (offset + content.utf8.count)
             let bytesRead = dict["bytesRead"]?.intValue ?? content.utf8.count
             let isTruncated = offset + bytesRead < totalBytes
+            textReadFailure = nil
             return FileContentPage(content: content, totalBytes: totalBytes, isTruncated: isTruncated)
         } catch {
+            textReadFailure = Self.readFailureText(command: "file.readTextFile", error: error)
             return FileContentPage(content: "", totalBytes: knownTotal ?? 0, isTruncated: false)
         }
+    }
+
+    /// 最近一次 readTextFile 失败文案（nil=成功；FilePreviewView 空内容三态判定用）
+    func textReadFailureMessage() async -> String? {
+        textReadFailure
     }
 
     // MARK: 二进制预览（P2：file.readBinaryPreview 读族，gate 读白名单内）
@@ -289,44 +349,72 @@ actor RemoteFileStore: @preconcurrency FileStore {
         _ = try? await connection.call("git", "refresh", .json(.object(builder.fields)))
     }
 
-    /// getChanges 有界拉取（prefix(20)）：sourceId ∈ unstaged | staged
+    /// getChanges 有界拉取（prefix(20)）：sourceId ∈ unstaged | staged。
+    /// 幂等读级首败 1.2s 退避重试一次（AGENTS §5.8）；再败返回 last-good 并记失败信号
+    /// （loadFailure(sourceId:)），列表不得因瞬时失败无提示清空。
     private func fetchChanges(sourceId: String) async -> [DiffFile] {
-        guard let connection else { return [] }
+        guard let connection else {
+            changesFailure[sourceId] = String(localized: "未连接桌面端 · 变更列表暂不可刷新")
+            return lastGoodChanges[sourceId] ?? []
+        }
         await refreshGit()
         let arg = RPCValue.jsonObject { builder in
             builder.set("workspacePath", workspace.path)
             builder.set("sourceId", sourceId)
         }
-        do {
-            let result = try await connection.call("git", "getChanges", arg)
-            guard let changes = result.jsonValue?.arrayValue else { return [] }
-            var files: [DiffFile] = []
-            for change in changes.prefix(20) { // 移动端有界展示
-                guard let dict = change.objectValue,
-                      let path = dict["path"]?.stringValue else { continue }
-                let displayPath = dict["repoRelativePath"]?.stringValue ?? path
-                var lines: [DiffLine] = []
-                var added = dict["added"]?.intValue ?? 0
-                var removed = dict["removed"]?.intValue ?? 0
-                if let patch = await fetchPatch(path: path, sourceId: sourceId) {
-                    lines = Self.parsePatch(patch)
-                    added = max(added, lines.filter { $0.kind == .add }.count)
-                    removed = max(removed, lines.filter { $0.kind == .del }.count)
+        for attempt in 0..<2 {
+            do {
+                let result = try await connection.call("git", "getChanges", arg)
+                guard let changes = result.jsonValue?.arrayValue else {
+                    throw RPCError(message: "getChanges 回执非数组", name: "badReply")
                 }
-                files.append(DiffFile(
-                    id: displayPath,
-                    path: displayPath,
-                    language: Self.language(for: displayPath),
-                    added: added,
-                    removed: removed,
-                    lines: lines,
-                    isApproved: localApprovals.contains(displayPath),
-                    isRejected: localRejections.contains(displayPath)))
+                var files: [DiffFile] = []
+                for change in changes.prefix(20) { // 移动端有界展示
+                    guard let dict = change.objectValue,
+                          let path = dict["path"]?.stringValue else { continue }
+                    let displayPath = dict["repoRelativePath"]?.stringValue ?? path
+                    var lines: [DiffLine] = []
+                    var added = dict["added"]?.intValue ?? 0
+                    var removed = dict["removed"]?.intValue ?? 0
+                    if let patch = await fetchPatch(path: path, sourceId: sourceId) {
+                        lines = Self.parsePatch(patch)
+                        added = max(added, lines.filter { $0.kind == .add }.count)
+                        removed = max(removed, lines.filter { $0.kind == .del }.count)
+                    }
+                    files.append(DiffFile(
+                        id: displayPath,
+                        path: displayPath,
+                        language: Self.language(for: displayPath),
+                        added: added,
+                        removed: removed,
+                        lines: lines,
+                        // 已暂存 = 桌面 git index 实态（stagePaths 落地结果）：批准标记以
+                        // 桌面实态对账，Store 重建（重连/换工作区）丢内存 localApprovals
+                        // 后「已批准」投影仍可恢复；未暂存维持本地批准回显
+                        isApproved: sourceId == "staged" ? true : localApprovals.contains(path),
+                        isRejected: localRejections.contains(path),
+                        // git 写面（stagePaths/unstagePaths）用服务端原始 path——web 同参
+                        //（bundle：变更条目 stagePath=n.path；repoRelativePath 仅展示用）
+                        stagePath: path))
+                }
+                lastGoodChanges[sourceId] = files
+                changesFailure[sourceId] = nil
+                return files
+            } catch {
+                guard attempt == 0 else {
+                    changesFailure[sourceId] = Self.readFailureText(command: "git.getChanges", error: error)
+                    return lastGoodChanges[sourceId] ?? []
+                }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
             }
-            return files
-        } catch {
-            return []
         }
+        return lastGoodChanges[sourceId] ?? []
+    }
+
+    /// 最近一次变更拉取失败文案（键：unstaged/staged/session；nil=该源最近一次拉取成功；
+    /// DiffViewModel 三态判定用——空结果 + 本信号在场 = 瞬时失败而非「工作区干净」）
+    func loadFailure(sourceId: String) async -> String? {
+        changesFailure[sourceId]
     }
 
     /// 是否有超出有界展示的更多变更（fetchChanges 截断到 20 条的「更多」提示判定）
@@ -354,58 +442,71 @@ actor RemoteFileStore: @preconcurrency FileStore {
         builder.set("target", .object(["sessionId": .string(sessionId)]))
         builder.set("baseRevision", 0)
         builder.set("baseLogEpoch", "0")
-        do {
-            let result = try await connection.call(
-                "zcode-agent", "conversationFileChangesV4", .json(.object(builder.fields)))
-            guard let dict = result.jsonValue?.objectValue else { return [] }
-            var files: [DiffFile] = []
-            for item in dict["items"]?.arrayValue ?? [] {
-                guard let itemDict = item.objectValue,
-                      let path = itemDict["path"]?.stringValue else { continue }
-                var lines: [DiffLine] = []
-                var id = 0
-                for hunk in itemDict["patches"]?.arrayValue ?? [] {
-                    guard let hunkDict = hunk.objectValue else { continue }
-                    let header = "@@ -\(hunkDict["oldStart"]?.intValue ?? 0),\(hunkDict["oldLines"]?.intValue ?? 0) +\(hunkDict["newStart"]?.intValue ?? 0),\(hunkDict["newLines"]?.intValue ?? 0) @@"
-                    lines.append(DiffLine(id: "sl-\(id)", kind: .hunk, oldNumber: nil, newNumber: nil, text: header))
-                    id += 1
-                    var oldNumber = hunkDict["oldStart"]?.intValue ?? 0
-                    var newNumber = hunkDict["newStart"]?.intValue ?? 0
-                    for raw in hunkDict["lines"]?.arrayValue ?? [] {
-                        guard let text = raw.stringValue else { continue }
-                        if text.hasPrefix("+") {
-                            lines.append(DiffLine(id: "sl-\(id)", kind: .add, oldNumber: nil, newNumber: newNumber, text: String(text.dropFirst())))
-                            newNumber += 1
-                        } else if text.hasPrefix("-") {
-                            lines.append(DiffLine(id: "sl-\(id)", kind: .del, oldNumber: oldNumber, newNumber: nil, text: String(text.dropFirst())))
-                            oldNumber += 1
-                        } else {
-                            lines.append(DiffLine(id: "sl-\(id)", kind: .ctx, oldNumber: oldNumber, newNumber: newNumber, text: String(text.dropFirst())))
-                            oldNumber += 1
-                            newNumber += 1
-                        }
-                        id += 1
-                    }
+        for attempt in 0..<2 {
+            do {
+                let result = try await connection.call(
+                    "zcode-agent", "conversationFileChangesV4", .json(.object(builder.fields)))
+                guard let dict = result.jsonValue?.objectValue else {
+                    throw RPCError(message: "conversationFileChangesV4 回执非对象", name: "badReply")
                 }
-                let added = itemDict["additions"]?.intValue ?? lines.filter { $0.kind == .add }.count
-                let removed = itemDict["deletions"]?.intValue ?? lines.filter { $0.kind == .del }.count
-                // 显示口径对齐 git.getChanges 路径（repoRelativePath/短名）：
-                // 完整路径作 id 会让文件卡 identifier 带绝对路径，与其余分段不一致
-                let displayPath = (path as NSString).lastPathComponent
-                files.append(DiffFile(
-                    id: displayPath,
-                    path: displayPath,
-                    language: Self.language(for: displayPath),
-                    added: added,
-                    removed: removed,
-                    lines: lines,
-                    isApproved: localApprovals.contains(displayPath),
-                    isRejected: localRejections.contains(displayPath)))
+                var files: [DiffFile] = []
+                for item in dict["items"]?.arrayValue ?? [] {
+                    guard let itemDict = item.objectValue,
+                          let path = itemDict["path"]?.stringValue else { continue }
+                    var lines: [DiffLine] = []
+                    var id = 0
+                    for hunk in itemDict["patches"]?.arrayValue ?? [] {
+                        guard let hunkDict = hunk.objectValue else { continue }
+                        let header = "@@ -\(hunkDict["oldStart"]?.intValue ?? 0),\(hunkDict["oldLines"]?.intValue ?? 0) +\(hunkDict["newStart"]?.intValue ?? 0),\(hunkDict["newLines"]?.intValue ?? 0) @@"
+                        lines.append(DiffLine(id: "sl-\(id)", kind: .hunk, oldNumber: nil, newNumber: nil, text: header))
+                        id += 1
+                        var oldNumber = hunkDict["oldStart"]?.intValue ?? 0
+                        var newNumber = hunkDict["newStart"]?.intValue ?? 0
+                        for raw in hunkDict["lines"]?.arrayValue ?? [] {
+                            guard let text = raw.stringValue else { continue }
+                            if text.hasPrefix("+") {
+                                lines.append(DiffLine(id: "sl-\(id)", kind: .add, oldNumber: nil, newNumber: newNumber, text: String(text.dropFirst())))
+                                newNumber += 1
+                            } else if text.hasPrefix("-") {
+                                lines.append(DiffLine(id: "sl-\(id)", kind: .del, oldNumber: oldNumber, newNumber: nil, text: String(text.dropFirst())))
+                                oldNumber += 1
+                            } else {
+                                lines.append(DiffLine(id: "sl-\(id)", kind: .ctx, oldNumber: oldNumber, newNumber: newNumber, text: String(text.dropFirst())))
+                                oldNumber += 1
+                                newNumber += 1
+                            }
+                            id += 1
+                        }
+                    }
+                    let added = itemDict["additions"]?.intValue ?? lines.filter { $0.kind == .add }.count
+                    let removed = itemDict["deletions"]?.intValue ?? lines.filter { $0.kind == .del }.count
+                    // 显示口径对齐 git.getChanges 路径（repoRelativePath/短名）：
+                    // 完整路径作 id 会让文件卡 identifier 带绝对路径，与其余分段不一致
+                    let displayPath = (path as NSString).lastPathComponent
+                    files.append(DiffFile(
+                        id: displayPath,
+                        path: displayPath,
+                        language: Self.language(for: displayPath),
+                        added: added,
+                        removed: removed,
+                        lines: lines,
+                        isApproved: localApprovals.contains(path),
+                        isRejected: localRejections.contains(path),
+                        stagePath: path))
+                }
+                lastGoodChanges["session"] = files
+                changesFailure["session"] = nil
+                return files
+            } catch {
+                guard attempt == 0 else {
+                    changesFailure["session"] = Self.readFailureText(
+                        command: "conversationFileChangesV4", error: error)
+                    return lastGoodChanges["session"] ?? []
+                }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
             }
-            return files
-        } catch {
-            return []
         }
+        return lastGoodChanges["session"] ?? []
     }
 
     /// git.getDiff：web 恒带 sourceId（bundle 取证 `getDiff({workspacePath, path, sourceId})`，
@@ -503,49 +604,58 @@ actor RemoteFileStore: @preconcurrency FileStore {
 
     // MARK: 逐文件批准（2026-10-06 边界放开：git 写族与 web bundle 对齐，桌面代执行
     // ——`git.stagePaths {workspacePath, paths}` / `git.unstagePaths {…}`，web 端同参同面）
+    // path 形参 = DiffFile.stagePath（getChanges 原始 path，web stagePath 同源）；
+    // 返回 nil=成功，非 nil=可直接上屏的错误文案（含服务端 fault reason）。
 
-    func setFileDecision(path: String, approved: Bool?) async {
+    func setFileDecision(path: String, approved: Bool?) async -> String? {
         defer { gitDecisionDiag(path: path, approved: approved) }
         switch approved {
         case .some(true):
             // 批准 → stage：文件移入已暂存，「批准」落地为桌面 git 实态
-            guard await callGitWrite("stagePaths", paths: [path]) else { return }
+            if let error = await callGitWrite("stagePaths", paths: [path]) { return error }
             localApprovals.insert(path)
             localRejections.remove(path)
         case .some(false):
             // 拒绝 → unstage：仅退索引（安全可逆、幂等）；工作区改动不动
             //（破坏性 discardPaths 不接）
-            guard await callGitWrite("unstagePaths", paths: [path]) else { return }
+            if let error = await callGitWrite("unstagePaths", paths: [path]) { return error }
             localRejections.insert(path)
             localApprovals.remove(path)
         case .none:
             localApprovals.remove(path)
             localRejections.remove(path)
         }
+        return nil
     }
 
     /// 全部批准 = 未决文件一次性 stagePaths（web 提交前批量 stage 同款；一次 RPC）
-    func approveAll() async {
+    func approveAll() async -> String? {
         let files = await diffFiles()
-        let undecided = files.filter { !$0.isApproved && !$0.isRejected }.map(\.path)
-        guard !undecided.isEmpty else { return }
-        defer { gitDecisionDiag(path: "approveAll(\(undecided.count))", approved: true) }
-        guard await callGitWrite("stagePaths", paths: undecided) else { return }
-        for path in undecided {
-            localApprovals.insert(path)
-            localRejections.remove(path)
+        let undecided = files.filter { !$0.isApproved && !$0.isRejected }
+        guard !undecided.isEmpty else { return nil }
+        let targets = undecided.compactMap { $0.stagePath ?? $0.path }
+        defer { gitDecisionDiag(path: "approveAll(\(targets.count))", approved: true) }
+        if let error = await callGitWrite("stagePaths", paths: targets) { return error }
+        for file in undecided {
+            let key = file.stagePath ?? file.path
+            localApprovals.insert(key)
+            localRejections.remove(key)
         }
+        return nil
     }
 
-    /// git 写命令统一出口（ReadOnlyGate 已按 web 对齐放行；失败静默 + diag 取证）
-    private func callGitWrite(_ command: String, paths: [String]) async -> Bool {
-        guard let connection else { return false }
+    /// git 写命令统一出口（ReadOnlyGate 已按 web 对齐放行）。
+    /// 返回 nil=成功；非 nil=含服务端 reason 的错误文案（诊断沿用 diag.git.write）。
+    private func callGitWrite(_ command: String, paths: [String]) async -> String? {
+        guard let connection else {
+            return String(localized: "未连接桌面端 · git.\(command) 未执行")
+        }
         var builder = JSONObjectBuilder()
         builder.set("workspacePath", workspace.path)
         builder.set("paths", .array(paths.map { .string($0) }))
         do {
             _ = try await connection.call("git", command, .json(.object(builder.fields)))
-            return true
+            return nil
         } catch {
             if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
                 UserDefaults.standard.set(
@@ -553,8 +663,26 @@ actor RemoteFileStore: @preconcurrency FileStore {
                     forKey: "diag.git.write")
                 UserDefaults.standard.synchronize()
             }
-            return false
+            return Self.writeFailureText(command: command, error: error)
         }
+    }
+
+    /// RPC 失败 → 可上屏文案：服务端 fault message 优先（RPCError 未实现
+    /// LocalizedError，localizedDescription 是通用串不可用——ChannelClient.swift:76-82）
+    private static func writeFailureText(command: String, error: Error) -> String {
+        String(localized: "桌面端执行 git.\(command) 失败 · \(readFailureReason(error))")
+    }
+
+    /// 读面失败 → 可上屏文案（writeFailureText 同构；「读取」口径）
+    private static func readFailureText(command: String, error: Error) -> String {
+        String(localized: "桌面端读取 \(command) 失败 · \(readFailureReason(error))")
+    }
+
+    private static func readFailureReason(_ error: Error) -> String {
+        if let rpc = error as? RPCError {
+            return rpc.message.isEmpty ? rpc.name : rpc.message
+        }
+        return error.localizedDescription
     }
 
     private func gitDecisionDiag(path: String, approved: Bool?) {
@@ -639,23 +767,48 @@ actor RemoteFileStore: @preconcurrency FileStore {
     }
 
     /// git.commit {workspacePath, message}：提交已暂存变更（提交集由桌面端 git
-    /// index 定义——stagePaths 的结果；不传 paths，未取证参数不臆造）。
-    /// 回执宽容：commitHash|hash|oid|id → 短 hash（prefix 8）；无 hash 字段视为
-    /// 成功返回空串。写命令不自动重试（防双重提交）。
-    func commit(message: String) async -> String? {
-        guard let connection else { return nil }
+    /// index 定义——stagePaths 的结果；不传 paths，web BranchSwitcher 双参同形；
+    /// GitActionMenu 的 paths/stagedOnly 三参为「含未暂存选中集」场景，移动端不触）。
+    /// 成功判定以回执为准（2026-10-06 用户报障「假提交」修复）：取到非空
+    /// commitHash|hash|oid|id 才算成功——回执非对象、hash 缺席、空提交
+    /// （nothing to commit）一律按失败渲染明确原因，绝不报「已提交」。
+    /// web 端以 RPC reject 判成败且不读 hash（bundle GitActionMenu/GitBranchSwitcher
+    /// try/catch 取证）——移动端加严为 hash 判定：假成功比误报失败危害大。
+    /// 失败 hash=nil + errorMessage 必带原因（写面禁止静默）；写命令不自动重试
+    /// （防双重提交）。成功即同步清空本地 staged 投影（乐观更新，与 UI loading
+    /// 停止同一渲染帧；桌面实态由调用方提交后重拉 getChanges 对账）。
+    func commit(message: String) async -> GitCommitOutcome {
+        guard let connection else {
+            return GitCommitOutcome(
+                hash: nil, errorMessage: String(localized: "未连接桌面端"))
+        }
         var builder = JSONObjectBuilder()
         builder.set("workspacePath", workspace.path)
         builder.set("message", message)
         do {
             let result = try await connection.call("git", "commit", .json(.object(builder.fields)))
-            guard let dict = result.jsonValue?.objectValue else { return "" }
-            let hash = dict["commitHash"]?.stringValue ?? dict["hash"]?.stringValue
+            guard let dict = result.jsonValue?.objectValue else {
+                return GitCommitOutcome(
+                    hash: nil,
+                    errorMessage: String(localized: "桌面端回执无提交结果 · 提交未生效（可能暂存区为空）"))
+            }
+            let rawHash = dict["commitHash"]?.stringValue ?? dict["hash"]?.stringValue
                 ?? dict["oid"]?.stringValue ?? dict["id"]?.stringValue ?? ""
-            return String(hash.prefix(8))
+            guard !rawHash.isEmpty else {
+                return GitCommitOutcome(
+                    hash: nil,
+                    errorMessage: String(localized: "桌面端未返回提交标识 · 提交未生效（可能没有可提交的变更）"))
+            }
+            // 乐观更新：提交集=桌面整个 index → staged 投影整体清空（键级整体替换）；
+            // 后续 diffFiles("staged") 在重拉成功/失败兜底时均不再回出已提交文件
+            lastGoodChanges["staged"] = []
+            changesFailure["staged"] = nil
+            return GitCommitOutcome(hash: String(rawHash.prefix(8)), errorMessage: nil)
         } catch {
             gitWriteDiag(command: "commit", detail: "msg=\(message.prefix(40))", error: error)
-            return nil
+            return GitCommitOutcome(
+                hash: nil,
+                errorMessage: Self.writeFailureText(command: "commit", error: error))
         }
     }
 

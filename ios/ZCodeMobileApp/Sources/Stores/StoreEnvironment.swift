@@ -44,7 +44,7 @@ actor EmptyTaskStore: @preconcurrency TaskStore {
     func observeTasks() -> AsyncStream<[TaskRecord]> { AsyncStream { $0.finish() } }
     func approve(taskID: String, optionId: String) async -> TaskDecisionOutcome { .undelivered }
     func reject(taskID: String, optionId: String) async -> TaskDecisionOutcome { .undelivered }
-    func stop(taskID: String) async {}
+    func stop(taskID: String) async -> String? { nil }
     func retry(taskID: String) async {}
     func terminalStream(taskID: String) -> AsyncStream<TerminalLine> { AsyncStream { $0.finish() } }
     func trajectoryLines(taskID: String) async -> [TerminalLine] { [] }
@@ -54,6 +54,10 @@ actor EmptyFileStore: @preconcurrency FileStore {
     func fileTree() async -> [FileNode] { [] }
     func diffFiles() async -> [DiffFile] { [] }
     func content(of path: String) async -> String { "" }
-    func setFileDecision(path: String, approved: Bool?) async {}
-    func approveAll() async {}
+    func setFileDecision(path: String, approved: Bool?) async -> String? {
+        String(localized: "未连接桌面端，批准/拒绝需要在连接后操作")
+    }
+    func approveAll() async -> String? {
+        String(localized: "未连接桌面端，批准/拒绝需要在连接后操作")
+    }
 }

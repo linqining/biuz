@@ -39,6 +39,14 @@ protocol ConversationStore: AnyObject, Sendable {
     // mock 演示回退（行为不变），但必须在此声明才能经 any 动态分派到远端实现。
     /// 向上分页：取更早历史行（拼接去重由实现负责）；返回是否还有更早数据。
     func loadOlder(conversationID: String) async -> Bool
+    /// 会话最近一次加载失败文本（连接态订阅/历史行拉取失败的 UI 透出面；nil = 无失败
+    /// ——空会话与失败由此区分。真机报障「消息区空白且无提示」修复的 read 面：
+    /// 订阅失败/rowsRange 失败此前只落 diag 键，UI 完全不可见）
+    func conversationLoadFailure(in conversationID: String) async -> String?
+    /// 纯内存会话摘要（P0 缓存先行：无 RPC——首屏标题等元数据即时投影；默认 nil，
+    /// 远程实现=bootstrap/sessions-index/task 索引合并表的即时读取，全量对账由
+    /// conversations() 后台完成）
+    func cachedConversation(_ conversationID: String) async -> Conversation?
     /// workspace 级配置目录只读投影（ChatView chips 数据源；nil = 无数据）
     func workspaceConfig() async -> WorkspaceConfigInfo?
     /// 会话级模型选择（state.modelSelection——桌面 composer 变更随会话 state delta
@@ -270,6 +278,10 @@ extension ConversationStore {
     /// 向上分页：取更早历史行（拼接去重由实现负责）；返回是否还有更早数据。
     func loadOlder(conversationID: String) async -> Bool { false }
 
+    /// 加载失败透出（演示态无失败面，恒 nil——空会话按正常空态呈现）
+    func conversationLoadFailure(in conversationID: String) async -> String? { nil }
+    func cachedConversation(_ conversationID: String) async -> Conversation? { nil }
+
     /// workspace 级配置目录只读投影（ChatView chips 数据源；nil = 无数据）
     func workspaceConfig() async -> WorkspaceConfigInfo? { nil }
 
@@ -493,7 +505,10 @@ protocol TaskStore: AnyObject, Sendable {
     func approve(taskID: String, optionId: String) async -> TaskDecisionOutcome
     @discardableResult
     func reject(taskID: String, optionId: String) async -> TaskDecisionOutcome
-    func stop(taskID: String) async
+    /// 停止任务（连接态 v4 stop 桌面代执行）。返回失败文案（nil = 已送达/演示态）——
+    /// M2 写面如实回传：停止失败此前静默，用户无从得知任务是否真的停了
+    @discardableResult
+    func stop(taskID: String) async -> String?
     func retry(taskID: String) async
     /// 模拟后台终端输出流（后台 Bash）
     func terminalStream(taskID: String) -> AsyncStream<TerminalLine>
@@ -541,8 +556,12 @@ protocol FileStore: AnyObject, Sendable {
     func fileTree() async -> [FileNode]
     func diffFiles() async -> [DiffFile]
     func content(of path: String) async -> String
-    func setFileDecision(path: String, approved: Bool?) async
-    func approveAll() async
+    /// 逐文件决定（连接态=git.stagePaths/unstagePaths 桌面代执行；path=DiffFile.stagePath
+    /// ?? path）。**返回 nil=成功；非 nil=可直接上屏的错误文案（含服务端 reason）**——
+    /// 写面禁止静默吞错（2026-10-06 回归纪律）。
+    func setFileDecision(path: String, approved: Bool?) async -> String?
+    /// 全部批准（未决文件一次性 stagePaths）。返回值语义同 setFileDecision。
+    func approveAll() async -> String?
 
     // MARK: 本期接入面（必须声明为本体 requirement，同 ConversationStore 的分派约束）
     /// 远端实现标记（连接态）：搜索/分页读/会话维度变更等远端能力仅连接态提供
@@ -571,8 +590,10 @@ protocol FileStore: AnyObject, Sendable {
     /// 回执字段未在 web 消费点出现——name/email 宽容解析【未取证】。
     func gitIdentity() async -> GitIdentityInfo?
     /// 提交已暂存变更（git.commit，提交集由桌面端 git index 定义）；
-    /// 成功返回短 hash（桌面端未回 hash 时为空串），失败返回 nil。
-    func commit(message: String) async -> String?
+    /// 成功判定以回执为准：hash 非 nil 且非空=提交生效；回执缺失/hash 键缺席/
+    /// 空串（含空提交 nothing to commit）一律失败，errorMessage 必带可读原因
+    ///（含服务端 reason，UI 如实上屏）——绝不把未生效提交渲染成「已提交」。
+    func commit(message: String) async -> GitCommitOutcome
     /// 检查点清单（git-checkpoint.diffCheckpoints，按时间倒序）；
     /// nil = 拉取失败（区别于空清单）。
     func checkpoints() async -> [CheckpointInfo]?
@@ -622,10 +643,19 @@ extension FileStore {
     func generateCommitMessage(paths: [String]) async -> String? { nil }
     /// git.getIdentity（演示态不可达，默认 nil）
     func gitIdentity() async -> GitIdentityInfo? { nil }
-    func commit(message: String) async -> String? { nil }
+    func commit(message: String) async -> GitCommitOutcome {
+        GitCommitOutcome(hash: nil, errorMessage: nil)
+    }
     func checkpoints() async -> [CheckpointInfo]? { nil }
     func createCheckpoint(note: String?) async -> Bool { false }
     func restoreCheckpoint(_ checkpoint: CheckpointInfo) async -> Bool { false }
+}
+
+/// git.commit 回执：hash 非 nil 且非空=提交生效（回执 hash 为成功唯一凭据）；
+/// 失败 hash=nil，errorMessage 必带可读原因（服务端 fault message 优先——写面禁止静默）。
+struct GitCommitOutcome {
+    var hash: String?
+    var errorMessage: String?
 }
 
 /// 检查点行（P3-11：git-checkpoint.diffCheckpoints 宽容投影——id/时间/说明字段名

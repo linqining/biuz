@@ -25,6 +25,13 @@ final class DiffViewModel {
     var isRemote = false
     /// 本次会话 id（文件 Tab 无会话上下文，取最近活动会话承载）
     var sessionId: String?
+    /// 写面进行中的文件 id（批准/拒绝按钮 Spinner + 双钮 disabled 防重复提交）
+    var deciding: Set<String> = []
+    /// 写面失败文案（批准/拒绝被桌面端拒绝或连接异常；下次动作或换源时清除）
+    var actionError: String?
+    /// 读面失败文案（getChanges/conversationFileChangesV4 瞬时失败；nil=最近一次拉取成功。
+    /// 三态支撑：空列表 + 本信号在场 = 读取失败而非「工作区干净」，UI 须如实区分）
+    var loadError: String?
     /// 会话存储弱引用：load 时注入；「本次会话」分段切换/刷新时惰性解析 sessionId
     /// （load 触发于 store 切换瞬间，会话列表可能尚未加载——一次性解析会永久落空）
     private var conversationStore: ConversationStore?
@@ -62,6 +69,33 @@ final class DiffViewModel {
         }
     }
 
+    /// 数据源分段 → RemoteFileStore 失败信号键（loadFailure(sourceId:)）
+    private var failureKey: String {
+        switch source {
+        case .workspaceUnstaged: return "unstaged"
+        case .workspaceStaged: return "staged"
+        case .session: return "session"
+        }
+    }
+
+    /// 拉取并应用。空结果 + Store 端失败信号 = 瞬时读取失败：保留旧列表（replacesExisting
+    /// = false，如刷新/批准后 reload）或转错误态（= true，换源不留跨段旧数据），
+    /// 并记录 loadError——列表任何时刻不得无提示变空（加载/错误/空三态可区分）。
+    private func applyFetch(store: FileStore, replacesExisting: Bool) async {
+        let fetched = await fetch(store: store, source: source)
+        if fetched.isEmpty, let remote = store as? RemoteFileStore,
+           let failure = await remote.loadFailure(sourceId: failureKey) {
+            loadError = failure
+            if replacesExisting {
+                files = []
+                expanded = []
+            }
+            return
+        }
+        loadError = nil
+        files = fetched
+    }
+
     func load(store: FileStore, conversationStore: ConversationStore?) async {
         isRemote = store.isRemote
         self.conversationStore = conversationStore
@@ -69,14 +103,15 @@ final class DiffViewModel {
             // 最近活动会话（conversations() 已按 updatedAt 排序）
             sessionId = await conversationStore.conversations().first?.id
         }
-        files = await fetch(store: store, source: source)
+        await applyFetch(store: store, replacesExisting: false)
         isLoading = false
     }
 
     func select(_ newSource: DiffSource, store: FileStore) async {
         source = newSource
         expanded = []
-        files = await fetch(store: store, source: newSource)
+        actionError = nil
+        await applyFetch(store: store, replacesExisting: true)
     }
 
     func toggle(_ file: DiffFile) {
@@ -87,18 +122,27 @@ final class DiffViewModel {
         }
     }
 
+    /// 逐文件批准/拒绝：stagePath（web 同参原始路径）下发；失败文案回传 UI，
+    /// 成功 reload 让卡片翻「已批准/已回退」（成功反馈即列表实态变化）
     func decide(_ file: DiffFile, approved: Bool, store: FileStore) async {
-        await store.setFileDecision(path: file.path, approved: approved)
+        guard !deciding.contains(file.id) else { return }
+        deciding.insert(file.id)
+        actionError = nil
+        let error = await store.setFileDecision(path: file.stagePath ?? file.path, approved: approved)
+        deciding.remove(file.id)
+        if let error {
+            actionError = error
+            return
+        }
         await reload(store: store)
     }
 
-    func approveAll(store: FileStore) async {
-        await store.approveAll()
-        await reload(store: store)
-    }
+    // 全部批准的动作态在 RootView.DiffActionBar（store.approveAll + 自有 spinner/
+    // 错误行）；成功后经 router.diffReloadToken 驱动本视图 .task(id:) reload。
+    // 原 DiffViewModel.approveAll 已删（零调用死代码，rg 验证）。
 
     func reload(store: FileStore) async {
-        files = await fetch(store: store, source: source)
+        await applyFetch(store: store, replacesExisting: false)
     }
 
     var addedTotal: Int { files.reduce(0) { $0 + $1.added } }
@@ -119,6 +163,21 @@ struct DiffReviewView: View {
         Group {
             if viewModel.isLoading {
                 CenterLoadingView(text: "正在读取变更…").accessibilityIdentifier("08-loading-center")
+            } else if viewModel.files.isEmpty, let loadError = viewModel.loadError {
+                // 读面失败且无旧数据可保：错误态（区别于「工作区是干净的」空态），可重试
+                EmptyStateView(
+                    icon: "exclamationmark.triangle",
+                    title: String(localized: "文件变更读取失败"),
+                    detail: loadError,
+                    cta: String(localized: "重试"),
+                    ctaAction: {
+                        Task {
+                            viewModel.isLoading = true
+                            await viewModel.load(store: store, conversationStore: conversationStore)
+                        }
+                    },
+                    ctaIdentifier: "08-act-retry-load")
+                .accessibilityIdentifier("08-load-error-state")
             } else if viewModel.files.isEmpty {
                 EmptyStateView(
                     icon: "checkmark.seal",
@@ -156,6 +215,12 @@ struct DiffReviewView: View {
         .task(id: ObjectIdentifier(store)) {
             await viewModel.load(store: store, conversationStore: conversationStore)
             await loadGitSummary()
+        }
+        // 底部动作栏「全部批准」成功后的列表刷新（diffReloadToken 由 RootView bump；
+        // 挂载首触 token=0 跳过——.task(id: store) 已负责首载）
+        .task(id: router.diffReloadToken) {
+            guard router.diffReloadToken > 0 else { return }
+            await viewModel.reload(store: store)
         }
         // G-038：下拉刷新与会话/任务列表一致（桌面产生新改动后下拉可见）
         .refreshable {
@@ -219,6 +284,54 @@ struct DiffReviewView: View {
                 }
                 branchRow
                 statsRow
+                if let loadError = viewModel.loadError {
+                    // 读面失败但旧列表仍在展示（last-good 兜底）：横幅如实声明数据可能过期
+                    HStack(spacing: T.sp2) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 12))
+                        Text(loadError)
+                            .font(T.font(11.5, .semibold))
+                            .lineLimit(3)
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await viewModel.reload(store: store) }
+                        } label: {
+                            Text(String(localized: "重试"))
+                                .font(T.font(11.5, .semibold))
+                                .foregroundColor(T.accentText)
+                                .padding(.horizontal, T.sp2)
+                                .frame(minHeight: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityIdentifier("08-act-retry-load-banner")
+                    }
+                    .foregroundColor(T.orangeBright)
+                    .padding(.horizontal, T.sp3)
+                    .frame(minHeight: 36)
+                    .background(T.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                    .overlay(RoundedRectangle(cornerRadius: T.rS).stroke(T.orangeBright.opacity(0.4), lineWidth: 1))
+                    .accessibilityIdentifier("08-load-error-banner")
+                }
+                if let error = viewModel.actionError {
+                    // 写面失败如实上屏（服务端 reason；点按清除，下次动作亦自动清除）
+                    HStack(spacing: T.sp2) {
+                        Image(systemName: "exclamationmark.circle")
+                            .font(.system(size: 12))
+                        Text(error)
+                            .font(T.font(11.5, .semibold))
+                            .lineLimit(3)
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundColor(T.red)
+                    .padding(.horizontal, T.sp3)
+                    .frame(minHeight: 36)
+                    .background(T.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                    .overlay(RoundedRectangle(cornerRadius: T.rS).stroke(T.redLine, lineWidth: 1))
+                    .onTapGesture { viewModel.actionError = nil }
+                    .accessibilityIdentifier("08-action-error")
+                }
                 if viewModel.hasMoreChanges {
                     moreNotice
                 }
@@ -434,23 +547,33 @@ struct DiffFileCardView: View {
                 Button {
                     Task { await viewModel.decide(file, approved: false, store: store) }
                 } label: {
-                    Text("拒绝")
-                        .font(T.font(13, .semibold))
-                        .foregroundColor(T.red)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .overlay(RoundedRectangle(cornerRadius: T.rS).stroke(T.redLine, lineWidth: 1))
+                    HStack(spacing: T.sp1) {
+                        // 进行中指示（Spinner+disabled）：桌面 stage/unstage 往返秒级，
+                        // 无反馈即「点了没反应」（2026-10-06 用户回归反馈）
+                        if viewModel.deciding.contains(file.id) { SpinnerView(size: 12) }
+                        Text(viewModel.deciding.contains(file.id) ? "处理中…" : "拒绝")
+                            .font(T.font(13, .semibold))
+                    }
+                    .foregroundColor(T.red)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .overlay(RoundedRectangle(cornerRadius: T.rS).stroke(T.redLine, lineWidth: 1))
                 }
+                .disabled(!viewModel.deciding.isEmpty)
                 .accessibilityIdentifier("08-filecard-reject")
                 Button {
                     Task { await viewModel.decide(file, approved: true, store: store) }
                 } label: {
-                    Text("批准")
-                        .font(T.font(13, .semibold))
-                        .foregroundColor(T.onAccent)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(T.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                    HStack(spacing: T.sp1) {
+                        if viewModel.deciding.contains(file.id) { SpinnerView(size: 12) }
+                        Text(viewModel.deciding.contains(file.id) ? "处理中…" : "批准")
+                            .font(T.font(13, .semibold))
+                    }
+                    .foregroundColor(T.onAccent)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(T.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
                 }
+                .disabled(!viewModel.deciding.isEmpty)
                 .accessibilityIdentifier("08-filecard-approve")
             }
             .padding(T.sp3)

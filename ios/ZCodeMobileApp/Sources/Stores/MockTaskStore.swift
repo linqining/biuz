@@ -59,12 +59,13 @@ actor MockTaskStore: @preconcurrency TaskStore {
         return .accepted
     }
 
-    func stop(taskID: String) async {
+    func stop(taskID: String) async -> String? {
         mutate(taskID: taskID) { task in
             task.status = .failed
             task.lastLog = "任务已被手动停止（exit code 130）"
             task.summary = "已停止。可从最后快照续跑。"
         }
+        return nil
     }
 
     func retry(taskID: String) async {

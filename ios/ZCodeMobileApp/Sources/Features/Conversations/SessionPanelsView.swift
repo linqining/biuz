@@ -203,9 +203,14 @@ struct SessionPanelsView: View {
                 PlanPanelView(plan: plan)
             }
         case .workflow:
-            // 多 run（用户实测：多个工作流并行时此前只显示第一个）——逐 run 卡片，
-            // 活 run 优先；每 run 独立控制条（取消打到各自 workId）
-            ForEach(viewModel.workflowRuns) { run in
+            // 多 run（用户实测：多个工作流并行时此前只显示第一个）——逐 run 卡片；
+            // store 排序口径：活 run 在前、新 run 优先（首卡即最新活 run），被替换旧 run
+            // 沉底为历史；每 run 独立控制条（取消打到各自 workId）
+            let runs = viewModel.workflowRuns
+            ForEach(Array(runs.enumerated()), id: \.element.id) { index, run in
+                if index > 0, !run.isLive, runs[..<index].contains(where: \.isLive) {
+                    historyCaption
+                }
                 WorkflowPanelContent(
                     run: run,
                     availableModels: viewModel.modelSelection?.models ?? [],
@@ -240,7 +245,7 @@ struct SessionPanelsView: View {
                     onLoadActorTranscript: { sessionId in
                         await viewModel.storeActorTranscript(sessionId: sessionId)
                     })
-                if run.id != viewModel.workflowRuns.last?.id {
+                if index < runs.count - 1 {
                     Divider().overlay(T.border).padding(.vertical, T.sp1)
                 }
             }
@@ -261,6 +266,18 @@ struct SessionPanelsView: View {
                     sessionId: sub.childSessionId)
             }
         }
+    }
+
+    /// 历史 run 分界标注（多 run 面板：活 run 主导，被替换旧 run 沉底保留查看入口）
+    private var historyCaption: some View {
+        HStack(spacing: T.sp1) {
+            Text(String(localized: "历史 run"))
+                .font(T.mono(9.5, .semibold))
+                .foregroundColor(T.text3)
+            Rectangle().fill(T.border).frame(height: 1)
+        }
+        .padding(.vertical, T.sp1)
+        .accessibilityIdentifier("05-wf-history-caption")
     }
 
     private func openTranscript(title: String, sessionId: String) async {
