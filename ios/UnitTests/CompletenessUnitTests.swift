@@ -216,4 +216,61 @@ final class WorkspaceConfigThoughtKeyTests: XCTestCase {
         let missing = await store.thoughtLevels(for: "GLM-4")
         XCTAssertEqual(missing, [], "未下发词表的模型保持空（调用方自行兜底）")
     }
+
+    /// getView per-model 思考档词表【实证·上游仓 provider/facades.ts
+    /// ModelSelectionModelView `{modelId, config}`——web v4 工具栏 yB 唯一数据源
+    /// `config.optionSpecs.reasoningLevel.values`】；本机桌面 v3.14.4 对手机不推
+    /// workspace-config，getView 是词表唯一可用源（真机报障 2026-10-07 二轮：
+    /// 键修复后 sheet/chips 仍见 medium——词表数据根本没到）。
+    func testGetViewPerModelThoughtVocabulary() {
+        let view: [String: JSONValue] = [
+            "providers": .array([
+                .object([
+                    "providerId": .string("account:zai-start-plan"),
+                    "models": .array([
+                        .object([
+                            "modelId": .string("GLM-5.3-Flash"),
+                            "config": .object(["optionSpecs": .object([
+                                "reasoningLevel": .object(["values": .array([
+                                    .string("low"), .string("max"), .string("high")])])])])
+                        ]),
+                        .object([
+                            "modelId": .string("GLM-5.2"),
+                            "modelThoughtLevels": .array([.string("enabled"), .string("off")])
+                        ]),
+                        .string("LegacyStringModel")
+                    ])
+                ]),
+                .object([
+                    "providerId": .string("account:zai-individual-coding-plan"),
+                    "models": .array([
+                        .object([
+                            "modelId": .string("GLM-5.3"),
+                            "label": .string("GLM-5.3 Pro"),
+                            "config": .object(["optionSpecs": .object([
+                                "reasoningLevel": .object(["values": .array([
+                                    .string("low"), .string("max")])])])])
+                        ])
+                    ])
+                ])
+            ]),
+            "preferredSelection": .object([
+                "providerId": .string("account:zai-start-plan"),
+                "modelId": .string("GLM-5.3-Flash"),
+                "options": .object(["reasoningLevel": .string("max")])
+            ])
+        ]
+        let info = RemoteConversationStore.parseModelSelectionView(view)
+        XCTAssertEqual(info.thoughtByModel["GLM-5.3-Flash"], ["low", "max", "high"],
+                       "per-model config.optionSpecs 词表（web yB 同构，不含 medium）")
+        XCTAssertEqual(info.thoughtByModel["GLM-5.2"], ["enabled", "off"],
+                       "modelThoughtLevels 键同义兜底")
+        XCTAssertEqual(info.thoughtByModel["GLM-5.3"], ["low", "max"])
+        XCTAssertEqual(info.thoughtByModel["GLM-5.3 Pro"], ["low", "max"],
+                       "label 相异时双键（sheet 以 label 展示/查询）")
+        XCTAssertNil(info.thoughtByModel["LegacyStringModel"], "字符串条目无 per-model 词表")
+        XCTAssertEqual(info.activeModel, "GLM-5.3-Flash")
+        XCTAssertEqual(info.activeThoughtLevel, "max")
+    }
+
 }

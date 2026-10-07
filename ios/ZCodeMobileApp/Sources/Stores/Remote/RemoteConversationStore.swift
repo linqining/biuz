@@ -4234,11 +4234,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         return workspaceConfigState
     }
 
-    /// 模型可用思考档（workspace-config configOptions 对象形态 values；
-    /// model-selection.getView 不携带该词表——实测 relay 下发模型条目为纯字符串）。
-    /// 入参为裸 modelId（chips/新建 sheet 同口径），内部词表同按裸 modelId 建键
-    /// （条目 value 复合串经 configOptionModelId 归一）
+    /// 模型可用思考档。**优先 getView per-model 词表**（web v4 工具栏 yB 同构——
+    /// `providers[].models[].config.optionSpecs.reasoningLevel.values`【实证·上游仓
+    /// provider/facades.ts + bundle】）；workspace-config 词表退居次位：本机桌面
+    /// v3.14.4 对手机不推 workspace-config（桌面日志 2026-10-07 零服务痕迹、
+    /// §6「旧版本不支持时订阅静默失败」实证），留作新桌面兜底。入参为裸 modelId
+    /// （chips/新建 sheet 同口径；getView label 相异时已双键）。
     func thoughtLevels(for model: String) async -> [String] {
+        if let levels = modelSelectionCache?.thoughtByModel[model], !levels.isEmpty {
+            return levels
+        }
         await ensureWorkspaceConfigHandler()
         return workspaceConfigThoughtByModel[model] ?? []
     }
@@ -4481,6 +4486,28 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                         ?? modelDict["name"]?.stringValue
                         ?? modelDict["modelId"]?.stringValue
                         ?? modelDict["id"]?.stringValue
+                    // per-model 思考档词表【实证·上游仓 provider/facades.ts
+                    // ModelSelectionModelView `{modelId, config}`；web v4 工具栏
+                    // yB 唯一数据源 `config.optionSpecs.reasoningLevel.values`
+                    // （bundle 逆向同构）】——本机桌面 v3.14.4 对手机不推
+                    // workspace-config（桌面日志零服务痕迹），getView 是唯一可用
+                    // 词表源；provider 级 optionSpecs 是旧猜测形态，仅并入并集兜底。
+                    // modelId 为权威键；label 相异时双键（sheet 以 label 展示/查询）
+                    if let modelId = modelDict["modelId"]?.stringValue {
+                        var perModel = (modelDict["config"]?.objectValue?["optionSpecs"]?
+                            .objectValue?["reasoningLevel"]?.objectValue?["values"]?
+                            .arrayValue ?? []).compactMap(\.stringValue)
+                        if perModel.isEmpty {
+                            perModel = (modelDict["modelThoughtLevels"]?.arrayValue ?? [])
+                                .compactMap(\.stringValue)
+                        }
+                        if !perModel.isEmpty {
+                            info.thoughtByModel[modelId] = perModel
+                            if let label, label != modelId {
+                                info.thoughtByModel[label] = perModel
+                            }
+                        }
+                    }
                     for level in modelDict["modelThoughtLevels"]?.arrayValue ?? [] {
                         if let levelName = level.stringValue, !thoughtLevels.contains(levelName) {
                             thoughtLevels.append(levelName)

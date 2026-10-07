@@ -457,6 +457,11 @@ struct ModelSelectionInfo: Equatable {
     var activeModel: String?
     var thoughtLevels: [String] = []
     var activeThoughtLevel: String?
+    /// 模型 → 可用思考档（getView per-model 词表【实证·上游仓 provider/facades.ts
+    /// ModelSelectionModelView `{modelId, config}` + web bundle yB 同构读取
+    /// `config.optionSpecs.reasoningLevel.values`】；`modelThoughtLevels` 键同义兜底）。
+    /// web v4 工具栏思考菜单的唯一数据源；键 = modelId（label 不同时双键兼容）
+    var thoughtByModel: [String: [String]] = [:]
     /// 套餐分组（个人套餐/体验套餐/团队套餐…；providerId 含 start-plan → 体验、
     /// individual-coding-plan → 个人、team-coding-plan → 团队；缺席 = 未分组）
     var planGroups: [ModelPlanGroup] = []
