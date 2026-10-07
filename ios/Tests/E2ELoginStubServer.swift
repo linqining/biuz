@@ -70,6 +70,13 @@ final class E2ELoginStubServer {
     var requests: [RecordedRequest] { lock.lock(); defer { lock.unlock() }; return _requests }
     /// 已应答的订阅 topic（sessions-index / conversation）
     var subscribedTopics: [String] { lock.lock(); defer { lock.unlock() }; return _subscribedTopics }
+    /// subscribeConversationV4 请求的 workspace 寻址记录（topic → 携带的
+    /// workspacePath/workspaceIdentity）：会话归属寻址回归断言面（真机报障
+    /// 2026-10-07「手机端没有回复」——订阅恒用连接 workspace，跨工作区会话行增量
+    /// 永不抵达；修复后必须携带会话行自带 workspacePath）
+    var subscribeTargets: [(topic: String, workspacePath: String, workspaceIdentity: String?)] {
+        lock.lock(); defer { lock.unlock() }; return _subscribeTargets
+    }
     /// sessions-index 快照事件已下发次数
     var sessionsIndexEventFires: Int { lock.lock(); defer { lock.unlock() }; return _sessionsIndexEventFires }
     /// conversation 增量事件已下发次数
@@ -163,6 +170,35 @@ final class E2ELoginStubServer {
     /// subscribeConversationV4 被替身拒绝（promiseError）次数
     var conversationSubscribeRejections: Int {
         lock.lock(); defer { lock.unlock() }; return _conversationSubscribeRejections
+    }
+    // MARK: 附件事务断言面（A-4）
+    var attachmentBeginCount: Int { lock.lock(); defer { lock.unlock() }; return _attachmentBeginCount }
+    var attachmentChunkCount: Int { lock.lock(); defer { lock.unlock() }; return _attachmentChunkCount }
+    var attachmentCommitCount: Int { lock.lock(); defer { lock.unlock() }; return _attachmentCommitCount }
+    var attachmentAbortCount: Int { lock.lock(); defer { lock.unlock() }; return _attachmentAbortCount }
+    var attachmentShapeErrors: [String] { lock.lock(); defer { lock.unlock() }; return _attachmentShapeErrors }
+    var lastGoalCommandText: String? { lock.lock(); defer { lock.unlock() }; return _lastGoalCommandText }
+    var compactCommandCount: Int { lock.lock(); defer { lock.unlock() }; return _compactCommandCount }
+    /// 最近一次 sendText 携带的 attachments 数组（元素键 {ref, fileName, mime, bytes} 断言）
+    var lastSendTextAttachments: [[String: Any]] {
+        lock.lock(); defer { lock.unlock() }; return _lastSendTextAttachments
+    }
+    var switchModelConfigCallCount: Int {
+        lock.lock(); defer { lock.unlock() }; return _switchModelConfigCallCount
+    }
+    var pinnedTasksRequestCount: Int {
+        lock.lock(); defer { lock.unlock() }; return _pinnedTasksRequestCount
+    }
+    var archivedTasksRequestCount: Int {
+        lock.lock(); defer { lock.unlock() }; return _archivedTasksRequestCount
+    }
+    /// usage-stats 频道重置三步 RPC 到达记录（test13：确认后必发、取消必不发）
+    var resetCardRPCCalls: [String] {
+        lock.lock(); defer { lock.unlock() }; return _resetCardRPCCalls
+    }
+    /// useCodingPlanReset 的 resetType 序列（确认路径应恰含 FIVE_HOUR/WEEK 一次）
+    var resetCardUseTypes: [String] {
+        lock.lock(); defer { lock.unlock() }; return _resetCardUseTypes
     }
 
     /// 任一活跃连接是否监听了指定事件（onError / onDynamicChange 订阅断言用）
@@ -299,6 +335,7 @@ final class E2ELoginStubServer {
     private var _holdAuthorizePage = false
     private var _requests: [RecordedRequest] = []
     private var _subscribedTopics: [String] = []
+    private var _subscribeTargets: [(topic: String, workspacePath: String, workspaceIdentity: String?)] = []
     private var _sessionsIndexEventFires = 0
     private var _conversationEventFires = 0
     private var _pairingAuthFailures = 0
@@ -335,6 +372,42 @@ final class E2ELoginStubServer {
     private var _failConversationSubscribe = false
     private var _conversationSubscribeRejections = 0
     private var _taskEventFireHits = 0
+    // MARK: 附件事务替身状态（A-4 链路验收：严格形状校验【实证·上游仓
+    // attachmentUploadTransaction.ts + zcode-protocol-v4/transport.ts schema】）
+    /// 事务进行中状态（uploadId → 已收块数游标/总块数/checksum）
+    private struct AttachTxn {
+        var nextChunkIndex: Int
+        var totalChunks: Int
+        var checksum: String
+        var fileName: String
+        var mime: String
+        var totalBytes: Int
+    }
+    private var _attachmentTxns: [String: AttachTxn] = [:]
+    /// checksum → 已 commit 的 ref（幂等 committed 短路回执数据源）
+    private var _attachmentCommitted: [String: String] = [:]
+    private var _attachmentBeginCount = 0
+    private var _attachmentChunkCount = 0
+    private var _attachmentCommitCount = 0
+    private var _attachmentAbortCount = 0
+    /// 形状校验失败记录（含「客户端多带 connectionId」回归绊线——web 客户端参数
+    /// 无此键，桌面 facade 会剥掉伪造值，多发即与 web 不对齐）
+    private var _attachmentShapeErrors: [String] = []
+    private var _lastGoalCommandText: String?
+    private var _compactCommandCount = 0
+    private var _lastSendTextAttachments: [[String: Any]] = []
+    // MARK: tasks-index membership / CAS 重试替身状态（v1.15 验收）
+    /// switchModelConfig 收到次数（stale-once-then-accepted：第 1 次回 stale，第 ≥2 次
+    /// accepted——验证客户端 stale 原样重发一次即命中，用户报障「胶囊切换都不行」）
+    private var _switchModelConfigCallCount = 0
+    private var _pinnedTasksRequestCount = 0
+    private var _archivedTasksRequestCount = 0
+    // MARK: 重置卡替身状态（test13 验收——重置卡为扣费接口，替身只在本地内存
+    // 记账，真机/真实桌面零接触）
+    /// usage-stats 频道重置三步 RPC 到达记录（按到达顺序：request/use/mark）
+    private var _resetCardRPCCalls: [String] = []
+    /// useCodingPlanReset 携带的 resetType（「确认后必发、取消必不发」断言源）
+    private var _resetCardUseTypes: [String] = []
     // MARK: bots 域替身状态（G-001~G-006 验收：桌面 botsService 只读四方法 + 放行写）
     private var _botsRPCCalls: [String] = []
     private var _bindCodeRequests = 0
@@ -880,6 +953,11 @@ final class E2ELoginStubServer {
             let topic = body.objectValue?["topic"]?.stringValue ?? "conversation/unknown"
             lock.lock()
             _subscribedTopics.append(topic)
+            // workspace 寻址记录（订阅归属断言面，见 subscribeTargets 注）
+            _subscribeTargets.append((
+                topic: topic,
+                workspacePath: body.objectValue?["workspacePath"]?.stringValue ?? "",
+                workspaceIdentity: body.objectValue?["workspaceIdentity"]?.stringValue))
             let pendingForSession = sessionPendingInteractions[sessionId(ofTopic: topic)] ?? []
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
@@ -1032,9 +1110,11 @@ final class E2ELoginStubServer {
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
         case "listArchivedTasks" where channelName == "zcode-task":
-            // P1-6：已归档清单（固定一条归档样例）
+            // P1-6：已归档清单（固定一条归档样例）；v1.15 起同口径计数
+            // （membership join 验收断言用——归档分区 listArchivedTasks 拉取）
             lock.lock()
             _listArchivedTasksCount += 1
+            _archivedTasksRequestCount += 1
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
                 "items": .array([StubRPC.object([
@@ -1142,6 +1222,26 @@ final class E2ELoginStubServer {
                 "latestWeekResetHistory": NSNull(),
                 "hasUnreadHistory": false,
             ])))
+        // 重置卡用卡三步（test13：重置卡为扣费接口——替身本地记账，不触真实额度；
+        // 「取消必不发」由 useCodingPlanReset 计数断言）
+        case "requestCodingPlanResetOpportunity" where channelName == "usage-stats":
+            lock.lock()
+            _resetCardRPCCalls.append("requestCodingPlanResetOpportunity")
+            lock.unlock()
+            // 探测回执成功空对象（客户端探测失败不阻断用卡，仅记日志）
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([:])))
+        case "useCodingPlanReset" where channelName == "usage-stats":
+            lock.lock()
+            _resetCardRPCCalls.append("useCodingPlanReset")
+            let resetType = body.objectValue?["resetType"]?.stringValue ?? ""
+            _resetCardUseTypes.append(resetType)
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([:])))
+        case "markCodingPlanResetHistoryRead" where channelName == "usage-stats":
+            lock.lock()
+            _resetCardRPCCalls.append("markCodingPlanResetHistoryRead")
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([:])))
         case "listAutomations" where channelName == "zcode-agent":
             // G-016：自动化列表（对齐桌面 listAutomations 投影字段 automationId/title/cronExpr/…）
             let now = Date()
@@ -1283,10 +1383,38 @@ final class E2ELoginStubServer {
             botWorkspaceStates.removeAll { ($0["botId"] as? String) == resetId }
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
+        // MARK: tasks-index membership（v1.15：置顶/归档组织态权威源——sessions-index 行
+        // 无 pinned/archived 字段【实证·上游仓 sessionSummarySchema】，客户端 join 本数据）
+        case "listPinnedTasks" where channelName == "zcode-task":
+            lock.lock(); _pinnedTasksRequestCount += 1; lock.unlock()
+            // 置顶预置：sess-e2e-think（列表末位会话——join 生效后应跃居「置顶」分区首行）
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "items": [[
+                    "taskId": "sess-e2e-think",
+                    "title": "替身会话 · 思考折叠投影",
+                    "workspacePath": "/Users/e2e/zcode-workspace",
+                    "lastActivityAt": Int(Date().timeIntervalSince1970 * 1000) - 300_000,
+                ]],
+            ])))
+        case "listArchivedTasks" where channelName == "zcode-task":
+            // 归档清单（既有处理器见上——此分支不可达，保留防重复注册）
+            break
+        // switchModelConfig 实经 sendConversationCommandV4 信封（store.sendCommand 统一
+        // 出口，方法名恒为 sendConversationCommandV4——裸方法名分支永不匹配，test12
+        // 门禁实证计数恒 0）；stale-once 逻辑在 handleConversationCommand 内
         case "sendConversationCommandV4":
             handleConversationCommand(body, channel: channel) { result in
                 channel.sendWSFrame(self.rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(result)))
             }
+        // MARK: 附件事务四方法（A-4 链路验收：web 客户端同形严格校验）
+        case "attachmentBeginV4" where channelName == "zcode-agent":
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: self.handleAttachmentBegin(body)))
+        case "attachmentChunkV4" where channelName == "zcode-agent":
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: self.handleAttachmentChunk(body)))
+        case "attachmentCommitV4" where channelName == "zcode-agent":
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: self.handleAttachmentCommit(body)))
+        case "attachmentAbortV4" where channelName == "zcode-agent":
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: self.handleAttachmentAbort(body)))
         // MARK: 能力读面（G-011/G-022/G-024/G-025）：真实替身清单（回执形状对齐
         // P2ExtrasViews 宽容解析的取数键），供「连接态真实清单渲染 + 零写入口」断言
         case "listProjectMemories":
@@ -1366,6 +1494,135 @@ final class E2ELoginStubServer {
         }
     }
 
+    // MARK: 附件事务替身实现（web 客户端同形严格校验）
+
+    /// 键集校验：必须键全在 + 不许多余键（workspaceIdentity 可选）。connectionId
+    /// 显式列为禁止键——web 客户端参数无此键（attachmentUploadTransaction.ts，
+    /// connectionId 由桌面 facade 注入），移动端多带即与 web 不对齐（2026-10-07
+    /// 「附件不能上传」回归根因，留绊线防复发）。
+    private func validateAttachmentKeys(
+        _ dict: [String: StubRPC], required: [String], method: String) -> String? {
+        for key in required where dict[key] == nil {
+            return "\(method): 缺键 \(key)"
+        }
+        if dict["connectionId"] != nil {
+            return "\(method): 多余键 connectionId（web 客户端不发该键）"
+        }
+        for key in dict.keys where !required.contains(key) && key != "workspaceIdentity" {
+            return "\(method): 多余键 \(key)"
+        }
+        return nil
+    }
+
+    private func handleAttachmentBegin(_ body: StubRPC) -> StubRPC {
+        let dict = body.objectValue ?? [:]
+        lock.lock(); _attachmentBeginCount += 1; lock.unlock()
+        if let problem = validateAttachmentKeys(
+            dict,
+            required: ["workspacePath", "sessionId", "uploadId", "fileName", "mime",
+                       "totalBytes", "totalChunks", "checksum"],
+            method: "begin") {
+            lock.lock(); _attachmentShapeErrors.append(problem); lock.unlock()
+            return StubRPC.object(["fault": ["name": "Invalid params", "message": problem]])
+        }
+        let uploadId = dict["uploadId"]?.stringValue ?? ""
+        let totalChunks = dict["totalChunks"]?.intValue ?? 0
+        let checksum = dict["checksum"]?.stringValue ?? ""
+        lock.lock()
+        // checksum 命中已 commit 附件 → committed 短路回执（web Begin 幂等同款）
+        if let ref = _attachmentCommitted[checksum] {
+            lock.unlock()
+            return StubRPC.object([
+                "uploadId": uploadId, "state": "committed",
+                "nextChunkIndex": totalChunks, "ref": ref])
+        }
+        _attachmentTxns[uploadId] = AttachTxn(
+            nextChunkIndex: 0, totalChunks: totalChunks, checksum: checksum,
+            fileName: dict["fileName"]?.stringValue ?? "",
+            mime: dict["mime"]?.stringValue ?? "",
+            totalBytes: dict["totalBytes"]?.intValue ?? 0)
+        lock.unlock()
+        return StubRPC.object(["uploadId": uploadId, "state": "staging", "nextChunkIndex": 0])
+    }
+
+    private func handleAttachmentChunk(_ body: StubRPC) -> StubRPC {
+        let dict = body.objectValue ?? [:]
+        lock.lock(); _attachmentChunkCount += 1; lock.unlock()
+        if let problem = validateAttachmentKeys(
+            dict,
+            required: ["workspacePath", "sessionId", "uploadId", "chunkIndex", "dataBase64"],
+            method: "chunk") {
+            lock.lock(); _attachmentShapeErrors.append(problem); lock.unlock()
+            return StubRPC.object(["fault": ["name": "Invalid params", "message": problem]])
+        }
+        let uploadId = dict["uploadId"]?.stringValue ?? ""
+        let chunkIndex = dict["chunkIndex"]?.intValue ?? -1
+        lock.lock()
+        guard let txn = _attachmentTxns[uploadId] else {
+            lock.unlock()
+            let problem = "chunk: 未知事务 \(uploadId)"
+            lock.lock(); _attachmentShapeErrors.append(problem); lock.unlock()
+            return StubRPC.object(["fault": ["name": "Invalid params", "message": problem]])
+        }
+        guard chunkIndex == txn.nextChunkIndex else {
+            lock.unlock()
+            let problem = "chunk: 乱序（期待 \(txn.nextChunkIndex) 实际 \(chunkIndex)）"
+            lock.lock(); _attachmentShapeErrors.append(problem); lock.unlock()
+            return StubRPC.object(["fault": ["name": "Invalid params", "message": problem]])
+        }
+        _attachmentTxns[uploadId]?.nextChunkIndex = chunkIndex + 1
+        lock.unlock()
+        // base64 可解码校验（每块独立 padding 纪律）
+        if let encoded = dict["dataBase64"]?.stringValue,
+           Data(base64Encoded: encoded) == nil {
+            lock.lock(); _attachmentShapeErrors.append("chunk: dataBase64 不可解码"); lock.unlock()
+            return StubRPC.object(["fault": ["name": "Invalid params",
+                                              "message": "chunk: dataBase64 不可解码"]])
+        }
+        return StubRPC.object(["uploadId": uploadId, "nextChunkIndex": chunkIndex + 1])
+    }
+
+    private func handleAttachmentCommit(_ body: StubRPC) -> StubRPC {
+        let dict = body.objectValue ?? [:]
+        lock.lock(); _attachmentCommitCount += 1; lock.unlock()
+        if let problem = validateAttachmentKeys(
+            dict, required: ["workspacePath", "sessionId", "uploadId"], method: "commit") {
+            lock.lock(); _attachmentShapeErrors.append(problem); lock.unlock()
+            return StubRPC.object(["fault": ["name": "Invalid params", "message": problem]])
+        }
+        let uploadId = dict["uploadId"]?.stringValue ?? ""
+        lock.lock()
+        guard let txn = _attachmentTxns.removeValue(forKey: uploadId) else {
+            lock.unlock()
+            let problem = "commit: 未知事务 \(uploadId)"
+            lock.lock(); _attachmentShapeErrors.append(problem); lock.unlock()
+            return StubRPC.object(["fault": ["name": "Invalid params", "message": problem]])
+        }
+        guard txn.nextChunkIndex >= txn.totalChunks else {
+            _attachmentShapeErrors.append(
+                "commit: 缺块（收 \(txn.nextChunkIndex)/\(txn.totalChunks)）")
+            lock.unlock()
+            return StubRPC.object(["fault": ["name": "Invalid params",
+                                              "message": "commit: 缺块"]])
+        }
+        let ref = "att-e2e-" + uploadId.suffix(8)
+        _attachmentCommitted[txn.checksum] = ref
+        lock.unlock()
+        return StubRPC.object(["ref": ref])
+    }
+
+    private func handleAttachmentAbort(_ body: StubRPC) -> StubRPC {
+        let dict = body.objectValue ?? [:]
+        lock.lock(); _attachmentAbortCount += 1; lock.unlock()
+        if let problem = validateAttachmentKeys(
+            dict, required: ["workspacePath", "sessionId", "uploadId"], method: "abort") {
+            lock.lock(); _attachmentShapeErrors.append(problem); lock.unlock()
+            return StubRPC.object(["fault": ["name": "Invalid params", "message": problem]])
+        }
+        lock.lock(); _attachmentTxns.removeValue(forKey: dict["uploadId"]?.stringValue ?? ""); lock.unlock()
+        return StubRPC.object(["ok": true])
+    }
+
     /// sendConversationCommandV4：createSession 建行并回执 sessionId；sendText 追加用户行 +
     /// 推送替身回执增量帧；resolveInteraction 记录 interactionId/answer 并清 pendingInteractions；
     /// stop 计数并回推任务状态事件。
@@ -1419,6 +1676,22 @@ final class E2ELoginStubServer {
                 return
             }
             let text = effective?["payload"]?.objectValue?["text"]?.stringValue ?? ""
+            // attachments 元素键提取（{ref, fileName, mime, bytes} 严格断言数据源）
+            let attachmentItems: [StubRPC]
+            if case .array(let items) = effective?["payload"]?.objectValue?["attachments"] {
+                attachmentItems = items
+            } else {
+                attachmentItems = []
+            }
+            let attachments: [[String: Any]] = attachmentItems.compactMap { item in
+                guard let dict = item.objectValue else { return nil }
+                var mapped: [String: Any] = [:]
+                for (key, value) in dict {
+                    if let s = value.stringValue { mapped[key] = s }
+                    else if let i = value.intValue { mapped[key] = i }
+                }
+                return mapped.isEmpty ? nil : mapped
+            }
             let userRow: [String: Any] = ["rowId": bumpRow(sessionId), "kind": "userInput", "text": text]
             let assistantRow: [String: Any] = [
                 "rowId": bumpRow(sessionId), "kind": "assistantText",
@@ -1427,6 +1700,7 @@ final class E2ELoginStubServer {
             lock.lock()
             sessionRows[sessionId, default: []].append(contentsOf: [userRow, assistantRow])
             _sendTextCount += 1
+            if !attachments.isEmpty { _lastSendTextAttachments = attachments }
             lock.unlock()
             reply(["result": ["accepted": true]])
             // conversation 增量帧：只下发替身回复（用户行客户端已本地回显，避免双气泡）
@@ -1460,6 +1734,13 @@ final class E2ELoginStubServer {
                 fireConversationStateDelta(sessionId: sessionId, patch: ["pendingInteractions": []],
                                            channel: channel, delay: 0.2)
             }
+        case "sendGoalCommand":
+            let text = effective?["payload"]?.objectValue?["text"]?.stringValue ?? ""
+            lock.lock(); _lastGoalCommandText = text; lock.unlock()
+            reply(["result": ["ok": true]])
+        case "compact":
+            lock.lock(); _compactCommandCount += 1; lock.unlock()
+            reply(["result": ["ok": true]])
         case "stop":
             lock.lock()
             _stopCount += 1
@@ -1469,6 +1750,28 @@ final class E2ELoginStubServer {
             queue.asyncAfter(deadline: .now() + 0.4) { [weak self, weak channel] in
                 guard let self, let channel, channel.open else { return }
                 self.fireTaskEvent(status: "completed")
+            }
+        case "switchModelConfig":
+            // 胶囊切换 stale-once-then-accepted（真机 diag.wf.control.ui 实证形态：
+            // 活跃会话首击 stale proto.staleRevision → 客户端应原样重发一次即命中；
+            // 计数 ≥2 即 CAS 重试链在位——test12 门禁断言）
+            lock.lock()
+            _switchModelConfigCallCount += 1
+            let nthCall = _switchModelConfigCallCount
+            lock.unlock()
+            if nthCall == 1 {
+                reply([
+                    "commandId": "stub-cmd-\(nthCall)",
+                    "status": "stale",
+                    "reasonCode": "proto.staleRevision",
+                    "revisionAtDecision": 12119,
+                ])
+            } else {
+                reply([
+                    "commandId": "stub-cmd-\(nthCall)",
+                    "status": "accepted",
+                    "result": ["ok": true],
+                ])
             }
         default:
             reply(["result": ["ok": true]])

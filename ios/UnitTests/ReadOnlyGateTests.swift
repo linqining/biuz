@@ -140,7 +140,9 @@ final class ReadOnlyGateTests: XCTestCase {
             "writeWorkspaceFile", "saveFile", "writeFile", "applyEdits",
             "respondSessionRuntimePreferences", "grantWorkspaceHookTrust",
             "listMcpServerStatuses", "generateWorkspaceText", "testModelConnectivity",
-            "installPlugin", "uninstallPlugin", "setPluginEnabled", "configurePlugin",
+            // P3-11 放行（2026-10-06）：installPlugin/uninstallPlugin 桌面代执行
+            //（gate :95 注释裁决，卸载 UI 带确认）；setPluginEnabled 等其余插件写维持拦截
+            "setPluginEnabled", "configurePlugin",
             "createAutomation", "deleteAutomation", "runAutomationNow",
         ]
         for command in commands {
@@ -152,7 +154,9 @@ final class ReadOnlyGateTests: XCTestCase {
     func testChannelBlacklistBlocked() {
         let cases: [(String, String)] = [
             ("terminal", "create"), ("terminal", "write"), ("terminal", "dispose"),
-            ("setting", "update"), ("setting", "updateDataBaseDir"),
+            // setting.update 放行（P3-11 桌面设置同步，gate :118 注释裁决）；
+            // updateDataBaseDir（数据库目录迁移写）维持拦截
+            ("setting", "updateDataBaseDir"),
             ("onboarding-record", "appendRecord"), ("onboarding-record", "clearRecords"),
             ("settings-sync", "importSelected"),
             // P3-11 放行（2026-10-06，设计稿 §11A 前置裁决）：createCheckpoint/

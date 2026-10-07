@@ -57,11 +57,12 @@ final class PendingAttachment: Identifiable {
 @Observable
 final class AttachmentUploadService {
 
-    /// 分块大小（web hy=384*1024【移植·bundle 逆向】；旧 512KB 系读侧上限推测，C-16 已纠）
+    /// 分块大小（web hy=384*1024【实证·上游仓 attachmentUploadTransaction.ts】）
     nonisolated static let chunkSize = 384 * 1024
-    /// 单附件上限：真实 attachmentMaxBytes 在 bundle 外（Qa 常量模块未随 webshell2.js
-    /// 打包，rg 全文无定义——审查报告 C-16）；沿用 4MB 保守口径，待真机探针修正
-    nonisolated static let maxBytes = 4 * 1024 * 1024
+    /// 单附件上限：attachmentMaxBytes=20MB【实证·上游仓 zcode-protocol-v4/core.ts
+    /// PROTOCOL_V4_LIMITS】——旧 4MB 系 bundle 外保守口径（C-16），相机原图普遍
+    /// 4-6MB 全被误拦（用户报障「附件不能上传」表象之一）；64 块上限（24MB）不先绑定
+    nonisolated static let maxBytes = 20 * 1024 * 1024
 
     private let store: ConversationStore
     private let sessionID: String
@@ -98,8 +99,7 @@ final class AttachmentUploadService {
             return false
         }
         guard data.count <= Self.maxBytes else {
-            // 真实 attachmentMaxBytes 待探针（见 maxBytes 注释）；文案保持「约」口径
-            setHint(String(localized: "桌面端通道单附件上限约 4MB，已跳过《\(trimmedName)》"))
+            setHint(String(localized: "桌面端通道单附件上限 20MB，已跳过《\(trimmedName)》"))
             return false
         }
         items.append(PendingAttachment(name: trimmedName, mediaType: mediaType, data: data))

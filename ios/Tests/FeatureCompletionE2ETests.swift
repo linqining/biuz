@@ -165,7 +165,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
 
     /// 冷启动（清空凭据态 + 服务器注册表 + OAuth 端点指向替身；可选直开登录/连接流程）
     @discardableResult
-    private func launchFresh(openFlow: String? = nil) -> XCUIApplication {
+    private func launchFresh(openFlow: String? = nil, extraArguments: [String] = []) -> XCUIApplication {
         var arguments = [
             "-ZCodeE2EResetState",
             // E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配；连接成功后换真实 Store）
@@ -180,6 +180,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
         if let openFlow {
             arguments.append(openFlow)
         }
+        arguments.append(contentsOf: extraArguments)
         app.launchArguments = arguments
         app.launch()
         return app
@@ -187,7 +188,8 @@ final class FeatureCompletionE2ETests: XCTestCase {
 
     /// 会话内二次启动（保留凭据/注册表态：已保存服务器触发冷启动自动重连）
     @discardableResult
-    private func relaunch(_ application: XCUIApplication, openFlow: String? = nil) -> XCUIApplication {
+    private func relaunch(_ application: XCUIApplication, openFlow: String? = nil,
+                          extraArguments: [String] = []) -> XCUIApplication {
         application.terminate()
         var arguments = [
             "-ZCodeDemoData",
@@ -200,6 +202,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
         if let openFlow {
             arguments.append(openFlow)
         }
+        arguments.append(contentsOf: extraArguments)
         application.launchArguments = arguments
         application.launch()
         return application
@@ -273,6 +276,88 @@ final class FeatureCompletionE2ETests: XCTestCase {
         }
     }
 
+    /// 滚动到目标行可点（列表长于视口时 tapUntil 的 isHittable 守卫会永不满足——
+    /// test06 门禁实证：分组展开后 think 行沉到折叠线以下，12s 内零次合成 tap）。
+    /// 上滑找行（列表向下滚动），命中即停；找不到返回 false 由调用方断言。
+    @discardableResult
+    /// 元素帧落在应用可见界内（带 40pt 边距）才算「在屏」：SwiftUI List 对已物化
+    /// 但滚出视口的行会报 exists/isHittable=true 的陈旧帧——只查 isHittable 会
+    /// 跳过滚动直接点空，列表全程不滚（test07 门禁视频实证）
+    private func isOnScreen(_ el: XCUIElement, application: XCUIApplication) -> Bool {
+        guard el.exists else { return false }
+        let f = el.frame, b = application.frame
+        return f.midX >= b.minX && f.midX <= b.maxX
+            && f.midY >= b.minY + 40 && f.midY <= b.maxY - 40
+    }
+
+    /// 坐标拖拽滚动（起滑点参数化）：application.swipe* 从屏幕中心起滑，详情页
+    /// 常驻审批卡铺在中下部会吞掉手势、列表纹丝不动（test05 门禁视频实证）——
+    /// 起滑点固定在内容区上/下沿安全带，拖拽手势归属由初始触点决定
+    private func dragScroll(_ application: XCUIApplication, fromDY: CGFloat, toDY: CGFloat) {
+        let start = application.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: fromDY))
+        let end = application.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: toDY))
+        start.press(forDuration: 0.06, thenDragTo: end)
+    }
+
+    /// 滚动查找直到目标真正在屏且可命中：目标在视口下方向上拖、整体在上方向下拖；
+    /// 不在 a11y 树时先上拖（多数场景目标在下方）。scrollElement 提供时对该元素
+    /// 本身 swipe（详情页消息区：frame 被 safeAreaInset 缩短到常驻审批卡上方的
+    /// 带内，元素中心起滑不会被卡吞手势——坐标拖拽被卡吞、列表纹丝不动的
+    /// test05 门禁视频实证兜底）。
+    private func scrollToHittable(_ target: XCUIElement, application: XCUIApplication,
+                                  scrollElement: XCUIElement? = nil,
+                                  maxSwipes: Int = 8) -> Bool {
+        let deadline = Date().addingTimeInterval(20)
+        for _ in 0..<maxSwipes where Date() < deadline {
+            if isOnScreen(target, application: application), target.isHittable { return true }
+            let upward: Bool
+            if target.exists, target.frame.maxY < application.frame.minY + 80 {
+                upward = false   // 目标整体在视口上方 → 向下拖揭示
+            } else {
+                upward = true    // 目标在下方（或不在树中）→ 向上拖揭示
+            }
+            if let scroll = scrollElement, scroll.exists {
+                if upward { scroll.swipeUp(velocity: .fast) } else { scroll.swipeDown(velocity: .fast) }
+            } else if upward {
+                dragScroll(application, fromDY: 0.66, toDY: 0.26)
+            } else {
+                dragScroll(application, fromDY: 0.24, toDY: 0.64)
+            }
+            Thread.sleep(forTimeInterval: 0.4)
+            // 诊断：滚动失败定位（目标帧应逐轮变化；不变化=手势未作用于滚动容器）
+            if !isOnScreen(target, application: application) {
+                let f = target.exists ? NSCoder.string(for: target.frame) : "n/a"
+                let sf = (scrollElement?.exists ?? false)
+                    ? NSCoder.string(for: scrollElement!.frame) : "nil"
+                NSLog("scrollDiag exists=\(target.exists) frame=\(f) hittable=\(target.isHittable) up=\(upward) scrollEl=\(sf)")
+            }
+        }
+        return isOnScreen(target, application: application) && target.isHittable
+    }
+
+    /// 列表行 → 会话详情（tapUntil 不胜任的导航场景：①tap 后详情 push 有过渡窗，
+    /// 立即 verify 必假、下一轮行已出树只能干等超时——test07 门禁实证；②membership
+    /// 重排会重置列表滚动吞掉 tap，行可能需要重滚）。先查是否已在详情，再滚动到
+    /// 行、点击，1.2s 过渡窗确认 composer 出树；未进详情则有界重试。
+    @discardableResult
+    private func openConversation(_ row: XCUIElement, application: XCUIApplication,
+                                  timeout: TimeInterval = 18) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element(application, "05-composer-input").exists { return true }
+            scrollToHittable(row, application: application, maxSwipes: 4)
+            if isOnScreen(row, application: application), row.isHittable {
+                row.tap()
+            }
+            let settle = Date().addingTimeInterval(1.2)
+            while Date() < settle {
+                if element(application, "05-composer-input").exists { return true }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+        return element(application, "05-composer-input").exists
+    }
+
     /// 返回上一页（导航栏返回按钮；带存在性检查避免转场期落空）
     private func app_navigationBack(_ application: XCUIApplication) {
         let backButton = application.navigationBars.buttons.firstMatch
@@ -335,7 +420,8 @@ final class FeatureCompletionE2ETests: XCTestCase {
     /// LAN 直连替身并回到已连接主界面（登录套件 connectAndEnterMain 同口径：
     /// 手动配对 → 替身完成 WS 升级 → 连接流程自动收起 → 冷启动自动重连进主界面）
     @discardableResult
-    private func connectAndEnterMain(_ application: XCUIApplication) -> XCUIApplication {
+    private func connectAndEnterMain(_ application: XCUIApplication,
+                                     extraArguments: [String] = []) -> XCUIApplication {
         openManualConnect(application)
         fillManualConnect(application, host: "http://127.0.0.1:\(stub.port)", token: stub.pairingToken)
         submitManualConnect(application)
@@ -344,7 +430,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
         })
         XCTAssertTrue(waitDisappear(element(application, "l1-submit-connect"), timeout: 15,
                                     "连接成功后连接流程应自动收起"))
-        relaunch(application)
+        relaunch(application, extraArguments: extraArguments)
         return application
     }
 
@@ -631,6 +717,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
         let planRow = element(application, "04-row-sess-e2e-plan")
         XCTAssertTrue(planRow.waitForExistence(timeout: 15),
                       "重连后列表应呈现流程面板投影会话（sess-e2e-plan）")
+        scrollToHittable(planRow, application: application)
         XCTAssertTrue(tapUntil(planRow, timeout: 12) {
             element(application, "05-composer-input").exists
         }, "点击会话行应推入详情")
@@ -653,15 +740,32 @@ final class FeatureCompletionE2ETests: XCTestCase {
                       "待办步骤（空心圆）应上屏")
         snap(application, "44-plan-todo-panel-expanded")
 
+        // 收起前先驳回计划：常驻审批卡把消息区压成极窄带（~15% 屏高），坐标拖拽/
+        // 元素 swipe 全部揭不出头部（test05 五连失败视频实证）；驳回后消息区恢复
+        // 全高、头部直接可见。顺带回归 resolveInteraction 链（决议 → 卡片撤下）
+        let rejectButton = element(application, "05-act-plan-reject")
+        XCTAssertTrue(rejectButton.waitForExistence(timeout: 8), "计划审批卡应有驳回入口")
+        XCTAssertTrue(tapUntil(rejectButton, timeout: 8) {
+            self.waitGoneQuickly(element(application, "05-approval-card"), within: 4)
+        }, "驳回计划后审批卡应撤下")
+        XCTAssertTrue(waitGoneQuickly(element(application, "05-act-plan-reject"), within: 4),
+                      "驳回按钮应随卡撤下")
+
         // 折叠：头部点击 → 步骤行离场（仅剩头部摘要；效果判定带动画观察窗）
         let head = element(application, "05-todocard-head")
         let row0 = element(application, "05-todocard-row-0")
+        XCTAssertTrue(scrollToHittable(head, application: application,
+                                       scrollElement: element(application, "05-message-scroll")),
+                      "任务拆解卡头部应可滚动到可见")
         XCTAssertTrue(tapUntil(head, timeout: 8) { self.waitGoneQuickly(row0) },
                       "点击面板头部应折叠步骤列表")
         XCTAssertTrue(waitGoneQuickly(application.staticTexts["修补会话重连竞态"], within: 6),
                       "折叠后步骤标题应离场")
 
         // 再展开：头部点击 → 步骤行恢复
+        XCTAssertTrue(scrollToHittable(head, application: application,
+                                       scrollElement: element(application, "05-message-scroll")),
+                      "折叠后头部应仍可命中")
         XCTAssertTrue(tapUntil(head, timeout: 8) { self.waitVisibleQuickly(row0) },
                       "再次点击头部应展开步骤列表")
         XCTAssertTrue(application.staticTexts["修补会话重连竞态"].waitForExistence(timeout: 6),
@@ -677,6 +781,9 @@ final class FeatureCompletionE2ETests: XCTestCase {
         let thinkRow = element(application, "04-row-sess-e2e-think")
         XCTAssertTrue(thinkRow.waitForExistence(timeout: 15),
                       "重连后列表应呈现思考折叠投影会话（sess-e2e-think）")
+        // 行可能沉到视口折叠线以下（分组展开后列表长于视口——tapUntil 的 isHittable
+        // 守卫会永不满足，test06 门禁实证），先滚动到可点
+        scrollToHittable(thinkRow, application: application)
         XCTAssertTrue(tapUntil(thinkRow, timeout: 12) {
             element(application, "05-composer-input").exists
         }, "点击会话行应推入详情")
@@ -737,9 +844,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
         relaunch(app)
         let row1 = element(app, "04-row-sess-e2e-1")
         XCTAssertTrue(row1.waitForExistence(timeout: 15), "重启后应自动重连并呈现替身会话行")
-        XCTAssertTrue(tapUntil(row1, timeout: 12) {
-            element(app, "05-composer-input").exists
-        }, "点击会话行应推入详情")
+        XCTAssertTrue(openConversation(row1, application: app), "点击会话行应推入详情")
 
         // ③ 目标选择器弹出两项：云端沙盒 + 我的 Mac（E2E-Relay-Mac）。
         // 菜单项以 label 精确匹配（菜单 identifier 不保证透出，不做存在性断言）；
@@ -783,19 +888,22 @@ final class FeatureCompletionE2ETests: XCTestCase {
         }
         XCTAssertTrue(delivered, "切换目标后发送应真实到达替身（sendText 计数 >0）；实测 sendTextCount=\(stub.sendTextCount)")
 
-        // ⑤ 选中态持久化：返回再进入同会话（per-conversation）与另一会话（全局默认回退）均回显 Mac
+        // ⑤ 选中态持久化：返回再进入同会话（per-conversation）与另一会话（全局默认回退）均回显 Mac。
+        // back 后等 composer 离场再继续：转场未完时 openConversation 首查 composer
+        // 会误判「已在详情」提前返回（test07 门禁视频实证：首次 back tap 落空时
+        // 后续断言全在详情里空转）
         app_navigationBack(app)
-        XCTAssertTrue(tapUntil(row1, timeout: 12) {
-            element(app, "05-composer-input").exists
-        }, "再次进入 sess-e2e-1 应推入详情")
+        waitGoneQuickly(element(app, "05-composer-input"), within: 4)
+        XCTAssertTrue(openConversation(row1, application: app),
+                      "再次进入 sess-e2e-1 应推入详情")
         waitLabel(element(app, "05-act-target"), contains: "E2E-Relay-Mac", timeout: 8,
                   "同会话再次进入应恢复所选目标（per-conversation 持久化）")
         app_navigationBack(app)
+        waitGoneQuickly(element(app, "05-composer-input"), within: 4)
         let row2 = element(app, "04-row-sess-e2e-2")
         XCTAssertTrue(row2.waitForExistence(timeout: 10), "列表应呈现 sess-e2e-2")
-        XCTAssertTrue(tapUntil(row2, timeout: 12) {
-            element(app, "05-composer-input").exists
-        }, "进入 sess-e2e-2 应推入详情")
+        XCTAssertTrue(openConversation(row2, application: app),
+                      "进入 sess-e2e-2 应推入详情（membership 重排/滚动重置由 openConversation 吸收）")
         waitLabel(element(app, "05-act-target"), contains: "E2E-Relay-Mac", timeout: 8,
                   "新会话应回退全局默认目标（上次选择持久化）")
 
@@ -861,6 +969,32 @@ final class FeatureCompletionE2ETests: XCTestCase {
         }
         XCTAssertTrue(selected, "点选 medium 后思考等级行应回显（菜单点选生效）")
 
+        // ②b UI/UX 目检快照（本轮重设计交付）：模型自绘面板 / slash 建议菜单 /
+        // 附件来源面板（新建 sheet 三态；快照入 xcresult 供验收 agent 复核）
+        element(application, "03-row-model").tap()
+        XCTAssertTrue(element(application, "05-composer-option-sheet").waitForExistence(timeout: 6),
+                      "模型行应弹自绘面板（ComposerOptionSheet）")
+        snap(application, "52-new-sheet-model-panel")
+        element(application, "05-composer-option-cancel").tap()
+        _ = waitGoneQuickly(element(application, "05-composer-option-sheet"), within: 4)
+
+        let sheetInput = element(application, "03-input-title")
+        tapAndWaitKeyboard(sheetInput, application: application)
+        sheetInput.typeText("/")
+        XCTAssertTrue(element(application, "03-slash-goal").waitForExistence(timeout: 6),
+                      "输入 / 应呈现 slash 建议菜单（内建 goal 项在场）")
+        snap(application, "53-new-sheet-slash-menu")
+        sheetInput.typeText("\u{8}")
+        XCTAssertTrue(waitGoneQuickly(element(application, "03-slash-goal"), within: 3),
+                      "删掉 / 后建议菜单应收起")
+
+        element(application, "03-chip-attach").tap()
+        XCTAssertTrue(element(application, "05-attach-sheet").waitForExistence(timeout: 6),
+                      "附件 chip 应弹附件来源面板（拍照/图库/文件三通道）")
+        snap(application, "54-new-sheet-attach-source")
+        element(application, "05-attach-sheet-cancel").tap()
+        _ = waitGoneQuickly(element(application, "05-attach-sheet"), within: 4)
+
         // ③ 输入首条指令提交 → createSession.firstInput 携带 modelSelection
         let titleInput = element(application, "03-input-title")
         tapAndWaitKeyboard(titleInput, application: application)
@@ -879,5 +1013,390 @@ final class FeatureCompletionE2ETests: XCTestCase {
             + "实际=\(String(describing: stub.lastCreateSessionModelSelection))")
         XCTAssertEqual(stub.blockedWriteCommandCount, 0,
                        "模型选择全程不应产生任何直写/配置写类命令")
+    }
+
+    /// LIVE 探针（不进门禁；环境变量 ZCODE_LIVE_PANEL=1 才执行）：真实中继链路
+    /// 点按验证工作流面板三联症修复（用户 2026-10-06 报障：① 面板展开后不能收起
+    /// ② 面板内容不能滚动 ③ 展开面板键盘不收起）。依赖模拟器已配对的真机桌面
+    /// 在线（非替身——替身无 workflow 数据面），深链直开带 run 的会话并自动展开。
+    /// 会话 id 为真机「二级页面」会话，若该会话被桌面侧删除则探针需换 id（探针
+    /// 专用，不构成门禁债）。
+    func testLive_workflowPanelCollapseScrollAndKeyboard() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["ZCODE_LIVE_PANEL"] == "1",
+            "LIVE 探针：仅 ZCODE_LIVE_PANEL=1 时执行（依赖真实桌面在线，不进门禁）")
+        let application = XCUIApplication()
+        application.launchArguments = [
+            "-ZCodeOpenConversationId", "sess_3ed6cee1-aa8d-4323-879a-2d8f95ba7bcb",
+            "-ZCodePanelExpand", "workflow",
+        ]
+        application.launch()
+
+        // ① 面板展开（真实链路连接+订阅+投影给足 45s）：收起头可见且可点
+        let collapse = element(application, "05-panel-act-collapse-workflow")
+        XCTAssertTrue(collapse.waitForExistence(timeout: 45), "工作流面板应展开且收起头在场")
+        XCTAssertTrue(waitUntil(timeout: 10, "收起头应进入可点区域") { collapse.isHittable },
+                      "收起头必须可见可点（上一版被 frame(maxHeight) 居中裁切挤出可视区）")
+        let panelBody = element(application, "05-panel-workflow")
+        XCTAssertTrue(panelBody.waitForExistence(timeout: 8), "面板体应在场")
+
+        // ② 点收起头 → 面板收起（chips 行仍在，可再次展开）
+        XCTAssertTrue(tapUntil(collapse) { !panelBody.exists },
+                      "点面板自带收起头后面板应收起")
+        XCTAssertTrue(element(application, "05-panel-chip-workflow").waitForExistence(timeout: 5),
+                      "收起后 chips 行应在场")
+
+        // ③ 键盘路径：聚焦输入框（键盘起）→ 点 chip 展开面板 → 键盘应即时收起
+        //（FocusState 通道；原 UIApplication.sendAction 在 iOS 26 不可靠）
+        let input = element(application, "05-composer-input")
+        XCTAssertTrue(input.waitForExistence(timeout: 5), "composer 输入框应在场")
+        input.tap()
+        XCTAssertTrue(application.keyboards.firstMatch.waitForExistence(timeout: 6),
+                      "点输入框应唤起键盘")
+        let chip = element(application, "05-panel-chip-workflow")
+        XCTAssertTrue(tapUntil(chip) { panelBody.exists }, "点 chip 应重新展开面板")
+        XCTAssertTrue(
+            waitUntil(timeout: 8, "展开面板后键盘应收起（FocusState 精确失焦）") {
+                !application.keyboards.firstMatch.exists
+            }, "面板展开必须收起键盘（用户报障 ③）")
+
+        snap(application, "live-panel-expanded-keyboard-dismissed")
+    }
+
+    /// LIVE 探针（不进门禁；ZCODE_LIVE_PANEL=1 才执行）：斜杠命令菜单点按验证
+    /// （用户 2026-10-06 澄清的「能力/goal/workflow 命令」——web 输入 "/" 触发的
+    /// 能力命令面）。真实链路：菜单出现（内建 goal 项 + 桌面下发命令）→ 前缀过滤 →
+    /// 选中插入 "/name "。不发 送——/goal 会真实改写桌面会话目标，探针零副作用。
+    func testLive_composerSlashMenu() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["ZCODE_LIVE_PANEL"] == "1",
+            "LIVE 探针：仅 ZCODE_LIVE_PANEL=1 时执行（依赖真实桌面在线，不进门禁）")
+        let application = XCUIApplication()
+        application.launchArguments = [
+            "-ZCodeOpenConversationId", "sess_3ed6cee1-aa8d-4323-879a-2d8f95ba7bcb",
+        ]
+        application.launch()
+
+        // ① 聚焦输入框并键入 "/" → 菜单出现，内建 /goal 行在场
+        let input = element(application, "05-composer-input")
+        XCTAssertTrue(input.waitForExistence(timeout: 45), "会话应载入且 composer 在场")
+        input.tap()
+        XCTAssertTrue(application.keyboards.firstMatch.waitForExistence(timeout: 6), "应唤起键盘")
+        input.typeText("/")
+        let menu = element(application, "05-slash-menu")
+        XCTAssertTrue(menu.waitForExistence(timeout: 6), "键入 / 应触发斜杠命令菜单")
+        let goalRow = element(application, "05-slash-row-goal")
+        XCTAssertTrue(goalRow.waitForExistence(timeout: 5), "内建 /goal 项应在场")
+        XCTAssertTrue(element(application, "05-slash-row-workflow").waitForExistence(timeout: 5),
+                      "内建 /workflow 项应在场（桌面技能命令直发面）")
+
+        // ② 前缀过滤：继续输入 "go" → 过滤后仍剩 goal 行（其余项被滤除）
+        input.typeText("go")
+        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertTrue(goalRow.exists, "go 前缀下 /goal 行应保留")
+
+        // ③ 选中 → 草稿回填 "/goal "（参数待补），菜单随之隐去（已含空格）
+        goalRow.tap()
+        let filled = waitUntil(timeout: 8, "选中后草稿应回填 /goal ") {
+            (input.value as? String ?? "").hasPrefix("/goal")
+        }
+        XCTAssertTrue(filled, "选中命令应插入 /goal 前缀；实际=\(input.value ?? "nil")")
+        XCTAssertTrue(waitGoneQuickly(element(application, "05-slash-menu"), within: 2),
+                      "进入参数段（含空格）后菜单应隐去")
+
+        // ④ 清稿收场（探针不留草稿）
+        input.typeText(String(repeating: "\u{8}", count: 16))
+        snap(application, "live-slash-menu-selected")
+    }
+
+    // MARK: - 门禁 09：斜杠命令全链（菜单 → 选中 → 客户端拦截转 sendGoalCommand）
+
+    /// 用户报障 2026-10-07「刚修改的 slash command 不能用」的替身回归：连接态键入
+    /// "/" → 菜单在场（内建 + 替身推送归一化去重）→ 选中回填 → 补参数发送 →
+    /// 客户端拦截转 sendGoalCommand（非 sendText）→ 反馈行上屏。
+    func test09_composerSlashMenuInterceptsGoalCommand() throws {
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+        let row = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "替身会话行应在场")
+        row.tap()
+
+        // ① 键入 "/" → 菜单在场，内建 /goal 在场
+        let input = element(application, "05-composer-input")
+        XCTAssertTrue(input.waitForExistence(timeout: 15), "会话详情 composer 应在场")
+        tapAndWaitKeyboard(input, application: application)
+        input.typeText("/")
+        XCTAssertTrue(element(application, "05-slash-menu").waitForExistence(timeout: 6),
+                      "键入 / 应触发斜杠命令菜单")
+        let goalRow = element(application, "05-slash-row-goal")
+        XCTAssertTrue(goalRow.waitForExistence(timeout: 5), "内建 /goal 行应在场")
+        // ② 替身推送 "/compact"（带前导斜杠，上游 CLI 原始形态）→ 归一化后与内建
+        // 去重 → compact 恰一行（归一化缺失时渲染 //compact 且过滤永不命中）
+        let compactRows = application.buttons
+            .matching(identifier: "05-slash-row-compact").allElementsBoundByIndex
+        XCTAssertEqual(compactRows.count, 1,
+                       "推送名前导斜杠应归一化并与内建去重；实际 \(compactRows.count) 行")
+
+        // ③ 选中 → 草稿回填 "/goal "（菜单随空格隐去）
+        XCTAssertTrue(tapUntil(goalRow) {
+            (input.value as? String ?? "").hasPrefix("/goal")
+        }, "选中命令应回填 /goal 前缀；实际=\(input.value ?? "nil")")
+        XCTAssertTrue(waitGoneQuickly(element(application, "05-slash-menu"), within: 3),
+                      "进入参数段后菜单应隐去")
+
+        // ④ 补参数发送 → 客户端拦截转 sendGoalCommand（替身收到 goal 文本而非 sendText）
+        input.typeText("E2E goal probe")
+        element(application, "05-composer-send").tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "替身应收到 sendGoalCommand") {
+            stub.lastGoalCommandText == "E2E goal probe"
+        }, "斜杠 /goal 应客户端拦截转 sendGoalCommand；实际=\(stub.lastGoalCommandText ?? "nil")")
+        XCTAssertTrue(element(application, "05-slash-hint").waitForExistence(timeout: 6),
+                      "下发结果反馈行应上屏")
+        snap(application, "45-slash-goal-dispatched")
+    }
+
+    // MARK: - 门禁 10：附件上传事务全链（Begin/Chunk/Commit → sendText 携带 ref）
+
+    /// 用户报障 2026-10-07「附件不能上传」的替身回归：替身按 web 客户端形状严格
+    /// 校验附件四方法（多带 connectionId 即记形状错误——上游 facade 会剥掉客户端
+    /// 伪造值，与 web 不对齐）。系统相册/文件选择器无法被 XCUITest 驱动，经
+    /// -ZCodeAttachFixturePath 注入真实文件字节，上传事务与 sendText 携带均走
+    /// 用户路径同款代码（无 mock/假成功）。
+    func test10_attachmentUploadTransactionCarriedInSendText() throws {
+        // 1.2MB（> 3×384KB → 4 块，覆盖多分块顺序上传）；扩展名 bin → octet-stream
+        let fixture = FileManager.default.temporaryDirectory
+            .appendingPathComponent("e2e-attach-\(UUID().uuidString).bin")
+        let payload = Data((0..<1_200_000).map { UInt8(($0 * 31) % 251) })
+        try payload.write(to: fixture)
+        defer { try? FileManager.default.removeItem(at: fixture) }
+
+        let application = connectAndEnterMain(
+            launchFresh(),
+            extraArguments: ["-ZCodeAttachFixturePath", fixture.path])
+        element(application, "04-tab-chat").tap()
+        let row = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "替身会话行应在场")
+        row.tap()
+
+        // ① 待发附件条在场（fixture 注入 = composer 附件入口注入后的同态）
+        XCTAssertTrue(element(application, "05-attach-strip").waitForExistence(timeout: 10),
+                      "待发附件条应随 fixture 注入在场")
+
+        // ② fixture「选定即上传」（用户三通道同款语义，不等发送）：替身应收满
+        //    Begin → Chunk×4 → Commit 全链且形状零瑕疵
+        XCTAssertTrue(waitUntil(timeout: 30, "替身应收满 4 块并 commit") {
+            stub.attachmentCommitCount >= 1
+                && stub.attachmentChunkCount >= 4
+                && stub.attachmentBeginCount >= 1
+        }, "上传事务应 Begin→Chunk×4→Commit 全链到达；实际 begin=\(stub.attachmentBeginCount) chunk=\(stub.attachmentChunkCount) commit=\(stub.attachmentCommitCount)")
+        XCTAssertTrue(stub.attachmentShapeErrors.isEmpty,
+                      "附件四方法载荷应通过 web 同形严格校验；实际=\(stub.attachmentShapeErrors)")
+
+        // ③ committed 后发送闸放行 → sendText 携带 Commit 回执 ref
+        let input = element(application, "05-composer-input")
+        XCTAssertTrue(input.waitForExistence(timeout: 8), "composer 输入框应在场")
+        tapAndWaitKeyboard(input, application: application)
+        input.typeText("attach-e2e-message")
+        element(application, "05-composer-send").tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "sendText 应携带已提交 ref 的附件数组") {
+            let attachments = stub.lastSendTextAttachments
+            return attachments.contains {
+                ($0["ref"] as? String)?.hasPrefix("att-e2e-") == true
+                    && ($0["bytes"] as? Int) == 1_200_000
+            }
+        }, "sendText attachments 元素应为 {ref, fileName, mime, bytes} 且 ref 来自 Commit 回执；实际=\(stub.lastSendTextAttachments)")
+        snap(application, "46-attachment-committed")
+    }
+
+    // MARK: - 门禁 11：附件来源底部 sheet + 键盘点按收起（审批卡在场）
+
+    /// 用户报障 2026-10-07 两联的替身回归：①「添加附件弹窗都弹到什么地方去了」
+    /// （confirmationDialog 本 OS 渲染成锚定 popover → 自绘底部 sheet）；②「有审核
+    /// 弹窗的时候键盘收不起来」（审批卡/消息区点按失焦通道）。
+    func test11_attachmentSourceSheetAndTapToDismissKeyboard() throws {
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+        let row = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "替身会话行应在场")
+        row.tap()
+
+        // ① 审批卡在场（sess-e2e-1 预置 permission 挂起交互）→ 聚焦输入框（键盘起）
+        let approvalCard = element(application, "05-approval-card")
+        XCTAssertTrue(approvalCard.waitForExistence(timeout: 12), "审批卡应常驻 composer 上方")
+        let input = element(application, "05-composer-input")
+        tapAndWaitKeyboard(input, application: application)
+        XCTAssertTrue(application.keyboards.firstMatch.exists, "键盘应唤起")
+
+        // ② 点审批卡空白区（标题静态文本，非按钮）→ 键盘应收起（容器点按失焦通道）
+        let cmdText = element(application, "05-approval-cmd")
+        XCTAssertTrue(cmdText.waitForExistence(timeout: 5), "审批卡命令行应在场")
+        cmdText.tap()
+        XCTAssertTrue(waitUntil(timeout: 8, "点审批卡空白区后键盘应收起") {
+            !application.keyboards.firstMatch.exists
+        }, "审批卡在场时点按卡空白区必须收起键盘（用户报障 ②）")
+
+        // ③ 附件入口 → 底部 sheet 三选项（拍照/照片图库/文件）→ 取消收起
+        let attachButton = element(application, "05-attach-button")
+        XCTAssertTrue(attachButton.waitForExistence(timeout: 8), "composer 附件入口应在场")
+        attachButton.tap()
+        let sheet = element(application, "05-attach-sheet")
+        XCTAssertTrue(sheet.waitForExistence(timeout: 8), "添加附件应弹出底部 sheet（非锚定 popover）")
+        XCTAssertTrue(element(application, "05-attach-sheet-camera").waitForExistence(timeout: 5),
+                      "拍照选项应在场")
+        XCTAssertTrue(element(application, "05-attach-sheet-photos").exists, "照片图库选项应在场")
+        XCTAssertTrue(element(application, "05-attach-sheet-files").exists, "文件选项应在场")
+        snap(application, "47-attachment-source-sheet")
+        element(application, "05-attach-sheet-cancel").tap()
+        XCTAssertTrue(waitGoneQuickly(sheet, within: 4), "取消应收起附件 sheet")
+
+        // ④ 再次唤起键盘 → 点审批卡空白区（命令行静态文本——卡片几何中心在横幅
+        // 插入后恰落在「始终允许」快捷按钮上，中心 tap 会误触审批）→ 键盘应收起
+        tapAndWaitKeyboard(input, application: application)
+        XCTAssertTrue(application.keyboards.firstMatch.exists, "键盘应再次唤起")
+        cmdText.tap()
+        XCTAssertTrue(waitUntil(timeout: 8, "点审批卡后键盘应再次收起") {
+            !application.keyboards.firstMatch.exists
+        }, "点按失焦通道应可重复触发")
+        snap(application, "48-keyboard-tap-dismissed")
+    }
+
+    // MARK: - 门禁 12：tasks-index membership join（置顶/归档）+ CAS stale 重试
+
+    /// 用户报障 2026-10-07 三联的替身回归：①「桌面置顶 4 项移动端只见 1 项」——
+    /// sessions-index 行无 pinned 字段【实证·上游仓】，置顶组织态须 listPinnedTasks
+    /// join；②「归档的会话又丢了」——归档区 listArchivedTasks 行应呈现；③「composer
+    /// 胶囊切换都不行」——switchModelConfig 首击 stale 须原样重发一次（替身
+    /// stale-once-then-accepted 绊线，计数 ≥2 即重试链在位）。
+    func test12_pinnedAndArchivedMembershipJoinsWithModelCASRetry() throws {
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+
+        // ① membership join：替身 listPinnedTasks 预置 sess-e2e-think（列表末位）→
+        //    应跃居「置顶」分区（行帧高于未置顶的 sess-e2e-1 行）
+        XCTAssertTrue(waitUntil(timeout: 20, "替身应收到 listPinnedTasks membership 拉取") {
+            stub.pinnedTasksRequestCount >= 1
+        }, "会话列表装载应拉取 listPinnedTasks（置顶权威源 join）")
+        let thinkRow = element(application, "04-row-sess-e2e-think")
+        let plainRow = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(waitUntil(timeout: 15, "置顶 join 应把 think 行顶到列表最前") {
+            guard thinkRow.exists, plainRow.exists,
+                  thinkRow.isHittable, plainRow.isHittable else { return false }
+            return thinkRow.frame.minY < plainRow.frame.minY
+        }, "listPinnedTasks 预置会话应出现在置顶分区（帧序高于未置顶行）；" +
+           "think=\(thinkRow.exists) plain=\(plainRow.exists)")
+
+        // ② composer 模型/思考胶囊：switchModelConfig 首击 stale → 重发命中。
+        //    （置于归档分区之前：归档展开/收起后的列表布局一致性不可靠，行导航
+        //    偶发落空——test12 全量门禁 flake 实证；从列表顶部状态直接进详情无此依赖）
+        let detailRow = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(openConversation(detailRow, application: application),
+                      "点击会话行应推入详情")
+        let thoughtChip = element(application, "05-chip-thought")
+        XCTAssertTrue(thoughtChip.waitForExistence(timeout: 12), "思考胶囊应在场（连接态 chips）")
+        // Menu 呈现为系统弹层：开弹以菜单项出现为证据。不能用 tapUntil——菜单开着时
+        // 胶囊被遮挡不可命中/或仍可命中时再 tap 会把菜单关掉（开合互打，test12 门禁
+        // 视频实证）；openTargetMenu tap 一次后短轮询候选、未弹有界重开
+        let lowItems = application.buttons.matching(NSPredicate(format: "label == 'low'"))
+        XCTAssertTrue(openTargetMenu(thoughtChip, candidate: lowItems),
+                      "点思考胶囊应弹出菜单（low 档项在场）")
+        lowItems.firstMatch.tap()
+        // 首击 stale（替身固定回 stale 一次）→ 客户端应原样重发 → 计数 ≥2 即重试链在位
+        XCTAssertTrue(waitUntil(timeout: 12, "stale 后应重发 switchModelConfig") {
+            stub.switchModelConfigCallCount >= 2
+        }, "switchModelConfig stale 应触发原样重发；实际调用=\(stub.switchModelConfigCallCount) 次")
+        waitUntil(timeout: 5, "重试命中后不应残留拒绝提示") {
+            !element(application, "05-composer-switch-hint").exists
+        }
+        snap(application, "50-model-cas-retry")
+
+        // ③ 归档分区：返回列表 → 展开 → 替身 listArchivedTasks 预置行应在场（并发拉取）
+        app_navigationBack(application)
+        waitGoneQuickly(element(application, "05-composer-input"), within: 4)
+        XCTAssertTrue(scrollToHittable(element(application, "04-act-archived"), application: application),
+                      "归档入口行应可滚动到可见")
+        element(application, "04-act-archived").tap()
+        XCTAssertTrue(waitUntil(timeout: 20, "替身应收到 listArchivedTasks 拉取") {
+            stub.archivedTasksRequestCount >= 1
+        })
+        XCTAssertTrue(element(application, "04-archivedrow-sess-e2e-arch-1").waitForExistence(timeout: 15),
+                      "归档分区应呈现 listArchivedTasks 预置行（替身会话 · 已归档样例）")
+        snap(application, "49-archived-membership")
+
+        // 收起归档分区（展开/收起可逆回归；此后无行导航依赖）
+        element(application, "04-act-archived").tap()
+        XCTAssertTrue(waitGoneQuickly(element(application, "04-archivedrow-sess-e2e-arch-1"), within: 6),
+                      "再次点击归档入口应收起归档分区")
+    }
+
+    // MARK: - 门禁 14：重置卡二次确认门（扣费接口：确认后必发、取消必不发）
+
+    /// 用户报障 2026-10-07「改重置卡样式后什么都不能用了」回归门：自绘确认面板
+    /// 改版曾把确认链路改断——收起 sheet 的 binding 置 nil 先于回调读态执行，
+    /// performResetUse 永不触发（无测试覆盖致回归漏网，本轮补门）。三段锁死：
+    /// ①替身预置 5h+周卡各 1 张 → 机会卡与两档按钮在场；②取消路径：面板可开可
+    /// 关，useCodingPlanReset 零到达；③确认路径：点确认必发
+    /// useCodingPlanReset(resetType=FIVE_HOUR) 且成功反馈行在场。
+    /// 重置卡为扣费接口【用户叮嘱 2026-10-07】：本用例仅对本地替身发（127.0.0.1
+    /// 内存记账），真机/真实桌面零接触；真机验证一律走取消路径。
+    func test14_resetCardConfirmGate() throws {
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "12-tab-me").tap()
+        let usageRow = element(application, "12-row-usage")
+        XCTAssertTrue(usageRow.waitForExistence(timeout: 10), "设置页应有用量统计入口")
+        usageRow.tap()
+
+        // ① 替身 getCodingPlanResetStatus 预置 5h+周各 1 张 → 重置机会卡在场
+        let resetCard = element(application, "12-usage-reset-card")
+        XCTAssertTrue(resetCard.waitForExistence(timeout: 15), "重置机会卡应在场（替身预置两档卡）")
+        let claim5h = element(application, "12-usage-act-claim-5h")
+        XCTAssertTrue(claim5h.waitForExistence(timeout: 8), "5 小时卡使用按钮应在场")
+
+        // ② 取消路径：面板开 → 取消 → 收起，扣费调用零到达
+        let sheet = element(application, "12-usage-reset-sheet")
+        claim5h.tap()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 8), "使用重置卡应弹自绘确认面板")
+        element(application, "12-usage-cancel").tap()
+        XCTAssertTrue(waitGoneQuickly(sheet, within: 4), "取消应收起确认面板")
+        waitUntil(timeout: 4, "取消后确认扣费请求不应到达") {
+            !stub.resetCardRPCCalls.contains("useCodingPlanReset")
+        }
+        XCTAssertFalse(stub.resetCardRPCCalls.contains("useCodingPlanReset"),
+                       "取消路径不得发出 useCodingPlanReset（实际到达：\(stub.resetCardRPCCalls)）")
+
+        // ③ 确认路径：再开面板 → 确认 → 替身必收到 useCodingPlanReset(FIVE_HOUR)
+        claim5h.tap()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 8), "确认面板应再次弹出")
+        element(application, "12-usage-confirm-use").tap()
+        XCTAssertTrue(waitUntil(timeout: 10, "确认后应发出 useCodingPlanReset") {
+            stub.resetCardUseTypes.contains("FIVE_HOUR")
+        }, "点确认必须下发 useCodingPlanReset(resetType=FIVE_HOUR)——回归根因即此步被吞")
+        XCTAssertTrue(element(application, "12-usage-claim-notice").waitForExistence(timeout: 8),
+                      "用卡成功应出现反馈行")
+        snap(application, "51-reset-card-used")
+    }
+
+    /// test13 订阅 workspace 按会话归属寻址（真机报障 2026-10-07「手机端没有回复」回归）：
+    /// 连接工作区 = /Users/e2e/zcode-workspace（identity ws-e2e-1），会话行 sess-e2e-1
+    /// 自带 workspacePath = /Users/e2e/mtt_mobile（跨工作区行，bootstrap/sessions-index
+    /// 常态）——订阅必须携带会话归属 workspace 而非连接 workspace【实证·上游仓
+    /// zcodeAgentService.subscribeConversationV4：getReadOnlyClient(params) 按
+    /// params.workspacePath 选 CLI 进程承接订阅；寻址错位 = 历史可读、运行中 turn 的
+    /// 行增量永不抵达】。修复前此断言失败（恒发连接 workspace）。
+    func test13_conversationSubscribeTargetsSessionWorkspace() throws {
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+        let row = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "替身会话行应在场")
+        XCTAssertTrue(openConversation(row, application: application), "点击会话行应推入详情")
+        XCTAssertTrue(waitUntil(timeout: 15, "替身应收到该会话的 subscribeConversationV4") {
+            stub.subscribeTargets.contains { $0.topic == "conversation/sess-e2e-1" }
+        }, "订阅请求应到达替身（实际：\(stub.subscribeTargets)）")
+        let target = stub.subscribeTargets.last { $0.topic == "conversation/sess-e2e-1" }
+        XCTAssertEqual(target?.workspacePath, "/Users/e2e/mtt_mobile",
+                       "订阅必须携带会话行自带的 workspacePath（跨工作区会话归属），" +
+                       "而非连接工作区 /Users/e2e/zcode-workspace（实际：\(String(describing: target))）")
+        XCTAssertNil(target?.workspaceIdentity,
+                     "归属工作区无 identity 时不得携带连接工作区的 ws-e2e-1（identity 错配同样使桌面侧 workspaceKey 失配）")
+        snap(application, "52-subscribe-workspace-target")
     }
 }

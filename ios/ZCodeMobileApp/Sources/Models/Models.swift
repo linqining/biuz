@@ -314,13 +314,17 @@ struct ChatMessage: Identifiable, Equatable {
     /// 助手反馈行仅对 assistantText 渲染——reasoning/subagent/artifact/state-todos
     /// 等合成消息（rowKind 为 nil）天然排除，不做字符串前缀判断的脆弱门槛
     var rowKind: String?
+    /// P1-3 反馈态服务端回读（用户实测 2026-10-06「点赞后重载丢失」：此前仅本地
+    /// write-through 字典，重进会话即空白。web 实证 bundle bX(row) 读行上
+    /// `feedback: "like"|"dislike"` 渲染——本字段即该回读落点；nil = 无反馈态）
+    var feedback: Bool?
     var timestamp: Date
 
     init(id: String, role: MessageRole, text: String,
          status: MessageStatus = .done, timestamp: Date,
          toolCall: ToolCall? = nil, todos: [TodoItem]? = nil, question: AgentQuestion? = nil,
          thinking: ThinkingContent? = nil, attachments: [String] = [],
-         entityId: String? = nil, rowKind: String? = nil) {
+         entityId: String? = nil, rowKind: String? = nil, feedback: Bool? = nil) {
         self.id = id
         self.role = role
         self.text = text
@@ -333,6 +337,7 @@ struct ChatMessage: Identifiable, Equatable {
         self.attachments = attachments
         self.entityId = entityId
         self.rowKind = rowKind
+        self.feedback = feedback
     }
 }
 

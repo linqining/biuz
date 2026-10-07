@@ -43,8 +43,11 @@ struct RootView: View {
             }
 
             VStack(spacing: 0) {
-                // 连接状态横幅（13-③ 离线/OAuth 失败：弱底 + 描边 + 图标 + 动作文）
-                if let banner = connectionBanner {
+                // 连接状态横幅（13-③ 离线/OAuth 失败：弱底 + 描边 + 图标 + 动作文）。
+                // push 详情态不在底部渲染（UI/UX 验收 P1 2026-10-07：overlay 恰好
+                // 压在详情 composer 输入框上，可见性与可点性俱失）——详情态横幅由
+                // ChatView safeAreaInset 插入式承载（model 单源 ConnectionBanner.model(for:)）
+                if let banner = connectionBanner, !router.isPushing {
                     ConnectionBanner(model: banner)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -201,41 +204,7 @@ struct RootView: View {
     // MARK: - 连接状态横幅（错误 UI：连接失败 / 断线 / 断线重连中）
 
     private var connectionBanner: ConnectionBanner.Model? {
-        switch session.mode {
-        case .connecting(let server):
-            // 断线重连中（快照在场，不打断浏览——设计稿 §1.4）；从未连上的
-            // connecting 由根页/cover 整层 ConnectingView 承担，横幅不重复出现
-            guard session.remoteConversationStore != nil else { return nil }
-            return ConnectionBanner.Model(
-                icon: "arrow.triangle.2.circlepath", tint: T.accent,
-                title: String(localized: "正在连接桌面端…"),
-                detail: "\(server.displayName) · \(server.displayAddress)",
-                action: String(localized: "取消"),
-                identifier: "13-banner-connecting") {
-                session.cancelConnecting()
-            }
-        case .connectFailed(_, let error):
-            // 对齐修复（U-9/设计稿 §1.6）：删「已回退演示数据」——Mock 回退语义已消失，
-            // 失败态为空数据 + 重试；换台入口在设置页「添加服务器」
-            return ConnectionBanner.Model(
-                icon: "exclamationmark.triangle.fill", tint: T.red,
-                title: String(localized: "桌面端连接失败"),
-                detail: error.headline,
-                action: String(localized: "重试")) {
-                Task { await session.reconnect() }
-            }
-        case .disconnected(_, let detail):
-            // 断线保留最后快照（设计稿 §1.5）：如实声明数据时点，写面由各页失败提示兜底
-            return ConnectionBanner.Model(
-                icon: "wifi.exclamationmark", tint: T.orange,
-                title: String(localized: "已断开 · 显示断线前的数据"),
-                detail: detail,
-                action: String(localized: "重连")) {
-                Task { await session.reconnect() }
-            }
-        default:
-            return nil
-        }
+        ConnectionBanner.model(for: session)
     }
 
     // MARK: - 角标数据源
@@ -273,6 +242,46 @@ struct ConnectionBanner: View {
         /// a11y identifier（设计稿 §1.4：connecting 横幅独立 id 13-banner-connecting；
         /// 默认值令既有失败/断线两态与全部 E2E 断言不变）
         var identifier: String = "13-banner-connection"
+    }
+
+    /// 三态横幅模型单源（connecting/connectFailed/disconnected）——RootView 底部
+    /// （列表/tab 态）与 ChatView 详情态 composer 上方共用，避免两张皮
+    static func model(for session: AppSession) -> Model? {
+        switch session.mode {
+        case .connecting(let server):
+            // 断线重连中（快照在场，不打断浏览——设计稿 §1.4）；从未连上的
+            // connecting 由根页/cover 整层 ConnectingView 承担，横幅不重复出现
+            guard session.remoteConversationStore != nil else { return nil }
+            return Model(
+                icon: "arrow.triangle.2.circlepath", tint: T.accent,
+                title: String(localized: "正在连接桌面端…"),
+                detail: "\(server.displayName) · \(server.displayAddress)",
+                action: String(localized: "取消"),
+                identifier: "13-banner-connecting") {
+                session.cancelConnecting()
+            }
+        case .connectFailed(_, let error):
+            // 对齐修复（U-9/设计稿 §1.6）：删「已回退演示数据」——Mock 回退语义已消失，
+            // 失败态为空数据 + 重试；换台入口在设置页「添加服务器」
+            return Model(
+                icon: "exclamationmark.triangle.fill", tint: T.red,
+                title: String(localized: "桌面端连接失败"),
+                detail: error.headline,
+                action: String(localized: "重试")) {
+                Task { await session.reconnect() }
+            }
+        case .disconnected(_, let detail):
+            // 断线保留最后快照（设计稿 §1.5）：如实声明数据时点，写面由各页失败提示兜底
+            return Model(
+                icon: "wifi.exclamationmark", tint: T.orange,
+                title: String(localized: "已断开 · 显示断线前的数据"),
+                detail: detail,
+                action: String(localized: "重连")) {
+                Task { await session.reconnect() }
+            }
+        default:
+            return nil
+        }
     }
 
     let model: Model

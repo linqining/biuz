@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 屏 03 · 新建会话 Sheet（抓手 + sticky 头部 + 大输入区 + 执行端单选 + 建议提示词）
 /// v3 纠偏：连接态恢复完整表单——标题/首条指令以 createSession+firstInput 一次下发
@@ -36,6 +38,33 @@ struct NewConversationSheet: View {
     @State private var selectedModel: String?
     @State private var selectedThought: String?
     @State private var thoughtOptions: [String] = []
+
+    // 新建会话附件（用户 2026-10-07 第五次报障「新建会话附件不能使用」根因：
+    // 附件 chip 是 disabledChip 占位从未接通）。暂存待传文件——上传事务需要
+    // sessionId，故开始任务时以 draft 会话创建（不携 firstInput，桌面不先跑），
+    // 暂存文件+草稿文本经交接箱注入会话 composer 上传管线（与既有三通道
+    // add→上传→sendText 携带完全同路）
+    @State private var stagedFiles: [StagedNewAttachment] = []
+    @State private var showAttachmentSource = false
+    @State private var pendingAttachmentSource: AttachmentSource?
+    @State private var showPhotoPicker = false
+    @State private var showCamera = false
+    @State private var showFileImporter = false
+    @State private var photoPickerItems: [PhotosPickerItem] = []
+    // slash 建议菜单（/goal /plan /workflow /compact + workspace-config 合并；
+    // sheet 只做发现与预填——三客户端意图由会话页 send() 既有拦截执行，零重复语义）
+    @State private var slashCommands: [WorkspaceConfigInfo.SlashCommand] = []
+    // 模型/思考自绘面板（ComposerOptionSheet 统一语言，用户 2026-10-07「样式一致」）
+    @State private var composerSheet: ComposerSheetKind?
+
+    /// slash 建议匹配：输入以 "/" 起头且聚焦时呈现
+    private var slashMatches: [WorkspaceConfigInfo.SlashCommand] {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/"), inputFocused else { return [] }
+        let prefix = trimmed.dropFirst().split(separator: " ", maxSplits: 1).first.map(String.init)?.lowercased() ?? ""
+        guard !prefix.contains("\n") else { return [] }
+        return slashCommands.filter { $0.name.lowercased().hasPrefix(prefix) }
+    }
 
     private var suggestions: [(String, String)] {
         [
@@ -95,23 +124,7 @@ struct NewConversationSheet: View {
                     .accessibilityIdentifier("03-create-fail")
             }
             PrimaryButton(title: "开始任务", identifier: "03-submit-start") {
-                Task {
-                    // 项目层选择随 createSession 的 workspaceId 下发（directory 参数承载）；
-                    // 连接态模型/思考等级随 firstInput.modelSelection 下发（会话前选择）
-                    let selection = pendingModelSelection()
-                    let conversation = await conversationStore.createConversation(
-                        title: title, directory: projectPath, executor: executor,
-                        modelSelection: selection)
-                    guard !conversation.id.isEmpty else {
-                        createFailure = String(localized: "未连接桌面端 · 连接后再新建会话")
-                        UINotificationFeedbackGenerator().notificationOccurred(.error)
-                        return
-                    }
-                    createFailure = nil
-                    NewSessionContextStore.save(
-                        NewSessionContext(machineID: machineID, projectPath: projectPath))
-                    onCreated(conversation)
-                }
+                Task { await submit() }
             }
             .padding(.horizontal, T.sp4)
             .padding(.vertical, T.sp2)
@@ -143,6 +156,208 @@ struct NewConversationSheet: View {
                 }
                 inputFocused = true
             }
+        }
+        // 附件三来源（与会话页 composer 同一套 AttachmentSourceSheet；选定即暂存，
+        // 开始任务 draft 创建后经交接箱进入上传管线）
+        .sheet(isPresented: $showAttachmentSource, onDismiss: {
+            switch pendingAttachmentSource {
+            case .camera: showCamera = true
+            case .photos: showPhotoPicker = true
+            case .files: showFileImporter = true
+            case nil: break
+            }
+            pendingAttachmentSource = nil
+        }) {
+            AttachmentSourceSheet { source in
+                pendingAttachmentSource = source
+                showAttachmentSource = false
+            }
+            .presentationDetents([.height(348)])
+            .presentationDragIndicator(.hidden)
+        }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, matching: .images)
+        .onChange(of: photoPickerItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            photoPickerItems = []
+            Task { await addPhotoPickerItems(newItems) }
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true) { result in
+            importFiles(result)
+        }
+        .sheet(isPresented: $showCamera) {
+            CameraPicker { image in
+                addCameraImage(image)
+            }
+            .ignoresSafeArea()
+        }
+        // 模型/思考自绘面板（ComposerOptionSheet；medium/large——模型清单可能超一屏）
+        .sheet(item: $composerSheet) { kind in
+            ComposerOptionSheet(
+                title: kind.title,
+                options: sheetOptions(kind)) { option in
+                composerSheet = nil
+                applySheetPick(kind, option)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(T.bgElevated)
+        }
+    }
+
+    // MARK: 提交分流（附件 draft / slash 意图预填 / 常规 firstInput）
+
+    private func submit() async {
+        // 项目层选择随 createSession 的 workspaceId 下发（directory 参数承载）；
+        // 连接态模型/思考等级随 firstInput.modelSelection 下发（会话前选择）
+        let selection = pendingModelSelection()
+
+        // ① 附件随新会话：draft 创建（桌面不先跑——文件必须先于任务就位），
+        //    暂存文件+文本经交接箱注入会话 composer；模型选择不在 firstInput
+        //    通道（draft 无 firstInput），可在会话内 chips 再选
+        if !stagedFiles.isEmpty {
+            let conversation = await conversationStore.createConversation(
+                title: "", directory: projectPath, executor: executor, modelSelection: nil)
+            guard guardCreated(conversation) else { return }
+            NewConversationHandoffBox.deposit(
+                NewConversationHandoff(
+                    draftText: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                    attachments: stagedFiles.map { ($0.name, $0.mediaType, $0.data) }),
+                for: conversation.id)
+            finishCreated(conversation)
+            return
+        }
+
+        // ② 客户端拦截意图（/goal /plan /compact——web/会话页同构客户端语义，
+        //    桌面不解析）：draft 创建 + 原文预填 composer，发送时由会话页
+        //    parseSlashIntent 既有拦截执行（成功反馈/失败回填全在既有链路）
+        if isRemote, ChatViewModel.parseSlashIntent(title) != nil {
+            let conversation = await conversationStore.createConversation(
+                title: "", directory: projectPath, executor: executor, modelSelection: nil)
+            guard guardCreated(conversation) else { return }
+            NewConversationHandoffBox.deposit(
+                NewConversationHandoff(draftText: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                                       attachments: []),
+                for: conversation.id)
+            finishCreated(conversation)
+            return
+        }
+
+        // ③ 常规路径：firstInput 携带文本（未命中拦截意图的 /xxx 原文直发由桌面解释）
+        let conversation = await conversationStore.createConversation(
+            title: title, directory: projectPath, executor: executor,
+            modelSelection: selection)
+        guard guardCreated(conversation) else { return }
+        finishCreated(conversation)
+    }
+
+    /// 创建失败如实透出（真实拒收原因优先——上游 schema strict，载荷任一键不合形
+    /// 即整条拒收；禁止假成功导航）
+    private func guardCreated(_ conversation: Conversation) -> Bool {
+        if !conversation.id.isEmpty {
+            createFailure = nil
+            return true
+        }
+        Task { await reportCreateFailure() }
+        return false
+    }
+
+    private func reportCreateFailure() async {
+        let detail = await conversationStore.lastCreateFailureText()
+        createFailure = detail.isEmpty
+            ? String(localized: "未连接桌面端 · 连接后再新建会话")
+            : String(localized: "创建失败 · \(detail)")
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+    }
+
+    private func finishCreated(_ conversation: Conversation) {
+        NewSessionContextStore.save(
+            NewSessionContext(machineID: machineID, projectPath: projectPath))
+        onCreated(conversation)
+    }
+
+    // MARK: 附件暂存（与会话页同源转换；上传在会话内建事务）
+
+    private func addPhotoPickerItems(_ items: [PhotosPickerItem]) async {
+        for item in items {
+            let contentType = item.supportedContentTypes.first
+            let ext = contentType?.preferredFilenameExtension ?? "jpg"
+            let mediaType = contentType?.preferredMIMEType ?? "image/jpeg"
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            stagedFiles.append(StagedNewAttachment(
+                name: "IMG_\(Int(Date().timeIntervalSince1970 * 1000)).\(ext)",
+                mediaType: mediaType, data: data))
+        }
+    }
+
+    private func addCameraImage(_ image: UIImage) {
+        guard let data = image.jpegData(compressionQuality: 0.9) else { return }
+        stagedFiles.append(StagedNewAttachment(
+            name: "IMG_\(Int(Date().timeIntervalSince1970 * 1000)).jpg",
+            mediaType: "image/jpeg", data: data))
+    }
+
+    private func importFiles(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result else { return }
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            stagedFiles.append(StagedNewAttachment(
+                name: url.lastPathComponent,
+                mediaType: AttachmentUploadService.mediaType(forFileExtension: url.pathExtension),
+                data: data))
+        }
+    }
+
+    // MARK: 模型/思考面板装配（NewConversationSheet 侧状态源）
+
+    private func sheetOptions(_ kind: ComposerSheetKind) -> [ComposerOptionItem] {
+        switch kind {
+        case .model:
+            guard let info = modelInfo else { return [] }
+            if info.planGroups.isEmpty {
+                return info.models.map { model in
+                    ComposerOptionItem(id: model, title: model, detail: "", icon: "cpu",
+                                       selected: model == selectedModel)
+                }
+            }
+            return info.planGroups.flatMap { group in
+                group.models.map { model in
+                    ComposerOptionItem(
+                        id: "\(group.plan)|\(model)",
+                        title: model,
+                        detail: "",
+                        icon: "cpu",
+                        selected: model == selectedModel,
+                        section: group.plan,
+                        payload: model)
+                }
+            }
+        case .thought:
+            return displayedThoughtLevels.map { level in
+                ComposerOptionItem(id: level, title: level, detail: "", icon: "brain",
+                                   selected: level == selectedThought)
+            }
+        default:
+            return []
+        }
+    }
+
+    private func applySheetPick(_ kind: ComposerSheetKind, _ option: ComposerOptionItem) {
+        switch kind {
+        case .model:
+            selectedModel = option.payload ?? option.id
+            selectedThought = nil
+            Task { await reloadThoughtOptions() }
+            UISelectionFeedbackGenerator().selectionChanged()
+        case .thought:
+            selectedThought = option.payload ?? option.id
+            UISelectionFeedbackGenerator().selectionChanged()
+        default:
+            break
         }
     }
 
@@ -177,7 +392,16 @@ struct NewConversationSheet: View {
         }
     }
 
-    /// 机器层：云端沙盒 + 已配对 Mac（数据复用设备列表）；切换联动执行端与该项目上次目录。
+    /// 机器层候选（用户裁决 2026-10-07「新建会话要隐藏云端沙盒」）：云端沙盒档隐藏
+    /// （BiuZ 无云端会话数据源，选中创建的会话落桌面看不见的沙盒区——H7 同口径）；
+    /// -ZCodeDemoData 演示开关保留（E2E Matrix 断言 03-pill-machine-cloud 依赖）
+    private var availableMachines: [DeviceOption] {
+        DeviceDirectory.machines().filter {
+            AppSession.isDemoDataEnabled || $0.kind != .cloudSandbox
+        }
+    }
+
+    /// 机器层：已配对 Mac（连接态只读展示当前连接）；切换联动执行端与该项目上次目录。
     /// 连接态只读（当前连接的桌面端即执行端，G-013）。
     private var machineCapsule: some View {
         Group {
@@ -189,7 +413,7 @@ struct NewConversationSheet: View {
                     tint: T.accentText)
             } else {
                 Menu {
-                    ForEach(DeviceDirectory.machines()) { option in
+                    ForEach(availableMachines) { option in
                         Button {
                             selectMachine(option)
                         } label: {
@@ -271,10 +495,19 @@ struct NewConversationSheet: View {
             selectedModel = modelInfo?.activeModel ?? modelInfo?.models.first
             selectedThought = modelInfo?.activeThoughtLevel
             await reloadThoughtOptions()
+            // slash 建议数据源（内建 + workspace-config 合并，与会话页 slashMenuCommands 同构）
+            let config = await conversationStore.workspaceConfig()
+            slashCommands = ChatViewModel.mergedSlashCommands(config: config)
         }
         let last = NewSessionContextStore.loadLast()
-        let machines = DeviceDirectory.machines()
-        if let match = machines.first(where: { $0.id == last.machineID }) ?? machines.first {
+        // 机器层恢复（用户报障 2026-10-07「连接态胶囊仍显示云端沙盒」根因：上次上下文
+        // 恢复曾把 G-013 已修正的连接态执行端又覆盖回 cloudSandbox——连接态机器只读，
+        // 跳过恢复；云端沙盒档隐藏见 availableMachines）
+        if !isRemote {
+            let machines = availableMachines
+            // 永未配对（列表空）也回退「我的 Mac」档——云端沙盒档已隐藏，不残留旧默认
+            let match = machines.first(where: { $0.id == last.machineID }) ?? machines.first
+                ?? DeviceOption(id: "mac", name: String(localized: "我的 Mac"), kind: .pairedMac)
             machineID = match.id
             machineName = match.name
             executor = match.kind
@@ -300,20 +533,55 @@ struct NewConversationSheet: View {
             TextField("描述你要做的事…", text: $title, axis: .vertical)
                 .font(T.font(16))
                 .foregroundColor(T.text)
-                .lineLimit(2...5)
+                // 上限 10 行（真机报障「输入文字多了看不到全部，高度固定」）
+                .lineLimit(2...10)
                 .focused($inputFocused)
                 .padding(T.sp3)
                 .frame(minHeight: 88, alignment: .topLeading)
                 .background(T.bgInput)
                 .clipShape(RoundedRectangle(cornerRadius: T.rL))
                 .accessibilityIdentifier("03-input-title")
+            // 暂存附件条（附件 chip 选定后；会话内上传）
+            stagedFilesRow
+            // slash 建议（输入 "/" 触发，与会话页 composer 同构：选中插入 "/name "，
+            // 发送侧三客户端意图由会话页既有拦截执行）
+            if !slashMatches.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(slashMatches) { command in
+                        Button {
+                            title = "/\(command.name) "
+                            UISelectionFeedbackGenerator().selectionChanged()
+                        } label: {
+                            HStack(spacing: T.sp2) {
+                                Text("/\(command.name)")
+                                    .font(T.mono(12.5, .semibold))
+                                    .foregroundColor(T.accentText)
+                                Text(command.description)
+                                    .font(T.font(11))
+                                    .foregroundColor(T.text3)
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, T.sp3)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("03-slash-\(command.name)")
+                    }
+                }
+                .background(T.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+            }
         }
     }
 
     /// 上下文 chips（G-024）：「引用文件 @」接文件选择器（FileStore 数据源）真实可用；
-    /// 「仓库/语音」无实现置视觉禁用态（不可点）——不再呈现可点无效的假交互。
-    /// 「附件」保持置灰（P1-1 设计稿 1.1：新建会话尚未有目标会话、无法建上传事务，
-    /// 仅 hint 文案改为「进入会话后可用」——发送侧附件入口在会话页 composer）
+    /// 「附件」接 AttachmentSourceSheet 三来源（拍照/图库/文件）真实暂存——
+    /// 上传事务需 sessionId，开始任务 draft 创建后经交接箱进入会话上传管线
+    /// （用户 2026-10-07 第五次报障「新建会话附件不能使用」修复：disabledChip
+    /// 占位改真通道）。「仓库/语音」无实现置视觉禁用态（不可点）。
     private var contextChips: some View {
         FlexibleFlow(spacing: T.sp2) {
             Button {
@@ -331,14 +599,73 @@ struct NewConversationSheet: View {
             }
             .accessibilityIdentifier("03-chip-atfile")
 
-            disabledChip("附件", icon: "paperclip", id: "03-chip-attach",
-                         hint: String(localized: "进入会话后可用"))
+            Button {
+                showAttachmentSource = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "paperclip").font(.system(size: 11))
+                    Text("附件").font(T.font(12.5, .medium))
+                    if !stagedFiles.isEmpty {
+                        Text("\(stagedFiles.count)").font(T.mono(10.5, .semibold))
+                            .foregroundColor(T.onAccent)
+                            .padding(.horizontal, 5)
+                            .background(T.accent)
+                            .clipShape(Capsule())
+                    }
+                }
+                .foregroundColor(T.text2)
+                .padding(.horizontal, T.sp3)
+                .frame(minHeight: 44)
+                .background(T.bgInput)
+                .clipShape(Capsule())
+            }
+            .accessibilityIdentifier("03-chip-attach")
             // HIDDEN(对齐修复): 新建会话「仓库/语音」chip 隐藏（无对应能力实装，置灰 chip
             // 仍构成假入口——设计稿 H4）· 恢复条件：对应能力实装。
             // E2E 兼容：-ZCodeDemoData 演示开关下保留（Matrix 布局断言 03-chip-repo/voice 在场）
             if AppSession.isDemoDataEnabled {
                 disabledChip("仓库", icon: "shippingbox", id: "03-chip-repo")
                 disabledChip("语音", icon: "mic", id: "03-chip-voice")
+            }
+        }
+    }
+
+    /// 暂存附件条（输入区与 chips 之间；✕ 移除，上传进度在会话页缩略卡呈现）
+    @ViewBuilder
+    private var stagedFilesRow: some View {
+        if !stagedFiles.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: T.sp2) {
+                    ForEach(stagedFiles) { file in
+                        HStack(spacing: T.sp1) {
+                            Image(systemName: file.mediaType.hasPrefix("image/") ? "photo" : "doc")
+                                .font(.system(size: 11))
+                                .foregroundColor(T.accentText)
+                            Text(file.name)
+                                .font(T.mono(10.5))
+                                .foregroundColor(T.text2)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: 120)
+                            Button {
+                                stagedFiles.removeAll { $0.id == file.id }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(T.text3)
+                                    .frame(width: 24, height: 24)
+                                    .background(T.bgInput)
+                                    .clipShape(Circle())
+                            }
+                        }
+                        .padding(.leading, T.sp2)
+                        .frame(minHeight: 36)
+                        .background(T.bgCard)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(T.border, lineWidth: 1))
+                    }
+                }
+                .padding(.horizontal, T.sp1)
             }
         }
     }
@@ -361,11 +688,12 @@ struct NewConversationSheet: View {
     private var executorSection: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
             Text("执行端").font(T.font(13, .semibold)).foregroundColor(T.text3)
-            ForEach(ExecutorKind.allCases) { kind in
+            // 云端沙盒档隐藏（availableMachines 同口径；演示态保留供 E2E）
+            ForEach(displayedExecutorKinds) { kind in
                 Button {
                     let option = kind == .cloudSandbox
                         ? DeviceOption.cloudSandbox
-                        : (DeviceDirectory.machines().first { $0.kind == .pairedMac }
+                        : (availableMachines.first { $0.kind == .pairedMac }
                            ?? DeviceOption(id: "mac", name: "我的 Mac", kind: .pairedMac))
                     selectMachine(option)
                 } label: {
@@ -391,6 +719,13 @@ struct NewConversationSheet: View {
                 .buttonStyle(PressableButtonStyle())
                 .accessibilityIdentifier("03-exec-\(kind == .cloudSandbox ? "cloud" : "mac")")
             }
+        }
+    }
+
+    /// 执行端单选档位（云端沙盒隐藏见 availableMachines；演示态保留全量供 E2E）
+    private var displayedExecutorKinds: [ExecutorKind] {
+        ExecutorKind.allCases.filter {
+            AppSession.isDemoDataEnabled || $0 != .cloudSandbox
         }
     }
 
@@ -448,68 +783,30 @@ struct NewConversationSheet: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: 模型 / 思考等级选择（连接态；数据源 model-selection.getView）
+    // MARK: 模型 / 思考等级选择（连接态；数据源 model-selection.getView；自绘面板）
 
-    /// 模型行：按套餐分节（个人套餐/体验套餐），选中项打勾；默认跟随桌面端当前绑定
+    /// 模型行：ComposerOptionSheet（套餐分节 + 选中勾），默认跟随桌面端当前绑定
     private var modelSelectionRow: some View {
-        Menu {
-            if let info = modelInfo {
-                if info.planGroups.isEmpty {
-                    ForEach(info.models, id: \.self) { model in
-                        modelPickerRow(model)
-                    }
-                } else {
-                    ForEach(info.planGroups) { group in
-                        Section(group.plan) {
-                            ForEach(group.models, id: \.self) { model in
-                                modelPickerRow(model)
-                            }
-                        }
-                    }
-                }
-            }
+        Button {
+            composerSheet = .model
         } label: {
             row(label: "模型", value: selectedModel ?? "--", icon: "cpu")
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier("03-row-model")
-    }
-
-    private func modelPickerRow(_ model: String) -> some View {
-        Button {
-            selectedModel = model
-            selectedThought = nil
-            Task { await reloadThoughtOptions() }
-            UISelectionFeedbackGenerator().selectionChanged()
-        } label: {
-            if model == selectedModel {
-                Label(model, systemImage: "checkmark")
-            } else {
-                Text(model)
-            }
-        }
     }
 
     /// 思考档行：词表按当前模型查询（workspace-config），缺席退化为 getView 词表 →
     /// 静态梯（web 端别名表归纳；不支持的档位由桌面端校验拒绝）
     private var thoughtSelectionRow: some View {
-        Menu {
-            ForEach(displayedThoughtLevels, id: \.self) { level in
-                Button {
-                    selectedThought = level
-                    UISelectionFeedbackGenerator().selectionChanged()
-                } label: {
-                    if level == selectedThought {
-                        Label(level, systemImage: "checkmark")
-                    } else {
-                        Text(level)
-                    }
-                }
-            }
+        Button {
+            composerSheet = .thought
         } label: {
             row(label: "思考等级",
                 value: selectedThought?.isEmpty == false ? selectedThought! : "默认",
                 icon: "brain")
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier("03-row-thought")
     }
 
@@ -532,10 +829,13 @@ struct NewConversationSheet: View {
         }
     }
 
-    /// 会话前选择组装：未选模型返回 nil（桌面端以默认模型开跑，不阻断新建）
+    /// 会话前选择组装：上游 modelSelectionSchema strict 且 providerId/modelId
+    /// `trim().min(1)`——provider 映射缺失时**整条 createSession 被拒**（用户报障
+    /// 「创建之后再电脑端看不到」根因：曾发空 providerId）。未选模型或 provider
+    /// 缺失一律返回 nil（桌面端以当前默认开跑，不阻断新建）
     private func pendingModelSelection() -> NewSessionModelSelection? {
         guard isRemote, let model = selectedModel else { return nil }
-        let provider = modelInfo?.modelProviders[model] ?? ""
+        guard let provider = modelInfo?.modelProviders[model], !provider.isEmpty else { return nil }
         let thought = selectedThought ?? modelInfo?.activeThoughtLevel ?? ""
         return NewSessionModelSelection(providerId: provider, modelId: model, reasoningLevel: thought)
     }
@@ -561,5 +861,36 @@ struct NewConversationSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - 新建会话暂存附件 + 交接箱（附件链路：sheet 暂存 → 会话 composer 上传）
+
+/// 新建会话暂存附件（尚未有 sessionId、无法建上传事务——start 任务 draft 创建后
+/// 经交接箱转交 ChatViewModel.uploads 走与用户三通道相同的 add→上传→sendText 链路）
+struct StagedNewAttachment: Identifiable {
+    let id = UUID()
+    let name: String
+    let mediaType: String
+    let data: Data
+}
+
+/// 新建会话 → 会话页一次性交接（草稿文本 + 暂存附件；按目标 sessionId 键控防错投）
+struct NewConversationHandoff {
+    var draftText: String
+    var attachments: [(name: String, mediaType: String, data: Data)]
+}
+
+@MainActor
+enum NewConversationHandoffBox {
+    private static var pending: [String: NewConversationHandoff] = [:]
+
+    static func deposit(_ handoff: NewConversationHandoff, for conversationID: String) {
+        pending[conversationID] = handoff
+    }
+
+    /// 仅目标会话可取（取走即清，一次性）
+    static func take(for conversationID: String) -> NewConversationHandoff? {
+        pending.removeValue(forKey: conversationID)
     }
 }

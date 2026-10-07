@@ -81,6 +81,20 @@ actor RelayChannelClient: RPCChannelTransport {
     /// 活跃订阅参数表（桥重建后在新区重发，恢复 sessions-index/conversation 推流）
     private var activeEventListeners: [Int: (channel: String, event: String, arg: RPCValue)] = [:]
     private var onClosed: (@Sendable (Error?) -> Void)?
+    /// 桥(重)开完成钩子（ZCodeServerConnection 注入：桥内 v4 握手）。每次 openBridge
+    /// ——首连/断线恢复重建/degraded 快速重建/工作区切换——桌面侧都是全新 scoped facade，
+    /// 握手态从零开始【实证·上游仓 zcodeAgentConnectionScope：`handshakeComplete` 为
+    /// facade 实例态，仅 `initializeConversationV4(clientHello)` 置真；真机 2026-10-07
+    /// 18:33-18:34 桥重开后 subscribe*/readSession/rowsRange 全线
+    /// `fault.connection.handshakeRequired` 风暴即此因——桥重开必须重握手】。
+    /// 在 waitForInitialize 之后、resendActiveEventListeners 之前调用；参数传 self
+    /// （桥传输本体），注入方弱持有连接、不自造引用环。
+    private var onBridgeOpened: (@Sendable (any RPCChannelTransport) async -> Void)?
+
+    /// 桥(重)开钩子注入（actor 属性隔离边界：外部经此设置）
+    func setOnBridgeOpened(_ handler: (@Sendable (any RPCChannelTransport) async -> Void)?) {
+        onBridgeOpened = handler
+    }
 
     private let transport: RelayTransport
     private let link: RelayLinkConfig
@@ -259,6 +273,11 @@ actor RelayChannelClient: RPCChannelTransport {
 
         // 桥内桌面即推 Initialize（探针实测 04 01 06 c8 01 00 = serialize([200])+serialize(undefined)）
         try await waitForInitialize(timeout: 10)
+        // 新桥 = 新 facade：先重做 v4 握手（hello → clientHello）再恢复订阅——
+        // 顺序颠倒则握手前的 assertReady 类调用全部 handshakeRequired（onBridgeOpened 注）
+        if let onBridgeOpened {
+            await onBridgeOpened(self)
+        }
         // 桥重建（断线恢复）后重发全部活跃 eventListen：新桥上恢复 v4 topic 推流
         resendActiveEventListeners()
     }

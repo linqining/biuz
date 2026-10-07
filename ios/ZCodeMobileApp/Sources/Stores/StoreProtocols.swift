@@ -39,6 +39,13 @@ protocol ConversationStore: AnyObject, Sendable {
     // mock 演示回退（行为不变），但必须在此声明才能经 any 动态分派到远端实现。
     /// 向上分页：取更早历史行（拼接去重由实现负责）；返回是否还有更早数据。
     func loadOlder(conversationID: String) async -> Bool
+    /// 最近一次 createConversation 失败原文（连接态新建失败行数据源；空串 = 无——
+    /// 本体 requirement 声明：any 存在类型下仅 extension 默认实现会被静态分派，
+    /// 远端覆写不生效，见「本期接入面」说明）
+    func lastCreateFailureText() async -> String
+    /// 最近一次归档/取消归档写失败原文（空串 = 无；列表页归档动作如实反馈，
+    /// requirement 声明理由同上）
+    func lastArchiveFailureText() async -> String
     /// 会话最近一次加载失败文本（连接态订阅/历史行拉取失败的 UI 透出面；nil = 无失败
     /// ——空会话与失败由此区分。真机报障「消息区空白且无提示」修复的 read 面：
     /// 订阅失败/rowsRange 失败此前只落 diag 键，UI 完全不可见）
@@ -274,6 +281,15 @@ extension ConversationStore {
     var isReadOnly: Bool { false }
 
     // MARK: 以下能力仅远端实现覆写；默认实现让 mock 演示无需感知（演示行为不变）
+
+    /// 最近一次 createConversation 失败原文（空串 = 无失败/未尝试；连接态新建失败行
+    /// 数据源——真实拒收原因上屏，禁止假成功，§5.11 口径）
+    func lastCreateFailureText() async -> String { "" }
+
+    /// 最近一次归档/取消归档写失败原文（空串 = 无；列表页归档动作如实反馈——
+    /// 写面禁止静默：曾因失败只回滚 override 不回滚缓存也不提示，归档行「本会话在、
+    /// 重启蒸发」，用户报障 2026-10-07「归档的会话又丢了」）
+    func lastArchiveFailureText() async -> String { "" }
 
     /// 向上分页：取更早历史行（拼接去重由实现负责）；返回是否还有更早数据。
     func loadOlder(conversationID: String) async -> Bool { false }

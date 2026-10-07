@@ -39,7 +39,12 @@ enum SessionPanelKind: String, CaseIterable, Identifiable {
 
 struct SessionPanelsView: View {
     let viewModel: ChatViewModel
-    @State private var expanded: SessionPanelKind?
+    /// 面板展开态变化回调（true=展开）——宿主借此对 composer 精确失焦收起键盘
+    var onExpansionChange: (Bool) -> Void = { _ in }
+    /// 面板展开态（宿主持有）：键盘弹出时宿主置 nil 自动收起——面板 350pt+键盘
+    /// 336pt+composer 超过屏高，VStack 溢出后面板与 safeAreaInset 层重叠、点击
+    /// 被上层吞（真机反馈 2026-10-07「键盘打开后 workflow 不能收起、键盘收不起」）
+    @Binding var expanded: SessionPanelKind?
     // 控制命令反馈（失败原因一行提示；3 秒自动清除）
     @State private var controlFeedback: String?
     @State private var feedbackClearTask: Task<Void, Never>?
@@ -51,14 +56,43 @@ struct SessionPanelsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
             chipsRow
-            // 数据消失（会话切换/状态清空）时面板自动收起，不渲染空壳
             if let kind = expanded, availableKinds.contains(kind) {
-                ScrollView {
-                    panelBody(kind)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(spacing: T.sp2) {
+                    // 面板自带收起头（用户实测 2026-10-06「展开后再次点击不能收起」：
+                    // chips 行在消息滚动流内，面板展开 320pt 后常被推出可视区，
+                    // 点 chip 收起不可达——收起动作必须在面板本体上）
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { expanded = nil }
+                    } label: {
+                        HStack(spacing: T.sp1) {
+                            Image(systemName: kind.icon)
+                                .font(.system(size: 10))
+                                .foregroundColor(T.violet)
+                            Text(kind.label)
+                                .font(T.font(11.5, .semibold))
+                                .foregroundColor(T.violet)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(T.text3)
+                        }
+                        .contentShape(Rectangle())
+                        .accessibilityIdentifier("05-panel-act-collapse-\(kind.rawValue)")
+                    }
+                    .buttonStyle(.plain)
+                    // 自适应高度滚动窗（用户实测 2026-10-06 二次报障「内容不能滚动」：
+                    // 上一版 ScrollView.fixedSize + 外层 VStack frame(maxHeight) 居中裁切
+                    // ——fixedSize 让 ScrollView 按内容全高撑开自认无需滚动，外层 320
+                    // 帧再居中把收起头挤出可视区。正确顺序：先 frame(maxHeight:) 出
+                    // 有界提案，再 fixedSize 取 ideal（= min(内容高, 上限)）——小内容
+                    // 收缩贴合、大内容 320 封顶且 ScrollView 收到有界提案会真正滚动）
+                    ScrollView {
+                        panelBody(kind)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 292)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(maxHeight: 320)
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(T.sp3)
                 .background(T.bgCard)
                 .clipShape(RoundedRectangle(cornerRadius: T.rM))
@@ -72,6 +106,12 @@ struct SessionPanelsView: View {
                     .transition(.opacity)
                     .accessibilityIdentifier("05-panel-feedback")
             }
+        }
+        // 展开面板即收起键盘（用户实测「展开工作流面板后键盘不能收起」）——
+        // UIApplication.sendFirstResponder 链路在 iOS 26 不可靠，改由宿主 ChatView
+        // 经 FocusState 精确失焦（onExpansionChange 回调下行）
+        .onChange(of: expanded) { _, newValue in
+            onExpansionChange(newValue != nil)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-session-panels")

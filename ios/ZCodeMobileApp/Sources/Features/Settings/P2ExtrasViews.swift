@@ -62,35 +62,34 @@ struct UsageStatsView: View {
         .task { await reload() }
         .refreshable { await reload() }
         // 重置卡二次确认（扣费/消耗接口：确认后核销一张卡，不可撤销）。
-        // 用 .alert 而非 confirmationDialog（用户 2026-10-06：确认弹层渲染成锚定
-        // 玻璃泡贴在卡片上、长文案不可读——alert 居中呈现，长信息与两钮语义更清晰）
-        .alert(
-            String(localized: "确认使用重置卡？"),
-            isPresented: Binding(
-                get: { pendingResetType != nil },
-                set: { if !$0 { pendingResetType = nil } })) {
-            Button(String(localized: "使用"), role: .destructive) {
-                if let type = pendingResetType {
-                    performResetUse(type)
+        // 自绘底部面板（用户 2026-10-07：系统 alert 风格与 App 设计不符——
+        // AttachmentSourceSheet 同款设计语言：grabber + 卡片明细 + 主行动/取消）
+        .sheet(isPresented: Binding(
+            get: { pendingResetType != nil },
+            set: { if !$0 { pendingResetType = nil } })) {
+            // type 必须在呈现期捕获为局部常量再传参：确认回调若回读
+            // pendingResetType，收起 sheet 的 binding 置 nil 先于回调执行，
+            // 回调读到空值即永不执行（2026-10-07 回归根因「改了什么都不能用了」）
+            if let resetType = pendingResetType {
+                ResetConfirmSheet(
+                    type: resetType,
+                    fiveHourCount: session.codingPlanUsage?.resetCards?.fiveHourCount ?? 0,
+                    weekCount: session.codingPlanUsage?.resetCards?.weekCount ?? 0) {
+                    performResetUse(resetType)
+                    pendingResetType = nil
                 }
-                pendingResetType = nil
+                .presentationDetents([.height(380)])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(T.bgElevated)
             }
-            .accessibilityIdentifier("12-usage-confirm-use")
-            Button("取消", role: .cancel) { pendingResetType = nil }
-        } message: {
-            Text(resetConfirmMessage)
         }
     }
 
     /// 重置二次确认文案（用户硬要求 2026-10-06：写明将重置哪个额度窗口与影响，严禁
     /// 一点即发；web 弹层同按 resetType 区分 dialog.fiveHour/dialog.week，bundle 实证）
-    private var resetConfirmMessage: String {
-        let windowName = pendingResetType == .week
-            ? String(localized: "每周")
-            : String(localized: "5 小时")
-        let fiveHour = session.codingPlanUsage?.resetCards?.fiveHourCount ?? 0
-        let week = session.codingPlanUsage?.resetCards?.weekCount ?? 0
-        return String(localized: "将核销一张\(windowName)重置卡，并重置\(windowName)窗口的额度。当前剩余：5 小时卡 ×\(fiveHour) · 周卡 ×\(week)。核销后不可撤销。")
+    static func resetConfirmMessage(isWeek: Bool, fiveHourCount: Int, weekCount: Int) -> String {
+        let windowName = isWeek ? String(localized: "每周") : String(localized: "5 小时")
+        return String(localized: "将核销一张\(windowName)重置卡，并重置\(windowName)窗口的额度。当前剩余：5 小时卡 ×\(fiveHourCount) · 周卡 ×\(weekCount)。核销后不可撤销。")
     }
 
     private var list: some View {
@@ -373,7 +372,9 @@ struct UsageStatsView: View {
                 }
             }
             // 分档使用（web 同构：resetType ∈ FIVE_HOUR|WEEK；AppSession.useCodingPlanResetCard
-            // 三步桌面代执行——仅接线，本验收期不代触发）
+            // 三步桌面代执行——仅接线，本验收期不代触发）。
+            // .contain 容器：裸 identifier 的 HStack 会把整行合并成单 a11y 元素、
+            // 两档按钮 identifier 不出树（§5.14② 同坑——test13 首跑实证）
             HStack(spacing: T.sp2) {
                 resetTypeButton(
                     String(localized: "使用 5 小时卡"),
@@ -386,6 +387,7 @@ struct UsageStatsView: View {
                     enabled: (session.codingPlanUsage?.resetCards?.weekCount ?? 0) > 0,
                     identifier: "12-usage-act-claim-week")
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("12-usage-act-claim")
         }
         .card()
@@ -2595,5 +2597,105 @@ struct DesktopSettingsPage: View {
         case .string(let s): return s
         default: return ""
         }
+    }
+}
+
+// MARK: - 重置卡二次确认面板（用户 2026-10-07：系统 alert 风格与设计不符——
+// 自绘底部面板，AttachmentSourceSheet 同款设计语言：grabber + 明细卡 + 主行动/取消）
+
+struct ResetConfirmSheet: View {
+    let type: AppSession.CodingPlanResetType
+    let fiveHourCount: Int
+    let weekCount: Int
+    var onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var isWeek: Bool { type == .week }
+
+    var body: some View {
+        VStack(spacing: T.sp3) {
+            Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
+            HStack(spacing: T.sp2) {
+                Image(systemName: "creditcard")
+                    .font(.system(size: 15))
+                    .foregroundColor(T.orange)
+                    .frame(width: 38, height: 38)
+                    .background(T.orange.opacity(0.14))
+                    .clipShape(Circle())
+                Text("确认使用重置卡？")
+                    .font(T.font(16, .bold))
+                    .foregroundColor(T.text)
+                Spacer()
+            }
+            .padding(.horizontal, T.sp4)
+
+            VStack(alignment: .leading, spacing: T.sp2) {
+                Text(UsageStatsView.resetConfirmMessage(
+                    isWeek: isWeek, fiveHourCount: fiveHourCount, weekCount: weekCount))
+                    .font(T.font(12.5))
+                    .foregroundColor(T.text2)
+                    .lineSpacing(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: T.sp2) {
+                    resetCardRow("clock", String(localized: "5 小时卡"), fiveHourCount)
+                    resetCardRow("calendar", String(localized: "周卡"), weekCount)
+                }
+            }
+            .padding(T.sp3)
+            .background(T.bgCard)
+            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+            .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+            .padding(.horizontal, T.sp4)
+
+            Button {
+                // 只回调不自 dismiss：关闭由 handler 置 nil 走 isPresented binding
+                // （此处置 nil 会先于回调把状态清空——sheet 呈现期捕获已规避）
+                onConfirm()
+            } label: {
+                Text("确认使用")
+                    .font(T.font(14.5, .semibold))
+                    .foregroundColor(T.onAccent)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(T.red)
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, T.sp4)
+            .accessibilityIdentifier("12-usage-confirm-use")
+
+            Button {
+                dismiss()
+            } label: {
+                Text("取消")
+                    .font(T.font(14.5, .medium))
+                    .foregroundColor(T.text2)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(T.bgInput)
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, T.sp4)
+            .accessibilityIdentifier("12-usage-cancel")
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .background(T.bgElevated)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("12-usage-reset-sheet")
+    }
+
+    private func resetCardRow(_ icon: String, _ title: String, _ count: Int) -> some View {
+        HStack(spacing: T.sp1) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundColor(T.text3)
+            Text(title).font(T.font(11.5)).foregroundColor(T.text3)
+            Spacer()
+            Text("×\(count)")
+                .font(T.mono(12, .semibold))
+                .foregroundColor(count > 0 ? T.accentText : T.text3)
+        }
+        .padding(.horizontal, T.sp2)
+        .frame(minHeight: 34)
+        .background(T.bgInput)
+        .clipShape(RoundedRectangle(cornerRadius: T.rS))
     }
 }

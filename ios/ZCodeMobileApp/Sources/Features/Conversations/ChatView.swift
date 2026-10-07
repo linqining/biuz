@@ -8,12 +8,23 @@ import UniformTypeIdentifiers
 struct ChatView: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.conversationStore) private var store
+    // 详情态连接横幅数据源（safeAreaInset 插入式承载——push 态 RootView 底部
+    // overlay 横幅会盖住 composer 输入框，UI/UX 验收 P1 2026-10-07）
+    @Environment(AppSession.self) private var session
     let conversationID: String
 
     @State private var viewModel: ChatViewModel?
     @State private var observeTask: Task<Void, Never>?
     /// loadOlder 顶部插入识别：插入后的首次 count 变化不滚底（保持阅读位置）
     @State private var prependGuardFirstID: String?
+    /// composer 输入焦点（提升到本视图：面板展开等兄弟视图要精确失焦收键盘——
+    /// iOS 26 上 UIApplication.sendAction(resignFirstResponder) 对 SwiftUI TextField
+    /// 不可靠，FocusState 绑定下传 ComposerBar 是唯一稳定通道）
+    @FocusState private var composerFocused: Bool
+    /// 会话面板展开态（SessionPanelsView 绑定）：键盘弹出即收起面板——面板+键盘
+    /// +composer 总高超屏，VStack 溢出致面板与 composer 层重叠、点按全被吞
+    /// （真机反馈 2026-10-07「workflow 打开时键盘收不起、面板也点不收」）
+    @State private var expandedPanel: SessionPanelKind?
 
     var body: some View {
         Group {
@@ -27,6 +38,14 @@ struct ChatView: View {
         .background(T.bg)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(false)
+        // 键盘弹出即收起面板（单屏保一个焦点：面板+键盘+composer 总高超屏，溢出
+        // 后面板与 safeAreaInset 层重叠、点按全被上层吞——真机反馈 2026-10-07；
+        // 面板展开→收键盘的反向联动已存在，此处补正向）
+        .onChange(of: composerFocused) { _, focused in
+            if focused, expandedPanel != nil {
+                withAnimation(.easeInOut(duration: 0.15)) { expandedPanel = nil }
+            }
+        }
         .toolbarBackground(T.bg, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -74,9 +93,17 @@ struct ChatView: View {
             // 会话面板区（goal/plan/工作流/btw/子代理 chips + 单开面板；默认收起为一行
             // chips 不占消息流空间；面板体内部滚动、有界高度，数据缺席不渲染）
             if viewModel.hasAnyPanel {
-                SessionPanelsView(viewModel: viewModel)
-                    .padding(.horizontal, T.sp4)
-                    .padding(.bottom, T.sp2)
+                SessionPanelsView(
+                    viewModel: viewModel,
+                    onExpansionChange: { expanded in
+                        if expanded { composerFocused = false }
+                    },
+                    expanded: $expandedPanel)
+                // 面板体空白区点按即收键盘（用户报障 2026-10-07：workflow 打开时键盘
+                // 收不起——面板体自带 ScrollView，滚动收起对它无效，补点按通道）
+                .onTapGesture { composerFocused = false }
+                .padding(.horizontal, T.sp4)
+                .padding(.bottom, T.sp2)
             }
             if viewModel.isSearchActive {
                 messageSearchBar(viewModel)
@@ -85,6 +112,13 @@ struct ChatView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
+                // 详情态连接横幅（push 态 RootView 底部 overlay 恰好压在 composer
+                // 输入框上——UI/UX 验收 P1 2026-10-07「断线横幅遮挡输入框」；此处
+                // 插入式预留空间，横幅在场时输入框整体上移永不被盖。模型单源
+                // ConnectionBanner.model(for:)，列表/tab 态仍由 RootView 底部承载）
+                if let banner = ConnectionBanner.model(for: session) {
+                    ConnectionBanner(model: banner)
+                }
                 // 待审批交互卡（常驻 composer 上方：不随消息滚动，新消息不再顶走；
                 // 连接态 permission/plan/workspaceHookReview/escalation 类挂起交互，按
                 // kind 分派应答命令——permission/plan 走 resolveInteraction，
@@ -137,8 +171,12 @@ struct ChatView: View {
                         onMoveUp: { queueItemId in await viewModel.moveQueueItemUp(queueItemId) },
                         onToggleAutoDrain: { enabled in await viewModel.setAutoDrain(enabled) })
                 }
-                ComposerBar(viewModel: viewModel)
+                ComposerBar(viewModel: viewModel, inputFocused: $composerFocused)
             }
+            // 审核卡/队列条/composer 空白区点按即收键盘（用户报障 2026-10-07：审核
+            // 弹窗在场时键盘收不起——卡片区不在消息 ScrollView 内，需独立点按通道；
+            // 卡内 Button/胶囊子控件占优先级，仅空白命中）
+            .onTapGesture { composerFocused = false }
         }
     }
 
@@ -275,6 +313,16 @@ struct ChatView: View {
             }
             .scrollIndicators(.visible)
             .defaultScrollAnchor(.bottom)
+            // 滚动消息即收键盘（系统标准行为；面板展开失焦走 FocusState 通道）
+            .scrollDismissesKeyboard(.immediately)
+            // E2E 定位用：滚动测试对消息区元素本身 swipe（其 frame 被 safeAreaInset
+            // 缩短到常驻审批卡上方的带内，元素中心起滑不会被卡吞手势）
+            .accessibilityIdentifier("05-message-scroll")
+            // 点按消息区空白即收键盘（用户报障 2026-10-07「有审核卡/workflow 面板时
+            // 键盘收不起来」：滚动收起之外补点按通道——子控件 Button/TextField 占
+            // 手势优先级，仅空白区命中本手势，审核卡/面板/chips 区由 safeAreaInset
+            // 容器上的同款手势覆盖，见 content）
+            .onTapGesture { composerFocused = false }
             .modifier(ChatScrollToTopLoadModifier {
                 // 滚动到顶（内容顶距视口 ≤ 24pt）：「下拉到顶自动加载更早」触发区
                 guard viewModel.canLoadOlder, !viewModel.isLoadingOlder else { return }
@@ -819,14 +867,27 @@ struct PlanApprovalCard: View {
                     .lineLimit(2)
             }
             if let plan = interaction.planText, !plan.isEmpty {
-                ScrollView {
-                    Text(plan)
-                        .font(T.font(12))
-                        .foregroundColor(T.text2)
-                        .lineSpacing(4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                // 短计划直接 Text 自适应高度（ScrollView 恒撑满 maxHeight 上限，
+                // 内容少时卡内出现大片空白——UI/UX 验收 P1 2026-10-07 实证：三行
+                // 计划下方 ~160pt 空白）；超长文本才进滚动容器（上限 220）
+                Group {
+                    if plan.count > 240 {
+                        ScrollView {
+                            Text(plan)
+                                .font(T.font(12))
+                                .foregroundColor(T.text2)
+                                .lineSpacing(4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 220)
+                    } else {
+                        Text(plan)
+                            .font(T.font(12))
+                            .foregroundColor(T.text2)
+                            .lineSpacing(4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-                .frame(maxHeight: 220)
                 .padding(T.sp2)
                 .background(T.bgCode)
                 .clipShape(RoundedRectangle(cornerRadius: T.rS))
@@ -951,11 +1012,11 @@ struct WorkspaceHookReviewCard: View {
         .onChange(of: interaction.hookReviewItems) {
             preselectPendingItems()
         }
-        // 信任确认（写桌面信任账本——放行 hook 在桌面执行）
-        .confirmationDialog(
+        // 信任确认（写桌面信任账本——放行 hook 在桌面执行；.alert 承载，confirmationDialog
+        // 本 OS 渲染成锚定 popover——P2ExtrasViews.swift:65 同款先例）
+        .alert(
             "信任所选 \(selectedItems.count) 个 hook 项？",
-            isPresented: $showTrustConfirm,
-            titleVisibility: .visible) {
+            isPresented: $showTrustConfirm) {
             Button("信任") {
                 Task { await trustSelected() }
             }
@@ -965,14 +1026,13 @@ struct WorkspaceHookReviewCard: View {
             Text("桌面端将按信任账本放行所选 hook 的执行。")
         }
         // 撤销确认（可逆性未知——从严 destructive）
-        .confirmationDialog(
+        .alert(
             pendingRevokeItem.map { item in
                 item.title.map { "撤销「\($0)」的信任？" } ?? "撤销该 hook 项的信任？"
             } ?? "",
             isPresented: Binding(
                 get: { pendingRevokeItem != nil },
-                set: { if !$0 { pendingRevokeItem = nil } }),
-            titleVisibility: .visible) {
+                set: { if !$0 { pendingRevokeItem = nil } })) {
             Button("撤销信任", role: .destructive) {
                 if let item = pendingRevokeItem {
                     Task { await revoke(item) }
@@ -1378,7 +1438,9 @@ struct ComposerBar: View {
     @Environment(AppSettingsModel.self) private var settings
     @Environment(AppSession.self) private var session
     @Bindable var viewModel: ChatViewModel
-    @FocusState private var inputFocused: Bool
+    /// 输入焦点（宿主 ChatView 所有：面板展开等场景需跨视图精确失焦——iOS 26
+    /// sendAction(resignFirstResponder) 不可靠，FocusState 绑定是唯一稳定通道）
+    var inputFocused: FocusState<Bool>.Binding
     /// U-6 发送失败持久错误行（非 3s 自动消失）：失败时置位 + 草稿已由 viewModel
     /// 回填；清除时机 = 发送成功 / 用户手动编辑 draft / 离开会话（数据安全提示
     /// 必须显式关闭，设计稿 §5.1）
@@ -1391,8 +1453,10 @@ struct ComposerBar: View {
     /// （客户端发命令、桌面代执行边界不变）。UI 已按验收 B 以「偏好」如实标注。
     @State private var executionTarget = DeviceOption.cloudSandbox
 
-    // P1-1 附件三来源（设计稿 1.3①：confirmationDialog 拍照/照片图库/文件）
+    // P1-1 附件三来源（设计稿 1.3①：底部 sheet 拍照/照片图库/文件）
     @State private var showAttachmentSource = false
+    /// 来源接力（sheet onDismiss 后再呈现相机/图库/文件选择器，避免同视图双呈现竞态）
+    @State private var pendingAttachmentSource: AttachmentSource?
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var showFileImporter = false
@@ -1402,6 +1466,11 @@ struct ComposerBar: View {
     @State private var showCompactConfirm = false
     // P1-2 模式行一次性标注（设计稿 §2.7③：协作模式无桌面读面，首屏显示本机偏好）
     @State private var modeDisclaimerShown = false
+
+    // 五选择器统一自绘底部面板（用户 2026-10-07：系统 Menu 弹层与 App 设计风格
+    // 不符——AttachmentSourceSheet 同款语言、主题令牌自适配系统深浅色）。
+    // ComposerSheetKind / ComposerOptionSheet 定义见 ComposerOptionSheet.swift
+    @State private var composerSheet: ComposerSheetKind?
 
     var body: some View {
         VStack(spacing: T.sp2) {
@@ -1473,10 +1542,24 @@ struct ComposerBar: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("05-attach-fail-hint")
             }
+            // 斜杠命令反馈行（/goal /plan /compact 下发结果；3s 自动清除，05-attach-hint 同款）
+            if let slashHint = viewModel.slashCommandHint {
+                Text(slashHint)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("05-slash-hint")
+            }
             if let selection = viewModel.modelSelection {
                 remoteChips(selection)
             } else {
                 toolsRow
+            }
+            // 斜杠命令菜单（连接态；draft 为 "/" + 纯字母前缀且未进入参数段时呈现。
+            // web 同构：桌面 config slashCommands + 内建集；选中插入 "/name " 由用户
+            // 补参数后发送——/goal /plan /compact 客户端拦截转命令，其余原文直发）
+            if viewModel.isReadOnly, !slashMatches.isEmpty {
+                slashMenu
             }
             inputRow
         }
@@ -1497,17 +1580,47 @@ struct ComposerBar: View {
                 restoredDraftText = nil
             }
         }
-        .confirmationDialog(String(localized: "添加附件"), isPresented: $showAttachmentSource, titleVisibility: .visible) {
-            Button(String(localized: "拍照")) { showCamera = true }
-            Button(String(localized: "照片图库")) { showPhotoPicker = true }
-            Button(String(localized: "文件")) { showFileImporter = true }
-            Button(String(localized: "取消"), role: .cancel) {}
+        // 添加附件来源选择（设计稿 1.3①）：自绘底部 sheet——confirmationDialog 在本
+        // OS 版本渲染成锚定 popovers（用户报障 2026-10-07「弹窗都弹到什么地方去了」，
+        // P2ExtrasViews.swift:65 同款先例改 .alert），拍照/图库/文件三通道改经
+        // pendingAttachmentSource 于 onDismiss 接力呈现（避免 sheet 套 sheet 竞态）
+        .sheet(isPresented: $showAttachmentSource, onDismiss: {
+            switch pendingAttachmentSource {
+            case .camera: showCamera = true
+            case .photos: showPhotoPicker = true
+            case .files: showFileImporter = true
+            case nil: break
+            }
+            pendingAttachmentSource = nil
+        }) {
+            AttachmentSourceSheet { source in
+                pendingAttachmentSource = source
+                showAttachmentSource = false
+            }
+            .presentationDetents([.height(348)])
+            .presentationDragIndicator(.hidden)
+        }
+        // 五选择器自绘面板（协作/投递/执行目标/模型/思考）：行按钮 label=项名——
+        // test07 以 app.buttons label 精确匹配「云端沙盒 / E2E-Relay-Mac」、test12 以
+        // label == 'low' 匹配思考档，行内不得混入副文案（聚合 label 失配即门禁红）；
+        // identifier 保留 05-chip-mode / 05-chip-delivery / 05-act-target 于触发胶囊
+        .sheet(item: $composerSheet) { kind in
+            ComposerOptionSheet(
+                title: kind.title,
+                footer: kind.footer,
+                options: composerSheetOptions(kind)) { option in
+                composerSheet = nil
+                applyComposerSheetPick(kind, option)
+            }
+            .presentationDetents(composerSheetDetents(kind))
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(T.bgElevated)
         }
         // P2-7 压缩确认（设计稿 §7A：主键普通按钮非 destructive——压缩不丢数据、
-        // 回执失败即无副作用；文案照设计稿）
-        .confirmationDialog(
-            String(localized: "压缩上下文？"), isPresented: $showCompactConfirm,
-            titleVisibility: .visible) {
+        // 回执失败即无副作用；文案照设计稿。.alert 承载——confirmationDialog 本 OS
+        // 渲染成锚定 popover，P2ExtrasViews.swift:65 同款先例）
+        .alert(
+            String(localized: "压缩上下文？"), isPresented: $showCompactConfirm) {
             Button(String(localized: "压缩")) {
                 Task { await runCompact() }
             }
@@ -1552,26 +1665,8 @@ struct ComposerBar: View {
     }
 
     private var executionTargetMenu: some View {
-        Menu {
-            // G-012：如实标注——当前为发送偏好记录，无信封级目标路由
-            Section {
-                Text(String(localized: "仅记录发送偏好 · 消息经当前连接的桌面端执行"))
-            }
-            ForEach(ExecutionTargetStore.machines()) { option in
-                Button {
-                    selectTarget(option)
-                } label: {
-                    HStack {
-                        Image(systemName: option.kind == .cloudSandbox ? "cloud.fill" : "laptopcomputer")
-                        Text(option.name)
-                        if option.id == executionTarget.id {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-                .accessibilityIdentifier(option.kind == .cloudSandbox
-                    ? "05-target-cloud" : "05-target-mac")
-            }
+        Button {
+            composerSheet = .target
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: executionTarget.kind == .cloudSandbox ? "cloud.fill" : "laptopcomputer")
@@ -1588,9 +1683,8 @@ struct ComposerBar: View {
             .background(T.bgInput)
             .clipShape(Capsule())
         }
-        // identifier 挂 Menu 本体而非 label：挂在 label 上时 SwiftUI Menu 运行时会把它
-        // 逐层拼接成「05-act-target-05-act-target-…」（门禁诊断实据），XCUI 精确匹配
-        // 05-act-target 命中的是惰性子元素，tap 落空、菜单永不弹出
+        // identifier 挂触发按钮本体：E2E 以 05-act-target 定位触发、以行按钮
+        // label 精确匹配候选（test07 openTargetMenu 双依赖）
         .accessibilityIdentifier("05-act-target")
     }
 
@@ -1627,52 +1721,54 @@ struct ComposerBar: View {
         }
     }
 
-    /// 协作模式胶囊（Plan=先出计划 / Build=直接执行；switchCollaborationMode CAS）
+    /// 协作模式胶囊（4 档【实证 web bundle】：build=改动前询问 / edit=自动编辑 /
+    /// plan=先出计划 / yolo=完全访问；switchCollaborationMode CAS）
     private var collaborationModeMenu: some View {
-        Menu {
-            ForEach(ComposerModeStore.collaborationModes, id: \.self) { mode in
-                Button {
-                    selectCollaborationMode(mode)
-                } label: {
-                    modeMenuItem(
-                        title: mode == "plan" ? "Plan" : "Build",
-                        detail: mode == "plan" ? "先出计划，改动需经你确认" : "直接执行改动",
-                        icon: mode == "plan" ? "list.clipboard" : "hammer",
-                        selected: viewModel.collaborationMode == mode)
-                }
-            }
+        Button {
+            composerSheet = .collaboration
         } label: {
             modePill(
-                icon: viewModel.collaborationMode == "plan" ? "list.clipboard" : "hammer",
-                text: viewModel.collaborationMode == "plan" ? "Plan" : "Build")
+                icon: Self.collaborationIcon(viewModel.collaborationMode),
+                text: Self.collaborationLabel(viewModel.collaborationMode))
         }
         .accessibilityIdentifier("05-chip-mode")
+    }
+
+    /// 协作模式 4 档文案（web Qme 全集对齐 + 中文翻译，用户裁决 2026-10-06：
+    /// build=变更前确认 / edit=自动编辑 / plan=计划模式 / yolo=完全访问）
+    static func collaborationLabel(_ mode: String) -> String {
+        switch mode {
+        case "edit": return String(localized: "自动编辑")
+        case "plan": return String(localized: "计划模式")
+        case "yolo": return String(localized: "完全访问")
+        default: return String(localized: "变更前确认")
+        }
+    }
+
+    static func collaborationDetail(_ mode: String) -> String {
+        switch mode {
+        case "edit": return String(localized: "自动编辑相关文件，不再逐项确认")
+        case "plan": return String(localized: "先出计划，改动需经你确认")
+        case "yolo": return String(localized: "自动执行并运行命令，最少确认")
+        default: return String(localized: "每次文件改动前询问确认")
+        }
+    }
+
+    static func collaborationIcon(_ mode: String) -> String {
+        switch mode {
+        case "edit": return "pencil.and.list.clipboard"
+        case "plan": return "list.clipboard"
+        case "yolo": return "bolt.fill"
+        default: return "hammer"
+        }
     }
 
     /// 投递模式胶囊（立即/排队/引导）。A-2：now 档不下发 setFollowupMode（web 枚举
     /// 仅 queue|guide），仅本地态 + send 恒携 requestedDelivery:"startNow"；
     /// queue/guide 照常 CAS 下发 + requestedDelivery 联动）
     private var deliveryModeMenu: some View {
-        Menu {
-            ForEach(ComposerModeStore.deliveryModes, id: \.self) { mode in
-                Button {
-                    selectDeliveryMode(mode)
-                } label: {
-                    modeMenuItem(
-                        title: Self.deliveryLabel(mode),
-                        detail: mode == "now"
-                            ? "本机默认 · 不下发模式命令，消息逐条直接投递"
-                            : mode == "queue"
-                                ? "回合进行中发送将排队，回合结束后自动投递（桌面默认）"
-                                : "作为引导补充注入当前回合",
-                        icon: Self.deliveryIcon(mode),
-                        selected: viewModel.deliveryMode == mode)
-                }
-            }
-            // guide 桌面语义未取证（仅盘点报告词表口述；设计稿 §2.2 要求菜单项标注）
-            Section {
-                Text(String(localized: "引导模式桌面语义以实际执行行为为准"))
-            }
+        Button {
+            composerSheet = .delivery
         } label: {
             modePill(
                 icon: Self.deliveryIcon(viewModel.deliveryMode),
@@ -1716,20 +1812,132 @@ struct ComposerBar: View {
         }
     }
 
-    /// 菜单项（✓ 标当前 = modelRow 先例；副文案设计稿 §2.2 关键文案）
-    private func modeMenuItem(title: String, detail: String, icon: String, selected: Bool) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                Text(detail)
-                    .font(T.font(10))
-                    .foregroundColor(T.text3)
+    /// 面板选项装配（呈现期取当前态计算 selected；目标行 detail 恒空——
+    /// 行按钮聚合 label 必须恰为项名，test07 以 label 精确匹配候选）
+    private func composerSheetOptions(_ kind: ComposerSheetKind) -> [ComposerOptionItem] {
+        switch kind {
+        case .collaboration:
+            ComposerModeStore.collaborationModes.map { mode in
+                ComposerOptionItem(
+                    id: mode,
+                    title: Self.collaborationLabel(mode),
+                    detail: Self.collaborationDetail(mode),
+                    icon: Self.collaborationIcon(mode),
+                    selected: viewModel.collaborationMode == mode)
             }
-            if selected {
-                Spacer(minLength: 12)
-                Image(systemName: "checkmark")
+        case .delivery:
+            ComposerModeStore.deliveryModes.map { mode in
+                ComposerOptionItem(
+                    id: mode,
+                    title: Self.deliveryLabel(mode),
+                    detail: mode == "now"
+                        ? String(localized: "本机默认 · 不下发模式命令，消息逐条直接投递")
+                        : mode == "queue"
+                            ? String(localized: "回合进行中发送将排队，回合结束后自动投递（桌面默认）")
+                            : String(localized: "作为引导补充注入当前回合"),
+                    icon: Self.deliveryIcon(mode),
+                    selected: viewModel.deliveryMode == mode)
             }
+        case .target:
+            ExecutionTargetStore.machines().map { option in
+                ComposerOptionItem(
+                    id: option.id,
+                    title: option.name,
+                    detail: "",
+                    icon: option.kind == .cloudSandbox ? "cloud.fill" : "laptopcomputer",
+                    selected: option.id == executionTarget.id,
+                    a11yId: option.kind == .cloudSandbox ? "05-target-cloud" : "05-target-mac")
+            }
+        case .model:
+            // 套餐分节（同一模型可同时在个人/体验两组——配额不同）；行 id 携套餐
+            // 前缀保 Identifiable 唯一，payload 存纯模型名供 switchModel
+            modelSheetOptions()
+        case .thought:
+            // 行 title 恒等于档位原文（test12 label == 'low' 精确匹配），detail 恒空
+            thoughtSheetOptions()
+        }
+    }
+
+    /// 模型面板选项（呈现期取 viewModel.modelSelection；分节同 modelMenu 原状）
+    private func modelSheetOptions() -> [ComposerOptionItem] {
+        let selection = viewModel.modelSelection ?? ModelSelectionInfo()
+        if selection.planGroups.isEmpty {
+            return selection.models.map { model in
+                ComposerOptionItem(id: model, title: model, detail: "", icon: "cpu",
+                                   selected: model == selection.activeModel)
+            }
+        }
+        return selection.planGroups.flatMap { group in
+            group.models.map { model in
+                ComposerOptionItem(
+                    id: "\(group.plan)|\(model)",
+                    title: model,
+                    detail: "",
+                    icon: "cpu",
+                    selected: model == selection.activeModel,
+                    section: group.plan,
+                    payload: model)
+            }
+        }
+    }
+
+    /// 思考档面板选项：词表三级回退（workspace-config 词表 → getView 词表 → 静态梯）
+    private func thoughtSheetOptions() -> [ComposerOptionItem] {
+        let selection = viewModel.modelSelection ?? ModelSelectionInfo()
+        let levels: [String]
+        if let configured = viewModel.thoughtLevels, !configured.isEmpty {
+            levels = configured
+        } else if !selection.thoughtLevels.isEmpty {
+            levels = selection.thoughtLevels
+        } else {
+            levels = Self.fallbackThoughtLevels
+        }
+        return levels.map { level in
+            ComposerOptionItem(id: level, title: level, detail: "", icon: "brain",
+                               selected: level == selection.activeThoughtLevel)
+        }
+    }
+
+    private func applyComposerSheetPick(_ kind: ComposerSheetKind, _ option: ComposerOptionItem) {
+        switch kind {
+        case .collaboration:
+            selectCollaborationMode(option.id)
+        case .delivery:
+            selectDeliveryMode(option.id)
+        case .target:
+            if let match = ExecutionTargetStore.machines().first(where: { $0.id == option.id }) {
+                selectTarget(match)
+            }
+        case .model:
+            Task {
+                if let message = await viewModel.switchModel(option.payload ?? option.id) {
+                    showSwitchHint(message)
+                }
+            }
+        case .thought:
+            Task {
+                if let message = await viewModel.switchThoughtLevel(option.payload ?? option.id) {
+                    showSwitchHint(message)
+                }
+            }
+        }
+    }
+
+    /// 面板档位：固定三选择器定高（AttachmentSourceSheet 3 行 348 基准反推：基底
+    /// 152 + 每行 68，页脚一行 +24）；模型/思考清单长度不定，medium/large 双档 +
+    /// 面板内滚动
+    private func composerSheetDetents(_ kind: ComposerSheetKind) -> Set<PresentationDetent> {
+        switch kind {
+        case .model, .thought:
+            return [.medium, .large]
+        case .collaboration, .delivery, .target:
+            let rows: Int
+            switch kind {
+            case .collaboration: rows = ComposerModeStore.collaborationModes.count
+            case .delivery: rows = ComposerModeStore.deliveryModes.count
+            default: rows = max(ExecutionTargetStore.machines().count, 1)
+            }
+            return [.height(CGFloat(152 + rows * 68 + (kind.footer != nil ? 24 : 0)))]
         }
     }
 
@@ -1798,64 +2006,29 @@ struct ComposerBar: View {
                 }
             }
         }
+        // 与 targetRow/modeRow 同口径：.contain 容器让 Menu 子元素独立出 a11y 树——
+        // 裸 identifier 的 HStack 会被合并成单元素，Menu identifier 不出树（XCUITest
+        // 找不到 05-chip-*，test12 门禁实证）；identifier 挂 Menu 本体（:1642 教训：
+        // 挂 label 会被运行时逐层拼接、tap 落空菜单永不弹出）
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-composer-remote-chips")
     }
 
-    /// 模型菜单（套餐分节：个人套餐/体验套餐；回执失败在 chips 行上方提示）
+    /// 模型胶囊触发（面板：套餐分节 + 选中勾；回执失败在 chips 行上方提示）
     private func modelMenu(_ selection: ModelSelectionInfo) -> some View {
-        Menu {
-            if selection.planGroups.isEmpty {
-                ForEach(selection.models, id: \.self) { model in
-                    modelRow(model, selection)
-                }
-            } else {
-                ForEach(selection.planGroups) { group in
-                    Section(group.plan) {
-                        ForEach(group.models, id: \.self) { model in
-                            modelRow(model, selection)
-                        }
-                    }
-                }
-            }
+        Button {
+            composerSheet = .model
         } label: {
             pill(icon: nil, text: selection.activeModel ?? "--", chevron: true)
         }
         .accessibilityIdentifier("05-chip-model")
     }
 
-    private func modelRow(_ model: String, _ selection: ModelSelectionInfo) -> some View {
-        Button {
-            Task {
-                if let message = await viewModel.switchModel(model) {
-                    showSwitchHint(message)
-                }
-            }
-        } label: {
-            if model == selection.activeModel {
-                Label(model, systemImage: "checkmark")
-            } else {
-                Text(model)
-            }
-        }
-    }
-
-    /// 思考档菜单（workspace-config 词表按当前模型查询；缺席时退化为静态档位梯——
+    /// 思考档胶囊触发（面板：词表按当前模型查询，缺席退化为静态档位梯——
     /// web 端别名表归纳词表，不支持的档位由桌面端校验拒绝并提示）
     private func thoughtMenu(_ selection: ModelSelectionInfo) -> some View {
-        Menu {
-            if let levels = viewModel.thoughtLevels, !levels.isEmpty {
-                ForEach(levels, id: \.self) { level in
-                    thoughtRow(level, selection)
-                }
-            } else if !selection.thoughtLevels.isEmpty {
-                ForEach(selection.thoughtLevels, id: \.self) { level in
-                    thoughtRow(level, selection)
-                }
-            } else {
-                ForEach(Self.fallbackThoughtLevels, id: \.self) { level in
-                    thoughtRow(level, selection)
-                }
-            }
+        Button {
+            composerSheet = .thought
         } label: {
             pill(icon: "brain", text: "思考·\(selection.activeThoughtLevel ?? "--")", chevron: true)
         }
@@ -1864,22 +2037,6 @@ struct ComposerBar: View {
 
     /// 思考档静态梯（getView 不携带词表、workspace-config 为空的远端环境兜底）
     private static let fallbackThoughtLevels = ["off", "minimal", "low", "medium", "high", "max"]
-
-    private func thoughtRow(_ level: String, _ selection: ModelSelectionInfo) -> some View {
-        Button {
-            Task {
-                if let message = await viewModel.switchThoughtLevel(level) {
-                    showSwitchHint(message)
-                }
-            }
-        } label: {
-            if level == selection.activeThoughtLevel {
-                Label(level, systemImage: "checkmark")
-            } else {
-                Text(level)
-            }
-        }
-    }
 
     private func showSwitchHint(_ message: String) {
         switchHintClear?.cancel()
@@ -1919,6 +2076,62 @@ struct ComposerBar: View {
         .accessibilityIdentifier("05-composer-context")
     }
 
+    // MARK: 斜杠命令菜单（web 同构能力命令面：goal/workflow 等；"/" 触发）
+
+    /// 呈现条件：draft 为 "/" [+ 纯字母前缀]（未进入参数段——含空格即隐去，避免
+    /// 输入参数时遮挡；裸 "/" 即触发，web 同构。**不得 trim**：选行插入的 "/goal "
+    /// 尾随空格正是终止菜单的信号，裁掉会让菜单复活）。按前缀过滤，无匹配不渲染。
+    private var slashMatches: [WorkspaceConfigInfo.SlashCommand] {
+        let query = viewModel.draft
+        guard query.hasPrefix("/"),
+              query.dropFirst().allSatisfy(\.isLetter) else { return [] }
+        let prefix = query.dropFirst().lowercased()
+        return viewModel.slashMenuCommands.filter { $0.name.lowercased().hasPrefix(prefix) }
+    }
+
+    private var slashMenu: some View {
+        let matches = slashMatches
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(matches) { command in
+                    Button {
+                        viewModel.draft = "/\(command.name) "
+                        inputFocused.wrappedValue = true
+                    } label: {
+                        HStack(spacing: T.sp2) {
+                            Text("/\(command.name)")
+                                .font(T.mono(12, .semibold))
+                                .foregroundColor(T.accentText)
+                            Text(command.description)
+                                .font(T.font(11))
+                                .foregroundColor(T.text3)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, T.sp3)
+                        .frame(minHeight: 38)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("05-slash-row-\(command.name)")
+                    if command.id != matches.last?.id {
+                        Divider().overlay(T.border)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        // 自适应高度滚动窗（面板三联症同款修饰符顺序：frame 出有界提案 →
+        // fixedSize 取 ideal = min(内容高, 上限)，小内容收缩、大内容封顶可滚）
+        .frame(maxHeight: 176)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-slash-menu")
+    }
+
     private var inputRow: some View {
         HStack(spacing: T.sp2) {
             // P1-1：附件入口（设计稿 1.2——inputRow 首位 📎 44pt 热区；连接态渲染，
@@ -1938,12 +2151,14 @@ struct ComposerBar: View {
             TextField("发送消息…", text: $viewModel.draft, axis: .vertical)
                 .font(T.font(16))
                 .foregroundColor(T.text)
-                .lineLimit(1...4)
+                // 上限 8 行（真机报障「输入文字多了看不到全部，高度固定」：4 行上限
+                // 长文本不可见）；超出后框内滚动
+                .lineLimit(1...8)
                 .padding(.horizontal, T.sp3)
                 .frame(minHeight: 44)
                 .background(T.bgInput)
                 .clipShape(Capsule())
-                .focused($inputFocused)
+                .focused(inputFocused)
                 .submitLabel(.send)
                 .onSubmit { Task { await sendAndHintDelivery() } }
                 .accessibilityIdentifier("05-composer-input")
@@ -1958,7 +2173,7 @@ struct ComposerBar: View {
     private var sendButton: some View {
         Button {
             Task { await sendAndHintDelivery() }
-            inputFocused = false
+            inputFocused.wrappedValue = false
         } label: {
             Image(systemName: "arrow.up")
                 .font(.system(size: 17, weight: .bold))
@@ -1992,7 +2207,7 @@ struct ComposerBar: View {
                 ? String(localized: "消息未送达 · 连接已断开，草稿已保留")
                 : String(localized: "消息未送达 · 已恢复草稿")
             restoredDraftText = failedText
-            inputFocused = true
+            inputFocused.wrappedValue = true
             UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
     }
@@ -2095,6 +2310,101 @@ struct ComposerBar: View {
         .frame(height: 26)
         .background(T.bgInput)
         .clipShape(Capsule())
+    }
+}
+
+// MARK: - 添加附件来源 sheet（P1-1 设计稿 1.3①）
+//
+// 自绘底部面板：confirmationDialog 在本 OS 版本会渲染成锚定 popover（用户报障
+// 「弹窗都弹到什么地方去了」2026-10-07；P2ExtrasViews.swift:65 同款先例），改 sheet
+// 承载。三行大热区选项（拍照/照片图库/文件）+ 取消；选中经回调置 pendingAttachmentSource
+// 再收起，由宿主 onDismiss 接力呈现真正的选择器（避免同视图双 sheet 竞态）。
+
+/// 附件来源三通道（ComposerBar 接力呈现用）
+enum AttachmentSource: Identifiable {
+    case camera
+    case photos
+    case files
+    var id: String {
+        switch self {
+        case .camera: return "camera"
+        case .photos: return "photos"
+        case .files: return "files"
+        }
+    }
+}
+
+struct AttachmentSourceSheet: View {
+    /// 选中来源（宿主收起 sheet 后于 onDismiss 接力呈现对应选择器）
+    var onPick: (AttachmentSource) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var options: [(AttachmentSource, String, String, String)] {
+        [
+            (.camera, "camera.fill", "拍照", String(localized: "使用相机拍摄一张图片")),
+            (.photos, "photo.on.rectangle", "照片图库", String(localized: "从图库选择图片")),
+            (.files, "doc", "文件", String(localized: "从文件 App 选择（PDF、文本等）")),
+        ]
+    }
+
+    var body: some View {
+        VStack(spacing: T.sp3) {
+            Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
+            HStack {
+                Text("添加附件").font(T.font(16, .bold)).foregroundColor(T.text)
+                Spacer()
+            }
+            .padding(.horizontal, T.sp4)
+            VStack(spacing: T.sp2) {
+                ForEach(options, id: \.0.id) { source, icon, title, subtitle in
+                    Button {
+                        onPick(source)
+                    } label: {
+                        HStack(spacing: T.sp3) {
+                            Image(systemName: icon)
+                                .font(.system(size: 15))
+                                .foregroundColor(T.accentText)
+                                .frame(width: 38, height: 38)
+                                .background(T.accentDim)
+                                .clipShape(Circle())
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(title).font(T.font(14.5, .medium)).foregroundColor(T.text)
+                                Text(subtitle).font(T.font(11.5)).foregroundColor(T.text3)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(T.text3.opacity(0.6))
+                        }
+                        .padding(.horizontal, T.sp3)
+                        .frame(minHeight: 60)
+                        .background(T.bgCard)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .accessibilityIdentifier("05-attach-sheet-\(source.id)")
+                }
+            }
+            .padding(.horizontal, T.sp4)
+            Button {
+                dismiss()
+            } label: {
+                Text("取消")
+                    .font(T.font(14.5, .medium))
+                    .foregroundColor(T.text2)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(T.bgInput)
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, T.sp4)
+            .accessibilityIdentifier("05-attach-sheet-cancel")
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .background(T.bgElevated)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-attach-sheet")
     }
 }
 

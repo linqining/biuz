@@ -79,11 +79,12 @@ final class ChatViewModel {
 
     /// 目标下发（sendGoalCommand；store 内 ensureStateRevision + sendCASWithRetry——
     /// 非 §7.2 CAS 权威全集成员但写 state.goal，按 CAS 预期处理，探针裁决）。
-    /// 返回错误文案（nil = 成功；成功提示由面板反馈行承担，controlFeedback 口径）
+    /// 返回错误文案（nil = 成功；成功提示由面板反馈行承担，controlFeedback 口径）。
+    /// 无既有目标也可设（web /goal 语义 = 设置/替换目标，非仅编辑——2026-10-06
+    /// 斜杠命令面接线时放开原 goalSummary 门槛；失败由 controlFeedback 如实透出）
     func sendGoal(_ text: String) async -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return String(localized: "内容不能为空") }
-        guard goalSummary != nil else { return String(localized: "当前会话没有可编辑的目标") }
         let ack = await store.sendGoalCommand(conversationID, text: trimmed)
         recordControlDiag("send-goal", workId: nil, ack: ack)
         return Self.controlFeedback(ack, verb: "goal")
@@ -225,10 +226,22 @@ final class ChatViewModel {
     // MARK: P1-3 消息反馈与编辑重发（setAssistantFeedback / editUserQuery）
 
     /// 助手消息反馈回显（会话级内存：message.id → true=赞 / false=踩；命令 accepted
-    /// 才写，再点同项 = 取消即移除，赞/踩天然互斥）。服务端 assistant 行的反馈读回
-    /// 字段【未取证】（设计稿 §3.7②），重启后清零——若桌面无读回字段则显示未反馈，
-    /// 与桌面实态可能不一致，如实降级不做假持久化。
+    /// 才写，再点同项 = 取消即移除，赞/踩天然互斥）。服务端读回已接线（用户实测
+    /// 2026-10-06「点赞后重载丢失」——web 实证 bundle bX(row) 读行上 feedback
+    /// "like"|"dislike"；行投影 → ChatMessage.feedback → syncFeedbackFromMessages
+    /// 整替本字典，服务端为准；本地 write-through 仅覆盖命令 accepted → 行回流
+    /// 前的窗口）。
     var assistantFeedback: [String: Bool] = [:]
+
+    /// 服务端反馈态种子（每次消息流变化后整替——缺席即移除，与 web 纯行渲染同语义，
+    /// 跨端取消/清反馈不残留陈旧高亮）
+    private func syncFeedbackFromMessages() {
+        var merged: [String: Bool] = [:]
+        for message in messages where message.feedback != nil {
+            merged[message.id] = message.feedback
+        }
+        assistantFeedback = merged
+    }
 
     /// 点赞/点踩（setAssistantFeedback：CAS+row-target，store 侧 entityId 缺失拒发
     /// 返回 nil——UI 入口已按游标在场门槛渲染，此处兜底再查一次）。返回失败文案
@@ -480,6 +493,51 @@ final class ChatViewModel {
            i + 1 < args.count {
             pendingPanelControl = args[i + 1]
         }
+        // E2E 钩子：-ZCodeAttachFixturePath <file>（附件链路验收——系统相册/文件选择器
+        // 无法被 XCUITest 驱动，注入真实文件字节到待发队列后走与用户路径完全相同的
+        // Begin/Chunk/Commit 事务与 sendText 携带；不产生任何假数据/假成功，正式
+        // 用户路径无此分支，AGENTS §5.12 口径不受影响。选定即上传语义对齐用户三通道：
+        // add 成功即 startUploadIfNeeded——发送按钮 blocksSend 闸门依赖已 committed）
+        if let i = args.firstIndex(of: "-ZCodeAttachFixturePath"),
+           i + 1 < args.count,
+           uploads.isEmpty {
+            let path = args[i + 1]
+            if let data = FileManager.default.contents(atPath: path), !data.isEmpty {
+                let name = (path as NSString).lastPathComponent
+                if uploads.add(
+                    name: name,
+                    mediaType: AttachmentUploadService.mediaType(
+                        forFileExtension: (name as NSString).pathExtension),
+                    data: data) {
+                    Task { [uploads] in
+                        // 连接就绪窗口内重试（冷启深链时 ChatView 装配早于 WS 握手；
+                        // NotConnected 首败如实落失败态，重试窗口内自愈）
+                        for _ in 0..<30 {
+                            if await uploads.ensureAllCommitted() { return }
+                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        }
+                    }
+                }
+            }
+        }
+        // 新建会话附件/意图交接消费（NewConversationSheet draft 路径——附件需
+        // sessionId 才能建上传事务，sheet 暂存经交接箱转本会话管线；与 fixture 注入
+        // 同构：add 成功即 startUploadIfNeeded，发送闸门依赖已 committed。按目标
+        // sessionId 键控，取走即清，一次性）
+        if let handoff = NewConversationHandoffBox.take(for: conversationID) {
+            draft = handoff.draftText
+            for file in handoff.attachments {
+                _ = uploads.add(name: file.name, mediaType: file.mediaType, data: file.data)
+            }
+            if !handoff.attachments.isEmpty {
+                Task { [uploads] in
+                    for _ in 0..<30 {
+                        if await uploads.ensureAllCommitted() { return }
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    }
+                }
+            }
+        }
     }
 
     private var pendingPanelControl: String?
@@ -497,6 +555,8 @@ final class ChatViewModel {
         // —— P0 首屏段：消息先行（本连接缓存命中=纯内存，立即渲染），不等跨区
         // 任务索引聚合（26 区 listTaskList 串行）与已读上报 ——
         messages = await store.messages(in: conversationID)
+        // 服务端反馈态种子（点赞重载丢失修复：行 feedback 字段回读）
+        syncFeedbackFromMessages()
         // 失败透出（「订阅/拉取失败 UI 不可见」修复）：有消息=成功；空列表时读 store
         // 最近一次失败——nil = 正常空会话（错误态与空态可区分）
         loadFailure = messages.isEmpty
@@ -612,6 +672,8 @@ final class ChatViewModel {
                 conversation = updated
             case .messagesReplaced(let id, let replaced) where id == conversationID:
                 messages = replaced
+                // 服务端反馈态种子（行增量回流含 feedback 时刷新点赞高亮）
+                syncFeedbackFromMessages()
                 // 帧已抵达 = 订阅存活：清除失败态（重试成功/自动恢复共用此口）
                 if !replaced.isEmpty { loadFailure = nil }
                 if ProcessInfo.processInfo.arguments.contains("-ZCodeDiagLoadOlder") {
@@ -625,6 +687,7 @@ final class ChatViewModel {
             case .messageUpdated(let id, let message) where id == conversationID:
                 if let index = messages.firstIndex(where: { $0.id == message.id }) {
                     messages[index] = message
+                    syncFeedbackFromMessages()
                 }
             default:
                 break
@@ -795,6 +858,7 @@ final class ChatViewModel {
         canLoadOlder = await store.loadOlder(conversationID: conversationID)
         // 顶部插入无法用尾部 append 事件语义表达：直读 Store 全量对齐（事件通道仅作兜底）
         messages = await store.messages(in: conversationID)
+        syncFeedbackFromMessages()
     }
 
     /// 发送可用：无待发附件沿用 draft 非空口径；有待发附件时须全部 committed
@@ -813,10 +877,148 @@ final class ChatViewModel {
     /// 走对应 admission。返回是否送达（false=未送达，连接中断或桌面拒收）。
     /// U-6：失败时草稿回填（仅当用户尚未重新输入——失败时刻 draft 为空才写回，
     /// 避免覆盖新输入）并记 lastSendUndeliveredText 供 composer 错误行。
+    // MARK: 斜杠命令菜单（composer 输入 "/" 触发；web 同构——桌面 config 下发 + 内建集）
+
+    /// 内建命令（web sX 解析器实证集合 + ZCode 桌面自带技能命令；桌面
+    /// slashCommands 之外的兜底——web 端 /goal 为硬编码内建项 uHe，/plan /compact
+    /// 为 sX 客户端拦截语义；/workflow 为桌面本体技能命令（用户 2026-10-06 截图
+    /// 实证其桌面 composer 有该项），移动端原文直发由桌面 agent 解释）
+    private static let builtinSlashCommands: [WorkspaceConfigInfo.SlashCommand] = [
+        .init(name: "goal", description: String(localized: "设定/替换会话目标：/goal 目标文本")),
+        .init(name: "plan", description: String(localized: "切换计划模式并发送任务：/plan 任务描述")),
+        .init(name: "workflow", description: String(localized: "运行工作流：/workflow 任务描述")),
+        .init(name: "compact", description: String(localized: "压缩会话上下文")),
+    ]
+
+    /// 合并命令面：内建在前 + 桌面 config 下发（workspace-config 帧 slashCommands，
+    /// 同名去重；数据缺席时仍呈现内建三项——/goal 等是客户端拦截命令不依赖桌面清单）
+    var slashMenuCommands: [WorkspaceConfigInfo.SlashCommand] {
+        Self.mergedSlashCommands(config: workspaceConfig)
+    }
+
+    /// 静态合并（NewConversationSheet slash 建议同源复用——sheet 无 viewModel）
+    static func mergedSlashCommands(config: WorkspaceConfigInfo?) -> [WorkspaceConfigInfo.SlashCommand] {
+        var merged = builtinSlashCommands
+        for command in config?.slashCommands ?? []
+        where !merged.contains(where: { $0.name == command.name }) {
+            merged.append(command)
+        }
+        return merged
+    }
+
+    /// 斜杠命令下发反馈行（/goal /plan /compact 结果一行提示；成功失败都提示——
+    /// 命令语义非即时可见，与 setSubagentModel「已下发」口径一致；3s 自动清除）
+    var slashCommandHint: String?
+    private var slashHintClearTask: Task<Void, Never>?
+
+    func showSlashHint(_ text: String) {
+        slashHintClearTask?.cancel()
+        slashCommandHint = text
+        slashHintClearTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.slashCommandHint = nil }
+        }
+    }
+
+    /// 斜杠意图（web sX 解析器同构的客户端拦截子集；未命中返回 nil = 原文直发，
+    /// 由桌面 agent 解释——/workflow 等桌面命令即走此路）
+    enum SlashIntent: Equatable {
+        case goal(objective: String)
+        case plan(task: String)
+        case compact
+    }
+
+    nonisolated static func parseSlashIntent(_ raw: String) -> SlashIntent? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return nil }
+        let parts = trimmed.dropFirst()
+            .split(separator: " ", maxSplits: 1).map(String.init)
+        let name = (parts.first ?? "").lowercased()
+        let arg = parts.count > 1
+            ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        switch name {
+        case "goal", "target":
+            // 空目标与 pause/clear/show/resume 子命令不拦截（web 标 unsupportedGoal/
+            // resumeGoal 特例面，移动端暂不展开——原文直发由桌面解释）
+            guard !arg.isEmpty else { return nil }
+            let goalWords = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            let firstWord = goalWords.first?.lowercased() ?? ""
+            if ["pause", "clear", "show", "resume"].contains(firstWord) { return nil }
+            // /goal replace <文本> → 替换 = 直接下发新目标（web 同构：首词整词匹配，
+            // "replaces" 等前缀撞词不得误剥；裸 replace 无正文不拦截）
+            if firstWord == "replace" {
+                guard goalWords.count > 1 else { return nil }
+                let replaced = goalWords[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !replaced.isEmpty else { return nil }
+                return .goal(objective: replaced)
+            }
+            return .goal(objective: arg)
+        case "plan":
+            return .plan(task: arg) // 空任务 = 仅切模式（web planShortcut !task → sent）
+        case "compact", "compress":
+            return .compact
+        default:
+            return nil
+        }
+    }
+
+    /// 斜杠意图分发（send() 拦截入口）。成功：清稿 + 反馈行 + true；失败：回填草稿 +
+    /// 反馈行（真实失败原因，不走 U-6「消息未送达」文案——命令非消息）+ true
+    /// （U-6 通道留给消息未送达语义，避免误导）。
+    private func dispatchSlashIntent(_ intent: SlashIntent, original text: String) async -> Bool {
+        switch intent {
+        case .goal(let objective):
+            draft = ""
+            let failure = await sendGoal(objective)
+            if let failure {
+                showSlashHint(failure)
+                if draft.isEmpty { draft = text }
+                return true
+            }
+            showSlashHint(String(localized: "目标已下发 · 桌面端将按新目标继续"))
+            return true
+        case .plan(let task):
+            draft = ""
+            // web planShortcut：先切 plan 模式（fire-and-forget，失败不阻断），再发任务
+            let modeFailure = await switchCollaborationMode("plan")
+            guard !task.isEmpty else {
+                showSlashHint(modeFailure ?? String(localized: "已切换计划模式"))
+                return true
+            }
+            let delivered = await store.sendWithAttachments(
+                task, attachments: [], requestedDelivery: requestedDeliveryKey,
+                in: conversationID)
+            if delivered {
+                lastSendUndeliveredText = nil
+                if let modeFailure {
+                    showSlashHint(String(localized: "任务已发送 · 模式切换失败：\(modeFailure)"))
+                }
+                return true
+            }
+            // 任务未送达：走 U-6 标准通道（这是真消息丢失，回填保稿 + 持久错误行）
+            draft = task
+            lastSendUndeliveredText = task
+            return false
+        case .compact:
+            draft = ""
+            let hint = await compactContext()
+            showSlashHint(hint)
+            if !hint.contains(String(localized: "压缩完成")), draft.isEmpty {
+                draft = text
+            }
+            return true
+        }
+    }
+
     @discardableResult
     func send() async -> Bool {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return false }
+        // 斜杠命令拦截（仅连接态；演示态无命令面）。未命中意图的 /xxx 原文直发
+        if isReadOnly, let intent = Self.parseSlashIntent(text) {
+            return await dispatchSlashIntent(intent, original: text)
+        }
         // P1-1 发送联动：未完成附件先顺序补传（按钮禁用为主闸，此处为 onSubmit
         // 等旁路兜底）；仍有失败项则本次不发送（直发文本会丢附件），保留失败态
         guard await uploads.ensureAllCommitted() else { return false }
@@ -864,14 +1066,19 @@ final class ChatViewModel {
 // 持久值即首屏显示值（设计稿 §2.7③ 如实口径）；投递模式兼作 send()
 // requestedDelivery 的实参源——成功切换才写入，保证「UI 态 = 发送值」。
 enum ComposerModeStore {
-    /// 协作模式词表（switchCollaborationMode mode 值域；设计稿 §2 标题词）
-    static let collaborationModes = ["plan", "build"]
+    /// 协作模式词表（switchCollaborationMode mode 值域【实证 web bundle】：
+    /// `switchCollaborationMode:Ta({mode:La([\`build\`,\`edit\`,\`plan\`,\`yolo\`])})`；
+    /// Qme 全集 build=Ask before changes / edit=Edit automatically / plan=Plan mode /
+    /// yolo=Full access。原 plan/build 两档是设计稿口述子集——用户 2026-10-06
+    /// 报「命令只有 plan 和 build」即此缺口）
+    static let collaborationModes = ["build", "edit", "plan", "yolo"]
     /// 投递模式词表（移动端三档。A-2：queue/guide 下发 setFollowupMode【实证 bundle
     /// 枚举】并随 sendText 走对应 admission；now 为纯本机档——不下发命令，
     /// send 恒携 requestedDelivery:"startNow"（sendText delivery 枚举【实证】））
     static let deliveryModes = ["now", "queue", "guide"]
 
-    static let collaborationDefault = "plan"
+    /// 默认 Build（web 同款：currentValue 兜底 \`build\`——bundle 模式选择器初值）
+    static let collaborationDefault = "build"
     static let deliveryDefault = "now"
 
     private static func key(_ prefix: String, conversationID: String) -> String {

@@ -18,12 +18,20 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// `workspacePath` + `workspaceIdentity?`；桌面端代理派生
     /// `workspaceKey = identity || path` 并自行组装信封——嵌套 `workspace:{...}`
     /// 会被参数规范化丢弃，触发 ZCodeProtocolClientError）。
+    /// **按会话归属 workspace 寻址**【实证·上游仓 zcodeAgentService.subscribeConversationV4：
+    /// `getReadOnlyClient(params)` 以 params.workspacePath 选 CLI 进程承接订阅，冷订阅并把
+    /// 该 workspace 作为会话恢复的权威身份】——此前恒用连接 workspace，中继桥绑定桌面当前
+    /// 窗口 workspace（本例 poker_protocol）而会话建在另一 workspace（zcode_mobile）时，
+    /// 订阅落在错误 workspace 的 CLI 上：历史快照能读（全局 db 冷恢复），运行中 turn 的
+    /// 行增量永不抵达 → 真机报障 2026-10-07「手机端没有回复」（桌面 18:36:41 已完成回复，
+    /// 手机侧订阅流静默）。归属未知（深链冷启 sessions 表未填）回退连接 workspace = 旧口径。
     private func applySessionTarget(_ builder: inout JSONObjectBuilder, sessionID: String?) {
         if let sessionID {
             builder.set("sessionId", sessionID)
         }
-        builder.set("workspacePath", workspace.path)
-        if let identity = workspace.workspaceIdentity, !identity.isEmpty {
+        let target = workspaceTarget(for: sessionID, overridePath: nil)
+        builder.set("workspacePath", target.path)
+        if let identity = target.identity, !identity.isEmpty {
             builder.set("workspaceIdentity", identity)
         }
     }
@@ -177,6 +185,17 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// bootstrap.tasks 派生的工作区清单（⑥归档拉取范围 + 写目标身份反查；setBootstrapTasks
     /// 时经 AppSession.deriveBootstrapWorkspaces 派生，与切换器枚举同源同公式）
     private var bootstrapWorkspaces: [ServerWorkspaceInfo] = []
+    // MARK: tasks-index membership join（用户报障 2026-10-07「置顶 4 项只见 1 项/归档第三次丢失」
+    // 根因修复）：上游 sessionSummarySchema【实证·上游仓 zcode-protocol-v4/sessions-index.ts】
+    // **不含 pinned/archived 字段**——sessions-index 行永不携带组织态，此前 dict["pinned"]/
+    // dict["archived"] 恒 nil，置顶只剩内存 override（重启即丢）。web 权威口径【实证·上游仓
+    // taskListMembershipSets.ts】："tasks-index.sqlite 提供行集合和 membership，sessions-index
+    // 只补实时 activity/detail"——listPinnedTasks/listArchivedTasks 逐 scope 并发拉取后客户端 join
+    private var pinnedTaskIds: Set<String> = []
+    private var archivedTaskIds: Set<String> = []
+    /// 最近一次归档/取消归档写失败原文（空串 = 无；列表页如实提示，写面禁止静默）
+    private var _lastArchiveFailureText = ""
+    func lastArchiveFailureText() async -> String { _lastArchiveFailureText }
     /// workspace-config / model-selection 只读投影（连接态数据源）
     private var workspaceConfigState = WorkspaceConfigInfo()
     /// 模型 → 可用思考档（workspace-config configOptions 的对象形态 values；
@@ -237,12 +256,90 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         await ensureSessionsIndexSubscribed()
         await mergeBootstrapTaskIndex()
         await mergeGlobalTaskIndex()
+        // membership join 后台刷新（置顶/归档组织态；不阻塞首屏——完成后经
+        // conversationsReplaced 事件二次刷新。sessions-index 行无 pinned/archived 字段，
+        // 不拉 tasks-index 则桌面置顶/归档在移动端永久失明，用户报障 2026-10-07）
+        Task { [weak self] in
+            guard let self else { return }
+            await self.refreshTaskMembership()
+            await self.yieldConversationsReplaced()
+        }
         let list = sortedConversations()
         // 诊断：会话清单（完整 id+标题前缀）转储，供 -ZCodeOpenConversationId 取 id
         let dump = list.prefix(12).map { "\($0.id)=\($0.title.prefix(16))" }
             .joined(separator: " | ")
         UserDefaults.standard.set("total=\(list.count) · " + dump, forKey: "diag.sessions")
         return list
+    }
+
+    /// tasks-index membership（pin/archive 组织态权威源）逐 scope **并发**拉取
+    /// 【实证·上游仓 taskListMembershipSets.ts：`e.scopes.map(...)` 并发 + 单区失败跳过】；
+    /// 完成后写 pinnedTaskIds/archivedTaskIds 供 sortedConversations join。scope 清单
+    /// 与归档拉取同源（连接层采集 ∪ bootstrap 派生 ∪ 当前工作区保底）。
+    func refreshTaskMembership() async {
+        guard let connection else { return }
+        let scopes = Self.membershipScopes(
+            all: allWorkspaces, bootstrap: bootstrapWorkspaces, current: workspace)
+        var pinned: Set<String> = []
+        var archived: Set<String> = []
+        await withTaskGroup(of: (Bool, [String]).self) { group in
+            for scope in scopes {
+                let method = scope.pinned ? "listPinnedTasks" : "listArchivedTasks"
+                group.addTask { [connection] in
+                    var builder = JSONObjectBuilder()
+                    builder.set("workspacePath", scope.path)
+                    if let identity = scope.identity, !identity.isEmpty {
+                        builder.set("workspaceIdentity", identity)
+                    }
+                    do {
+                        let result = try await connection.call(
+                            "zcode-task", method, .json(.object(builder.fields)))
+                        let dict = result.jsonValue?.objectValue ?? [:]
+                        let items = dict["items"]?.arrayValue ?? dict["tasks"]?.arrayValue
+                            ?? result.jsonValue?.arrayValue ?? []
+                        let ids = items.compactMap {
+                            $0.objectValue?["taskId"]?.stringValue
+                                ?? $0.objectValue?["sessionId"]?.stringValue
+                        }
+                        return (scope.pinned, ids)
+                    } catch {
+                        return (scope.pinned, []) // 单区失败跳过（web 同构）
+                    }
+                }
+            }
+            for await (isPinned, ids) in group {
+                if isPinned { pinned.formUnion(ids) } else { archived.formUnion(ids) }
+            }
+        }
+        pinnedTaskIds = pinned
+        archivedTaskIds = archived
+    }
+
+    /// membership/归档拉取的 scope 清单（去重；pin 与 archive 各半——web 两集合同 scope 面）
+    nonisolated private static func membershipScopes(
+        all: [ServerWorkspaceInfo], bootstrap: [ServerWorkspaceInfo],
+        current: ServerWorkspaceInfo) -> [(path: String, identity: String?, pinned: Bool)] {
+        var paths: [String] = []
+        var seen: Set<String> = []
+        for ws in all where !seen.contains(ws.path) {
+            seen.insert(ws.path); paths.append(ws.path)
+        }
+        for ws in bootstrap where !seen.contains(ws.path) {
+            seen.insert(ws.path); paths.append(ws.path)
+        }
+        if !seen.contains(current.path) { paths.append(current.path) }
+        // 每个路径两问：listPinnedTasks + listArchivedTasks（pin 在前）
+        return paths.flatMap { path -> [(path: String, identity: String?, pinned: Bool)] in
+            var identity = all.first { $0.path == path }?.workspaceIdentity
+                ?? bootstrap.first { $0.path == path }?.workspaceIdentity
+            if identity == nil, path == current.path {
+                identity = current.workspaceIdentity
+            }
+            return [
+                (path, identity, true),
+                (path, identity, false),
+            ]
+        }
     }
 
     /// 纯内存会话摘要（P0 缓存先行）：合并表即时投影，零 RPC——ChatView 首屏
@@ -460,9 +557,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 // 来源过滤（G-006）数据口径：连接态会话均来自当前桌面端（局域网/云中继
                 // 均属"我的 Mac"）；云端沙盒执行端尚无会话数据源（档位在无 cloud 数据时置灰）
                 conversation.source = "mac"
-                // 本地 override 优先（操作即时反馈），服务端投影次之（setTaskPinned/archiveTask 回推）
-                conversation.isPinned = localPinnedOverrides[summary.sessionId] ?? summary.pinned ?? false
-                conversation.isArchived = localArchivedOverrides[summary.sessionId] ?? summary.archived ?? false
+                // 组织态三源 join【实证·上游仓 taskListMembershipSets】：本地 override（操作
+                // 即时反馈）→ tasks-index membership（listPinnedTasks/listArchivedTasks 拉取，
+                // sessions-index 行不含 pinned/archived 字段——schema 冻结）→ 行字段（宽容
+                // 兼容未来服务端投影，缺席不碍事）
+                conversation.isPinned = localPinnedOverrides[summary.sessionId]
+                    ?? (pinnedTaskIds.contains(summary.sessionId) ? true : nil)
+                    ?? summary.pinned ?? false
+                conversation.isArchived = localArchivedOverrides[summary.sessionId]
+                    ?? (archivedTaskIds.contains(summary.sessionId) ? true : nil)
+                    ?? summary.archived ?? false
                 let pending = summary.pendingPermissionCount + summary.pendingUserInputCount
                 // 未读 = 待交互数；「标记未读」本地置位（服务端无未读投影时仍可呈现）
                 conversation.unreadCount = localUnreadFlags[summary.sessionId] == true
@@ -772,6 +876,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             } else {
                 builder.set("base", JSONValue.null)
             }
+            // workspace 信封随订阅同源（ownership 匹配，forceFullResync 同注）
+            applySessionTarget(&builder, sessionID: conversationID)
             _ = try? await connection.call(
                 "zcode-agent", "resyncConversationV4", .json(.object(builder.fields)))
         }
@@ -1120,6 +1226,15 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     rowKind: "userInput"))
             case "assistantText":
                 let state = row["state"]?.stringValue ?? "complete"
+                // P1-3 反馈态服务端回读（web 实证 bundle bX(row)：行上 feedback
+                // "like"|"dislike"|缺席三态；写命令 setAssistantFeedback 后服务端
+                // 行增量回流本字段，重进会话快照行同样携带——缺失即 nil 不虚构）
+                let feedback: Bool?
+                switch row["feedback"]?.stringValue {
+                case "like": feedback = true
+                case "dislike": feedback = false
+                default: feedback = nil
+                }
                 result.append(ChatMessage(
                     id: "row-\(rowId)", role: .agent,
                     text: row["text"]?.stringValue ?? "",
@@ -1127,7 +1242,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     timestamp: Date(),
                     // P1-3 助手反馈行游标（仅取 entityId，C-1 修正同上）
                     entityId: Self.rowEntityId(row),
-                    rowKind: "assistantText"))
+                    rowKind: "assistantText",
+                    feedback: feedback))
             case "reasoning":
                 // 项 4：reasoning → ThinkingContent 折叠块（不再 💭 前缀平铺进正文流）
                 let state = row["state"]?.stringValue ?? "complete"
@@ -1231,6 +1347,17 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         UserDefaults.standard.set(
             "rows=\(table.count) msg=\(result.count) kinds=[\(kindHist)]",
             forKey: "diag.convbuild.\(conversationID.prefix(14))")
+        // §11 diag.feedback.*：行级反馈态回读取证（点赞重载丢失修复的读路径验证；
+        // 值=「rowId:like/dislike」列表，空列表=该会话行全无 feedback 字段）
+        let feedbackRows = result
+            .compactMap { message -> String? in
+                guard let value = message.feedback else { return nil }
+                return "\(message.id):\(value ? "like" : "dislike")"
+            }
+            .joined(separator: ",")
+        UserDefaults.standard.set(
+            feedbackRows.isEmpty ? "none" : feedbackRows,
+            forKey: "diag.feedback.\(conversationID.prefix(14))")
         // 在途回显：同文本服务端行已抵达 → 消费掉；未抵达的按锚点插入保持时间序
         // （服务端不回推用户行时，回显应位于其发送后的助手回复之前）
         if var outstanding = pendingLocalSends[conversationID], !outstanding.isEmpty {
@@ -1419,9 +1546,35 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// issuedAt 必须 epoch 毫秒数（否则 proto.invalidPayload）、平铺形态服务端直接 TypeError、
     /// CAS 类命令（pauseGoal/switchModelConfig 等）必须携带当前 state revision（否则
     /// "CAS command require base revision"）。平铺形态仅作旧版本兜底重试。
+    /// 任务元数据写（setPinned/renameTask/markUnread/clearUnread/deleteTask）的
+    /// 归属寻址：web 语义为行自带 workspace——目标会话 workspacePath 优先，未知
+    /// 回退连接 workspace（§12-6 收口：跨工作区行的置顶/改名/未读此前落错区被拒）
+    private func rowWorkspacePath(_ conversationID: String) -> String {
+        sessions[conversationID]?.workspacePath.flatMap { $0.isEmpty ? nil : $0 }
+            ?? workspace.path
+    }
+
+    /// 写命令的 workspace 寻址目标：目标会话自带 workspacePath 优先（跨工作区会话
+    /// 写必须带会话自己的 workspace——web workspaceConnectionRegistry 同构）；
+    /// override（createSession 的目标 workspace）次之；归属未知回退连接 workspace。
+    /// identity 解析顺序：归属=连接 workspace 时用连接身份；否则查 server-info
+    /// 工作区清单；解析不出则不携键（web scope 转换器口径）。
+    private func workspaceTarget(for sessionId: String?, overridePath: String?) -> (path: String, identity: String?) {
+        let rowPath = sessionId.flatMap { sessions[$0]?.workspacePath }
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let path = overridePath ?? rowPath ?? workspace.path
+        let identity: String?
+        if path == workspace.path {
+            identity = workspace.workspaceIdentity
+        } else {
+            identity = allWorkspaces.first { $0.path == path }?.workspaceIdentity
+        }
+        return (path, identity)
+    }
+
     private func sendCommand(
         _ type: String, sessionId: String?, payload: JSONValue,
-        casRevision: Bool = false) async -> JSONValue? {
+        casRevision: Bool = false, workspacePathOverride: String? = nil) async -> JSONValue? {
         guard let connection else { return nil }
         let clientID = connection.registeredClientId
         let issuedAt = Int(Date().timeIntervalSince1970 * 1000)
@@ -1445,9 +1598,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         envelope["sessionId"] = sessionId.map { .string($0) } ?? .null
         if let baseRevision { envelope["baseRevision"] = .int(baseRevision) }
         if let baseLogEpoch { envelope["baseLogEpoch"] = .string(baseLogEpoch) }
+        // workspace 信封按目标会话归属寻址【实证·上游仓 workspaceConnectionRegistry】：
+        // web 的 transport 按 workspace scope 建立、写命令恒带会话自己的 workspacePath
+        // ——此前恒带连接当前 workspace，远控上下文绑定其他 workspace 时跨工作区写
+        // 全被桌面拒（真机报障 2026-10-07「发送会话都失败了/新建会话不行」；读面为
+        // 宿主级不受影响）。identity 仅在能解析时携带（web scope 转换器：缺席不携键）
+        let target = workspaceTarget(
+            for: sessionId, overridePath: workspacePathOverride)
         var outer: [String: JSONValue] = ["envelope": .object(envelope)]
-        outer["workspacePath"] = .string(workspace.path)
-        if let identity = workspace.workspaceIdentity, !identity.isEmpty {
+        outer["workspacePath"] = .string(target.path)
+        if let identity = target.identity, !identity.isEmpty {
             outer["workspaceIdentity"] = .string(identity)
         }
         do {
@@ -1578,6 +1738,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 立即开跑首条 turn，边界内允许）；为空时保持 draft 空会话 + 转正写。
     /// modelSelection 非空时随 firstInput.modelSelection 下发（会话前模型选择，
     /// 字段形同 web：{providerId, modelId, options:{reasoningLevel}}）。
+    /// 失败如实上抛（返回空 id Conversation + lastCreateFailureText 原文）——
+    /// 此前 sessionId 取不到时兜底 `UUID()` 假成功（用户报障「创建之后再电脑端
+    /// 看不到」：桌面端 zod 拒收后移动端凭空造了个本地会话），已废除。
     func createConversation(title: String, directory: String, executor: ExecutorKind,
                             modelSelection: NewSessionModelSelection? = nil) async -> Conversation {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1604,10 +1767,40 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             }
             payload["firstInput"] = .object(firstInput)
         }
-        let ack = await sendCommand("createSession", sessionId: nil, payload: .object(payload))
+        guard connection != nil else {
+            _lastCreateFailureText = String(localized: "未连接桌面端")
+            return Conversation(id: "", title: trimmed.isEmpty ? String(localized: "新会话") : trimmed,
+                                summary: "", directory: directory, updatedAt: Date())
+        }
+        let ack = await sendCommand(
+            "createSession", sessionId: nil, payload: .object(payload),
+            // 信封 workspacePath 与 workspaceId 同源（web 同构：create 在目标 workspace
+            // 里建）——此前恒带连接 workspace，远控上下文绑在其他 workspace 时
+            // createSession 被拒（真机报障「新建会话不行/建后找不到」）
+            workspacePathOverride: trimmedDirectory.isEmpty ? nil : trimmedDirectory)
         let sessionId = ack?["result"]?.objectValue?["sessionId"]?.stringValue
             ?? ack?["sessionId"]?.stringValue
-            ?? UUID().uuidString
+        guard let sessionId, !sessionId.isEmpty else {
+            // createSession 被拒/未送达：如实失败（上游 schema strict——firstInput
+            // 载荷任一键不合形即整条拒收，如 providerId 空串 min(1)）
+            _lastCreateFailureText = ack == nil
+                ? String(localized: "创建请求未送达 · 连接中断或桌面端拒收")
+                : String(localized: "桌面端回执缺少 sessionId（创建被拒，请检查模型选择后重试）")
+            return Conversation(id: "", title: trimmed.isEmpty ? String(localized: "新会话") : trimmed,
+                                summary: "", directory: directory, updatedAt: Date())
+        }
+        _lastCreateFailureText = ""
+        // 新会话即刻入 sessions 表（标题/归属/时间与创建参数同源）——否则列表一重载
+        // （conversations() 走 sessions 投影）新建行就消失，直到桌面 sessions-index
+        // 推送才回来（真机报障「新建会话后找不到」）
+        var created = SessionSummary(
+            sessionId: sessionId,
+            title: trimmed.isEmpty ? String(localized: "新会话") : trimmed,
+            phase: trimmed.isEmpty ? "draft" : "running",
+            lastActivityAt: Date(),
+            lastAssistantPreview: nil)
+        created.workspacePath = trimmedDirectory.isEmpty ? workspace.path : trimmedDirectory
+        sessions[sessionId] = created
         if trimmed.isEmpty {
             // draft 空会话：promote 转正写 task index，重启后不丢
             await promoteDeferredDraftSession(sessionId: sessionId)
@@ -1621,6 +1814,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         yieldConversationsReplaced()
         return conversation
     }
+
+    /// 最近一次 createConversation 失败原文（空串 = 无；连接态新建失败行数据源——
+    /// requirement 方法实现，any 存在类型下经协议动态分派到达）
+    private var _lastCreateFailureText = ""
+    func lastCreateFailureText() async -> String { _lastCreateFailureText }
 
     /// draft 转正（named gap：移动端新建空会话重启后丢失）：promoteDeferredDraftSession
     /// 把 v4 draft 会话写入 task index（session 类元数据写，不驱动 agent），
@@ -1644,10 +1842,19 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         guard let connection else { return }
         var builder = JSONObjectBuilder()
         builder.set("taskId", conversationID)
-        builder.set("workspacePath", workspace.path)
+        builder.set("workspacePath", rowWorkspacePath(conversationID))
         builder.set("pinned", pinned)
         do {
             _ = try await connection.call("zcode-task", "setTaskPinned", .json(.object(builder.fields)))
+            // membership 集同步维护（sessions-index 行不含 pinned 字段——schema 冻结【实证·
+            // 上游仓】，写后不等全量刷新；桌面侧 tasks-index.sqlite 为权威，下次 membership
+            // 刷新对账）
+            if pinned {
+                pinnedTaskIds.insert(conversationID)
+                archivedTaskIds.remove(conversationID)
+            } else {
+                pinnedTaskIds.remove(conversationID)
+            }
         } catch {
             localPinnedOverrides[conversationID] = previous
             yieldConversationsReplaced()
@@ -1710,8 +1917,26 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             } else {
                 _ = try await connection.call("zcode-task", "unarchiveTask", .json(.object(builder.fields)))
             }
+            // 写成功即维护 membership 集（sortedConversations join 数据源；不等下一次全量刷新）
+            if archived {
+                archivedTaskIds.insert(conversationID)
+                pinnedTaskIds.remove(conversationID)
+            } else {
+                archivedTaskIds.remove(conversationID)
+            }
+            _lastArchiveFailureText = ""
         } catch {
+            // 写失败完整回滚（override + 乐观缓存 + membership）——此前缓存不回滚：
+            // 归档区本会话仍显示该行、重启后随缓存蒸发（用户报障「归档的会话又丢了」
+            // 第三次的写失败路径），且失败原因不透出（写面禁止静默，§5.11）
             localArchivedOverrides[conversationID] = previous
+            localArchivedCache.removeValue(forKey: conversationID)
+            archivedTaskIds.remove(conversationID)
+            if let rpcError = error as? RPCError {
+                _lastArchiveFailureText = "\(rpcError.name): \(rpcError.message)"
+            } else {
+                _lastArchiveFailureText = String(describing: error).prefix(240).description
+            }
             yieldConversationsReplaced()
         }
     }
@@ -1726,7 +1951,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         guard let connection else { return }
         var builder = JSONObjectBuilder()
         builder.set("taskId", conversationID)
-        builder.set("workspacePath", workspace.path)
+        builder.set("workspacePath", rowWorkspacePath(conversationID))
         builder.set("title", trimmed)
         do {
             _ = try await connection.call("zcode-task", "renameTask", .json(.object(builder.fields)))
@@ -1747,7 +1972,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         guard let connection else { return }
         var builder = JSONObjectBuilder()
         builder.set("taskId", conversationID)
-        builder.set("workspacePath", workspace.path)
+        builder.set("workspacePath", rowWorkspacePath(conversationID))
         builder.set("unread", true)
         _ = try? await connection.call("zcode-task", "setTaskUnread", .json(.object(builder.fields)))
     }
@@ -1765,7 +1990,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         guard let connection else { return }
         var builder = JSONObjectBuilder()
         builder.set("taskId", conversationID)
-        builder.set("workspacePath", workspace.path)
+        builder.set("workspacePath", rowWorkspacePath(conversationID))
         builder.set("unread", false)
         _ = try? await connection.call("zcode-task", "setTaskUnread", .json(.object(builder.fields)))
     }
@@ -1785,34 +2010,36 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         guard let connection else {
             return result.values.sorted { $0.updatedAt > $1.updatedAt }
         }
-        var scopes: [(path: String, identity: String?)] = []
-        var seenPaths: Set<String> = []
-        for ws in allWorkspaces where !seenPaths.contains(ws.path) {
-            seenPaths.insert(ws.path)
-            scopes.append((ws.path, ws.workspaceIdentity))
-        }
-        for ws in bootstrapWorkspaces where !seenPaths.contains(ws.path) {
-            seenPaths.insert(ws.path)
-            scopes.append((ws.path, ws.workspaceIdentity))
-        }
-        if !seenPaths.contains(workspace.path) {
-            // 当前工作区保底（清单缺失该区时归档行仍可能有）
-            scopes.append((workspace.path, workspace.workspaceIdentity))
-        }
+        let scopes = Self.membershipScopes(
+            all: allWorkspaces, bootstrap: bootstrapWorkspaces, current: workspace)
+            .filter { !$0.pinned }
         var fetched = 0
         var firstError: String?
-        for scope in scopes {
-            var builder = JSONObjectBuilder()
-            builder.set("workspacePath", scope.path)
-            if let identity = scope.identity, !identity.isEmpty {
-                builder.set("workspaceIdentity", identity)
+        // 逐 scope **并发**拉取（web `e.scopes.map(s => listArchivedTasks(...))` 同构；
+        // 此前串行——26 区串行 RTT 累计数十秒，展开归档区长时间假空态，用户报障
+        // 「归档的会话又丢了」的感知成因之一）
+        await withTaskGroup(of: (String, [JSONValue], String?).self) { group in
+            for scope in scopes {
+                group.addTask { [connection] in
+                    var builder = JSONObjectBuilder()
+                    builder.set("workspacePath", scope.path)
+                    if let identity = scope.identity, !identity.isEmpty {
+                        builder.set("workspaceIdentity", identity)
+                    }
+                    do {
+                        let result0 = try await connection.call(
+                            "zcode-task", "listArchivedTasks", .json(.object(builder.fields)))
+                        let dict = result0.jsonValue?.objectValue ?? [:]
+                        let items = dict["items"]?.arrayValue ?? dict["tasks"]?.arrayValue
+                            ?? result0.jsonValue?.arrayValue ?? []
+                        return (scope.path, items, nil)
+                    } catch {
+                        return (scope.path, [], String(describing: error).prefix(240).description)
+                    }
+                }
             }
-            do {
-                let result0 = try await connection.call(
-                    "zcode-task", "listArchivedTasks", .json(.object(builder.fields)))
-                let dict = result0.jsonValue?.objectValue ?? [:]
-                let items = dict["items"]?.arrayValue ?? dict["tasks"]?.arrayValue
-                    ?? result0.jsonValue?.arrayValue ?? []
+            for await (scopePath, items, error) in group {
+                if let error, firstError == nil { firstError = "\(scopePath.suffix(40)): \(error)" }
                 fetched += items.count
                 for item in items {
                     guard let taskId = item.objectValue?["taskId"]?.stringValue ?? item.objectValue?["sessionId"]?.stringValue else { continue }
@@ -1820,7 +2047,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     // 归属以行自带字段为准（缺席回退查询 scope），unarchive 写目标据此反查
                     let rowPath = summary?.workspacePath
                         ?? item.objectValue?["workspacePath"]?.stringValue
-                        ?? scope.path
+                        ?? scopePath
                     let rowIdentity: String? = (item.objectValue?["workspaceIdentity"]?.stringValue)
                         .flatMap { $0.isEmpty ? nil : $0 }
                     archivedTaskWorkspaces[taskId] = (rowPath, rowIdentity)
@@ -1833,13 +2060,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                         isArchived: true)
                     result[taskId] = conversation
                 }
-            } catch {
-                // 单区失败跳过（web y4 同构），不拖垮其余区；错误记取证口
-                if firstError == nil {
-                    firstError = "\(scope.path.suffix(40)): \(String(describing: error).prefix(240))"
-                }
             }
         }
+        // membership 集同步（主列表 isArchived 过滤 join 数据源）
+        archivedTaskIds.formUnion(result.keys)
         if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
             UserDefaults.standard.set(
                 "scopes=\(scopes.count) items=\(fetched)"
@@ -1857,7 +2081,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         guard let connection else { return false }
         var builder = JSONObjectBuilder()
         builder.set("taskId", conversationID)
-        builder.set("workspacePath", workspace.path)
+        builder.set("workspacePath", rowWorkspacePath(conversationID))
         if let identity = workspace.workspaceIdentity, !identity.isEmpty {
             builder.set("workspaceIdentity", identity)
         }
@@ -2254,6 +2478,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         var builder = JSONObjectBuilder()
         builder.set("subscriptionId", subscriptionId)
         builder.set("base", JSONValue.null)
+        // workspace 信封必须与订阅一致【实证·上游仓 zcodeAgentConnectionScope.resyncOwned：
+        // ownership 按 `workspaceKey(params)` 匹配订阅登记——订阅改按会话归属寻址后，
+        // resync 缺 workspace/带错 workspace 都会 fault.subscription.notOwned】
+        applySessionTarget(&builder, sessionID: conversationID)
         _ = try? await connection.call(
             "zcode-agent", "resyncConversationV4", .json(.object(builder.fields)))
     }
@@ -2731,10 +2959,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private func sendCASWithRetry(
         _ type: String, sessionId: String, payload: JSONValue) async -> JSONValue? {
         let first = await sendCommand(type, sessionId: sessionId, payload: payload, casRevision: true)
-        if first?["status"]?.stringValue == "stale" {
-            return await sendCommand(type, sessionId: sessionId, payload: payload, casRevision: true)
-        }
-        return first
+        guard first?["status"]?.stringValue == "stale" else { return first }
+        // 原样重发一次（revisionAtDecision 已回填最新 revision——探针实证口径）
+        let second = await sendCommand(type, sessionId: sessionId, payload: payload, casRevision: true)
+        guard second?["status"]?.stringValue == "stale" else { return second }
+        // 活跃会话兜底（用户报障 2026-10-07「胶囊切换都不行」：agent 运行中 revision
+        // 持续前进，重发窗口内可再次 stale）——强制 resync 取权威 revision 后末次重发
+        conversationStateRevisions[sessionId] = nil
+        await triggerResync(sessionId)
+        await ensureStateRevision(sessionId)
+        return await sendCommand(type, sessionId: sessionId, payload: payload, casRevision: true)
     }
 
     /// CAS 前置公共步：revision 缺失（冷启动刚进会话/快照未带 state）先 resync
@@ -2808,10 +3042,12 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     // 无法活体补证），键名取仓内最强先例构造——接入 UI 前先探针定形（P1P2P3功能UI设计.md
     // 各节「实施第一步即探针」口径），禁止把本节键名当唯一真相回写文档。
 
-    /// 协作模式切换（§2 设计稿「会话模式」Plan/Build 胶囊）。§7.2:414 CAS 权威全集
+    /// 协作模式切换（§2 设计稿「会话模式」胶囊）。§7.2:414 CAS 权威全集
     /// 成员【移植级】——ensureStateRevision + sendCASWithRetry（新 CAS 命令沿用纪律）。
-    /// payload {mode: "plan"|"build"}【宽容：键名未取证；值域按设计稿 §2 标题词，
-    /// 仅盘点报告「plan/build 模式切换」口述】。
+    /// payload {mode}【实证 web bundle】：`switchCollaborationMode:Ta({mode:La([
+    /// \`build\`,\`edit\`,\`plan\`,\`yolo\`])})`——4 档全集（Qme：build=Ask before
+    /// changes / edit=Edit automatically / plan=Plan mode / yolo=Full access）；
+    /// 键名 mode 同源实证。
     @discardableResult
     func switchCollaborationMode(_ conversationID: String, mode: String) async -> JSONValue? {
         await ensureStateRevision(conversationID)
@@ -3274,14 +3510,17 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         _ conversationID: String, provider: String, model: String, thought: String?) async -> JSONValue? {
         // CAS 前置：revision 缺失时 resync + 轮询（探针实证的队列同款，公共步ensureStateRevision）
         await ensureStateRevision(conversationID)
-        return await sendCommand(
+        // stale 原样重发一次（sendCASWithRetry，队列五件/模式胶囊同款）——活跃会话
+        // state revision 持续前进，单发必撞 proto.staleRevision（diag.wf.control.ui 实证
+        // 2026-10-07：ack status=stale reasonCode=proto.staleRevision revisionAtDecision=12119，
+        // 用户报障「composer 胶囊切换都不行」= 模型/思考两颗皆此因）
+        return await sendCASWithRetry(
             "switchModelConfig", sessionId: conversationID,
             payload: .object([
                 "provider": .string(provider),
                 "model": .string(model),
                 "thought": .string(thought ?? ""),
-            ]),
-            casRevision: true)
+            ]))
     }
 
     /// 主动全量 resync（服务端重发快照含 state.workflowRuns；amend 停旧换新后拉新 run 用，
@@ -3796,19 +4035,24 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     // MARK: 附件上传事务（A-4 对齐 web：Begin/Chunk/Commit/Abort 四条 channel RPC）
     //
-    // web 事务（bundle PCe 上传函数 + zod schema 全取证，【移植·bundle 逆向】）：
-    // ① Begin `{connectionId, uploadId, sessionId, fileName, mime, totalBytes, totalChunks,
-    //    checksum:"sha256:"+64hex}`（strict 8 键）→ 回执 state 判别联合
+    // web 事务【实证·上游开源仓 github.com/zai-org/ZCode，packages/ui/src/v4/
+    // attachmentUploadTransaction.ts（2026-10-07 克隆取证）】：客户端参数里**没有
+    // connectionId**——`common = {...workspace, sessionId, uploadId}`，connectionId
+    // 由桌面 host facade 注入（zcodeAgentConnectionScope.withTrustedConnection：
+    // 剥掉客户端伪造的 connectionId/clientMode 再写可信真值）。此前移动端自作主张
+    // 多发 `connectionId: registeredClientId`（2026-10-06「bundle 不可见注入点」的
+    // 猜测），远端面 strict 校验即拒——真机「附件不能上传」根因之一，已删，与 web
+    // 客户端参数逐键对齐：
+    // ① Begin `{workspacePath, workspaceIdentity?, sessionId, uploadId, fileName, mime,
+    //    totalBytes, totalChunks, checksum:"sha256:"+64hex}` → 回执 state 判别联合
     //    staging{nextChunkIndex} | committed{nextChunkIndex, ref}；
-    // ② Chunk `{connectionId, uploadId, sessionId, chunkIndex, dataBase64}`（strict 5 键）
-    //    → `{uploadId, nextChunkIndex}`，进度判定 = nextChunkIndex === chunkIndex+1；
-    // ③ Commit `{connectionId, uploadId, sessionId}`（strict 3 键）→ `{ref}`；
-    // ④ Abort 同 Commit 形（Begin 成功后的事务失败路径尽力收口）。
-    // 384KB/块（hy=384*1024）；uploadId 客户端生成 `upload-<uuid>`。
-    // strict 键集不含 workspacePath/workspaceIdentity——web 端这两键由 channel 层
-    // 序列化时替换为注入的 connectionId（bundle 不可见注入点）；移动端等价实现 =
-    // 只发 strict 键集、connectionId 取握手注册的 clientId（registeredClientId，
-    // 与信封 envelope.clientId 同源）——【待真机验证】。
+    // ② Chunk `{...common, chunkIndex, dataBase64}` → `{uploadId, nextChunkIndex}`，
+    //    进度判定 = nextChunkIndex === chunkIndex+1；
+    // ③ Commit `{...common}` → `{ref}`；④ Abort 同 Commit 形（Begin 成功后的失败路径收口）。
+    // 384KB/块（ATTACHMENT_UPLOAD_CHUNK_BYTES=384*1024）；uploadId 客户端生成
+    // `upload-<uuid>`；限额真值【实证·上游仓 zcode-protocol-v4/core.ts
+    // PROTOCOL_V4_LIMITS】：attachmentMaxBytes=20MB、attachmentUploadMaxChunks=64
+    // （384KB×64=24MB > 20MB，字节上限先绑定）。
     // ReadOnlyGate：附件事务为桌面存储写非手机直写，zcode-agent 默认面放行
     // （ReadOnlyGate.swift:227 注释）。中继瞬断首败 1.2s 退避重试一次（AGENTS §5.8）；
     // 失败以 Result.failure 携 RPCError 文本回传调用方（禁止静默吞错，U-5 同口径）。
@@ -3819,6 +4063,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             return "\(rpcError.name): \(rpcError.message)"
         }
         return error.localizedDescription
+    }
+
+    /// §11 diag.attach.last：附件事务最近一次往返取证（方法 + 回执/错误原文前缀；
+    /// 真机首击回执取证用，验收后随 diag 清理波次移除）
+    nonisolated private static func attachmentDiag(method: String, detail: String) {
+        UserDefaults.standard.set(
+            "\(method) \(detail.prefix(400))", forKey: "diag.attach.last")
     }
 
     /// 未连接时的统一失败文本（连接句柄已释放——断线/拆除后）
@@ -3832,7 +4083,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     ) async -> Result<AttachmentBeginOutcome, AttachmentRPCError> {
         guard let connection else { return .failure(AttachmentRPCError(text: Self.attachmentNotConnectedText)) }
         var builder = JSONObjectBuilder()
-        builder.set("connectionId", connection.registeredClientId)
+        // 会话域 workspace 信封（实机实证 2026-10-06：缺 workspacePath 被
+        // "Invalid params" 拒——web 由 channel 层注入同款信封，bundle strict
+        // schema 只约束内层键，服务端实际校验含信封）
+        applySessionTarget(&builder, sessionID: sessionID)
         builder.set("uploadId", uploadId)
         builder.set("sessionId", sessionID)
         builder.set("fileName", fileName)
@@ -3843,8 +4097,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         do {
             let ack = try await connection.call(
                 "zcode-agent", "attachmentBeginV4", .json(.object(builder.fields)))
+            Self.attachmentDiag(
+                method: "begin", detail: String(describing: ack.jsonValue).prefix(400).description)
             return Self.parseBegin(ack.jsonValue)
         } catch {
+            Self.attachmentDiag(
+                method: "begin-err",
+                detail: Self.attachmentWireError(error))
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             do {
                 let ack = try await connection.call(
@@ -3884,7 +4143,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     ) async -> Result<Int, AttachmentRPCError> {
         guard let connection else { return .failure(AttachmentRPCError(text: Self.attachmentNotConnectedText)) }
         var builder = JSONObjectBuilder()
-        builder.set("connectionId", connection.registeredClientId)
+        applySessionTarget(&builder, sessionID: sessionID)
         builder.set("uploadId", uploadId)
         builder.set("sessionId", sessionID)
         builder.set("chunkIndex", chunkIndex)
@@ -3917,12 +4176,14 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     func attachmentCommitV4(sessionID: String, uploadId: String) async -> Result<String, AttachmentRPCError> {
         guard let connection else { return .failure(AttachmentRPCError(text: Self.attachmentNotConnectedText)) }
         var builder = JSONObjectBuilder()
-        builder.set("connectionId", connection.registeredClientId)
+        applySessionTarget(&builder, sessionID: sessionID)
         builder.set("uploadId", uploadId)
         builder.set("sessionId", sessionID)
         do {
             let ack = try await connection.call(
                 "zcode-agent", "attachmentCommitV4", .json(.object(builder.fields)))
+            Self.attachmentDiag(
+                method: "commit", detail: String(describing: ack.jsonValue).prefix(400).description)
             guard let ref = ack.jsonValue?.objectValue?["ref"]?.stringValue, !ref.isEmpty else {
                 return .failure(AttachmentRPCError(text: "回执缺 ref：\(String(describing: ack.jsonValue).prefix(160))"))
             }
@@ -3948,7 +4209,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     func attachmentAbortV4(sessionID: String, uploadId: String) async -> Result<Void, AttachmentRPCError> {
         guard let connection else { return .failure(AttachmentRPCError(text: Self.attachmentNotConnectedText)) }
         var builder = JSONObjectBuilder()
-        builder.set("connectionId", connection.registeredClientId)
+        applySessionTarget(&builder, sessionID: sessionID)
         builder.set("uploadId", uploadId)
         builder.set("sessionId", sessionID)
         do {
@@ -3974,7 +4235,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     }
 
     /// 模型可用思考档（workspace-config configOptions 对象形态 values；
-    /// model-selection.getView 不携带该词表——实测 relay 下发模型条目为纯字符串）
+    /// model-selection.getView 不携带该词表——实测 relay 下发模型条目为纯字符串）。
+    /// 入参为裸 modelId（chips/新建 sheet 同口径），内部词表同按裸 modelId 建键
+    /// （条目 value 复合串经 configOptionModelId 归一）
     func thoughtLevels(for model: String) async -> [String] {
         await ensureWorkspaceConfigHandler()
         return workspaceConfigThoughtByModel[model] ?? []
@@ -4013,10 +4276,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 + (optionDict["values"]?.arrayValue ?? [])
             for value in entries {
                 guard let v = value.objectValue else { continue }
-                let modelName = v["value"]?.stringValue ?? v["modelId"]?.stringValue
                 let levels = v["modelThoughtLevels"]?.arrayValue?.compactMap(\.stringValue) ?? []
-                if let modelName, !levels.isEmpty {
-                    workspaceConfigThoughtByModel[modelName] = levels
+                guard !levels.isEmpty else { continue }
+                // 键对齐【实证·上游仓 model-selection.ts:34 formatModelPickerValue】：
+                // configOptions 模型条目 value 为复合串 `providerId/modelId[$reasoningLevel]`
+                // （如 "account:zai-start-plan/GLM-5.3-Flash"），chips/新建 sheet 均以裸
+                // modelId 查询——曾按复合串整串建键，查询必 miss → 思考档退化 getView/
+                // 静态梯（静态梯含 medium，GLM-5.3 系列 variants 仅 [low,max,high]，首条
+                // turn model_creation 被拒 Reasoning effort "medium" not supported，真机
+                // 报障 2026-10-07 sess_ce4531a1）
+                let rawKey = v["value"]?.stringValue ?? v["modelId"]?.stringValue
+                if let modelId = Self.configOptionModelId(rawKey) {
+                    workspaceConfigThoughtByModel[modelId] = levels
                 }
             }
         }
@@ -4031,6 +4302,12 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 shape += " | id=\(d["id"]?.stringValue ?? "?") type=\(d["type"]?.stringValue ?? "?") opts=[\(optionValues.prefix(8).joined(separator: ","))]"
             }
             shape += " || thoughtByModel=\(workspaceConfigThoughtByModel.map { "\($0.key.prefix(12)):\($0.value)" }.joined(separator: ",").prefix(300))"
+            // slashCommands 取证（斜杠命令面数据源：桌面 config 下发的命令清单；
+            // 空列表 = 该桌面未推送，移动端斜杠菜单退化为内建集）
+            let pushed = (config["slashCommands"]?.arrayValue ?? []).compactMap {
+                $0.objectValue?["name"]?.stringValue
+            }
+            shape += " || slash=\(pushed.joined(separator: ","))"
             UserDefaults.standard.set(String(shape.prefix(1600)), forKey: "diag.wc.dump")
             UserDefaults.standard.synchronize()
         }
@@ -4053,12 +4330,36 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
         for command in config["slashCommands"]?.arrayValue ?? [] {
             guard let dict = command.objectValue,
-                  let name = dict["name"]?.stringValue else { continue }
+                  let rawName = dict["name"]?.stringValue else { continue }
+            // 名字归一化【实证·上游仓 slashCommandHelpers.normalizeSlashCommandValue】：
+            // CLI 可能直接下发 "/init" 形态（带前导斜杠），不剥离则菜单渲染成
+            // "//init"、前缀过滤永不命中——上游同款 strip 前导斜杠
+            let name = rawName.trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "^/+", with: "", options: .regularExpression)
+            guard !name.isEmpty else { continue }
             info.slashCommands.append(WorkspaceConfigInfo.SlashCommand(
                 name: name,
                 description: dict["description"]?.stringValue ?? ""))
         }
         workspaceConfigState = info
+    }
+
+    /// configOptions 模型条目键归一为裸 modelId：`providerId/modelId` /
+    /// `providerId/modelId$reasoningLevel`（$ 为档位分隔符，上游仓
+    /// model-selection.ts:31 ZCODE_MODEL_REASONING_SEPARATOR）→ 取首个 `/` 之后、
+    /// 剥离 `$` 档位后缀；无 `/` 按裸 modelId 原样返回（宽容旧桌面纯字符串形态）。
+    /// 拆分规则逐字对齐上游 parseModelPickerValue（model-selection.ts:43）：
+    /// `$` 在段首/段尾不视为分隔符，整段作 modelId。
+    private static func configOptionModelId(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        guard let slash = raw.firstIndex(of: "/") else { return raw }
+        let modelPart = raw[raw.index(after: slash)...]
+        guard let dollar = modelPart.firstIndex(of: "$"),
+              dollar != modelPart.startIndex,
+              modelPart.index(after: dollar) != modelPart.endIndex else {
+            return String(modelPart)
+        }
+        return String(modelPart[modelPart.startIndex..<dollar])
     }
 
     // MARK: model-selection 只读视图（桌面端模型/思考档展示，不调 set*）
@@ -4213,17 +4514,22 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 }
 
 private extension RemoteConversationStore.SessionSummary {
-    /// lastActivityAt 双形态兼容：真实桌面推毫秒时间戳（中继快照实测 1791040344222），
-    /// 替身/早期形态为 ISO8601 字符串——两种都解析
+    /// 时间字段宽容解析：sessions-index 行 lastActivityAt（毫秒数优先，ISO 字符串
+    /// 兜底；中继快照实测 1791040344222 / 替身 ISO 双形态）；bootstrap.tasks /
+    /// listTaskList 行上游 zcodeTaskMetaSchema **无 lastActivityAt**，携带
+    /// updatedAt/createdAt（int 毫秒，validation.ts 实证）——缺此回退曾落
+    /// distantPast，列表渲染「2025年前」（真机报障 2026-10-07）
     static func parseLastActivityAt(_ dict: [String: JSONValue]) -> Date? {
-        if let ms = dict["lastActivityAt"]?.intValue, ms > 0 {
-            return Date(timeIntervalSince1970: Double(ms) / 1000)
-        }
-        if let iso = dict["lastActivityAt"]?.stringValue {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: iso) { return date }
-            return ISO8601DateFormatter().date(from: iso)
+        for key in ["lastActivityAt", "updatedAt", "createdAt"] {
+            if let ms = dict[key]?.intValue, ms > 0 {
+                return Date(timeIntervalSince1970: Double(ms) / 1000)
+            }
+            if let iso = dict[key]?.stringValue {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = formatter.date(from: iso) { return date }
+                if let date = ISO8601DateFormatter().date(from: iso) { return date }
+            }
         }
         return nil
     }

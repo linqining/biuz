@@ -498,6 +498,12 @@ final class ZCodeServerConnection {
             }
         }
         let client = RelayChannelClient(transport: transport, link: link, appVersion: appVersion)
+        // 桥(重)开即重握手（RelayChannelClient.setOnBridgeOpened 注）：首连/断线恢复/
+        // degraded 重建/切换全部路径经 openBridge 汇入，握手在此单点接管——connectRelay
+        // 里不再单独调 performRelayV4Handshake（openBridge 内已先行）
+        await client.setOnBridgeOpened { [weak self] bridgeClient in
+            await self?.performRelayV4Handshake(client: bridgeClient)
+        }
         self.relayTransport = transport
         self.client = client
         self.relayClient = client
@@ -568,10 +574,7 @@ final class ZCodeServerConnection {
             serverInfo = info
             self.workspace = workspace
 
-            // 桥内先 v4 握手（hello → clientHello）再订阅：桌面桥有 handshakeRequired 闸
-            // （探针实测 subscribeSessionsIndexV4 在握手前报 fault.connection.handshakeRequired；
-            // 局域网 server 无此闸，故 connect() 保持先订阅后握手的既有顺序）
-            await performRelayV4Handshake(client: client)
+            // 桥内 v4 握手已由 onBridgeOpened 钩子在 openBridge 内完成（首连同路径）
             frameSubscription = await subscribeFrameStreams(client: client)
             state = .connected(info, workspace: workspace)
             return .success(info)
@@ -591,18 +594,34 @@ final class ZCodeServerConnection {
     }
 
     /// 桥内 v4 握手（helloConversationV4 → initializeConversationV4，clientKind=mobileApp）。
-    /// 桌面桥为标准 channel server（下行 Initialize 实测）；旧版本缺命令时降级放行。
+    /// 每次桥(重)开经 onBridgeOpened 调入（RelayChannelClient.openBridge 注）。旧版本桌面
+    /// 缺命令时降级放行（无握手闸，订阅不受影响）；新桌面瞬态失败（桥刚重建窗口内
+    /// timeout/瞬断）退避 1.2s 重试一次——此前 catch 直降级曾让连接停留在「未握手」态：
+    /// 全部 assertReady 类调用（subscribe*/readSession/rowsRange）持续
+    /// fault.connection.handshakeRequired 直到整轮重连才自愈（真机 2026-10-07
+    /// 18:33-18:34 风暴实证；AGENTS §5.8 中继瞬断退避同口径）。
     private func performRelayV4Handshake(client: any RPCChannelTransport) async {
-        do {
+        func attempt() async throws -> V4HelloMessage {
             let helloValue = try await client.call("zcode-agent", "helloConversationV4", .undefined, timeout: 5)
             guard let hello = V4HelloMessage.parse(helloValue.jsonValue ?? .null) else {
-                log(.info, "中继桥 hello 解析失败（降级继续）")
-                return
+                throw ConnectError.handshakeFailed("hello 解析失败")
             }
             guard hello.protocolVersion == V4HelloMessage.wireProtocolVersion else {
-                log(.info, "中继桥 v4 wire v\(hello.protocolVersion)（降级继续）")
-                return
+                throw ConnectError.handshakeFailed("中继桥 v4 wire v\(hello.protocolVersion)")
             }
+            return hello
+        }
+        do {
+            var hello: V4HelloMessage?
+            do {
+                hello = try await attempt()
+            } catch {
+                // 瞬态失败退避重试一次（旧桌面「方法不存在」类错误重试同样无害——
+                // 二次失败走下方整体降级）
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                hello = try await attempt()
+            }
+            guard let hello else { return }
             let clientHello = RPCValue.jsonObject { builder in
                 builder.set("kind", "clientHello")
                 builder.set("protocolVersion", V4HelloMessage.wireProtocolVersion)
@@ -610,7 +629,12 @@ final class ZCodeServerConnection {
                 builder.set("clientKind", "mobileApp")
                 builder.set("appVersion", appVersion)
             }
-            _ = try await client.call("zcode-agent", "initializeConversationV4", clientHello, timeout: 5)
+            do {
+                _ = try await client.call("zcode-agent", "initializeConversationV4", clientHello, timeout: 5)
+            } catch {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                _ = try await client.call("zcode-agent", "initializeConversationV4", clientHello, timeout: 5)
+            }
             log(.ok, "桥内 v4 握手 · protocolVersion=3 · deliveryProfile=\(hello.deliveryProfile)")
         } catch {
             log(.info, "桥内 v4 握手不可用（降级继续）：\(error.localizedDescription)")

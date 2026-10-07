@@ -17,6 +17,9 @@ struct ConversationListView: View {
     @State private var isLoading = true
     @State private var showNewSheet = false
     @State private var showArchived = false
+    /// 归档区拉取中（26 scope 并发也需要秒级往返——拉取中显示进度而非「暂无」，
+    /// 用户报障 2026-10-07「归档的会话又丢了」感知成因：假空态）
+    @State private var isLoadingArchived = false
     @State private var renameTarget: Conversation?
     @State private var renameText = ""
     /// 来源过滤 chips（持久化；默认「全部」= 既有行为，e2e 不受影响）
@@ -353,7 +356,19 @@ struct ConversationListView: View {
             if supportsArchiveSection {
                 Section {
                     if showArchived {
-                        if archived.isEmpty {
+                        if isLoadingArchived {
+                            HStack(spacing: T.sp2) {
+                                SpinnerView(size: 12)
+                                Text("正在读取已归档会话…")
+                                    .font(T.font(12.5))
+                                    .foregroundColor(T.text3)
+                                Spacer()
+                            }
+                            .frame(minHeight: 44)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .accessibilityIdentifier("04-archived-loading")
+                        } else if archived.isEmpty {
                             Text("暂无已归档会话")
                                 .font(T.font(12.5))
                                 .foregroundColor(T.text3)
@@ -366,8 +381,10 @@ struct ConversationListView: View {
                     Button {
                         Task {
                             showArchived.toggle()
-                            if showArchived, archivedConversations.isEmpty {
+                            if showArchived {
+                                isLoadingArchived = true
                                 archivedConversations = await store.archivedConversations()
+                                isLoadingArchived = false
                             }
                         }
                     } label: {
@@ -638,9 +655,20 @@ struct ConversationListView: View {
     }
 
     private func sectionHeader(_ title: String) -> some View {
+        // List sticky 章节头：不透明底（同列表背景色）——透明头滚动时与行内容
+        // 叠加互透（用户反馈「只有文字在那和其他 ui 叠加相互影响都看不到」）。
+        // full-bleed：清 listRowInsets 由内容自带边距（否则两侧默认 inset 各留
+        // 一条透底缝）+ listRowBackground 盖满整行（List 给 header 行分配的
+        // 高度余量若露底，滚动内容会从横缝里穿出——「中间这么大的一条缝」）
         Text(title)
             .font(T.font(11, .semibold))
             .foregroundColor(T.text3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, T.sp4)
+            .padding(.vertical, 6)
+            .background(T.bg)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(T.bg)
     }
 
     private func row(_ conversation: Conversation) -> some View {
@@ -706,7 +734,7 @@ struct ConversationListView: View {
                 .accessibilityIdentifier("04-ctx-cleanup-\(conversation.id)")
             }
             Button(role: .destructive) {
-                Task { await store.setArchived(true, conversationID: conversation.id) }
+                archiveAction(conversation, archived: true)
             } label: {
                 Label("归档", systemImage: "archivebox")
             }
@@ -723,7 +751,7 @@ struct ConversationListView: View {
                 .accessibilityIdentifier("04-rowact-cleanup-\(conversation.id)")
             }
             Button {
-                Task { await store.setArchived(true, conversationID: conversation.id) }
+                archiveAction(conversation, archived: true)
             } label: {
                 Label("归档", systemImage: "archivebox")
             }
@@ -740,13 +768,34 @@ struct ConversationListView: View {
         }
     }
 
+    /// 归档/取消归档动作（写失败如实提示——store.lastArchiveFailureText 原文上屏，
+    /// groupHint 通道复用；失败不動本地行——store 回滚 + conversationsReplaced 自动回位）
+    private func archiveAction(_ conversation: Conversation, archived: Bool) {
+        Task {
+            await store.setArchived(archived, conversationID: conversation.id)
+            let failure = await store.lastArchiveFailureText()
+            if !failure.isEmpty {
+                // 写失败：归档区本地行放回（store 已回滚 override，主列表行由
+                // conversationsReplaced 回位），失败原文提示
+                showGroupHint(
+                    String(localized: "归档指令失败 · \(failure)"), isError: true)
+                if !archived, showArchived,
+                   !archivedConversations.contains(where: { $0.id == conversation.id }) {
+                    archivedConversations.append(conversation)
+                }
+                return
+            }
+            if archived {
+                conversations.removeAll { $0.id == conversation.id }
+            }
+        }
+    }
+
     /// 已归档行：滑块「取消归档」（unarchiveTask）+ 回到主列表
     private func archivedRow(_ conversation: Conversation) -> some View {
         Button {
-            Task {
-                await store.setArchived(false, conversationID: conversation.id)
-                archivedConversations.removeAll { $0.id == conversation.id }
-            }
+            archiveAction(conversation, archived: false)
+            archivedConversations.removeAll { $0.id == conversation.id }
         } label: {
             HStack(spacing: T.sp2) {
                 Image(systemName: "archivebox")
@@ -775,10 +824,8 @@ struct ConversationListView: View {
         .accessibilityIdentifier("04-archivedrow-\(conversation.id)")
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
-                Task {
-                    await store.setArchived(false, conversationID: conversation.id)
-                    archivedConversations.removeAll { $0.id == conversation.id }
-                }
+                archiveAction(conversation, archived: false)
+                archivedConversations.removeAll { $0.id == conversation.id }
             } label: {
                 Label("取消归档", systemImage: "tray.and.arrow.up")
             }
@@ -823,6 +870,10 @@ struct ConversationRowView: View {
     let conversation: Conversation
 
     private var timeText: String {
+        // 兜底防御：时间字段全缺时 updatedAt=distantPast（公元 1 年）——真机曾渲染
+        // 「2025年前」（报障 2026-10-07）；解析侧已补 updatedAt/createdAt 回退，
+        // 此处再挡不合理旧日期（ZCode 诞生前）不显示时间
+        if conversation.updatedAt.timeIntervalSinceNow < -15 * 365 * 86_400 { return "" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         formatter.locale = Locale(identifier: "zh_CN")
@@ -886,7 +937,16 @@ struct ConversationRowView: View {
                 .clipShape(RoundedRectangle(cornerRadius: T.rM - 2))
                 .overlay(alignment: .bottomTrailing) { runningDot }
         } else {
-            AgentAvatar(size: 40)
+            // 标题首字符头像（用户反馈 2026-10-07「都是 Z 完全没意义」）；CJK 取
+            // 首字、无标题回退 Z。grapheme 取首字：emoji/多字节组合字符不劈半
+            let initial = conversation.title.first.map(String.init) ?? "Z"
+            Text(initial)
+                .font(T.font(17, .semibold))
+                .foregroundColor(T.text2)
+                .frame(width: 40, height: 40)
+                .background(T.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: T.rM - 2))
+                .overlay(RoundedRectangle(cornerRadius: T.rM - 2).stroke(T.border, lineWidth: 1))
                 .overlay(alignment: .bottomTrailing) { runningDot }
         }
     }
@@ -981,7 +1041,9 @@ struct WorkflowRunRailRow: View {
                 .foregroundColor(T.text3)
                 .lineLimit(1)
             if run.agentsWorking > 0 {
-                Text("\(run.agentsWorking) agents working")
+                Text(run.agentsWorking == 1
+                    ? String(localized: "1 agent working")
+                    : String(localized: "\(run.agentsWorking) agents working"))
                     .font(T.mono(9.5, .medium))
                     .foregroundColor(T.blue)
                     .lineLimit(1)

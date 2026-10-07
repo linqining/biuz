@@ -130,3 +130,90 @@ final class CompletenessUnitTests: XCTestCase {
         }
     }
 }
+
+/// 斜杠命令解析（composer 能力命令面；web sX 解析器同构拦截子集，
+/// 2026-10-06 用户报障「命令没有 workflow/goal」——桌面 config slashCommands +
+/// 内建集的菜单数据源之外，发送侧的客户端拦截语义在此定形）。
+final class SlashIntentParseTests: XCTestCase {
+
+    func testGoalFamily() {
+        XCTAssertEqual(ChatViewModel.parseSlashIntent("/goal 完成自测纪律"), .goal(objective: "完成自测纪律"))
+        XCTAssertEqual(ChatViewModel.parseSlashIntent("/target 完成自测纪律"), .goal(objective: "完成自测纪律"), "/target 为 /goal 别名（web 同构）")
+        XCTAssertEqual(ChatViewModel.parseSlashIntent("/goal replace 新目标"), .goal(objective: "新目标"), "replace 首词整词匹配后剥离")
+        XCTAssertNil(ChatViewModel.parseSlashIntent("/goal"), "空目标不拦截（web emptyGoal 特例面 → 原文直发）")
+        XCTAssertNil(ChatViewModel.parseSlashIntent("/goal pause"), "pause/clear/show/resume 子命令不拦截")
+        XCTAssertNil(ChatViewModel.parseSlashIntent("/goal replace"), "replace 无正文 → nil 原文直发")
+    }
+
+    func testPlanAndCompact() {
+        XCTAssertEqual(ChatViewModel.parseSlashIntent("/plan"), .plan(task: ""), "空任务 = 仅切计划模式（web planShortcut !task → sent）")
+        XCTAssertEqual(ChatViewModel.parseSlashIntent("/plan 修复登录页"), .plan(task: "修复登录页"))
+        XCTAssertEqual(ChatViewModel.parseSlashIntent("/compact"), .compact)
+        XCTAssertEqual(ChatViewModel.parseSlashIntent("/compress"), .compact, "compress 为 compact 别名（web 同构）")
+    }
+
+    func testUninterceptedFallsThrough() {
+        XCTAssertNil(ChatViewModel.parseSlashIntent("/workflow 跑一遍回归"), "桌面下发命令原文直发由桌面 agent 解释")
+        XCTAssertNil(ChatViewModel.parseSlashIntent("/side 记一下这件事"), "side/btw 特例面移动端未展开 → 原文直发")
+        XCTAssertNil(ChatViewModel.parseSlashIntent("普通消息不带斜杠"))
+        XCTAssertEqual(ChatViewModel.parseSlashIntent("/goal replaces everything"), .goal(objective: "replaces everything"), "replaces 非整词 replace，整句作为目标文本")
+    }
+}
+
+/// workspace-config 思考档词表键归一（2026-10-07 真机报障 sess_ce4531a1 回归）：
+/// 桌面 configOptions 模型条目 value 为复合串 `providerId/modelId[$reasoningLevel]`
+/// （上游仓 model-selection.ts:34 formatModelPickerValue），词表必须按裸 modelId
+/// 建键——曾整串建键导致 thoughtLevels(for:) 永远 miss，新建会话 sheet 思考档退化
+/// 静态梯（含 medium），首条 turn model_creation 被拒（GLM-5.3 系列 variants 仅
+/// [low,max,high]，Reasoning effort "medium" not supported）。
+final class WorkspaceConfigThoughtKeyTests: XCTestCase {
+
+    private func makeConfigFrame() -> V4TopicFrame {
+        let modelOption: JSONValue = .object([
+            "id": .string("model"),
+            "name": .string("Model"),
+            "type": .string("select"),
+            "currentValue": .string("account:zai-start-plan/GLM-5.3-Flash$max"),
+            "options": .array([
+                // 复合串（上游 formatModelPickerValue 权威形态）+ 档位后缀变体 + 裸串宽容形态
+                .object([
+                    "value": .string("account:zai-start-plan/GLM-5.3-Flash"),
+                    "name": .string("GLM-5.3-Flash"),
+                    "modelThoughtLevels": .array([.string("low"), .string("max"), .string("high")])
+                ]),
+                .object([
+                    "value": .string("account:zai-individual-coding-plan/GLM-5.3$low"),
+                    "name": .string("GLM-5.3"),
+                    "modelThoughtLevels": .array([.string("low"), .string("max"), .string("high")])
+                ]),
+                .object([
+                    "value": .string("LegacyBareModel"),
+                    "modelThoughtLevels": .array([.string("off"), .string("on")])
+                ])
+            ])
+        ])
+        return V4TopicFrame(
+            topic: "workspace-config//tmp/ws", subscriptionId: "sub-test",
+            fromSeq: 0, toSeq: 0, sentAt: nil,
+            snapshot: .object(["config": .object(["configOptions": .array([modelOption])])]),
+            deltas: [])
+    }
+
+    @MainActor
+    func testThoughtVocabularyKeyedByBareModelId() async {
+        let connection = ZCodeServerConnection()
+        let store = await RemoteConversationStore(
+            connection: connection,
+            workspace: ServerWorkspaceInfo(path: "/tmp/ws", label: nil, workspaceIdentity: nil))
+        await store.handleWorkspaceConfigFrame(makeConfigFrame())
+        let flash = await store.thoughtLevels(for: "GLM-5.3-Flash")
+        XCTAssertEqual(flash, ["low", "max", "high"],
+                       "复合串 value 必须归一为裸 modelId 建键（报障根因：整串建键查询必 miss）")
+        let base = await store.thoughtLevels(for: "GLM-5.3")
+        XCTAssertEqual(base, ["low", "max", "high"], "含 $档位 后缀的复合串同样按裸 modelId 命中")
+        let legacy = await store.thoughtLevels(for: "LegacyBareModel")
+        XCTAssertEqual(legacy, ["off", "on"], "无 / 的裸串形态原样建键（宽容旧桌面）")
+        let missing = await store.thoughtLevels(for: "GLM-4")
+        XCTAssertEqual(missing, [], "未下发词表的模型保持空（调用方自行兜底）")
+    }
+}
