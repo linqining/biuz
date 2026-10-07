@@ -144,6 +144,8 @@ xcrun simctl launch booted cn.biuz.mobile \
 - **隐藏入口待恢复清单（恢复条件均为真机探针，HIDDEN 标记在位）**：H1 反馈工单（SettingsView.swift:396——feedback.list 双重未取证，恢复条件=回执成形）；H2 startSavedWorkflow 启动（P2ExtrasViews.swift:1091/:1125——不在 web 枚举，恢复条件=accepted）；H3 检查点入口（FileTreeView.swift:294/:168——三方法 web 0 命中，恢复条件=取证+协议文档立条）；H4 仓库/语音 chips 与 H5 composer 目标菜单（`AppSession.isDemoDataEnabled` gating 隐藏，E2E 依赖保留——常驻化属产品裁决）；设备页云端沙盒行（P2ExtrasViews.swift:728）。
 - **接线遗留**：mobile-view-state-update 场景②（打开任务上报 activeTaskId）——连接层 API 已备（`ZCodeServerConnection.reportActiveTask`，:719 → `RelayChannelClient.updateActiveTask`，:439），触发点在 ChatViewModel/视图打开会话处待接（场景①③已闭环）。
 - **跨工作区元数据写寻址未收口**：archiveTask/unarchiveTask 已按任务行归属工作区寻址；setTaskPinned/renameTask/setTaskUnread 仍发当前连接 workspace（web 语义同为行自带工作区），跨工作区行可能落错区——待同口径跟进（协议文档 §12-6）。
+- **帧面与订阅面必须同 workspace（v1.23，2026-10-08 真机实据 sess_e8677b05）**：上游 conversation 帧按 workspaceKey 分 emitter 推送、连接 scope `ownsFrame` 双重硬匹配，**无跨 workspace 聚合**【实证·上游仓 zcodeAgentService.ts:1568/2098 + zcodeAgentConnectionScope.ts:389-404】——订阅按归属 workspace 寻址（§5 上文 v1.17 面）而 eventListen 帧面挂别的 workspace 时，快照/revision/增量**全部静默丢失**（症状=「任务已发送 + revision 未就绪本地拒发 + 消息区全空」）。移动端 `ensureConversationFrameStream(workspacePath:)` 按 workspace 多路挂帧面（会话订阅前调用，幂等）；新增自愈双保险：sendText accepted 后 2s 投影静默自动 resync（`scheduleProjectionWatchdog`）、`call` 出口捕获 handshakeRequired 重握手重试一次。`diag.watchdog.<id>` 取证键（v1.23，真机验收后清理）。
+
 - **⚠ Localizable.xcstrings 事故（2026-10-06，实现者如实上报）**：一轮恢复文件格式时误执行 `git checkout -- ios/ZCodeMobileApp/Resources/Localizable.xcstrings`，抹掉工作区中**其他波次未提交的约 131 行 en 翻译条目**（未 staged，git 不可恢复）——受影响波次的新增文案在 en 语言态回退显示中文（zh-Hans 源语言不受影响，无编译/功能影响）；相关波次需按其新增 `String(localized:)` 字面量重补 en 条目。
 - `diag.*` 清理待工作流验收后统一执行。
 

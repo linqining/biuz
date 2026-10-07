@@ -2235,6 +2235,75 @@ struct DesktopSettingsPage: View {
     /// 读回执可能的包裹键（宽容形态；整对象兜底见 parseEntries）
     private static let wrapperKeys = ["settings", "values", "data", "config", "items", "entries"]
 
+    /// 设置键 → 中文名【实证·上游仓 packages/ui/src/i18n/locales/zh-CN.ts + 键全集
+    /// validationAppSettings.ts:420-475 appSettingsObjectSchema，2026-10-08 取证】。
+    /// 未收录键（内部态/新增项）回退显示原始键名。
+    private static let keyNames: [String: String] = [
+        "locale": "界面语言",
+        "localePreference": "界面语言偏好",
+        "terminalInheritSystemProfile": "终端继承系统配置",
+        "terminalFontFamily": "终端字体",
+        "integratedTerminalShell": "本机终端 Shell",
+        "httpProxy": "HTTP 代理",
+        "httpProxyNoProxy": "不使用代理的地址",
+        "httpProxyCaCertPath": "自定义代理证书",
+        "embeddedBrowserAllowInsecureCertificates": "忽略证书校验",
+        "embeddedBrowserViewportPreference": "浏览器视口偏好",
+        "computerUseComposerEntryHidden": "输入框显示电脑操作按钮",
+        "taskAutoArchiveEnabled": "自动归档旧任务",
+        "taskAutoArchiveOlderThanDays": "归档保留时长（天）",
+        "closeToTrayOnWindows": "关闭时隐藏到托盘",
+        "keepAwakeWhileRunning": "任务运行时保持电脑唤醒",
+        "desktopZoomLevel": "界面缩放",
+        "desktopWindowSize": "窗口尺寸",
+        "desktopChromiumHardwareAccelerationEnabled": "界面硬件加速",
+        "messageStreamShowReasoning": "显示思考过程",
+        "messageStreamShowTodos": "显示待办列表",
+        "toolGroupingExploreEnabled": "分组显示探索工具",
+        "toolGroupingTerminalEnabled": "分组显示终端命令",
+        "toolGroupingChangesEnabled": "分组显示文件更改",
+        "zcodeInteractionBehavior": "交互行为（审批响应方式）",
+        "askUserQuestionAutoResolutionEnabled": "提问自动继续",
+        "modelIoFullRetentionEnabled": "完整保留模型输入输出",
+        "nativeSearchEnhancementsEnabled": "增强文件搜索（Find/Grep）",
+        "memoryEnabled": "工作区记忆",
+        "proactiveSuggestionsEnabled": "主动任务推荐",
+        "receivePreviewUpdates": "接收预览版更新",
+        "autoDownloadAndInstallUpdates": "自动下载并安装更新",
+        "dataBaseDir": "数据存储路径",
+        "shortcutBindings": "键盘快捷键",
+        "providerFamilyDomain": "套餐区域",
+        "providerFamilyConnectionSelections": "套餐连接选择",
+    ]
+
+    /// 显示值枚举对照（常见枚举的中文渲染；未命中回退原值）
+    private static func localizedValue(_ value: JSONValue) -> String {
+        guard let s = value.stringValue else {
+            if value == .bool(true) { return "开启" }
+            if value == .bool(false) { return "关闭" }
+            return String(describing: value)
+        }
+        switch s {
+        case "zh-CN": return "中文简体"
+        case "en-US": return "English"
+        case "system": return "跟随系统"
+        case "queue": return "排队等待确认"
+        case "guide": return "逐条引导确认"
+        case "zai": return "Z.ai（全球）"
+        case "bigmodel": return "BigModel（中国）"
+        case "auto": return "自动"
+        case "shell": return "指定 Shell"
+        case "cmd": return "CMD"
+        case "git-bash": return "Git Bash"
+        default: return s
+        }
+    }
+
+    /// 行标题：中文映射优先，未收录回退原键名（内部态键如 recentProjects 原样）
+    private static func displayName(for key: String) -> String {
+        keyNames[key] ?? key
+    }
+
     @Environment(AppSession.self) private var session
     @State private var entries: [Entry] = []
     @State private var phase: Phase = .loading
@@ -2360,10 +2429,17 @@ struct DesktopSettingsPage: View {
     private func settingRow(_ entry: Entry) -> some View {
         HStack(spacing: T.sp2) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.key)
+                Text(Self.displayName(for: entry.key))
                     .font(T.font(14.5))
                     .foregroundColor(T.text)
                     .lineLimit(2)
+                // 原始键名副行（中文名映射在场时保留原键可辨识——编辑确认/排障对桌面侧对齐）
+                if Self.keyNames[entry.key] != nil {
+                    Text(entry.key)
+                        .font(T.mono(10))
+                        .foregroundColor(T.text3)
+                        .lineLimit(1)
+                }
             }
             Spacer()
             if busyKey == entry.key {
@@ -2584,7 +2660,10 @@ struct DesktopSettingsPage: View {
         case .bool(let b): return b ? String(localized: "开") : String(localized: "关")
         case .int(let i): return "\(i)"
         case .double(let d): return "\(d)"
-        case .string(let s): return s.isEmpty ? String(localized: "（空）") : s
+        case .string(let s):
+            // 枚举值中文化（zh-CN/queue/zai 等常见档位；未命中回退原文）
+            return s.isEmpty ? String(localized: "（空）") : Self.localizedValue(.string(s))
+        case .object, .array: return Self.localizedValue(value ?? .null)
         default: return "-"
         }
     }

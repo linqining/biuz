@@ -25,10 +25,12 @@ struct SettingsView: View {
                         .accessibilityIdentifier("12-desktop-host")
                 }
                 // H9 连带（设计稿 §1.7.3）：正式口径恒定描述执行边界；演示页脚仅在
-                // -ZCodeDemoData（E2E 演示开关）装配 Mock 时保留（兼容 test06 断言）
+                // -ZCodeDemoData（E2E 演示开关）装配 Mock 时保留（兼容 test06 断言）。
+                // 「文件保持只读」表述已移除（2026-10-08 用户裁决：git/设置等桌面代
+                // 执行写族已开放，只读描述不准确且对用户无价值）
                 Text(session.isDemo
                      ? "BiuZ for iOS · 演示数据由本地 Mock 提供"
-                     : "BiuZ for iOS · 指令经桌面端执行，文件保持只读")
+                     : "BiuZ for iOS · 指令经桌面端执行")
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
                     .frame(maxWidth: .infinity, alignment: .center)

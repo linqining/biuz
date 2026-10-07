@@ -811,6 +811,12 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 Task { await self.resyncAllConversations() }
             }
             // 服务端签名要求 topic + sessionId + workspace 信封（zcodeAgent.ts:144-146）
+            let target = workspaceTarget(for: conversationID, overridePath: nil)
+            // 帧面与订阅同 workspace【P0-1，2026-10-08 真机实据 sess_e8677b05】：订阅按
+            // 归属寻址落 B 区 CLI，而 eventListen 恒绑连接区 A——上游 ownsFrame 按
+            // workspaceKey 硬匹配，B 区帧永不投递（快照/revision/增量全丢）。幂等：
+            // 已挂路直接返回。
+            await connection.ensureConversationFrameStream(workspacePath: target.path)
             let arg = RPCValue.jsonObject { builder in
                 builder.set("topic", topic)
                 applySessionTarget(&builder, sessionID: conversationID)
@@ -1811,7 +1817,29 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             return false
         }
         sendRejections[conversationID] = nil
+        // 投影 watchdog（P0-2，官方 expectAcceptedInputProjection 同构：
+        // conversationProjectionStore.ts:1247-1274 sendText ACK 后 2s 投影静默 →
+        // requestRecovery）：sendText 被桌面接受但 2s 后行表仍无该会话的行
+        // （ userInput 行/快照/增量任一未达——真机 sess_e8677b05 帧 workspace 错位
+        // 的兜底出口），主动 same-sub 全量 resync 拉一次。幂等：行已增长即放弃。
+        scheduleProjectionWatchdog(
+            conversationID: conversationID, anchorRows: anchor + 1)
         return true
+    }
+
+    /// sendText 投影 watchdog：2s 后行数未越过锚点（服务端 userInput 行未达/快照
+    /// 未重放）→ 强制全量 resync 一次。行在 watchdog 窗口内正常到达则无事发生。
+    private func scheduleProjectionWatchdog(conversationID: String, anchorRows: Int) {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self else { return }
+            guard (await self.rows[conversationID]?.count ?? 0) < anchorRows else { return }
+            guard let subId = await self.conversationSubscriptionIds[conversationID] else { return }
+            UserDefaults.standard.set(
+                "sendText accepted 后 2s 投影静默（anchor=\(anchorRows) rows=\(await self.rows[conversationID]?.count ?? -1)）→ resync",
+                forKey: "diag.watchdog.\(conversationID.prefix(14))")
+            await self.forceFullResync(conversationID: conversationID, subscriptionId: subId)
+        }
     }
 
     /// 停止当前 turn（任务页「停止」入口；RemoteTaskStore 委托至此）。

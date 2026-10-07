@@ -192,4 +192,36 @@ final class ProtocolSchemaTests: XCTestCase {
         // 超长原文截断
         XCTAssertEqual(CommandAck.firstReadableMessage(String(repeating: "a", count: 300))?.count, 160)
     }
+
+    func testClientPrefixedRejectionReadsAsLocalBlock() {
+        // client.* 前缀 = 本地拒发（命令未发出）——文案必须区分「本地拦截」与
+        // 「桌面端拒绝」（2026-10-08 用户反馈：本地拒发误导排查方向）
+        let local = CommandAck(.object([
+            "status": .string("rejected"),
+            "reasonCode": .string("client.casRevisionUnavailable"),
+            "message": .string("会话状态 revision 未就绪（快照未到达），命令未发出"),
+        ]))
+        XCTAssertTrue(local.isFailure)
+        let localText = local.failureText ?? ""
+        XCTAssertTrue(localText.contains("本地拦截"), localText)
+        XCTAssertFalse(localText.contains("桌面端拒绝"), localText)
+        XCTAssertTrue(localText.contains("revision 未就绪"), localText)
+
+        // 服务端拒因保持「桌面端拒绝」口径
+        let remote = CommandAck(.object([
+            "status": .string("rejected"),
+            "reasonCode": .string("proto.invalidPayload"),
+            "message": .string("Invalid input"),
+        ]))
+        let remoteText = remote.failureText ?? ""
+        XCTAssertTrue(remoteText.contains("桌面端拒绝"), remoteText)
+        XCTAssertFalse(remoteText.contains("本地拦截"), remoteText)
+    }
+
+    func testHandshakeRequiredDetection() {
+        // 真机取证形态：name="Error"、message="fault.connection.handshakeRequired"
+        let err = RPCError(message: "fault.connection.handshakeRequired", name: "Error")
+        XCTAssertTrue(err.isHandshakeRequired)
+        XCTAssertFalse(RPCError(message: "RPC 超时", name: "TimeoutError").isHandshakeRequired)
+    }
 }

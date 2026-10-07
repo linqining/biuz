@@ -79,6 +79,13 @@ struct RPCError: Error, CustomStringConvertible {
     var detail: JSONValue?
 
     var description: String { "\(name): \(message)" }
+
+    /// 桥重开竞态下 assertReady 类调用的确定性拒绝【实证·上游仓
+    /// zcodeAgentConnectionScope.assertReady】——真机 detail 形态 name="Error"、
+    /// message="fault.connection.handshakeRequired"（sess_e8677b05 rowsRange 取证）
+    var isHandshakeRequired: Bool {
+        message.contains("fault.connection.handshakeRequired")
+    }
 }
 
 // MARK: - 事件订阅句柄

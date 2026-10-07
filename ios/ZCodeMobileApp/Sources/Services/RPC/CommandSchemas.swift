@@ -369,10 +369,20 @@ struct CommandAck: Equatable {
     /// 失败文案（nil=成功/宽容成功）。reasonCode（或 status）+ 首条可读 message——
     /// message 可能是 zod issue 数组 JSON（取首个 "message": "…" 字段）或普通
     /// fault 原文，两者都取到可读文本（v1.21 前两套口径不一致的统一收口）。
+    /// reasonCode 前缀 `client.*` = 本地拒发（命令未发出，如 CAS revision 未就绪/
+    /// schema 违规）——文案区分「本地拦截」与「桌面端拒绝」（2026-10-08 用户反馈：
+    /// 本地拒发曾显示「桌面端拒绝」误导排查方向）。
     var failureText: String? {
         guard isFailure else { return nil }
+        let readable = Self.firstReadableMessage(message)
+        if let reasonCode, reasonCode.hasPrefix("client.") {
+            if let readable {
+                return String(localized: "本地拦截（\(reasonCode)）：\(readable)")
+            }
+            return String(localized: "本地拦截（\(reasonCode)），命令未发出")
+        }
         var detail = reasonCode ?? status ?? "?"
-        if let readable = Self.firstReadableMessage(message) {
+        if let readable {
             detail += "：" + readable
         }
         return String(localized: "桌面端拒绝（\(detail)）")

@@ -876,6 +876,12 @@ final class ZCodeServerConnection {
         frameHandlers.removeAll()
         frameDropHandlers.removeAll()
         workspaceConfigReplay.removeAll()
+        // 多路 conversation 帧面记账随之作废（残留会让重连后 ensureConversationFrameStream
+        // 误判已挂、新连接上帧面缺失——真机重连场景的静默丢帧面）
+        for (_, subscription) in conversationFrameStreams {
+            subscription.cancel()
+        }
+        conversationFrameStreams.removeAll()
         let configTopic = workspaceConfigTopicPath
         let configSubscriptionId = workspaceConfigSubscriptionId
         workspaceConfigTopicPath = nil
@@ -922,9 +928,39 @@ final class ZCodeServerConnection {
 
     // MARK: 帧流订阅（conversation / sessions-index / workspace-config 三路 dynamic 事件）
 
+    /// conversation 帧流按 workspace 多路记账（P0-1 修复，2026-10-08 真机实据）：
+    /// 上游桌面按 workspaceKey 分 emitter 推帧且 ownsFrame 双重硬匹配
+    /// 【实证·上游仓 zcodeAgentService.ts:1568/2098 + zcodeAgentConnectionScope.ts:389-404】
+    /// ——eventListen 挂 A 区而会话订阅在 B 区时帧必丢（真机 sess_e8677b05：订阅按归属
+    /// mtt_mobile 寻址、eventListen 恒绑连接区 poker_protocol → 快照/增量全丢、revision
+    /// 永不就绪；重连后两区对齐帧即恢复）。web 参考客户端按会话归属 workspace 逐路注册
+    /// （workspaceConnectionRegistry），移动端对齐：每 workspacePath 一路 eventListen。
+    private var conversationFrameStreams: [String: EventSubscription] = [:]
+
+    /// 确保指定 workspace 的 conversation 帧流已注册（幂等）。会话订阅前调用——
+    /// 订阅按归属 workspace 寻址（v1.17），帧面必须同 workspace（本方法）。
+    func ensureConversationFrameStream(workspacePath: String) async {
+        guard let client, isActive, !workspacePath.isEmpty else { return }
+        guard conversationFrameStreams[workspacePath] == nil else { return }
+        let arg = RPCValue.jsonObject { builder in
+            builder.set("workspacePath", workspacePath)
+        }
+        // assemblerKey 按 workspace 分键：两路帧流各自重组（TopicWireFrameAssembler
+        // 分片账本不跨流混用）；handler 仍按 frame.topic 精确匹配（routeFrame）
+        let subscription = await client.listen(
+            "zcode-agent", "onDynamicConversationFrame", arg
+        ) { [weak self] payload in
+            self?.routeFrame(payload, assemblerKey: "conversation/\(workspacePath)", handlerKey: nil)
+        }
+        conversationFrameStreams[workspacePath] = subscription
+        log(.ok, "conversation 帧流已挂 · \(workspacePath)")
+    }
+
     /// workspace 级下行帧流：三个 dynamic 事件共用通知面，按 topic 前缀分流；
     /// 另注册 zcode-task.onError（固定事件）进连接日志供诊断。
     /// 局域网与中继共用（中继路径 eventListen 载荷经 rpc-frame 透传，eventFire 结构不变）。
+    /// conversation 首路（连接 workspace）在此注册；其余 workspace 按
+    /// ensureConversationFrameStream 逐路补挂（P0-1）。
     private func subscribeFrameStreams(client: any RPCChannelTransport) async -> EventSubscription {
         // dynamic 事件带参数：{workspacePath}（zcodeAgent.ts WorkspaceTarget）
         let arg = RPCValue.jsonObject { builder in
@@ -933,6 +969,7 @@ final class ZCodeServerConnection {
         let conversationSub = await client.listen("zcode-agent", "onDynamicConversationFrame", arg) { [weak self] payload in
             self?.routeFrame(payload, assemblerKey: "conversation", handlerKey: nil)
         }
+        conversationFrameStreams[workspace?.path ?? ""] = conversationSub
         let sessionsSub = await client.listen("zcode-agent", "onDynamicSessionsIndexFrame", arg) { [weak self] payload in
             self?.routeFrame(payload, assemblerKey: "sessions", handlerKey: "sessions-index")
         }
@@ -1070,6 +1107,10 @@ final class ZCodeServerConnection {
     /// 分类（文件直写/回滚/仓库写/宿主与配置写）在此直接拦截——即使 UI 层有遗漏入口
     /// 也不会触达服务端；消息/审批/停止/队列等桌面代执行命令放行。
     /// mock 演示不经过本连接，演示态交互不受影响。
+    /// 握手自愈（2026-10-08 真机实据）：桥(重)开竞态下 assertReady 类调用可能仍撞
+    /// fault.connection.handshakeRequired（sess_e8677b05 rowsRange 实证——v1.17 单点
+    /// 握手未覆盖全部重建路径）——捕获后重做一次 v4 握手并原样重试一次，把「能发送、
+    /// 收不到」的握手形态在调用出口兜住。
     func call(_ channel: String, _ command: String, _ arg: RPCValue = .undefined,
               timeout: TimeInterval = 30) async throws -> RPCValue {
         guard let client, isActive else {
@@ -1083,7 +1124,15 @@ final class ZCodeServerConnection {
             log(.error, "边界拦截 · \(reason)")
             throw RPCError(message: "移动端边界：\(reason) 属手机直写面，不接", name: "ReadOnlyViolation")
         }
-        return try await client.call(channel, command, arg, timeout: timeout)
+        do {
+            return try await client.call(channel, command, arg, timeout: timeout)
+        } catch let error as RPCError where error.isHandshakeRequired {
+            // 中继桥面专属自愈：重握手后重试一次（重试仍失败如实上抛）
+            guard let relayClient = relayClient else { throw error }
+            log(.info, "handshakeRequired · 重做 v4 握手后重试 \(channel).\(command)")
+            await performRelayV4Handshake(client: relayClient)
+            return try await client.call(channel, command, arg, timeout: timeout)
+        }
     }
 
     func listen(_ channel: String, _ event: String, _ arg: RPCValue = .undefined,
