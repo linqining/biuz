@@ -215,8 +215,8 @@ struct NewConversationSheet: View {
         let selection = pendingModelSelection()
 
         // ① 附件随新会话：draft 创建（桌面不先跑——文件必须先于任务就位），
-        //    暂存文件+文本经交接箱注入会话 composer；模型选择不在 firstInput
-        //    通道（draft 无 firstInput），可在会话内 chips 再选
+        //    暂存文件+文本经交接箱注入会话 composer；模型选择无 firstInput 通道，
+        //    经交接箱随会话首条 sendText.modelSelection 下发（v1.18 限制修复）
         if !stagedFiles.isEmpty {
             let conversation = await conversationStore.createConversation(
                 title: "", directory: projectPath, executor: executor, modelSelection: nil)
@@ -224,7 +224,8 @@ struct NewConversationSheet: View {
             NewConversationHandoffBox.deposit(
                 NewConversationHandoff(
                     draftText: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                    attachments: stagedFiles.map { ($0.name, $0.mediaType, $0.data) }),
+                    attachments: stagedFiles.map { ($0.name, $0.mediaType, $0.data) },
+                    modelSelection: selection),
                 for: conversation.id)
             finishCreated(conversation)
             return
@@ -239,7 +240,8 @@ struct NewConversationSheet: View {
             guard guardCreated(conversation) else { return }
             NewConversationHandoffBox.deposit(
                 NewConversationHandoff(draftText: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                       attachments: []),
+                                       attachments: [],
+                                       modelSelection: selection),
                 for: conversation.id)
             finishCreated(conversation)
             return
@@ -875,10 +877,14 @@ struct StagedNewAttachment: Identifiable {
     let data: Data
 }
 
-/// 新建会话 → 会话页一次性交接（草稿文本 + 暂存附件；按目标 sessionId 键控防错投）
+/// 新建会话 → 会话页一次性交接（草稿文本 + 暂存附件 + 会话前模型选择；
+/// 按 sessionId 键控防错投。modelSelection：draft 创建无 firstInput 通道
+/// （P0 修复 2026-10-07「模型/思考强度没带到会话」）——随首条 sendText 的
+/// modelSelection 下发【实证·上游仓 command.ts sendText schema】）
 struct NewConversationHandoff {
     var draftText: String
     var attachments: [(name: String, mediaType: String, data: Data)]
+    var modelSelection: NewSessionModelSelection?
 }
 
 @MainActor

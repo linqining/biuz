@@ -277,6 +277,40 @@ final class ReadOnlyGateTests: XCTestCase {
         XCTAssertFalse(reason.isEmpty, "applyFileRewind 的 reason 不应为空串")
     }
 
+    // MARK: 嵌套信封形态（P1① 回归门，2026-10-07 审查轮）
+    //
+    // 发送面实际形态为嵌套 `{envelope:{type,payload,…}, workspacePath, …}`
+    // （ConversationCommandFactory/RemoteConversationStore.sendCommand 构造）。
+    // 修复前 gate 只读顶层 `type`，嵌套形态下恒空串——applyFileRewind 拦截成死代码，
+    // 而本文件旧助手只造平铺形态，单测全绿掩盖失守。
+
+    func testNestedEnvelopeApplyFileRewindBlocked() throws {
+        let arg = Self.nestedEnvelope(type: "applyFileRewind", firstInput: nil)
+        let verdict = ReadOnlyGate.inspect(
+            channel: "zcode-agent", command: "sendConversationCommandV4", arg: arg)
+        XCTAssertTrue(verdict.isBlocked, "嵌套信封 applyFileRewind 应拦截（修复前成死代码）")
+        XCTAssertTrue(verdict.reason?.contains("applyFileRewind") == true)
+    }
+
+    func testNestedEnvelopeCreateSessionWithFirstInputIsCommand() {
+        let arg = Self.nestedEnvelope(
+            type: "createSession",
+            firstInput: .object(["text": .string("hi")]))
+        let verdict = ReadOnlyGate.inspect(
+            channel: "zcode-agent", command: "sendConversationCommandV4", arg: arg)
+        XCTAssertEqual(verdict.classification, .command)
+        XCTAssertFalse(verdict.isBlocked)
+    }
+
+    func testNestedEnvelopeSendTextIsCommand() {
+        let arg = Self.nestedEnvelope(
+            type: "sendText",
+            firstInput: .object(["text": .string("hi")])) // firstInput 与 sendText 无关
+        let verdict = ReadOnlyGate.inspect(
+            channel: "zcode-agent", command: "sendConversationCommandV4", arg: arg)
+        XCTAssertEqual(verdict.classification, .command)
+    }
+
     // MARK: 工具
 
     /// sendConversationCommandV4 信封构造（对齐 RemoteConversationStore.sendCommand）
@@ -292,6 +326,27 @@ final class ReadOnlyGateTests: XCTestCase {
             "type": .string(type),
             "payload": .object(payloadFields),
             "issuedAt": .string("2026-01-01T00:00:00Z"),
+        ]))
+    }
+
+    /// 嵌套信封构造（对齐 ConversationCommandFactory 产物：{envelope:{…},
+    /// workspacePath, workspaceIdentity?}）
+    private static func nestedEnvelope(type: String, firstInput: JSONValue?) -> RPCValue {
+        var payloadFields: [String: JSONValue] = ["workspaceId": .string("/tmp/ws")]
+        if let firstInput {
+            payloadFields["firstInput"] = firstInput
+        }
+        let envelope: JSONValue = .object([
+            "commandId": .string(UUID().uuidString),
+            "clientId": .string("zcode-mobile"),
+            "sessionId": .null,
+            "type": .string(type),
+            "payload": .object(payloadFields),
+            "issuedAt": .int(1_760_000_000_000),
+        ])
+        return .json(.object([
+            "envelope": envelope,
+            "workspacePath": .string("/tmp/ws"),
         ]))
     }
 }

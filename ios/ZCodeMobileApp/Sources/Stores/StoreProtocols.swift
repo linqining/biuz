@@ -80,8 +80,10 @@ protocol ConversationStore: AnyObject, Sendable {
     @discardableResult
     func resolveInteractionRaw(_ conversationID: String, interactionId: String, answer: JSONValue) async -> JSONValue?
     /// 失败 turn 重试（G-015）：携行元数据精确游标 {rowId, entityId} 下发 retryTurn；
-    /// 游标缺失（entityId=nil）时调用方不渲染入口，本实现亦不下发
-    func retryTurn(_ conversationID: String, rowId: Int, entityId: String?) async
+    /// 游标缺失（entityId=nil）时调用方不渲染入口，本实现亦不下发。
+    /// 返回命令回执供如实反馈（nil=未送达——此前 `_ =` 丢弃，被拒纯静默）
+    @discardableResult
+    func retryTurn(_ conversationID: String, rowId: Int, entityId: String?) async -> JSONValue?
     /// 会话派生（G-018）：forkAssistant（session 类放行分支）；返回新会话 id（失败 nil）
     func forkConversation(_ conversationID: String) async -> String?
     /// 会话分组管理写面（G-017，均为索引元数据写、桌面代执行合法）。B-3/B-4/C-3/C-4
@@ -239,10 +241,22 @@ protocol ConversationStore: AnyObject, Sendable {
     /// 恒携值（A-2 修正，web sendText delivery 枚举 startNow|queue|guide【实证】）；
     /// "queue" 形态已探针活体验证（diag 探针在案），"guide" 属 sendText 三路
     /// admission 词表【移植】。经 any ConversationStore 调用无默认实参，须显式传。
+    /// modelSelection（P0 修复 2026-10-07「新建会话模型/思考强度没带到会话」）：
+    /// 新建会话 draft 路径（附件/slash 交接）的会话前选择随首条 sendText
+    /// `modelSelection` 下发【实证·上游仓 command.ts sendText schema——迁移注释
+    /// 明说「第一方用户提交始终显式携带」；形状同 firstInput.modelSelection】；
+    /// nil 不携带键。回执判定【实证·上游仓 command.ts commandAckSchema】：
+    /// status ∈ accepted|rejected|stale|duplicate|noop|failed——非 accepted 视为
+    /// 未送达（拒因经 sendRejectionText 读出，撤销乐观回显，禁假成功）。
     @discardableResult
     func sendWithAttachments(
         _ text: String, attachments: [OutgoingAttachment], requestedDelivery: String?,
+        modelSelection: NewSessionModelSelection?,
         in conversationID: String) async -> Bool
+
+    /// 最近一次 sendText 的桌面拒因（nil = 无在案拒因；sendWithAttachments 拒绝
+    /// 时写入、成功时清除——UI 错误行据实呈现「桌面端拒绝（…）」而非泛化未送达）
+    func sendRejectionText(in conversationID: String) async -> String?
 }
 
 /// 附件预览结果（G-014）
@@ -328,7 +342,8 @@ extension ConversationStore {
     func resolveInteractionRaw(_ conversationID: String, interactionId: String, answer: JSONValue) async -> JSONValue? { nil }
 
     /// 失败 turn 重试（演示态无游标面，默认空实现）
-    func retryTurn(_ conversationID: String, rowId: Int, entityId: String?) async {}
+    @discardableResult
+    func retryTurn(_ conversationID: String, rowId: Int, entityId: String?) async -> JSONValue? { nil }
 
     /// 会话派生（演示态本地无桌面 fork 面，默认 nil）
     func forkConversation(_ conversationID: String) async -> String? { nil }
@@ -429,9 +444,13 @@ extension ConversationStore {
     }
     func sendWithAttachments(
         _ text: String, attachments: [OutgoingAttachment], requestedDelivery: String?,
+        modelSelection: NewSessionModelSelection?,
         in conversationID: String) async -> Bool {
         await send(text, in: conversationID)
     }
+
+    /// 拒因读面默认实现（演示态无桌面拒收面，恒 nil；Remote 实现覆写）
+    func sendRejectionText(in conversationID: String) async -> String? { nil }
 }
 
 /// workspace-config topic 投影（workspace-config/<workspacePath> 快照/delta 的只读映射）

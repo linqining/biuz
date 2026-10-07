@@ -167,6 +167,12 @@ final class E2ELoginStubServer {
         get { lock.lock(); defer { lock.unlock() }; return _failConversationSubscribe }
         set { lock.lock(); _failConversationSubscribe = newValue; lock.unlock() }
     }
+    /// 快照帧抑制开关（test15 CAS 本地拒发门：关掉订阅快照 → revision 无从回填
+    /// → 客户端应本地拒发 CAS 命令且替身收不到 sendConversationCommandV4）
+    var suppressConversationSnapshot: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _suppressConversationSnapshot }
+        set { lock.lock(); _suppressConversationSnapshot = newValue; lock.unlock() }
+    }
     /// subscribeConversationV4 被替身拒绝（promiseError）次数
     var conversationSubscribeRejections: Int {
         lock.lock(); defer { lock.unlock() }; return _conversationSubscribeRejections
@@ -370,6 +376,7 @@ final class E2ELoginStubServer {
     private var _promoteDeferredDraftCount = 0
     private var _rowsRangeRequests: [(sessionId: String, beforeRowId: Int?)] = []
     private var _failConversationSubscribe = false
+    private var _suppressConversationSnapshot = false
     private var _conversationSubscribeRejections = 0
     private var _taskEventFireHits = 0
     // MARK: 附件事务替身状态（A-4 链路验收：严格形状校验【实证·上游仓
@@ -396,6 +403,34 @@ final class E2ELoginStubServer {
     private var _lastGoalCommandText: String?
     private var _compactCommandCount = 0
     private var _lastSendTextAttachments: [[String: Any]] = []
+    /// 最近一次 sendText 携带的 modelSelection（test15：draft 交接通道断言面）
+    private var _lastSendTextModelSelection: [String: Any]? = nil
+    var lastSendTextModelSelection: [String: Any]? {
+        lock.lock(); defer { lock.unlock() }; return _lastSendTextModelSelection
+    }
+    /// 最近一次 sendText payload 顶层键集（test15 失败定位：区分「未到达」与「到达未携键」）
+    private var _lastSendTextPayloadKeys: [String] = []
+    var lastSendTextPayloadKeys: [String] {
+        lock.lock(); defer { lock.unlock() }; return _lastSendTextPayloadKeys
+    }
+
+    /// modelSelection StubRPC → 纯值字典（{providerId, modelId, options?:{reasoningLevel}}）
+    private static func plainSelection(_ rpc: StubRPC?) -> [String: Any]? {
+        guard let dict = rpc?.objectValue else { return nil }
+        var out: [String: Any] = [:]
+        for (key, value) in dict {
+            if let s = value.stringValue { out[key] = s }
+            else if let nested = value.objectValue {
+                var inner: [String: Any] = [:]
+                for (k, v) in nested {
+                    if let s = v.stringValue { inner[k] = s }
+                    else if let i = v.intValue { inner[k] = i }
+                }
+                out[key] = inner
+            }
+        }
+        return out.isEmpty ? nil : out
+    }
     // MARK: tasks-index membership / CAS 重试替身状态（v1.15 验收）
     /// switchModelConfig 收到次数（stale-once-then-accepted：第 1 次回 stale，第 ≥2 次
     /// accepted——验证客户端 stale 原样重发一次即命中，用户报障「胶囊切换都不行」）
@@ -960,6 +995,13 @@ final class E2ELoginStubServer {
                 workspaceIdentity: body.objectValue?["workspaceIdentity"]?.stringValue))
             let pendingForSession = sessionPendingInteractions[sessionId(ofTopic: topic)] ?? []
             lock.unlock()
+            // 订阅即发快照帧——同步先于订阅回执（复现中继竞态：桌面「订阅即发快照」，
+            // 快照帧先于回执到达。客户端帧 handler 必须先于订阅调用注册，否则快照
+            // 静默丢失、revision/logEpoch 无从回填（真机报障 2026-10-07「CAS commands
+            // require baseRevision」根因；上游 conversationSnapshotSchema revision/
+            // logEpoch 均必填，替身形态对齐）。rows 恒空数组——行仍走 rowsRange，
+            // 不改变既有行拉取断言面。suppressConversationSnapshot 抑制（test15）。
+            sendConversationSnapshot(topic: topic, channel: channel)
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
                                          body: StubRPC.object(["ok": true, "subscriptionId": "sub-conv-\(UUID().uuidString.prefix(6))"])))
             // 订阅即下发挂起交互（state.updated → ChatView 审批卡数据源）
@@ -999,6 +1041,13 @@ final class E2ELoginStubServer {
             if command == "resyncSessionsIndexV4" {
                 fireSessionsIndex(topic: body.objectValue?["topic"]?.stringValue ?? "sessions-index/unknown",
                                   channel: channel, delays: [0.2])
+            }
+            // conversation resync 重发快照（上游 resyncOwned 全量重发语义——客户端
+            // ensureStateRevision 的 revision 预种兜底路径：订阅常驻不重订时，
+            // resync 是快照/revision 的唯一恢复通道。suppress 时抑制，test15 ①）
+            if command == "resyncConversationV4" {
+                let sid = body.objectValue?["sessionId"]?.stringValue ?? ""
+                sendConversationSnapshot(topic: "conversation/\(sid)", channel: channel)
             }
         case "conversationRowsRangeV4":
             let sessionId = body.objectValue?["sessionId"]?.stringValue ?? ""
@@ -1697,10 +1746,19 @@ final class E2ELoginStubServer {
                 "rowId": bumpRow(sessionId), "kind": "assistantText",
                 "text": "替身回执 · 已收到「\(text)」", "state": "complete",
             ]
+            // modelSelection 记账（test15：新建会话 draft 交接的会话前选择应随首条
+            // sendText 下发——上游 sendText schema modelSelection 可选键）。
+            // 注意转纯值（String/嵌套 [String:String]）：StubRPC 枚举直接入账会让
+            // 测试侧 `as? String` 永远失败（createSession 记账为 JSONValue 映射纯值
+            // 同一口径）
+            let modelSelection = Self.plainSelection(
+                effective?["payload"]?.objectValue?["modelSelection"])
             lock.lock()
             sessionRows[sessionId, default: []].append(contentsOf: [userRow, assistantRow])
             _sendTextCount += 1
             if !attachments.isEmpty { _lastSendTextAttachments = attachments }
+            if let modelSelection { _lastSendTextModelSelection = modelSelection }
+            _lastSendTextPayloadKeys = effective?["payload"]?.objectValue?.keys.sorted() ?? []
             lock.unlock()
             reply(["result": ["accepted": true]])
             // conversation 增量帧：只下发替身回复（用户行客户端已本地回显，避免双气泡）
@@ -2086,6 +2144,43 @@ final class E2ELoginStubServer {
             self._sessionsIndexEventFires += 1
             self.lock.unlock()
         }
+    }
+
+    /// conversation 快照帧（同步即时发送；subscribe 回执前 / resync 回执后两路共用）。
+    /// revision=42/logEpoch=epoch-conv-1 对齐上游 conversationSnapshotSchema（两键必填）；
+    /// rows 恒空数组（行仍走 rowsRange）；suppressConversationSnapshot 抑制（test15）。
+    fileprivate func sendConversationSnapshot(topic: String, channel: ConnectionChannel) {
+        guard let eventId = channel.eventId(for: "onDynamicConversationFrame") else { return }
+        lock.lock()
+        let suppressed = _suppressConversationSnapshot
+        lock.unlock()
+        guard !suppressed else { return }
+        let sid = sessionId(ofTopic: topic)
+        let snapshotFrame: [String: Any] = [
+            "wireVersion": 1,
+            "kind": "complete",
+            "logicalFrameId": UUID().uuidString,
+            "logicalFrameOrdinal": 0,
+            "topic": topic,
+            "subscriptionId": "sub-conv-e2e",
+            "frame": [
+                "topic": topic,
+                "subscriptionId": "sub-conv-e2e",
+                "fromSeq": 0,
+                "toSeq": 0,
+                "sentAt": Self.iso8601.string(from: Date()),
+                "payload": ["kind": "snapshot", "snapshot": [
+                    "sessionId": sid,
+                    "logEpoch": "epoch-conv-1",
+                    "seq": 0,
+                    "revision": 42,
+                    "rows": [],
+                    "state": ["revision": 42, "pendingInteractions": []],
+                ]],
+            ],
+        ]
+        channel.sendWSFrame(rpcFrame(header: [.int(204), .int(eventId)],
+                                     body: StubRPC.object(snapshotFrame)))
     }
 
     /// conversation 增量事件（deltas 逻辑帧，row.appended）

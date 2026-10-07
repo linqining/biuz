@@ -265,16 +265,23 @@ enum ReadOnlyGate {
 
     /// sendConversationCommandV4 信封：applyFileRewind 拦截；带 firstInput 的
     /// createSession 与其余全部 type 归 command（客户端发命令、桌面代执行）放行。
+    /// 信封形态双兼容（P1① 修复，2026-10-07 审查轮）：发送面实际为**嵌套**形态
+    /// `{envelope:{type,payload,…}, workspacePath, …}`（ConversationCommandFactory/
+    /// sendCommand 构造）；历史平铺形态保留兼容（单测与旧替身用）。此前只读顶层
+    /// `type`，嵌套形态下恒为空串——唯一被拦截的 v4 直写命令 applyFileRewind 的
+    /// 拦截判定从未生效（成死代码；单测只造平铺形态故全绿）。
     private static func inspectConversationCommand(_ arg: RPCValue) -> Verdict {
         let dict = arg.jsonValue?.objectValue ?? [:]
-        let type = dict["type"]?.stringValue ?? ""
+        let envelope = dict["envelope"]?.objectValue ?? dict
+        let type = envelope["type"]?.stringValue ?? dict["type"]?.stringValue ?? ""
+        let payload = envelope["payload"] ?? dict["payload"]
         if directWriteConversationTypes.contains(type) {
             return Verdict(
                 classification: .directWrite,
                 reason: "sendConversationCommandV4→\(type)（文件回退直写）")
         }
         if firstInputDependentTypes.contains(type),
-           dict["payload"]?.objectValue?["firstInput"] != nil {
+           payload?.objectValue?["firstInput"] != nil {
             return Verdict(
                 classification: .command,
                 reason: nil) // createSession+firstInput：首条指令随建会话下发，桌面开跑

@@ -14,6 +14,7 @@
 |---|---|
 | `docs/协议接口文档.md` | **协议唯一权威参考**（帧协议、握手、信封纪律、全方法参考、行模型、state 投影） |
 | `docs/立项报告.md` | 立项调研与证据存档（§7.2 协议分类表 ≈ line 386；§8.1 服务 116 方法清单 ≈ line 588）。**只追加不回改**历史章节 |
+| `docs/架构根因分析.md` | **架构根因裁决（2026-10-07）**：15 条上游协议不变量（file:line 固化）、四大静默陷阱、防错总纲、代码审查发现 |
 | `docs/relay-handoff.md` | 云中继对接交接材料（配对链接形态、探针事实） |
 | `docs/acceptance-relay/` | 中继验收截图与探针记录 |
 | `ios/ZCodeMobileApp/Sources/Services/RPC/` | channel 帧协议 + 序列化 + topic 帧（上游 `packages/rpc`、`zcode-protocol-v4` 的 Swift 移植） |
@@ -48,6 +49,7 @@ xcrun simctl launch booted cn.biuz.mobile \
 | `docs/协议接口文档.md` | 协议事实的唯一权威：每个接口的功能、参数、回执、错误、调用点、证据 | **谁改协议谁回写**，与代码变更同一批提交 |
 | `docs/立项报告.md` | 历史调研证据存档（file:line 级引用） | 只追加修订记录，**不回改**已有结论；纠错以「修订条目」形式追加 |
 | `AGENTS.md`（本文件） | 工作指引 + 文档规范 | 规范变化时更新 |
+| `docs/架构根因分析.md` | 架构认知存档：上游不变量清单（file:line 固化）、根因分类统计、防错总纲、历轮审查发现 | 不变量事实不回改；新审查轮次以追加条目更新 |
 | `docs/relay-handoff.md` 等专题文档 | 专题交接材料 | 对应专题变更时更新，并在文首加日期注记 |
 
 ### 4.2 触发器：什么时候必须写文档
@@ -97,7 +99,7 @@ xcrun simctl launch booted cn.biuz.mobile \
 ## 5. 工程纪律（踩过的坑，违反即回归）
 
 1. **【优先级最高】自测后交付**：**除客观限制确实无法自测的以外，所有开发功能必须先自测再交付**——构建过 ≠ 验证过。最低门槛建立在 §3.9 之上：UI/交互改动必须**模拟器实跑**（深链冷启 + 截图目检；能点按验证的写 live/替身 XCUITest 点按验证，先例：`FeatureCompletionE2ETests.testLive_workflowPanelCollapseScrollAndKeyboard` 真实链路点按三联症验证）；数据链路改动必须拿到**真实回执证据**（diag 键/探针回执，先例：`diag.feedback.*` 行级反馈回读取证）。交付说明里注明自测方式与证据；「没测/只编译过」必须在交付说明里显式声明并说明不可测原因，禁止默认沉默当作已测。**构建结果判定禁止 `xcodebuild … | tail` 后接 `&&`**——管道退出码取自 tail 恒 0，编译失败被吞、后续 `test-without-building` 拿旧二进制跑「全绿」（2026-10-07 P1 修复轮实证：假绿测试 + 旧截图双误导）；必须 grep "TEST BUILD SUCCEEDED"/"error:" 显式判定。
-2. **信封纪律**（详见协议文档 §7.1，全部【实证】：嵌套形态、clientId 逐字相等、issuedAt 毫秒数、CAS 类带 baseRevision+baseLogEpoch（快照无 state 的会话先 resync 预种）、会话域必带 workspace 信封）。新写命令**必须走 `RemoteConversationStore.sendCommand`**，禁止自造信封（反面教材：`RemoteTaskStore.stop`）。
+2. **信封纪律**（详见协议文档 §7.1，全部【实证】：嵌套形态、clientId 逐字相等、issuedAt 毫秒数、CAS 类带 baseRevision+baseLogEpoch（快照无 state 的会话先 resync 预种）、会话域必带 workspace 信封）。新写命令**必须走 `RemoteConversationStore.sendCommand`**（v1.22 起内部委托 `ConversationCommandFactory` 构造即校验——CAS 词表缺水位/可信字段/payload 违规在构造期本地拒发），禁止自造信封（反面教材：`RemoteTaskStore.stop`）。
 3. **帧 handler 先于 subscribe 注册**（中继快照帧先于回执到达，晚注册静默丢帧）。
 4. **state/delta 全部「键级整体替换」**，绝不深合并（`workflowRuns`、`workspace-config` 同一口径）。
 5. **所有调用走 `ZCodeServerConnection.call` 唯一出口**（ReadOnlyGate 拦截依赖它；绕过 = 边界失守）。
@@ -117,7 +119,7 @@ xcrun simctl launch booted cn.biuz.mobile \
 ## 6. 未决事项速查（接手先看）
 
 - **中继单连接槽 + 真机 -1001 超时（2026-10-07 用户报障，待取证）**：用户真机走云中继连接 `https://zcode.z.ai/ws?mid=…` 报 `NSURLErrorDomain -1001 请求超时`，同轮用户明示**「同一时间只有一个链接，多个没用」**——验证必须串行化：模拟器 E2E 走本地替身（127.0.0.1）不占真实槽，真机中继验证不得与其他客户端（web/另一模拟器/前会话残留）并行；真机复测前先确认桌面无其他活动远控客户端。根因（服务端单槽拒新/网络/端点形态）待桌面在线轮 diag.remote.* + 桌面日志取证。
-- **新建会话带附件路径的 modelSelection 取舍（v1.18 如实声明）**：带附件开始任务 = draft 创建（createSession 不携 firstInput），modelSelection 无通道——会话内 chips 可再选；如需会话前选择，后续可在 draft 创建后补 switchModelConfig 一跳（现未做，避免多一次 CAS 写）。
+- ~~**新建会话带附件路径的 modelSelection 取舍**~~已收口（v1.21，2026-10-07 用户真机报障「新建会话的模型和思考强度没有带到会话页面，发了消息没有回」）：带附件/slash 输入 draft 创建后，sheet 的会话前模型选择经 `NewConversationHandoff.modelSelection` 交接、随**首条 sendText 的 `modelSelection`** 下发（上游 sendText schema 实证通道，协议文档 §7.2 既有探针活体）；发送成功即清、失败保留重试。同轮三联收口：①发送面回执按 commandAckSchema status 词表判定（非 accepted 撤销回显 + 拒因经 `sendRejectionText` 上屏，禁「任务已发送」假成功）；②CAS 类 revision 未就绪**本地拒发**（合成 rejected `client.casRevisionUnavailable`，不空耗注定被拒的写）；③订阅帧 handler 先于 subscribe 注册（中继快照帧先于回执抵达，晚注册静默丢 revision/logEpoch——真机 `/plan` 被拒 "CAS commands require baseRevision" 根因；E2E 替身补「回执前快照帧」+ suppress 开关，门禁 test15）。
 - ~~`RemoteTaskStore.stop` 信封违规~~已修（2026-10-06：委托 `RemoteConversationStore.stopTurn` 走统一 `sendCommand`）。
 - **信封 sessionId 键恒在场**（2026-10-06 探针实证）：createSession 传 null、其余传目标 id；键缺省被 zod 拒（曾致移动端 createSession 对真实桌面静默全失败）。新写命令一律走 `sendCommand`，禁止自造信封（该教训再次印证）。
 - **CAS stale 重试**（2026-10-06 探针实证）：`proto.staleRevision`/status "stale" 时原样重发一次即命中（sendCASWithRetry）；队列五件/pauseGoal/resumeGoal/retryTurn 已接入，新 CAS 命令接入时沿用。**2026-10-07 三段硬化**：活跃会话单发必撞 stale（diag.wf.control.ui 实证 revisionAtDecision=12119）——重发再 stale 时清 revision 缓存 + resync 取权威 revision 后末次重发（`sendCASWithRetry` 统一承担，switchModelConfig/switchCollaborationMode/setFollowupMode 已接入）；替身 stale-once 绊线注意信封命令实经 `sendConversationCommandV4`（裸方法名分支永不匹配，test12 首版计数恒 0 教训）。
@@ -144,3 +146,16 @@ xcrun simctl launch booted cn.biuz.mobile \
 - **跨工作区元数据写寻址未收口**：archiveTask/unarchiveTask 已按任务行归属工作区寻址；setTaskPinned/renameTask/setTaskUnread 仍发当前连接 workspace（web 语义同为行自带工作区），跨工作区行可能落错区——待同口径跟进（协议文档 §12-6）。
 - **⚠ Localizable.xcstrings 事故（2026-10-06，实现者如实上报）**：一轮恢复文件格式时误执行 `git checkout -- ios/ZCodeMobileApp/Resources/Localizable.xcstrings`，抹掉工作区中**其他波次未提交的约 131 行 en 翻译条目**（未 staged，git 不可恢复）——受影响波次的新增文案在 en 语言态回退显示中文（zh-Hans 源语言不受影响，无编译/功能影响）；相关波次需按其新增 `String(localized:)` 字面量重补 en 条目。
 - `diag.*` 清理待工作流验收后统一执行。
+
+## 7. 架构根因与协议不变量总纲（2026-10-07 架构审查轮）
+
+**裁决**：用户假设「所有问题都源于架构导致消息错误」——**方向正确、全称不成立**。双口径统计（会话库 50 主会话 + docs 58 条事故）：约 5–6 成问题落在「消息形状/信封错(甲) ∪ 架构寻址/时序/生命周期(乙)」，且全部 P0 核心事故（createSession 静默全败、手机端没有回复、/plan CAS 被拒、附件链必坏）在此簇；约 4 成属客户端工程（静默吞错/SwiftUI/a11y）、工具链假绿假红、服务端行为，与协议无因果。甲/乙簇的准确定性是「**客户端未镜像官方客户端的架构保障**」：上游靠单点 builder + 同源 zod + 服务端注入可信字段 + staging barrier + stale 自愈保证形状（官方无 API 文档，源码即唯一权威）。完整裁决/统计/证据：`docs/架构根因分析.md`。
+
+**15 条协议不变量速查**（证据=上游仓 file:line，详见分析文档 §2；违反症状→客户端规则）：
+A1 信封 sessionId 键恒在场（createSession 传 null）→ 走 sendCommand 统一出口；A2 clientId 全生命周期单一来源；A3 CAS 15 命令必带 baseRevision+baseLogEpoch、stale 按 revisionAtDecision 收敛重试；A4 **参数层 strict / payload 层未知键静默剥离**→ 形状只信 schema 源、禁猜键名；A5 hello→clientHello 顺序、能力键只回显 host 宣告过的；A6 每连接 scoped facade、桥重开=全新握手态、sendConversationCommandV4 不过握手闸→ 重握手单点接管；A7 订阅按 params.workspacePath 选 CLI 进程、ownership 按 workspaceKey→ 会话域一律按归属 workspace 寻址；A8 快照帧可先于订阅回执→ 帧 handler 先注册 + subId 先落库；A9 atLogEpoch 不符整批行作废；A10 delta 键级整替不深合并；A11 附件 20MB/64 块/512KiB、chunk 自带 padding、connectionId 服务端注入不可伪造；A12 commandId 重试不变（防双写，写级禁自动重试）；A13 ACK 六态词表（accepted/rejected/stale/duplicate/noop/failed）非 accepted 必上屏 reasonCode+message 原文；A14 帧内容确定性拒收=终态不重试；A15 组织态（pinned/archived）不在协议摘要→ membership join 另源。
+
+**四大静默陷阱（无错误码，表象全是「点了没反应/没有回复」，与吞错症状相同——先分诊再归因）**：① payload 未知键静默剥离；② 桥重开后命令面无握手闸（发送成功/读面 handshakeRequired）；③ 订阅寻址错 workspace（快照可读/增量永不到达）；④ 帧 handler 晚注册（纯丢帧）。**分诊口诀**：发送面查 ACK status 词表 → 读面查握手/寻址/帧序 → 三条都正常才归客户端工程。
+
+**官方五件套的 Swift 镜像已落地（2026-10-07 架构重构轮，详见分析文档 §9）**：①**构造与校验同源**——`ios/ZCodeMobileApp/Sources/Services/RPC/ProtocolSchema.swift`（zod 语义引擎：参数层 strict 拒未知键 / payload 层 strip 剥离+本地显性告警 / 可信字段黑名单硬拒）+ `CommandSchemas.swift`（上游 zcode-protocol-v4 的逐字段移植：信封/CAS 15+5 词表/ACK 六态/22 命令 payload/附件四方法 strict 参数+正则与限额/20MB·64 块·512KiB 常量）；②**信封单点 builder**——`ConversationCommandFactory.swift`（官方 commandFactory 镜像：CAS 词表缺水位**构造时即拒**、commandId 重试不变 A12、产物再经同一 schema 复核），`RemoteConversationStore.sendCommand` 是唯一委托点；③**ACK 激活屏障**——`Stores/Remote/AckActivationBarrier.swift`（订阅回执前帧暂存→subId 落库后原序回放，overflow→全量 resync；上限 256）；④**stale 自愈内建**——`ensureStateRevision` 前置下沉进 `sendCASWithRetry`（调用点漏接成为不可能）；⑤**ACK 统一读面**——`CommandAck`（六态词表+reasonCode/message 原文，zod issue 数组与普通 fault 两形态；sendTextRejectionText/controlFeedback 统一收口）。单测门：`UnitTests/ProtocolSchemaTests|CommandFactoryTests|AckActivationBarrierTests` + ReadOnlyGateTests 嵌套信封回归门。**新 CAS 命令接入 = 只写 Store 方法调 sendCASWithRetry，禁止再手拼 payload 键名**（payload schema 未移植的 type 工厂会告警「未移植」，接入 UI 前先补 schema 条目）。sendCommand 旧「平铺形态兜底」已移除（新 commandId 重发违反 A12 幂等；嵌套形态为 v1.20 起实证唯一主路）。
+
+**本轮代码审查发现已全部处置（2026-10-07 重构轮，P1×3 亲证后修复，详见分析文档 §6/§9）**：① `ReadOnlyGate.swift` 嵌套信封失明已修（读 `envelope.type ?? 顶层`，平铺兼容保留；单测补嵌套形态回归门）；② 订阅回执无 subscriptionId 改走失败路径（conversation→readSession 对账兜底、sessions-index→listSessions 兜底；连锁的「CAS 本地拒发门永久拒发」随之消除）；③ pauseGoal/resumeGoal/retryTurn CAS 前置由 sendCASWithRetry 内建保证，retryTurn 回执上屏（协议签名改 `@discardableResult … -> JSONValue?`）；P2×5：controlFeedback/sendTextRejectionText 统一走 CommandAck（普通 fault message 不再丢弃）、markUnread 写失败回滚本地置位、读面失败与 last-good 共存（`inlineFailureText` 横幅 + `olderLoadFailureText` 分页失败保留入口）、sessions-index 兜底文案走 loadFailureText（不再用 localizedDescription）、forceFullResync 快照 rows 整表替换（幽灵行消除）。附件四方法参数发送前经 strict schema 校验（正则/限额/base64 padding 本地构造期即爆）。

@@ -66,6 +66,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private var workflowApiDiagDone: Set<String> = []
     /// state.workflowRuns 间歇缺席的一次性全量 resync 门槛
     private var workflowResyncTriggered: Set<String> = []
+    /// 订阅回执竞态屏障（官方 ackActivationBarrier 镜像）：订阅回执前到达的帧
+    /// 先暂存、subId 落库后原序回放；订阅失败整体丢弃——「快照帧先于回执」竞态的
+    /// 确定性收口（v1.21 的 handler 先注册是其弱形式，本屏障补齐激活语义）
+    private let frameBarrier = AckActivationBarrier()
+    /// forceFullResync（base=null）已发出、下一帧快照按全量语义整表替换的会话集
+    /// （此前 merge 残留幽灵行——桌面已移除的行在全量 resync 后仍显示，P2）
+    private var fullResyncSnapshotsPending: Set<String> = []
 
     /// 按 Web 构造取证缺失 API 的真实响应（conversationWorkflowRunArtifactsV4 /
     /// ArtifactDataV4 / conversationPlansV4；Web: {...workspace, sessionId, runId}）。
@@ -612,10 +619,19 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 Task { await self.resyncSessionsIndex() }
             }
             let reply = try await connection.call("zcode-agent", "subscribeSessionsIndexV4", arg)
-            // 回执形态：{ack:{subscriptionId,mode,logEpoch}}（中继桥实测）；顶层兼容局域网
+            // 回执形态：{ack:{subscriptionId,mode,logEpoch}}（中继桥实测）；顶层兼容局域网。
+            // 取不到 subId = 丢帧自愈（resyncSessionsIndex）全链路失效——视为订阅
+            // 失败走 listSessions 兜底，不得静默落 nil 仍走成功路径（AGENTS §5-7）
             let ack = reply.jsonValue?["ack"]?.objectValue ?? reply.jsonValue?.objectValue
-            sessionsIndexSubscriptionId = ack?["subscriptionId"]?.stringValue
-            await connection.log(.ok, "subscribeSessionsIndexV4 · \(sessionsIndexSubscriptionId ?? "nil")")
+            guard let subscriptionId = ack?["subscriptionId"]?.stringValue
+                ?? reply.jsonValue?["subscriptionId"]?.stringValue else {
+                listLoadFailure = String(localized: "会话实时同步订阅失败 · 回执缺 subscriptionId（自愈链不可用）")
+                await connection.log(.info, "subscribeSessionsIndexV4 回执缺 subscriptionId：\(String(describing: reply.jsonValue).prefix(200))")
+                await fallbackListSessions()
+                return
+            }
+            sessionsIndexSubscriptionId = subscriptionId
+            await connection.log(.ok, "subscribeSessionsIndexV4 · \(subscriptionId)")
             sessionsIndexSubscription = EventSubscription { [weak self] in
                 guard let self else { return }
                 Task {
@@ -625,9 +641,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             listLoadFailure = nil
         } catch {
             // 订阅失败兜底（named gap「订阅失败列表恒空」）：listSessions 只读拉一次列表。
-            // 快照覆盖语义：订阅成功后帧仍以快照为准。
-            await connection.log(.info, "subscribeSessionsIndexV4 失败，回退 listSessions：\(error.localizedDescription)")
-            listLoadFailure = "会话实时同步订阅失败 · \(error.localizedDescription)"
+            // 快照覆盖语义：订阅成功后帧仍以快照为准。拒因走 loadFailureText
+            // （RPCError.name+message——localizedDescription 对 RPCError 丢真实拒因，§5-12）
+            let failureText = Self.loadFailureText(verb: "订阅会话列表", error: error)
+            await connection.log(.info, "subscribeSessionsIndexV4 失败，回退 listSessions：\(failureText)")
+            listLoadFailure = failureText
             await fallbackListSessions()
         }
     }
@@ -776,6 +794,22 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
         let topic = "conversation/\(conversationID)"
         do {
+            // 帧 handler 先于订阅调用注册【工程纪律 3】+ ACK 激活屏障（官方
+            // ackActivationBarrier.ts:34-64 同构）：回执前到达的帧经
+            // routeConversationFrame 暂存、subId 落库后原序回放——「subscriptionId
+            // 必须先入 store 再 activate 释放暂存帧」（conversationProjectionStore.ts:460-463）。
+            // handler 只是本地路由表，先注册无副作用；订阅失败时残留无害（幂等落表，
+            // 重订阅覆盖）。
+            await frameBarrier.begin(conversationID)
+            await connection.setFrameHandler(topic: topic) { [weak self] frame in
+                Task { await self?.routeConversationFrame(conversationID, frame: frame) }
+            }
+            // 丢帧自愈：conversation assembler 是单键（多会话共用），dropped 时对全部
+            // 已保存 subscriptionId 的订阅逐个 resync（幂等；无水位传 null 走全量快照）
+            await connection.setFrameDropHandler(key: "conversation") { [weak self] in
+                guard let self else { return }
+                Task { await self.resyncAllConversations() }
+            }
             // 服务端签名要求 topic + sessionId + workspace 信封（zcodeAgent.ts:144-146）
             let arg = RPCValue.jsonObject { builder in
                 builder.set("topic", topic)
@@ -791,24 +825,39 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 String(describing: reply.jsonValue).prefix(400), forKey: "diag.sub.reply")
             UserDefaults.standard.synchronize()
             // 回执形态：{ack:{subscriptionId,mode,logEpoch}}（中继桥实测，同 sessions-index）；
-            // 顶层兼容局域网直连。取不到 → resync/丢帧自愈全链路失效（曾致快照状态丢失后无法恢复）
+            // 顶层兼容局域网直连。取不到 = 自愈链路失效（AGENTS §5-7：resync/丢帧自愈
+            // 全依赖 subId），视为订阅失败走兜底链——此前静默落 nil 仍清 loadFailures
+            // 走成功路径，连锁 ensureStateRevision 永不回填 revision → CAS 全族被
+            // 本地拒发门永久拒发该会话（P1②，2026-10-07 审查轮亲证）
             let ack = reply.jsonValue?.objectValue?["ack"]?.objectValue
-            conversationSubscriptionIds[conversationID] =
-                ack?["subscriptionId"]?.stringValue
-                ?? reply.jsonValue?["subscriptionId"]?.stringValue
+            guard let subscriptionId = ack?["subscriptionId"]?.stringValue
+                ?? reply.jsonValue?["subscriptionId"]?.stringValue else {
+                await frameBarrier.abort(conversationID)
+                let detail = String(localized: "订阅会话失败 · 回执缺 subscriptionId（丢帧自愈链不可用）")
+                loadFailures[conversationID] = detail
+                UserDefaults.standard.set(
+                    "sub ERR \(detail) reply=\(String(describing: reply.jsonValue).prefix(200))",
+                    forKey: "diag.conv.\(conversationID.prefix(14))")
+                await reconcileViaReadSession(conversationID)
+                return
+            }
+            conversationSubscriptionIds[conversationID] = subscriptionId
             if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
                 UserDefaults.standard.set(
-                    "subId=\(conversationSubscriptionIds[conversationID] ?? "nil") reply=\(String(describing: reply.jsonValue).prefix(280))",
+                    "subId=\(subscriptionId) reply=\(String(describing: reply.jsonValue).prefix(280))",
                     forKey: "diag.sub.reply")
             }
-            await connection.setFrameHandler(topic: topic) { [weak self] frame in
-                Task { await self?.handleConversationFrame(conversationID, frame: frame) }
-            }
-            // 丢帧自愈：conversation assembler 是单键（多会话共用），dropped 时对全部
-            // 已保存 subscriptionId 的订阅逐个 resync（幂等；无水位传 null 走全量快照）
-            await connection.setFrameDropHandler(key: "conversation") { [weak self] in
-                guard let self else { return }
-                Task { await self.resyncAllConversations() }
+            // 屏障放行：subId 已落库，暂存帧按原序回放；overflow=暂存超限（增量连续性
+            // 不可保证）→ 全量 resync 重建（上游 initialFrameStagingOverflow 同语义）
+            switch await frameBarrier.finish(conversationID) {
+            case .frames(let stagedFrames):
+                for frame in stagedFrames {
+                    handleConversationFrame(conversationID, frame: frame)
+                }
+            case .overflow:
+                await forceFullResync(conversationID: conversationID, subscriptionId: subscriptionId)
+            case .empty:
+                break
             }
             conversationSubscriptions[conversationID] = EventSubscription { [weak self] in
                 guard let self else { return }
@@ -819,6 +868,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 forKey: "diag.conv.\(conversationID.prefix(14))")
             loadFailures[conversationID] = nil
         } catch {
+            // 订阅未成立：暂存帧整体丢弃（未取得订阅的帧不可信）
+            await frameBarrier.abort(conversationID)
             let detail: String
             if let rpcError = error as? RPCError {
                 detail = "name=\(rpcError.name) msg=\(rpcError.message) detail=\(rpcError.detail.map(String.init(describing:)) ?? "nil")"
@@ -885,6 +936,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     private func disposeConversation(_ conversationID: String) async {
         guard let connection, conversationSubscriptions.removeValue(forKey: conversationID) != nil else { return }
+        await frameBarrier.abort(conversationID)
         await connection.removeFrameHandler(topic: "conversation/\(conversationID)")
         conversationSubscriptionIds.removeValue(forKey: conversationID)
         conversationWatermarks.removeValue(forKey: conversationID)
@@ -1005,6 +1057,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     // MARK: 行模型 → ChatMessage 映射
 
+    /// 帧路由（ACK 激活屏障口）：订阅回执未抵达期间到达的帧进暂存，subId 落库后
+    /// 由 finish 原序回放（官方 conversationProjectionStore「subscriptionId 先入
+    /// store 再 activate」同构）；已激活（subId 在案）直通处理。
+    private func routeConversationFrame(_ conversationID: String, frame: V4TopicFrame) async {
+        if conversationSubscriptionIds[conversationID] == nil,
+           await frameBarrier.isInFlight(conversationID) {
+            await frameBarrier.stage(conversationID, frame: frame)
+            return
+        }
+        handleConversationFrame(conversationID, frame: frame)
+    }
+
     private func handleConversationFrame(_ conversationID: String, frame: V4TopicFrame) {
         // 水位记录（resync base）：logEpoch 仅快照携带，缺席沿用旧值
         let previousEpoch = conversationWatermarks[conversationID]?.logEpoch
@@ -1018,14 +1082,22 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 if let revision = dict["revision"]?.intValue {
                     conversationStateRevisions[conversationID] = revision
                 }
+                // 全量 resync 语义标记回收：forceFullResync（base=null）后的第一帧
+                // 快照按权威全集整表替换（桌面已移除的行不残留——P2，2026-10-07
+                // 审查轮）；常规订阅快照仍按 rowId 键级合并（尾部窗口覆盖，旧行
+                // 保留——web 冷/热判定同构）
+                let replaceWholeTable = fullResyncSnapshotsPending.remove(conversationID) != nil
                 if let rowsArray = dict["rows"]?.arrayValue {
-                    var table = rows[conversationID] ?? [:]
+                    var table: [Int: RowRecord] = replaceWholeTable
+                        ? [:] : (rows[conversationID] ?? [:])
                     for row in rowsArray {
                         if let rowId = row.objectValue?["rowId"]?.intValue {
                             table[rowId] = RowRecord(rowId: rowId, json: row)
                         }
                     }
                     rows[conversationID] = table
+                } else if replaceWholeTable {
+                    rows[conversationID] = [:]
                 }
                 if let state = dict["state"] {
                     snapshotState[conversationID] = state
@@ -1574,76 +1646,70 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     private func sendCommand(
         _ type: String, sessionId: String?, payload: JSONValue,
-        casRevision: Bool = false, workspacePathOverride: String? = nil) async -> JSONValue? {
+        casRevision: Bool = false, workspacePathOverride: String? = nil,
+        commandId: String? = nil
+    ) async -> JSONValue? {
         guard let connection else { return nil }
-        let clientID = connection.registeredClientId
-        let issuedAt = Int(Date().timeIntervalSince1970 * 1000)
         // CAS 类命令携当前 state 定位：baseRevision（state.revision）+
-        // baseLogEpoch（订阅水位，桌面校验两者必须同时在场）
-        var baseRevision: Int?
-        var baseLogEpoch: String?
+        // baseLogEpoch（订阅水位——桌面校验两者必须同时在场，缺一必拒）
+        var cas: (revision: Int, logEpoch: String)?
         if casRevision {
-            baseRevision = conversationStateRevisions[sessionId ?? ""]
-            baseLogEpoch = conversationWatermarks[sessionId ?? ""]?.logEpoch
+            cas = conversationStateRevisions[sessionId ?? ""].flatMap { revision in
+                conversationWatermarks[sessionId ?? ""]?.logEpoch
+                    .map { (revision: revision, logEpoch: $0) }
+            }
         }
-        var envelope: [String: JSONValue] = [
-            "commandId": .string(UUID().uuidString),
-            "clientId": .string(clientID),
-            "type": .string(type),
-            "payload": payload,
-            "issuedAt": .int(issuedAt),
-        ]
-        // sessionId 键恒在场（web zC 同构）：createSession 传 null（桌面 zod 对该键
-        // "expected string, received undefined" 拒绝缺省——探针实证），其余命令传目标
-        envelope["sessionId"] = sessionId.map { .string($0) } ?? .null
-        if let baseRevision { envelope["baseRevision"] = .int(baseRevision) }
-        if let baseLogEpoch { envelope["baseLogEpoch"] = .string(baseLogEpoch) }
-        // workspace 信封按目标会话归属寻址【实证·上游仓 workspaceConnectionRegistry】：
-        // web 的 transport 按 workspace scope 建立、写命令恒带会话自己的 workspacePath
-        // ——此前恒带连接当前 workspace，远控上下文绑定其他 workspace 时跨工作区写
-        // 全被桌面拒（真机报障 2026-10-07「发送会话都失败了/新建会话不行」；读面为
-        // 宿主级不受影响）。identity 仅在能解析时携带（web scope 转换器：缺席不携键）
-        let target = workspaceTarget(
-            for: sessionId, overridePath: workspacePathOverride)
-        var outer: [String: JSONValue] = ["envelope": .object(envelope)]
-        outer["workspacePath"] = .string(target.path)
-        if let identity = target.identity, !identity.isEmpty {
-            outer["workspaceIdentity"] = .string(identity)
+        // 信封单点构造（官方 commandFactory.ts:51-70 镜像）：构造即校验（payload
+        // strip 规范化 + 可信字段黑名单 + CAS 词表门 + 信封 schema 复核）。本方法是
+        // 全仓唯一合法的 sendConversationCommandV4 构造点（AGENTS §5-2）。workspace
+        // 信封按目标会话归属寻址（v1.16 实证：此前恒带连接 workspace，跨工作区写全
+        // 被桌面拒）；identity 缺席不携键（web scope 转换器同构）
+        let target = workspaceTarget(for: sessionId, overridePath: workspacePathOverride)
+        let request = ConversationCommandRequest(
+            type: type,
+            sessionId: sessionId,
+            payload: payload,
+            casRevision: cas,
+            workspacePath: target.path,
+            workspaceIdentity: target.identity,
+            commandId: commandId ?? UUID().uuidString)
+        let built: ConversationCommandFactory.Built
+        switch ConversationCommandFactory.build(
+            request,
+            clientId: connection.registeredClientId,
+            issuedAt: Int(Date().timeIntervalSince1970 * 1000)
+        ) {
+        case .failure(let rejection):
+            // 本地拒发（client.casRevisionUnavailable / client.schemaViolation）：
+            // 合成拒收回执走调用方既有失败呈现（假成功禁令 §5-12），不空耗注定
+            // 被拒或违规的写。schemaViolation 落 diag 供取证（复用 diag.cmd.shape 键）
+            if rejection.reasonCode == "client.schemaViolation" {
+                UserDefaults.standard.set(
+                    "\(type): \(rejection.message)", forKey: "diag.cmd.shape")
+            }
+            return rejection.syntheticAck
+        case .success(let value):
+            built = value
         }
         do {
             let ack = try await connection.call(
-                "zcode-agent", "sendConversationCommandV4", .json(.object(outer)))
+                "zcode-agent", "sendConversationCommandV4", .json(built.outer))
             if let json = ack.jsonValue {
                 // 回执 revisionAtDecision 回填为最新 state revision（CAS 后续命令用）
                 if let sessionId, let decided = json["revisionAtDecision"]?.intValue, decided > 0 {
                     conversationStateRevisions[sessionId] = decided
                 }
                 if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
-                    UserDefaults.standard.set("type=\(type) envelope 形态成功", forKey: "diag.cmd.shape")
+                    UserDefaults.standard.set(
+                        "type=\(type) ok warnings=\(built.warnings.prefix(2).joined(separator: " | "))",
+                        forKey: "diag.cmd.shape")
                 }
             }
             return ack.jsonValue
         } catch {
-            // 兜底：平铺形态（旧实现；sendText 曾实证可用）
-            let flat = RPCValue.jsonObject { builder in
-                builder.set("commandId", UUID().uuidString)
-                builder.set("clientId", clientID)
-                applySessionTarget(&builder, sessionID: sessionId)
-                builder.set("type", type)
-                builder.set("payload", payload)
-                builder.set("issuedAt", issuedAt)
-                if let baseRevision { builder.set("baseRevision", baseRevision) }
-                if let baseLogEpoch { builder.set("baseLogEpoch", baseLogEpoch) }
-            }
-            if let ack = try? await connection.call(
-                "zcode-agent", "sendConversationCommandV4", flat) {
-                if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
-                    UserDefaults.standard.set(
-                        "type=\(type) envelope 失败后平铺成功", forKey: "diag.cmd.shape")
-                    UserDefaults.standard.synchronize()
-                }
-                return ack.jsonValue
-            }
+            // 「平铺形态兜底」已移除（2026-10-07 重构）：兜底用新 commandId 重发违反
+            // A12 幂等纪律（首次若实际执行仅回执丢失 = 双写）；嵌套形态自 v1.20 起
+            // 为多轮探针实证唯一主路（队列 CAS/stop/createSession 全 accepted）
             if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
                 UserDefaults.standard.set(
                     "type=\(type) envErr=\(String(describing: error).prefix(300))",
@@ -1659,7 +1725,26 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 回显按「发送时已知行数」锚点插入保持时间序（服务端不回推用户行时也不乱序）；
     /// 下发失败（连接断开/边界拦截）撤销回显，如实反馈未送达。
     func send(_ text: String, in conversationID: String) async -> Bool {
-        await sendWithAttachments(text, attachments: [], requestedDelivery: nil, in: conversationID)
+        await sendWithAttachments(
+            text, attachments: [], requestedDelivery: nil, modelSelection: nil,
+            in: conversationID)
+    }
+
+    /// 最近一次 sendText 桌面拒因（sendRejectionText 协议读面；成功发送即清除）
+    private var sendRejections: [String: String] = [:]
+
+    func sendRejectionText(in conversationID: String) async -> String? {
+        sendRejections[conversationID]
+    }
+
+    /// sendText 回执判定【实证·上游仓 command.ts commandAckSchema】：status ∈
+    /// accepted|rejected|stale|duplicate|noop|failed。经 CommandAck 统一解析
+    /// （六态词表 + reasonCode/message——message 兼容普通 fault 文本与 zod issue
+    /// 数组两形态；旧桌面缺 status 字段按成功，不破坏现有可用路径）。
+    /// 返回 nil = 送达；非 nil = 拒因文案。
+    nonisolated static func sendTextRejectionText(_ ack: JSONValue?) -> String? {
+        guard ack?.objectValue != nil else { return String(localized: "连接中断，消息未送达") }
+        return CommandAck(ack).failureText
     }
 
     /// 携附件发送（P1-1）：attachments 非空时 sendText payload 附加 `attachments`
@@ -1671,8 +1756,12 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// "queue" 形态已探针活体验证（runQueueCASProbeDiag），"guide" 属 sendText
     /// 三路 admission 词表【移植 session-flow.ts】；nil/空串不携带键。A-2 修正：
     /// now 档由调用方恒携 "startNow"（web delivery 枚举【实证】），不再保守缺省。
+    /// modelSelection（P0 修复 2026-10-07）：新建会话 draft 路径的会话前选择随首条
+    /// sendText 下发【实证·上游仓 command.ts sendText schema modelSelection 可选、
+    /// 迁移注释明说第一方发送端显式携带；形状同 firstInput.modelSelection】。
     func sendWithAttachments(
         _ text: String, attachments: [OutgoingAttachment], requestedDelivery: String?,
+        modelSelection: NewSessionModelSelection?,
         in conversationID: String) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
@@ -1686,6 +1775,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         if let requestedDelivery, !requestedDelivery.isEmpty {
             payload["requestedDelivery"] = .string(requestedDelivery)
         }
+        if let selection = modelSelection {
+            // 形同 firstInput.modelSelection（web U7e）：档位缺席时整个 options 略去
+            var selectionPayload: [String: JSONValue] = [
+                "providerId": .string(selection.providerId),
+                "modelId": .string(selection.modelId),
+            ]
+            if !selection.reasoningLevel.isEmpty {
+                selectionPayload["options"] = .object(
+                    ["reasoningLevel": .string(selection.reasoningLevel)])
+            }
+            payload["modelSelection"] = .object(selectionPayload)
+        }
         if !attachments.isEmpty {
             // B-1：元素键 {ref, fileName, mime, bytes}（web wire 同形）
             payload["attachments"] = .array(attachments.map { att in
@@ -1698,14 +1799,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             })
         }
         let ack = await sendCommand("sendText", sessionId: conversationID, payload: .object(payload))
-        if ack == nil {
-            // 未送达：撤销乐观回显（在途表同步清除），下次重试不产生重影
+        if let rejection = Self.sendTextRejectionText(ack) {
+            // 未送达（连接断开/桌面拒收）：撤销乐观回显（在途表同步清除），下次重试
+            // 不产生重影；拒因在案供 UI 错误行据实呈现（写面禁假成功 §5.12——
+            // rejected 回执此前被当作「任务已发送」，用户侧表现为「发了没有回复」）
             pendingLocalSends[conversationID]?.removeValue(forKey: echoID)
             messages[conversationID]?.removeAll { $0.id == echoID }
             yieldToAll(.messagesReplaced(
                 conversationID: conversationID, messages: messages[conversationID] ?? []))
+            sendRejections[conversationID] = rejection
             return false
         }
+        sendRejections[conversationID] = nil
         return true
     }
 
@@ -1966,6 +2071,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     }
 
     /// 标记未读（P1-5）：本地置位 + setTaskUnread unread:true（compare-and-clear 的反向）。
+    /// 写失败回滚本地置位（写面禁静默 §5-12——此前 `_ = try?` 吞错：本地已读、
+    /// 快照回弹，用户点按无任何反馈；回滚=可见失败，下次快照真置位会再同步）。
     func markUnread(conversationID: String) async {
         localUnreadFlags[conversationID] = true
         yieldConversationsReplaced()
@@ -1974,7 +2081,12 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         builder.set("taskId", conversationID)
         builder.set("workspacePath", rowWorkspacePath(conversationID))
         builder.set("unread", true)
-        _ = try? await connection.call("zcode-task", "setTaskUnread", .json(.object(builder.fields)))
+        do {
+            _ = try await connection.call("zcode-task", "setTaskUnread", .json(.object(builder.fields)))
+        } catch {
+            localUnreadFlags[conversationID] = nil
+            yieldConversationsReplaced()
+        }
     }
 
     /// 已读清零：本地清零 + setTaskUnread（compare-and-clear 防并发覆盖；
@@ -2482,6 +2594,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         // ownership 按 `workspaceKey(params)` 匹配订阅登记——订阅改按会话归属寻址后，
         // resync 缺 workspace/带错 workspace 都会 fault.subscription.notOwned】
         applySessionTarget(&builder, sessionID: conversationID)
+        // 全量语义标记：下一帧快照 rows 整表替换（handleConversationFrame 回收）
+        fullResyncSnapshotsPending.insert(conversationID)
         _ = try? await connection.call(
             "zcode-agent", "resyncConversationV4", .json(.object(builder.fields)))
     }
@@ -2956,31 +3070,54 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// CAS 命令发送 + stale 一次重试（探针实证 2026-10-06：队列准入/排空会在两条
     /// 命令间推进 revision，回填值落后即 `proto.staleRevision`/status "stale"；
     /// stale 回执自带最新 revisionAtDecision——sendCommand 已回填，原样重发一次即命中）
+    /// CAS 命令发送 + stale 收敛自愈（官方 sendHostCasCommandV4 的探测-收敛循环
+    /// 镜像）。**前置公共步已内建**（2026-10-07 重构下沉）：revision 缺失先
+    /// resync+轮询——此前依赖调用点各自 ensureStateRevision，pauseGoal/retryTurn
+    /// 漏接导致冷启动首击必撞本地拒发门（P1③）；commandId 全程不变（A12 幂等：
+    /// 上游同 (sessionId, commandId) 重试回放 duplicate，不构成双写）。
     private func sendCASWithRetry(
         _ type: String, sessionId: String, payload: JSONValue) async -> JSONValue? {
-        let first = await sendCommand(type, sessionId: sessionId, payload: payload, casRevision: true)
-        guard first?["status"]?.stringValue == "stale" else { return first }
+        // 前置公共步（幂等：revision 在案即返回）
+        await ensureStateRevision(sessionId)
+        let commandId = UUID().uuidString
+        var ack = await sendCommand(
+            type, sessionId: sessionId, payload: payload, casRevision: true,
+            commandId: commandId)
+        guard ack?["status"]?.stringValue == "stale" else { return ack }
         // 原样重发一次（revisionAtDecision 已回填最新 revision——探针实证口径）
-        let second = await sendCommand(type, sessionId: sessionId, payload: payload, casRevision: true)
-        guard second?["status"]?.stringValue == "stale" else { return second }
+        ack = await sendCommand(
+            type, sessionId: sessionId, payload: payload, casRevision: true,
+            commandId: commandId)
+        guard ack?["status"]?.stringValue == "stale" else { return ack }
         // 活跃会话兜底（用户报障 2026-10-07「胶囊切换都不行」：agent 运行中 revision
         // 持续前进，重发窗口内可再次 stale）——强制 resync 取权威 revision 后末次重发
         conversationStateRevisions[sessionId] = nil
         await triggerResync(sessionId)
         await ensureStateRevision(sessionId)
-        return await sendCommand(type, sessionId: sessionId, payload: payload, casRevision: true)
+        return await sendCommand(
+            type, sessionId: sessionId, payload: payload, casRevision: true,
+            commandId: commandId)
     }
 
     /// CAS 前置公共步：revision 缺失（冷启动刚进会话/快照未带 state）先 resync
     /// 拉带 state 的快照并轮询等待（帧异步，固定 0.9s 曾不够）。探针实证：队列
     /// 命令缺此步时冷启动首击必被拒（"CAS commands require baseRevision and
     /// baseLogEpoch"）——switchModelConfig 同款前置，队列五件统一接入。
+    /// 直发 forceFullResync 而非 triggerResync（后者 5s 节流——连续 CAS 场景
+    /// ensureStateRevision 会被节流吞成纯等待，revision 永远等不到）；等待中段
+    /// 再补发一次（首包快照与 resync 帧竞态的双保险）。
     private func ensureStateRevision(_ conversationID: String) async {
         guard conversationStateRevisions[conversationID] == nil else { return }
-        await triggerResync(conversationID)
-        for _ in 0..<10 {
+        if let subId = conversationSubscriptionIds[conversationID] {
+            await forceFullResync(conversationID: conversationID, subscriptionId: subId)
+        }
+        for round in 0..<10 {
             if conversationStateRevisions[conversationID] != nil { break }
             try? await Task.sleep(nanoseconds: 300_000_000)
+            if round == 4, conversationStateRevisions[conversationID] == nil,
+               let subId = conversationSubscriptionIds[conversationID] {
+                await forceFullResync(conversationID: conversationID, subscriptionId: subId)
+            }
         }
     }
 
@@ -3544,11 +3681,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// （execution 词表成员，ReadOnlyGate command 类放行）。entityId 缺失时调用方
     /// 不渲染入口；此实现再兜一层（不虚构「已重试」）。web vle/yle 双集合成员：
     /// 须携 baseRevision+baseLogEpoch（CAS+row-target 双类），否则桌面拒。
-    func retryTurn(_ conversationID: String, rowId: Int, entityId: String?) async {
-        guard let entityId, !entityId.isEmpty else { return }
+    /// 回执返回供调用方如实反馈（2026-10-07 重构：此前 `_ =` 丢弃——被拒时纯静默）
+    @discardableResult
+    func retryTurn(_ conversationID: String, rowId: Int, entityId: String?) async -> JSONValue? {
+        guard let entityId, !entityId.isEmpty else { return nil }
         var target: [String: JSONValue] = ["rowId": .int(rowId)]
         target["entityId"] = .string(entityId)
-        _ = await sendCASWithRetry(
+        return await sendCASWithRetry(
             "retryTurn",
             sessionId: conversationID,
             payload: .object(["target": .object(target)]))
@@ -4094,6 +4233,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         builder.set("totalBytes", totalBytes)
         builder.set("totalChunks", totalChunks)
         builder.set("checksum", checksum)
+        // 参数层 strict 校验（构造与校验同源：transport.ts:832-952 附件四方法全
+        // .strict()——正则/限额在本地构造期即爆，替代「发出后服务端 zod 拒」）
+        let paramCheck = PValidator.validate(
+            .object(builder.fields),
+            schema: .object(CommandSchemas.attachmentBeginParamsShape()),
+            path: "attachmentBeginV4")
+        guard paramCheck.isValid else {
+            return .failure(AttachmentRPCError(
+                text: "参数校验失败：" + paramCheck.errors.joined(separator: "; ")))
+        }
         do {
             let ack = try await connection.call(
                 "zcode-agent", "attachmentBeginV4", .json(.object(builder.fields)))
@@ -4148,6 +4297,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         builder.set("sessionId", sessionID)
         builder.set("chunkIndex", chunkIndex)
         builder.set("dataBase64", dataBase64)
+        // 参数层 strict 校验（含 chunk base64 自带 padding + ≤512KiB 解码上限——
+        // A11 不变量本地前移）
+        let paramCheck = PValidator.validate(
+            .object(builder.fields),
+            schema: .object(CommandSchemas.attachmentChunkParamsShape()),
+            path: "attachmentChunkV4")
+        guard paramCheck.isValid else {
+            return .failure(AttachmentRPCError(
+                text: "参数校验失败：" + paramCheck.errors.joined(separator: "; ")))
+        }
         do {
             let ack = try await connection.call(
                 "zcode-agent", "attachmentChunkV4", .json(.object(builder.fields)))
@@ -4179,6 +4338,14 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         applySessionTarget(&builder, sessionID: sessionID)
         builder.set("uploadId", uploadId)
         builder.set("sessionId", sessionID)
+        let paramCheck = PValidator.validate(
+            .object(builder.fields),
+            schema: .object(CommandSchemas.attachmentFinishParamsShape()),
+            path: "attachmentCommitV4")
+        guard paramCheck.isValid else {
+            return .failure(AttachmentRPCError(
+                text: "参数校验失败：" + paramCheck.errors.joined(separator: "; ")))
+        }
         do {
             let ack = try await connection.call(
                 "zcode-agent", "attachmentCommitV4", .json(.object(builder.fields)))
@@ -4212,6 +4379,14 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         applySessionTarget(&builder, sessionID: sessionID)
         builder.set("uploadId", uploadId)
         builder.set("sessionId", sessionID)
+        let paramCheck = PValidator.validate(
+            .object(builder.fields),
+            schema: .object(CommandSchemas.attachmentFinishParamsShape()),
+            path: "attachmentAbortV4")
+        guard paramCheck.isValid else {
+            return .failure(AttachmentRPCError(
+                text: "参数校验失败：" + paramCheck.errors.joined(separator: "; ")))
+        }
         do {
             _ = try await connection.call(
                 "zcode-agent", "attachmentAbortV4", .json(.object(builder.fields)))

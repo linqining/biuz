@@ -866,6 +866,14 @@ final class FeatureCompletionE2ETests: XCTestCase {
         waitLabel(trigger, contains: "E2E-Relay-Mac", timeout: 8,
                   "点击「我的 Mac」应选中（胶囊回显设备名，菜单收起）")
 
+        // ③b 协作模式自绘面板目检（本轮统一 ComposerOptionSheet 交付；开 → 照 → 收）
+        element(app, "05-chip-mode").tap()
+        XCTAssertTrue(element(app, "05-composer-option-sheet").waitForExistence(timeout: 6),
+                      "协作模式胶囊应弹自绘面板（ComposerOptionSheet）")
+        snap(app, "56-collab-option-sheet")
+        element(app, "05-composer-option-cancel").tap()
+        _ = waitGoneQuickly(element(app, "05-composer-option-sheet"), within: 4)
+
         // ④ 切换后发送仍真实到达替身（替身计数断言；目标为 UI+持久化面，
         //    v4 下发通道不变——客户端发命令、桌面代执行边界）。
         //    菜单选中后的收起动画可能吞掉首次 send tap：有界重发（文本保持在
@@ -1373,6 +1381,112 @@ final class FeatureCompletionE2ETests: XCTestCase {
         XCTAssertTrue(element(application, "12-usage-claim-notice").waitForExistence(timeout: 8),
                       "用卡成功应出现反馈行")
         snap(application, "51-reset-card-used")
+    }
+
+    /// test15 CAS 本地拒发门 + draft 交接 modelSelection（真机报障 2026-10-07
+    /// 「新建会话的模型和思考强度没有带到会话页面，发了消息没有回」回归，v1.21）：
+    /// ① 快照被抑制（复现中继快照帧丢失）→ revision 无从回填 → 点思考胶囊切换时
+    ///    CAS 命令应**本地拒发**（替身 switchModelConfig 零到达——修复前照发缺字段
+    ///    信封被桌面拒 "CAS commands require baseRevision and baseLogEpoch"）+ 拒因
+    ///    上屏；重进会话（快照恢复）后同一操作应到达替身（stale-once → 重发 ≥2）。
+    /// ② 新建 sheet slash 输入（draft 创建路径②）→ 交接箱携 modelSelection →
+    ///    首条 sendText 应携带 modelSelection（上游 sendText schema 实证通道；
+    ///    修复前 draft 路径该字段整段丢失）。
+    func test15_casLocalGateAndDraftModelSelectionHandoff() throws {
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+
+        // ── ① 快照抑制 → CAS 本地拒发 ──
+        stub.suppressConversationSnapshot = true
+        let detailRow = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(openConversation(detailRow, application: application),
+                      "点击会话行应推入详情")
+        let thoughtChip = element(application, "05-chip-thought")
+        XCTAssertTrue(thoughtChip.waitForExistence(timeout: 12), "思考胶囊应在场（连接态 chips）")
+        let lowItems = application.buttons.matching(NSPredicate(format: "label == 'low'"))
+        XCTAssertTrue(openTargetMenu(thoughtChip, candidate: lowItems),
+                      "点思考胶囊应弹出菜单（low 档项在场）")
+        lowItems.firstMatch.tap()
+        // 本地拒发：revision 未就绪，命令不得到达桌面（网络零写）。
+        // 反馈窗口放宽至 12s——suppress 下 ensureStateRevision 需走完 resync 轮询
+        // （首查 + 1.5s 中段二查 + 10×300ms ≈ 最长 4.5s）才返回合成拒收回执
+        XCTAssertTrue(waitUntil(timeout: 12, "本地拒发应即时给反馈") {
+            element(application, "05-composer-switch-hint").exists
+        }, "revision 未就绪的 CAS 切换应上屏拒因而非静默")
+        XCTAssertEqual(stub.switchModelConfigCallCount, 0,
+                       "revision 未就绪时 switchModelConfig 应本地拒发，不得到达桌面" +
+                       "（实际到达 \(stub.switchModelConfigCallCount) 次）")
+
+        // ── ①b 快照恢复 → 同一操作可达桌面（stale-once → 重发）──
+        stub.suppressConversationSnapshot = false
+        app_navigationBack(application)
+        waitGoneQuickly(element(application, "05-composer-input"), within: 4)
+        XCTAssertTrue(openConversation(detailRow, application: application),
+                      "重进会话应重订阅（快照帧恢复 revision）")
+        let thoughtChip2 = element(application, "05-chip-thought")
+        XCTAssertTrue(thoughtChip2.waitForExistence(timeout: 12), "重进后思考胶囊应在场")
+        let lowItems2 = application.buttons.matching(NSPredicate(format: "label == 'low'"))
+        XCTAssertTrue(openTargetMenu(thoughtChip2, candidate: lowItems2),
+                      "重进后点思考胶囊应弹出菜单")
+        lowItems2.firstMatch.tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "快照回填 revision 后 CAS 应可达") {
+            stub.switchModelConfigCallCount >= 2
+        }, "快照恢复后切换应首击发出（stale-once → 重发 ≥2）；实际 " +
+           "\(stub.switchModelConfigCallCount) 次")
+
+        // ── ② draft 交接 modelSelection 随首条 sendText ──
+        app_navigationBack(application)
+        waitGoneQuickly(element(application, "05-composer-input"), within: 4)
+        let newButton = element(application, "04-act-new")
+        XCTAssertTrue(newButton.waitForExistence(timeout: 8), "会话页应有新建入口")
+        newButton.tap()
+        let titleField = element(application, "03-input-title")
+        XCTAssertTrue(titleField.waitForExistence(timeout: 8), "新建 Sheet 应弹出")
+        // slash 原文输入（typeText 环境性丢字/键盘未弹出落空——回读校验有界重试，
+        // typeLink 同款家族；确保走 draft 创建路径②而非 firstInput 直发③）
+        var typed = false
+        for _ in 0..<3 {
+            titleField.tap()
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 2)
+            titleField.typeText(String(repeating: "\u{8}", count: 40))
+            titleField.typeText("/plan stub regression")
+            if let value = titleField.value as? String, value.contains("/plan") {
+                typed = true
+                break
+            }
+        }
+        XCTAssertTrue(typed, "slash 原文应输入成功（title 回读含 /plan）")
+        // getView 投影就绪（modelSelection 交接的数据源：selectedModel 来自 getView
+        // activeModel——未就绪时 pendingModelSelection() 返回 nil，交接通道空转）
+        let modelRow = element(application, "03-row-model")
+        XCTAssertTrue(modelRow.waitForExistence(timeout: 10),
+                      "连接态应呈现模型行（getView 投影）")
+        waitLabel(modelRow, contains: "GLM", timeout: 8,
+                  "模型行应回显替身 getView 当前模型（selectedModel 就绪）")
+        element(application, "03-submit-start").tap()
+        let composer = element(application, "05-composer-input")
+        XCTAssertTrue(composer.waitForExistence(timeout: 10),
+                      "draft 创建后应进入会话页")
+        // draft 预填证据（路径②特征；路径③ firstInput 直发时 composer 为空）
+        XCTAssertTrue(waitUntil(timeout: 8, "composer 应预填 slash 原文") {
+            (composer.value as? String)?.contains("/plan") == true
+        }, "draft 创建路径应把原文预填 composer（实际=\(composer.value as? String ?? "nil")）")
+        let send = element(application, "05-composer-send")
+        XCTAssertTrue(send.waitForExistence(timeout: 6), "发送按钮应在场")
+        send.tap()
+        // 分段定位：先断「到达」，再断「携键」
+        let arrived = waitUntil(timeout: 12, "sendText 应到达替身") {
+            stub.sendTextCount >= 1
+        }
+        NSLog("test15 diag: sendCount=\(stub.sendTextCount) payloadKeys=\(stub.lastSendTextPayloadKeys) modelSelection=\(String(describing: stub.lastSendTextModelSelection))")
+        XCTAssertTrue(arrived, "draft 会话首条发送应到达替身；sendTextCount=\(stub.sendTextCount)")
+        XCTAssertTrue(waitUntil(timeout: 6, "首条 sendText 应携 modelSelection") {
+            guard let selection = stub.lastSendTextModelSelection else { return false }
+            return (selection["modelId"] as? String)?.isEmpty == false
+        }, "draft 交接的会话前模型选择应随首条 sendText 下发（上游 sendText schema " +
+           "modelSelection 通道）；payloadKeys=\(stub.lastSendTextPayloadKeys) " +
+           "modelSelection=\(String(describing: stub.lastSendTextModelSelection))")
+        snap(application, "53-draft-modelselection-handoff")
     }
 
     /// test13 订阅 workspace 按会话归属寻址（真机报障 2026-10-07「手机端没有回复」回归）：

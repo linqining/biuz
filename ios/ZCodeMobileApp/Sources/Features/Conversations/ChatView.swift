@@ -255,6 +255,21 @@ struct ChatView: View {
                 LazyVStack(alignment: .leading, spacing: T.sp4) {
                     // 待审批交互卡已移出滚动列表（用户报障：新消息把卡片顶出屏幕，
                     // 需上滚找批准按钮）——改固定在 composer 上方常驻，见 approvalBar(_:)
+                    // 内联失败横幅（读面三态补全：last-good 与失败共存；控制面拒因
+                    /// 如 retryTurn——也走此通道，重进/重试成功后自动清除）
+                    if let inlineFailure = viewModel.inlineFailureText {
+                        Label {
+                            Text(inlineFailure)
+                                .font(T.font(11, .regular))
+                                .multilineTextAlignment(.leading)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundColor(T.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("05-inline-failure-banner")
+                    }
                     // 向上分页入口：点击加载 + 滚顶自动加载（下拉到顶即拉更早历史）
                     if viewModel.canLoadOlder {
                         Button {
@@ -281,6 +296,14 @@ struct ChatView: View {
                             guard viewModel.canLoadOlder, !viewModel.isLoadingOlder else { return }
                             loadOlderAnchored(viewModel, proxy: proxy)
                         }
+                    }
+                    // 分页失败文案（失败 ≠ 没有更早：入口保留供再试，文案透出拒因）
+                    if let olderFailure = viewModel.olderLoadFailureText {
+                        Text(olderFailure)
+                            .font(T.font(11, .regular))
+                            .foregroundColor(T.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("05-older-failure-text")
                     }
                     let visible = viewModel.searchQuery.isEmpty
                         ? viewModel.messages : viewModel.filteredMessages
@@ -2200,12 +2223,15 @@ struct ComposerBar: View {
             }
         } else if let failedText = viewModel.lastSendUndeliveredText, failedText == viewModel.draft {
             // 真正的未送达（guard 路径不算）：草稿已回填，错误行持久在场直至
-            // 成功/手动编辑/离开展示（设计稿 §5.1 状态矩阵）
+            // 成功/手动编辑/离开展示（设计稿 §5.1 状态矩阵）。桌面拒收回执的
+            // 真实拒因优先（rejected 此前被当「任务已发送」假成功——2026-10-07
+            // 修复面：用户看到的必须是桌面端为什么拒，不是泛化「未送达」）
             let disconnected: Bool
             if case .connected = session.mode { disconnected = false } else { disconnected = true }
-            sendFailure = disconnected
+            let rejection = await viewModel.lastSendRejectionText()
+            sendFailure = rejection ?? (disconnected
                 ? String(localized: "消息未送达 · 连接已断开，草稿已保留")
-                : String(localized: "消息未送达 · 已恢复草稿")
+                : String(localized: "消息未送达 · 已恢复草稿"))
             restoredDraftText = failedText
             inputFocused.wrappedValue = true
             UINotificationFeedbackGenerator().notificationOccurred(.error)

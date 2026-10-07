@@ -16,9 +16,21 @@ final class ChatViewModel {
     /// 真机报障「二级页面消息区空白且无提示」2026-10-06 修复面）
     var loadFailure: String?
 
+    /// 内联失败横幅（读面三态纪律 §5-12 的补全：有 last-good 消息时同步失败不再
+    /// 被折叠成正常态，与内容共存呈现；控制面拒因〔如 retryTurn〕也走此通道）
+    var inlineFailureText: String?
+
+    /// 向上分页失败文案（nil=正常；失败时保留「加载更早」入口供再试——此前失败
+    /// 与「没有更早」不可区分，入口静默消失）
+    var olderLoadFailureText: String?
+
     /// 待发附件（P1-1：相册/拍照/文件三来源；会话维度实例。演示态 UI 不出附件
     /// 入口——设计稿 1.4「非连接态 📎 不渲染」，本服务仅连接态被触达）
     let uploads: AttachmentUploadService
+
+    /// 新建会话交接的会话前模型选择（nil = 无；随首条 sendText.modelSelection
+    /// 下发后清除，发送失败保留重试——见 handoff 消费处注释）
+    var pendingNewSessionSelection: NewSessionModelSelection?
 
     /// 连接态数据源（chips / 向上分页 / 待审批交互）。演示态全部保持 nil/false，
     /// 工具行沿用本机设置，演示交互完全不变。
@@ -416,28 +428,15 @@ final class ChatViewModel {
         return Self.controlFeedback(ack, verb: "resume")
     }
 
-    /// 命令回执 → 人类可读反馈（nil ack = 未送达；rejected 时带 reasonCode + 首条详情）
+    /// 命令回执 → 人类可读反馈（nil = 成功）。经 CommandAck 统一解析（六态词表 +
+    /// reasonCode/message 原文——message 兼容普通 fault 文本与 zod issue 数组两种
+    /// 形态，与 sendTextRejectionText 同一收口；此前只认 zod 数组形态，普通 fault
+    /// 原文被丢弃）
     private static func controlFeedback(_ ack: JSONValue?, verb: String) -> String? {
-        guard let ack else {
+        guard ack != nil else {
             return String(localized: "命令未送达（连接中断或不在连接态）")
         }
-        let status = ack["status"]?.stringValue
-            ?? ack.objectValue?["ack"]?.objectValue?["status"]?.stringValue
-        switch status {
-        case nil, "accepted", "noop", "applied", "ok":
-            return nil
-        default:
-            var detail = ack["reasonCode"]?.stringValue ?? status ?? "?"
-            // zod 校验类拒绝：message 为 issue 数组 JSON，取首条 message 字段
-            if let message = ack["message"]?.stringValue,
-               let range = message.range(of: "\"message\": \"") {
-                let tail = message[range.upperBound...]
-                if let end = tail.firstIndex(of: "\"") {
-                    detail += "：" + tail[..<end]
-                }
-            }
-            return String(localized: "桌面端拒绝（\(detail)）")
-        }
+        return CommandAck(ack).failureText
     }
 
     /// UI 控制动作回执取证（diag.wf.control.ui；不限 diag 模式——用户手工测试的
@@ -526,6 +525,11 @@ final class ChatViewModel {
         // sessionId 键控，取走即清，一次性）
         if let handoff = NewConversationHandoffBox.take(for: conversationID) {
             draft = handoff.draftText
+            // 会话前模型/思考选择（P0 修复 2026-10-07「新建会话的模型和思考强度没有
+            // 带到会话页面」）：sheet 的选择此前在 draft 路径整段丢失——现暂存于此，
+            // 随本会话首条 sendText 的 modelSelection 下发（上游 sendText schema
+            // 实证通道），成功后清除；发送失败保留供重试。
+            pendingNewSessionSelection = handoff.modelSelection
             for file in handoff.attachments {
                 _ = uploads.add(name: file.name, mediaType: file.mediaType, data: file.data)
             }
@@ -557,10 +561,11 @@ final class ChatViewModel {
         messages = await store.messages(in: conversationID)
         // 服务端反馈态种子（点赞重载丢失修复：行 feedback 字段回读）
         syncFeedbackFromMessages()
-        // 失败透出（「订阅/拉取失败 UI 不可见」修复）：有消息=成功；空列表时读 store
-        // 最近一次失败——nil = 正常空会话（错误态与空态可区分）
-        loadFailure = messages.isEmpty
-            ? await store.conversationLoadFailure(in: conversationID) : nil
+        // 失败透出（读面三态纪律补全 2026-10-07）：空列表 → 错误态；有 last-good
+        // 消息 → 横幅与内容共存（此前有消息时同步失败被折叠成正常态）
+        let storeFailure = await store.conversationLoadFailure(in: conversationID)
+        loadFailure = messages.isEmpty ? storeFailure : nil
+        inlineFailureText = messages.isEmpty ? nil : storeFailure
         // 标题等元数据先行取纯内存投影（零 RPC；后台段全量对账后回填）
         conversation = await store.cachedConversation(conversationID)
         isLoading = false
@@ -850,12 +855,18 @@ final class ChatViewModel {
         await refreshThoughtLevels()
     }
 
-    /// 向上分页：滚动触顶（顶部「加载更早消息」）拉更早历史，拼接去重在 Store 内完成
+    /// 向上分页：滚动触顶（顶部「加载更早消息」）拉更早历史，拼接去重在 Store 内完成。
+    /// 失败与「没有更早」区分（2026-10-07）：失败保留入口供再试 + 透出失败文案
     func loadOlder() async {
         guard isReadOnly, !isLoadingOlder else { return }
         isLoadingOlder = true
         defer { isLoadingOlder = false }
         canLoadOlder = await store.loadOlder(conversationID: conversationID)
+        olderLoadFailureText = canLoadOlder
+            ? nil : await store.conversationLoadFailure(in: conversationID)
+        if olderLoadFailureText != nil {
+            canLoadOlder = true // 失败 ≠ 没有更早：保留入口（此前静默收起，P2）
+        }
         // 顶部插入无法用尾部 append 事件语义表达：直读 Store 全量对齐（事件通道仅作兜底）
         messages = await store.messages(in: conversationID)
         syncFeedbackFromMessages()
@@ -871,6 +882,12 @@ final class ChatViewModel {
     /// 发出——空稿/附件未就绪等本地 guard 路径不算「未送达」，附件失败走
     /// uploads.firstFailureText 通道）。composer 据此渲染持久错误行 + 重试钮。
     var lastSendUndeliveredText: String?
+
+    /// 最近一次 sendText 桌面拒因（nil = 无在案——UI 错误行走泛化「未送达」文案；
+    /// rejected 回执此前被当「任务已发送」假成功，拒因上屏是 2026-10-07 修复面）
+    func lastSendRejectionText() async -> String? {
+        await store.sendRejectionText(in: conversationID)
+    }
 
     /// 发送（P1-2 投递联动）：按当前投递模式携带 requestedDelivery——now 档恒携
     /// "startNow"（A-2 修正，见 requestedDeliveryKey），queue/guide 随 sendText
@@ -986,11 +1003,21 @@ final class ChatViewModel {
                 showSlashHint(modeFailure ?? String(localized: "已切换计划模式"))
                 return true
             }
+            // 待发附件随任务（修复 2026-10-07「/plan + 附件发送后附件静默丢失」：
+            // 此分支此前 attachments 恒 []，composer 附件滞留不发）
+            guard await uploads.ensureAllCommitted() else {
+                showSlashHint(uploads.firstFailureText ?? String(localized: "附件未就绪，未发送"))
+                draft = text
+                return true
+            }
             let delivered = await store.sendWithAttachments(
-                task, attachments: [], requestedDelivery: requestedDeliveryKey,
+                task, attachments: uploads.takeCommitted(),
+                requestedDelivery: requestedDeliveryKey,
+                modelSelection: pendingNewSessionSelection,
                 in: conversationID)
             if delivered {
                 lastSendUndeliveredText = nil
+                pendingNewSessionSelection = nil
                 if let modeFailure {
                     showSlashHint(String(localized: "任务已发送 · 模式切换失败：\(modeFailure)"))
                 }
@@ -1026,9 +1053,12 @@ final class ChatViewModel {
         draft = ""
         let delivered = await store.sendWithAttachments(
             text, attachments: attachments, requestedDelivery: requestedDeliveryKey,
+            modelSelection: pendingNewSessionSelection,
             in: conversationID)
         if delivered {
             lastSendUndeliveredText = nil
+            // 会话前选择已随首条消息下发（一次性；失败保留供重试）
+            pendingNewSessionSelection = nil
         } else {
             // 消息未送达：文本回填保稿（附件已随事务消费，不回填——重试为文本路径，
             // 设计稿 §5.1 连带说明）
@@ -1046,12 +1076,17 @@ final class ChatViewModel {
     }
 
     /// G-015：失败工具卡「重试」→ retryTurn 下发（行合成 id "row-<n>" 携 rowId；
-    /// entityId 由工具卡渲染门槛保证在场，此处从 messages 反查补齐）
+    /// entityId 由工具卡渲染门槛保证在场，此处从 messages 反查补齐）。
+    /// 回执如实反馈（2026-10-07：store 侧曾 `_ =` 丢弃回执，被拒纯静默——P2）
     func retryTurn(rowId: Int) async {
         guard rowId > 0 else { return }
         guard let message = messages.first(where: { $0.id == "row-\(rowId)" }),
               let entityId = message.toolCall?.entityId else { return }
-        await store.retryTurn(conversationID, rowId: rowId, entityId: entityId)
+        let ack = await store.retryTurn(conversationID, rowId: rowId, entityId: entityId)
+        recordControlDiag("retry", workId: nil, ack: ack)
+        if let failure = Self.controlFeedback(ack, verb: "重试") {
+            inlineFailureText = failure
+        }
     }
 
     func answerQuestion(_ reply: String) async {
