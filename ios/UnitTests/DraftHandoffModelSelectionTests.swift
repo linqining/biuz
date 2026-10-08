@@ -38,6 +38,11 @@ final class DraftHandoffModelSelectionTests: XCTestCase {
         func messages(in conversationID: String) async -> [ChatMessage] { [] }
         func send(_ text: String, in conversationID: String) async -> Bool { false }
         func answerQuestion(_ reply: String, in conversationID: String, questionID: String) async {}
+        // /plan 分支现要求模式切换权威成功才放行发送（2026-10-09 阻断语义）——
+        // 记账桩回 accepted（本用例断言面是交接选择随行，非切换链路本身）
+        func switchCollaborationMode(_ conversationID: String, mode: String) async -> JSONValue? {
+            JSONValue.object(["status": .string("accepted"), "commandId": .string("stub-ack")])
+        }
         func createConversation(title: String, directory: String, executor: ExecutorKind,
                                 modelSelection: NewSessionModelSelection?) async -> Conversation {
             Conversation(id: "", title: title, summary: "", directory: directory, updatedAt: Date())

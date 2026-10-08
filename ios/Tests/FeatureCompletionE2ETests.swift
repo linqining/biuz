@@ -1338,10 +1338,18 @@ final class FeatureCompletionE2ETests: XCTestCase {
                       "归档分区应呈现 listArchivedTasks 预置行（替身会话 · 已归档样例）")
         snap(application, "49-archived-membership")
 
-        // 收起归档分区（展开/收起可逆回归；此后无行导航依赖）
-        element(application, "04-act-archived").tap()
-        XCTAssertTrue(waitGoneQuickly(element(application, "04-archivedrow-sess-e2e-arch-1"), within: 6),
-                      "再次点击归档入口应收起归档分区")
+        // 收起归档分区（展开/收起可逆回归；此后无行导航依赖）。
+        // ⚠ 收起点按必须先滚回可命中：展开后分区行把 04-act-archived 推出视口，
+        // 裸 tap 打在陈旧帧上被列表行吞掉（行高因 v1.31 行内 pill/转圈变化后
+        // 两连败实证）；有界重试（滚回→点→等行消失）对布局漂移稳健
+        var collapsed = false
+        for _ in 0..<3 where !collapsed {
+            scrollToHittable(element(application, "04-act-archived"), application: application,
+                             maxSwipes: 4)
+            element(application, "04-act-archived").tap()
+            collapsed = waitGoneQuickly(element(application, "04-archivedrow-sess-e2e-arch-1"), within: 6)
+        }
+        XCTAssertTrue(collapsed, "再次点击归档入口应收起归档分区")
     }
 
     // MARK: - 门禁 14：重置卡二次确认门（扣费接口：确认后必发、取消必不发）
@@ -1678,8 +1686,12 @@ final class FeatureCompletionE2ETests: XCTestCase {
         let modeChip = element(application, "05-chip-mode")
         XCTAssertTrue(modeChip.waitForExistence(timeout: 12), "协作模式胶囊应在场（连接态）")
 
-        // ① stale-once → 重发命中 → chip 落计划模式
-        let planItems = application.buttons.matching(NSPredicate(format: "label == '计划模式'"))
+        // ① stale-once → 重发命中 → chip 落计划模式。
+        //    ⚠ 候选用面板行 identifier（05-composer-option-<mode>）而非 label——
+        //    chip 本身 label 也可能是「计划模式」（ComposerModeStore 持久化跨 launch
+        //    残留，-ZCodeE2EResetState 不清 chat.collabMode.*），label 匹配会在
+        //    openTargetMenu 首查就命中 chip、tap 落在 chip 上永不选中菜单行（首跑实证）
+        let planItems = application.buttons.matching(identifier: "05-composer-option-plan")
         XCTAssertTrue(openTargetMenu(modeChip, candidate: planItems),
                       "点模式胶囊应弹出菜单（计划模式项在场）")
         planItems.firstMatch.tap()
@@ -1694,7 +1706,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
 
         // ② statusAbsent：回执无 status 键 → 不落盘（chip 不变）+ 常驻错误行在场
         stub.collaborationModeBehavior = "statusAbsent"
-        let editItems = application.buttons.matching(NSPredicate(format: "label == '自动编辑'"))
+        let editItems = application.buttons.matching(identifier: "05-composer-option-edit")
         XCTAssertTrue(openTargetMenu(modeChip, candidate: editItems),
                       "再次点模式胶囊应弹出菜单（自动编辑项在场）")
         editItems.firstMatch.tap()
@@ -1711,7 +1723,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
 
         // ③ reject：拒因原文常驻（非 3s 轻提示）
         stub.collaborationModeBehavior = "reject"
-        let yoloItems = application.buttons.matching(NSPredicate(format: "label == '完全访问'"))
+        let yoloItems = application.buttons.matching(identifier: "05-composer-option-yolo")
         XCTAssertTrue(openTargetMenu(modeChip, candidate: yoloItems),
                       "点模式胶囊应弹出菜单（完全访问项在场）")
         yoloItems.firstMatch.tap()
@@ -1719,9 +1731,13 @@ final class FeatureCompletionE2ETests: XCTestCase {
             stub.collaborationModeCallCount == 4
         }, "rejected 不重发（A14 确定性拒收）；实际=\(stub.collaborationModeCallCount) 次")
         let failRow = element(application, "05-composer-mode-fail")
+        // 容器挂 .accessibilityElement(children: .contain)——自身 label 不含子文本，
+        // 原文断言查容器内 staticText（与 sendFailure 行同款结构）
+        let rejectText = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS 'stub.modeRejected'"))
         XCTAssertTrue(waitUntil(timeout: 8, "拒因原文应上常驻错误行") {
-            failRow.exists && failRow.label.contains("stub.modeRejected")
-        }, "常驻错误行应显示 reasonCode 原文供分诊；实际=\(failRow.label)")
+            failRow.exists && rejectText.firstMatch.exists
+        }, "常驻错误行应显示 reasonCode 原文供分诊；行在场=\(failRow.exists)")
         XCTAssertFalse(modeChip.label.contains("完全访问"),
                        "rejected 不得改 chip；实际 chip=\(modeChip.label)")
         snap(application, "57-collab-mode-failure-row")
@@ -1772,16 +1788,19 @@ final class FeatureCompletionE2ETests: XCTestCase {
         }, "同名跨套餐行应按复合行键解析 providerId；"
             + "实际=\(String(describing: stub.lastCreateSessionModelSelection))")
 
-        // ② 提交门：getView 失败 + 仅思考档（静态梯）→ 提交弹确认，禁静默裸发
-        app_navigationBack(application)
-        waitGoneQuickly(element(application, "05-composer-input"), within: 5)
+        // ② 提交门：getView 失败 + 仅思考档（静态梯）→ 提交弹确认，禁静默裸发。
+        //    ⚠ 必须换新 app 进程：modelSelectionView() 命中内存缓存即短路 RPC，
+        //    同进程注水 getView 失败无效（首跑实证）——重连换新 store（空缓存）后
+        //    restoreContext/openModelPanel 才真正吃到失败面
         stub.modelSelectionViewFails = true
+        _ = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
         element(application, "04-act-new").tap()
         XCTAssertTrue(element(application, "03-input-title").waitForExistence(timeout: 8),
                       "新建 Sheet 应再次弹出")
         let thoughtRow = element(application, "03-row-thought")
         XCTAssertTrue(thoughtRow.waitForExistence(timeout: 6), "思考等级行应在场")
-        // getView 失败：模型行点不开面板（行下提示）；思考行走静态梯仍可选
+        // getView 失败：模型行点不开面板（行下提示 + 1.5s 后台补拉仍败）；思考行走静态梯仍可选
         let picked = waitUntil(timeout: 24, "思考档应可选（静态梯回退）") {
             if !application.buttons["high"].exists {
                 thoughtRow.tap()

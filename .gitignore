@@ -6,3 +6,5 @@ xcuserdata/
 ios/DerivedData/
 .vscode/
 docs/acceptance-relay/
+ios/DerivedData/
+ios/DerivedData-*/
