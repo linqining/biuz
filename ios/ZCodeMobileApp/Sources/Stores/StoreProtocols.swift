@@ -486,6 +486,34 @@ struct ModelSelectionInfo: Equatable {
     var planGroups: [ModelPlanGroup] = []
     /// 模型 → 所属 providerId（switchModelConfig 需要三元组 provider/model/thought）
     var modelProviders: [String: String] = [:]
+    /// 「套餐|模型」→ providerId（同名模型跨套餐各组各计——modelProviders 按裸名做键
+    /// 后到覆盖先到，点个人套餐行发出体验套餐 providerId，2026-10-08 报障根因）
+    var modelProvidersByPlan: [String: String] = [:]
+    /// 当前绑定的 providerId（getView preferredSelection/effective.selection；
+    /// 裸名查询时跨套餐消歧的权威源）
+    var activeProviderId: String?
+
+    /// 行键中的纯模型名（「套餐|模型」→ 模型；裸名原样）——switchModelConfig /
+    /// firstInput.modelSelection 的 modelId 恒携纯模型名，套餐前缀只用于本地解析
+    func modelLabel(forRowKey key: String?) -> String {
+        guard let key, key.contains("|") else { return key ?? "" }
+        return key.split(separator: "|", maxSplits: 1).last.map(String.init) ?? key
+    }
+
+    /// 选择行 providerId 解析。`rowKey` = 面板行键「套餐|模型」（复合表权威）；
+    /// 裸模型名回退序：当前绑定模型取 activeProviderId（桌面绑定即真相）→
+    /// modelProviders[裸名]（同名跨套餐时歧义遗留，仅旧缓存兜底）
+    func provider(forRowKey key: String?, model: String) -> String? {
+        let label: String
+        if let key, key.contains("|") {
+            if let byPlan = modelProvidersByPlan[key] { return byPlan }
+            label = modelLabel(forRowKey: key)
+        } else {
+            label = model
+        }
+        if label == activeModel, let active = activeProviderId, !active.isEmpty { return active }
+        return modelProviders[label]
+    }
 }
 
 /// 模型套餐分组（选择器按组分节展示；同一模型可同时出现在个人与体验两组——配额不同）

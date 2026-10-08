@@ -399,7 +399,8 @@ actor MockConversationStore: @preconcurrency ConversationStore {
             conversations[index].source = ["c3", "c4"].contains(conversations[index].id) ? "cloud" : "mac"
         }
         // G-007 演示：运行中会话 c1/c5 携带 workflowActivity 演示值（行迷你轨道可验；
-        // c3 无 workflowActivity → 不渲染占位）
+        // c3 无 workflowActivity → 不渲染占位）。c1 另带一条已完成 run 作 live-only
+        // 过滤负向载体：行轨道只画运行中 run，已完成行不渲染（2026-10-08 用户口径）
         conversations[0].workflowActivity = WorkflowActivitySummary(runs: [
             SessionWorkflowRunSummary(
                 id: "demo-activity-run",
@@ -417,6 +418,16 @@ actor MockConversationStore: @preconcurrency ConversationStore {
                 ],
                 currentPhase: "迁移调用方",
                 agentsWorking: 2),
+            SessionWorkflowRunSummary(
+                id: "demo-activity-run-done",
+                name: "已收尾旧工作流",
+                rawStatus: "completed",
+                phases: [
+                    SessionWorkflowPhase(name: "方案确认", status: .done),
+                    SessionWorkflowPhase(name: "归档完成", status: .done),
+                ],
+                currentPhase: "归档完成",
+                agentsWorking: 0),
         ])
         conversations[4].workflowActivity = WorkflowActivitySummary(runs: [
             SessionWorkflowRunSummary(

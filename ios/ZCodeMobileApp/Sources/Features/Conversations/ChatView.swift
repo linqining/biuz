@@ -459,16 +459,16 @@ struct ActorTranscriptSheet: View {
                         detail: String(localized: "该子代理会话暂无可读的行记录"))
                 } else {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: T.sp2) {
+                        LazyVStack(alignment: .leading, spacing: T.sp3) {
                             ForEach(messages) { message in
-                                Text(message.text)
-                                    .font(T.font(12.5, message.role == .user ? .semibold : .regular))
-                                    .foregroundColor(message.role == .user ? T.text : T.text2)
-                                    .lineSpacing(3)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(T.sp2)
-                                    .background(message.role == .user ? T.accentDim.opacity(0.5) : T.bgCard)
-                                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                                // 与主会话同构渲染（用户气泡/思考折叠块/可展开工具卡）。
+                                // 只读转录：快捷回复/反馈/重试/编辑重发均不接线——question/
+                                // todos 恒空、rowKind 恒 nil、toolCall 无重试游标，天然无死入口；
+                                // sessionID 传 actor.sessionId（转录内用户行附件走 attachmentReadV4）
+                                MessageView(
+                                    message: message,
+                                    sessionID: actor.sessionId ?? "",
+                                    onQuickReply: { _ in })
                             }
                         }
                         .padding(T.sp4)
@@ -1652,7 +1652,8 @@ struct ComposerBar: View {
         } message: {
             Text(String(localized: "让桌面端把历史对话压缩为摘要，释放上下文空间。压缩可能持续数十秒，期间请勿下发新指令。"))
         }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, matching: .images)
+        // 图库可选图片+视频（上游 web 同口径；视频受 20MB 通道上限约束，超限在附件上传事务拦截）
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, matching: .any(of: [.images, .videos]))
         .onChange(of: photoPickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             photoPickerItems = []
@@ -1881,7 +1882,11 @@ struct ComposerBar: View {
         }
     }
 
-    /// 模型面板选项（呈现期取 viewModel.modelSelection；分节同 modelMenu 原状）
+    /// 模型面板选项（呈现期取 viewModel.modelSelection；分节同 modelMenu 原状）。
+    /// 行 id/payload 携「套餐|模型」复合键——同名模型跨套餐按组解析 providerId
+    /// （payload 曾存裸模型名，modelProviders 后到覆盖先到：点个人套餐行发出
+    /// 体验套餐 providerId，2026-10-08 报障）；选中勾按行 provider == 当前绑定
+    /// provider 比对（activeProviderId 缺席退化为裸名比对）
     private func modelSheetOptions() -> [ComposerOptionItem] {
         let selection = viewModel.modelSelection ?? ModelSelectionInfo()
         if selection.planGroups.isEmpty {
@@ -1892,14 +1897,18 @@ struct ComposerBar: View {
         }
         return selection.planGroups.flatMap { group in
             group.models.map { model in
-                ComposerOptionItem(
-                    id: "\(group.plan)|\(model)",
+                let rowKey = "\(group.plan)|\(model)"
+                let providerMatches = selection.activeProviderId?.isEmpty == false
+                    ? selection.modelProvidersByPlan[rowKey] == selection.activeProviderId
+                    : true
+                return ComposerOptionItem(
+                    id: rowKey,
                     title: model,
                     detail: "",
                     icon: "cpu",
-                    selected: model == selection.activeModel,
+                    selected: model == selection.activeModel && providerMatches,
                     section: group.plan,
-                    payload: model)
+                    payload: rowKey)
             }
         }
     }
@@ -2304,7 +2313,7 @@ struct ComposerBar: View {
                     continue
                 }
                 if viewModel.uploads.add(
-                    name: "IMG_\(Int(Date().timeIntervalSince1970 * 1000)).\(ext)",
+                    name: "\(mediaType.hasPrefix("video/") ? "VID" : "IMG")_\(Int(Date().timeIntervalSince1970 * 1000)).\(ext)",
                     mediaType: mediaType, data: data) {
                     await startUploadIfNeeded()
                 }

@@ -278,7 +278,10 @@ final class WorkspaceConfigThoughtKeyTests: XCTestCase {
                             "config": .object(["optionSpecs": .object([
                                 "reasoningLevel": .object(["values": .array([
                                     .string("low"), .string("max")])])])])
-                        ])
+                        ]),
+                        // 同名模型跨套餐（GLM-5.3-Flash 双组各计——modelProviders 裸名表
+                        // 后到覆盖先到曾致点个人套餐行发出体验套餐 providerId，2026-10-08）
+                        .object(["modelId": .string("GLM-5.3-Flash")])
                     ])
                 ])
             ]),
@@ -298,6 +301,22 @@ final class WorkspaceConfigThoughtKeyTests: XCTestCase {
                        "label 相异时双键（sheet 以 label 展示/查询）")
         XCTAssertNil(info.thoughtByModel["LegacyStringModel"], "字符串条目无 per-model 词表")
         XCTAssertEqual(info.activeModel, "GLM-5.3-Flash")
+        XCTAssertEqual(info.activeProviderId, "account:zai-start-plan",
+                       "当前绑定 providerId 随 preferredSelection 解析")
         XCTAssertEqual(info.activeThoughtLevel, "max")
+        // 同名模型跨套餐：复合键表两组各计，行键解析互不串（裸名表后到覆盖先到的回归门；
+        // 组名经 planGroups 反推——locale 稳健，不写死本地化组名）
+        let flashGroups = info.planGroups.filter { $0.models.contains("GLM-5.3-Flash") }
+        XCTAssertEqual(flashGroups.count, 2, "GLM-5.3-Flash 应同时出现在两个套餐组")
+        let flashProviders = Set(flashGroups.map { group in
+            info.provider(forRowKey: "\(group.plan)|GLM-5.3-Flash", model: "GLM-5.3-Flash")
+        })
+        XCTAssertEqual(
+            flashProviders,
+            ["account:zai-start-plan", "account:zai-individual-coding-plan"],
+            "行键「套餐|模型」应按组各解析各的 providerId（裸名覆盖回归门）")
+        XCTAssertEqual(info.provider(forRowKey: nil, model: "GLM-5.3-Flash"),
+                       "account:zai-start-plan",
+                       "裸名 + 当前绑定模型 → activeProviderId 权威")
     }
 }

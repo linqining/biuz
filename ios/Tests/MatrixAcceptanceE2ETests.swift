@@ -316,6 +316,12 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
                       "迷你轨道应显示 agentsWorking 计数（桌面同词汇）")
         XCTAssertTrue(row.staticTexts["+2"].exists,
                       "7 站超 6 站上限应以「+N」呈现折叠溢出")
+        // live-only 口径（2026-10-08 用户裁决「工作流只展示运行中的」）：c1 另带一条
+        // 已完成 run（已收尾旧工作流 · 归档完成）——行轨道不渲染，溢出计数不含非活 run
+        XCTAssertFalse(row.staticTexts["归档完成"].exists,
+                       "已完成 run 不应出现在行迷你轨道（live-only 过滤）")
+        XCTAssertFalse(row.staticTexts["+1 条工作流"].exists,
+                       "run 溢出计数只数运行中 run，已完成 run 不计入")
         // 验收③：无 workflowActivity 的会话行不渲染占位（全局仅 c1/c5 两行有轨道）
         let trackCount = application.descendants(matching: .any)
             .matching(identifier: "04-workflow-track").count
@@ -946,5 +952,98 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         XCTAssertTrue(element(application, "04-group-e2e-group-x").waitForExistence(timeout: 8),
                       "列表应出现新组头（会话归组 UI 面）")
         snap(application, "g017-task-group-sync")
+    }
+
+    // MARK: - G-021 子代理转录同构渲染（2026-10-08 用户报障「转录只有工具名没有具体信息」）
+
+    /// 下钻 actor.sessionId → rowsRange 转录应与主会话同构：工具卡（可展开，含命令
+    /// 全文/输出）、思考折叠块、用户气泡；只读转录失败工具卡不得出现「重试」死入口
+    /// （entityId 不带出）。行数据全走替身（workflowRuns 注入 + 子代理会话转录行）。
+    /// 用 sess-e2e-2（替身 sessions-index 无 workflowActivity 的会话）保证面板唯一
+    /// run 卡，阶段行不与其他 run 混淆。
+    func test22_actorTranscriptRendersToolCardsAndThinking() throws {
+        // 会话 workflowRuns：单阶段 + completed 实例（sessionId 在场 = 可下钻）
+        stub.setWorkflowRunsState(sessionId: "sess-e2e-2", runs: [[
+            "runId": "run-e2e-wf-tr",
+            "name": "转录下钻工作流",
+            "status": "running",
+            "currentPhase": "执行",
+            "phases": [["name": "执行"]],
+            "actors": [[
+                "siteId": "site-tr", "ordinal": 1,
+                "name": "对照员-E2E", "status": "completed",
+                "phaseName": "执行", "sessionId": "sess-subagent-e2e",
+            ]],
+        ]])
+        // 子代理会话转录行（一窗覆盖全部行型；页大小调大绕开替身缺省 3 行尾窗）
+        stub.rowsRangePageSize = 12
+        stub.setSessionRows(sessionId: "sess-subagent-e2e", rows: [
+            ["rowId": 1, "kind": "userInput", "text": "把俱乐部页面和 web 源码对照一遍"],
+            ["rowId": 2, "kind": "reasoning", "state": "complete",
+             "text": "先读 App 的 club 路由 stub，再对照 web 仓库源码找出跳转边差异。"],
+            ["rowId": 3, "kind": "toolCall", "toolName": "Bash", "status": "success",
+             "inputText": "grep -rn useUserInfo /Users/mac/boyaa/web/bpt-web/packages/shared",
+             "output": ["text": "index.tsx:46:export function useUserInfo(uid?: number)"]],
+            ["rowId": 4, "kind": "toolCall", "toolName": "Read", "status": "error",
+             "inputText": "/Users/mac/app/ClubSettingsRouteStub.swift",
+             "output": ["text": "File not found"]],
+            ["rowId": 5, "kind": "assistantText", "state": "complete",
+             "text": "对照完成：俱乐部路由跳转边 2 处差异已记录到台账。"],
+        ])
+
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        // 深链直开会话（完整 sessionId；列表点按在组织态 join 重渲染期易吃 tap）
+        relaunchKeepState(application, extra: ["-ZCodeOpenConversationId", "sess-e2e-2"])
+        let composer = element(application, "05-composer-input")
+        XCTAssertTrue(composer.waitForExistence(timeout: 15), "深链应直开 sess-e2e-2 详情")
+
+        // 展开工作流面板（chip）→ 展开阶段行 → 点子代理实例行 → 转录 sheet
+        let chip = element(application, "05-panel-chip-workflow")
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "工作流 chip 应在场（run 注入后可用）")
+        chip.tap()
+        let panel = element(application, "05-panel-workflow")
+        XCTAssertTrue(panel.waitForExistence(timeout: 8), "工作流面板应展开渲染")
+        waitStaticText(application, containing: "转录下钻工作流", timeout: 6,
+                       "面板应渲染注入 run（唯一 run 卡）")
+        let phaseRow = element(application, "05-wf-phase-0")
+        XCTAssertTrue(phaseRow.waitForExistence(timeout: 8), "阶段行应在场")
+        phaseRow.tap()
+        let actorRow = element(application, "05-wf-actor-site-tr#1")
+        XCTAssertTrue(actorRow.waitForExistence(timeout: 8), "子代理实例行应在场（sessionId 在场可下钻）")
+        actorRow.tap()
+        XCTAssertTrue(element(application, "05-transcript-act-close").waitForExistence(timeout: 8),
+                      "点实例行应弹出子代理转录 sheet")
+
+        // 转录与主会话同构：工具卡头（Bash/Read 两张）+ 思考折叠块 + 助手正文
+        let bashHead = element(application, "05-toolcard-head-bash")
+        XCTAssertTrue(bashHead.waitForExistence(timeout: 8), "toolCall 行应渲染为工具卡（不再只是「工具 Bash」文本）")
+        XCTAssertTrue(element(application, "05-toolcard-head-read").exists, "Read 工具卡头应在场")
+        XCTAssertTrue(element(application, "05-thinking-head").exists, "reasoning 行应渲染为思考折叠块")
+        waitStaticText(application, containing: "对照完成：俱乐部路由跳转边", timeout: 6,
+                       "assistantText 行应渲染为正文")
+
+        // 展开成功工具卡：命令全文 + 输出可见（「具体信息」本体）
+        bashHead.tap()
+        XCTAssertTrue(element(application, "05-toolcard-body-bash").waitForExistence(timeout: 6),
+                      "工具卡展开体应出现")
+        waitStaticText(application, containing: "grep -rn useUserInfo", timeout: 6,
+                       "展开体应含命令全文")
+        waitStaticText(application, containing: "export function useUserInfo", timeout: 6,
+                       "展开体应含工具输出")
+
+        // 展开失败工具卡：只读转录不得出现「重试」死入口（entityId 不带出）。
+        // （read 展开体与 bash 共用 05-toolcard-body-bash 标识——以失败输出文本为证据）
+        let readHead = element(application, "05-toolcard-head-read")
+        readHead.tap()
+        waitStaticText(application, containing: "File not found", timeout: 6,
+                       "Read 工具卡展开体应出现（失败输出可见）")
+        XCTAssertFalse(element(application, "05-toolcard-act-retry").waitForExistence(timeout: 2),
+                       "只读转录失败工具卡不得渲染重试入口（命令下发不到子代理会话）")
+
+        // 数据面：rowsRange 应打到子代理 sessionId（下钻寻址正确性）
+        XCTAssertTrue(stub.rowsRangeRequests.contains { $0.sessionId == "sess-subagent-e2e" },
+                      "转录应按 actor.sessionId 拉取 rowsRange")
+        snap(application, "g021-actor-transcript-toolcards")
     }
 }

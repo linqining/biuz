@@ -219,7 +219,9 @@
         }
       }
     },
-    "· %@" : {},
+    "· %@" : {
+
+    },
     "（回滚原工作区亦失败：%@，可断开重连恢复）" : {
       "localizations" : {
         "en" : {
@@ -231,6 +233,7 @@
       }
     },
     "（思考）%@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4765,6 +4768,16 @@
         }
       }
     },
+    "创建请求超时 · 桌面端可能仍在处理，可稍后在会话列表查看，请勿连续重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create request timed out · The desktop may still be processing. Check the conversation list later; do not retry repeatedly."
+          }
+        }
+      }
+    },
     "删除 Bot" : {
       "localizations" : {
         "en" : {
@@ -6799,6 +6812,7 @@
       }
     },
     "工具 %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7060,7 +7074,9 @@
         }
       }
     },
-    "已取消" : {},
+    "已取消" : {
+
+    },
     "已取消重连" : {
       "localizations" : {
         "en" : {
@@ -9938,7 +9954,9 @@
         }
       }
     },
-    "服务返回 HTTP %lld。请确认桌面端 zcode --web 进程存活后重试。" : {},
+    "服务返回 HTTP %lld。请确认桌面端 zcode --web 进程存活后重试。" : {
+
+    },
     "服务返回错误" : {
       "localizations" : {
         "en" : {
@@ -10421,7 +10439,9 @@
         }
       }
     },
-    "桌面 v%@" : {},
+    "桌面 v%@" : {
+
+    },
     "桌面 v%lld" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -11007,6 +11027,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Model & thinking level"
+          }
+        }
+      }
+    },
+    "模型列表未就绪 · 所选档位以桌面端当前默认为准" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model list not ready · The selected level will fall back to the desktop default."
+          }
+        }
+      }
+    },
+    "模型列表获取失败 · 桌面端未回执，点按重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to load model list · No response from desktop. Tap to retry."
           }
         }
       }
@@ -11832,6 +11872,7 @@
       }
     },
     "用户：%@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12938,6 +12979,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Custom proxy certificate"
+          }
+        }
+      }
+    },
+    "获取中…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading…"
           }
         }
       }
@@ -14366,6 +14417,16 @@
         }
       }
     },
+    "重新获取模型列表" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reload model list"
+          }
+        }
+      }
+    },
     "重新请求审核" : {
       "localizations" : {
         "en" : {
@@ -14859,56 +14920,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Follows the iOS system language by default (Simplified Chinese / English). After choosing a fixed language, BiuZ always displays in it (effective on relaunch); see release notes for coverage."
-          }
-        }
-      }
-    },
-    "创建请求超时 · 桌面端可能仍在处理，可稍后在会话列表查看，请勿连续重试" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Create request timed out · The desktop may still be processing. Check the conversation list later; do not retry repeatedly."
-          }
-        }
-      }
-    },
-    "获取中…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading…"
-          }
-        }
-      }
-    },
-    "模型列表获取失败 · 桌面端未回执，点按重试" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to load model list · No response from desktop. Tap to retry."
-          }
-        }
-      }
-    },
-    "重新获取模型列表" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reload model list"
-          }
-        }
-      }
-    },
-    "模型列表未就绪 · 所选档位以桌面端当前默认为准" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Model list not ready · The selected level will fall back to the desktop default."
           }
         }
       }

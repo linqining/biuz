@@ -474,6 +474,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
 
         var totalMerged = 0
+        var totalBackfilled = 0
         var allWorkspacesSeen = Set<String>()
         for path in scopePaths {
             var builder = JSONObjectBuilder()
@@ -501,16 +502,39 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     guard let summary = SessionSummary.parse(.object(d)) else { continue }
                     parsed.append((summary.sessionId, summary))
                 }
+                var merged = 0
+                var backfilled = 0
                 for (sessionId, summary) in parsed {
                     if sessions[sessionId] == nil {
                         sessions[sessionId] = summary
-                        totalMerged += 1
-                    } else if sessions[sessionId]?.workspacePath == nil,
-                              let ws = summary.workspacePath {
-                        // 已有 index 行：仅补 workspace 归属（index 行可能缺 workspaceId）
-                        sessions[sessionId]?.workspacePath = ws
+                        merged += 1
+                    } else {
+                        // 已有行字段级回填（2026-10-08 报障「新建会话列表恒显占位标题
+                        // 新会话」）：本地种行（createConversation 占位标题）之后，桌面
+                        // 自动命名只随 task-index 与连接 workspace 的 sessions-index
+                        // 通道到达——非连接区行此处是唯一刷新点。只回填服务端权威的
+                        // 三个字段，不整行替换（task-index 行无 preview/workflowActivity
+                        // 等富字段，整行替换会剥掉 sessions-index 已到达的投影）。
+                        // 标题让位本地改名 override（显示层 sortedConversations 同让位）；
+                        // 活跃时间仅缺值时补（sessions-index 实时值不回退 task-index，
+                        // 防排序抖动）
+                        var existing = sessions[sessionId]!
+                        if localTitleOverrides[sessionId] == nil,
+                           !summary.title.isEmpty, summary.title != existing.title {
+                            existing.title = summary.title
+                            backfilled += 1
+                        }
+                        if let ws = summary.workspacePath, existing.workspacePath != ws {
+                            existing.workspacePath = ws
+                        }
+                        if existing.lastActivityAt == nil {
+                            existing.lastActivityAt = summary.lastActivityAt
+                        }
+                        sessions[sessionId] = existing
                     }
                 }
+                totalMerged += merged
+                totalBackfilled += backfilled
             } catch {
                 if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
                     UserDefaults.standard.set(
@@ -522,7 +546,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
         if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
             UserDefaults.standard.set(
-                "scopes=\(scopePaths.count) merged=\(totalMerged) totalSessions=\(sessions.count) workspaces=\(allWorkspacesSeen.sorted().joined(separator: ","))",
+                "scopes=\(scopePaths.count) merged=\(totalMerged) backfilled=\(totalBackfilled) totalSessions=\(sessions.count) workspaces=\(allWorkspacesSeen.sorted().joined(separator: ","))",
                 forKey: "diag.tasks.merge")
             UserDefaults.standard.synchronize()
         }
@@ -1365,36 +1389,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                         todos: todos))
                 }
             case "toolCall":
-                let status = row["status"]?.stringValue ?? "running"
-                let outputText = row["output"]?.objectValue?["text"]?.stringValue
-                    ?? row["outputPreview"]?.objectValue?["text"]?.stringValue
-                    ?? row["progress"]?.objectValue?["text"]?.stringValue
-                // G-020：workflow 启动类工具调用（CreateWorkflow/AmendWorkflow/StartSavedWorkflow）
-                // 宽容取关联 runId（行 result/回执内 runId 键）；G-015：行元数据 entityId 作重试游标
-                let toolName = (row["toolName"]?.stringValue ?? "").lowercased()
-                let workflowRunId = toolName.contains("workflow")
-                    ? (row["result"]?.objectValue?["runId"]?.stringValue
-                        ?? row["runId"]?.stringValue
-                        ?? row["output"]?.objectValue?["runId"]?.stringValue)
-                    : nil
-                let toolCall = ToolCall(
-                    id: row["toolCallId"]?.stringValue ?? "tool-\(rowId)",
-                    kind: Self.mapToolKind(row["toolName"]?.stringValue),
-                    target: row["inputText"]?.stringValue ?? row["toolName"]?.stringValue ?? "",
-                    status: Self.mapToolStatus(status),
-                    duration: nil,
-                    addedLines: row["display"]?.objectValue?["addedLines"]?.intValue,
-                    removedLines: row["display"]?.objectValue?["removedLines"]?.intValue,
-                    output: outputText,
-                    diff: nil,
-                    entityId: row["entityId"]?.stringValue,
-                    workflowRunId: workflowRunId)
-                result.append(ChatMessage(
-                    id: "row-\(rowId)", role: .agent,
-                    text: "",
-                    status: status == "running" || status == "inputStreaming" || status == "pendingApproval" ? .streaming : .done,
-                    timestamp: Date(),
-                    toolCall: toolCall))
+                result.append(Self.toolCallRowMessage(
+                    row, rowId: rowId, id: "row-\(rowId)", includeRetryCursor: true))
             case "subagent":
                 result.append(ChatMessage(
                     id: "row-\(rowId)", role: .agent,
@@ -1550,6 +1546,46 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         case "error", "cancelled": return .failed
         default: return .running
         }
+    }
+
+    /// toolCall 行 → 工具卡消息（主会话 rebuildMessages 与子代理转录 actorTranscript
+    /// 共用同一份行映射，防两处漂移；2026-10-08 用户报障「子代理转录只有工具名没有
+    /// 具体信息」的根修——原轻量映射只拼 toolName 概要，输入/输出全丢）。
+    /// includeRetryCursor=false（子代理只读转录）不带 entityId——G-015 工具卡「重试」
+    /// 门槛（entityId 在场才渲染）使转录内天然不出现下发不出去的死入口。
+    static func toolCallRowMessage(
+        _ row: [String: JSONValue], rowId: Int, id: String, includeRetryCursor: Bool
+    ) -> ChatMessage {
+        let status = row["status"]?.stringValue ?? "running"
+        let outputText = row["output"]?.objectValue?["text"]?.stringValue
+            ?? row["outputPreview"]?.objectValue?["text"]?.stringValue
+            ?? row["progress"]?.objectValue?["text"]?.stringValue
+        // G-020：workflow 启动类工具调用（CreateWorkflow/AmendWorkflow/StartSavedWorkflow）
+        // 宽容取关联 runId（行 result/回执内 runId 键）；G-015：行元数据 entityId 作重试游标
+        let toolName = (row["toolName"]?.stringValue ?? "").lowercased()
+        let workflowRunId = toolName.contains("workflow")
+            ? (row["result"]?.objectValue?["runId"]?.stringValue
+                ?? row["runId"]?.stringValue
+                ?? row["output"]?.objectValue?["runId"]?.stringValue)
+            : nil
+        let toolCall = ToolCall(
+            id: row["toolCallId"]?.stringValue ?? "tool-\(rowId)",
+            kind: Self.mapToolKind(row["toolName"]?.stringValue),
+            target: row["inputText"]?.stringValue ?? row["toolName"]?.stringValue ?? "",
+            status: Self.mapToolStatus(status),
+            duration: nil,
+            addedLines: row["display"]?.objectValue?["addedLines"]?.intValue,
+            removedLines: row["display"]?.objectValue?["removedLines"]?.intValue,
+            output: outputText,
+            diff: nil,
+            entityId: includeRetryCursor ? row["entityId"]?.stringValue : nil,
+            workflowRunId: workflowRunId)
+        return ChatMessage(
+            id: id, role: .agent,
+            text: "",
+            status: status == "running" || status == "inputStreaming" || status == "pendingApproval" ? .streaming : .done,
+            timestamp: Date(),
+            toolCall: toolCall)
     }
 
     // MARK: plan/todo 步骤解析（项 3）
@@ -3618,7 +3654,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         ]
         if let selection = await modelSelectionView(), let model = selection.activeModel {
             var selectionPayload: [String: JSONValue] = [
-                "providerId": .string(selection.modelProviders[model] ?? ""),
+                "providerId": .string(selection.provider(forRowKey: nil, model: model) ?? ""),
                 "modelId": .string(model),
             ]
             if let level = selection.activeThoughtLevel, !level.isEmpty {
@@ -4179,8 +4215,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             cancellable: false)
     }
 
-    /// G-021：子代理只读转录——按 actor.sessionId 拉一页 rowsRange（无新协议，纯只读），
-    /// 轻量行映射（userInput/assistantText/reasoning/toolCall 概要文本）。
+    /// G-021：子代理只读转录——按 actor.sessionId 拉一页 rowsRange（无新协议，纯只读）。
+    /// 行映射与主会话 rebuildMessages 同构（2026-10-08 用户报障「子代理转录只有工具名
+    /// 没有具体信息」：toolCall 行完整映射为可展开工具卡（命令/输出/增删行数，共用
+    /// toolCallRowMessage）、reasoning 行映射为思考折叠块、userInput/assistantText
+    /// 原文进气泡/正文；无游标 = 桌面回最新一页，主会话 loadHistory 同语义）。
     func actorTranscript(sessionId: String, limit: Int) async -> [ChatMessage] {
         guard let connection else { return [] }
         var builder = JSONObjectBuilder()
@@ -4195,26 +4234,46 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         for (index, row) in rows.enumerated() {
             guard let d = row.objectValue else { continue }
             let rowId = d["rowId"]?.intValue ?? index
-            let kind = d["kind"]?.stringValue ?? ""
-            let text: String?
-            switch kind {
+            let id = "transcript-\(sessionId)-\(rowId)"
+            switch d["kind"]?.stringValue ?? "" {
             case "userInput":
-                text = d["text"]?.stringValue.map { String(localized: "用户：\($0)") }
-            case "assistantText":
-                text = d["text"]?.stringValue
-            case "reasoning":
-                text = d["text"]?.stringValue.map { String(localized: "（思考）\($0)") }
-            case "toolCall":
-                text = String(localized: "工具 \(d["toolName"]?.stringValue ?? "")")
-            default:
-                text = nil
-            }
-            if let text, !text.isEmpty {
+                let text = d["text"]?.stringValue ?? ""
+                guard !text.isEmpty else { break }
                 messages.append(ChatMessage(
-                    id: "transcript-\(sessionId)-\(rowId)",
-                    role: kind == "userInput" ? .user : .agent,
-                    text: text,
+                    id: id, role: .user, text: text, timestamp: Date(),
+                    attachments: Self.extractAttachmentRefs(d)))
+            case "assistantText":
+                let text = d["text"]?.stringValue ?? ""
+                guard !text.isEmpty else { break }
+                messages.append(ChatMessage(id: id, role: .agent, text: text, timestamp: Date()))
+            case "reasoning":
+                // 历史快照一次性到达，无流式时序：固定 done 态（UI 退化为字数摘要）
+                let text = d["text"]?.stringValue ?? ""
+                guard !text.isEmpty else { break }
+                messages.append(ChatMessage(
+                    id: id, role: .agent, text: "", status: .done, timestamp: Date(),
+                    thinking: ThinkingContent(text: text, state: .done, startedAt: nil, duration: nil)))
+            case "toolCall":
+                // 只读转录不带重试游标（includeRetryCursor: false → 无「重试」死入口）
+                messages.append(Self.toolCallRowMessage(
+                    d, rowId: rowId, id: id, includeRetryCursor: false))
+            case "subagent":
+                messages.append(ChatMessage(
+                    id: id, role: .agent,
+                    text: "🤖 子智能体 · \(d["subagentType"]?.stringValue ?? "")：\(d["summaryText"]?.stringValue ?? "")",
                     timestamp: Date()))
+            case "artifact":
+                let name = d["displayName"]?.stringValue
+                    ?? d["name"]?.stringValue ?? "产物"
+                let type = d["artifactType"]?.stringValue
+                    ?? d["type"]?.stringValue ?? "file"
+                messages.append(ChatMessage(
+                    id: id, role: .agent,
+                    text: "📦 产物 · \(name)（\(type)）",
+                    timestamp: Date(),
+                    attachments: Self.extractAttachmentRefs(d)))
+            default:
+                break // turnHeader / hookInvocation / timelineMarker 不进转录流（主会话同口径）
             }
         }
         return messages
@@ -4769,6 +4828,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         var models: [String] = []
         var thoughtLevels: [String] = []
         var modelProviders: [String: String] = [:]
+        var modelProvidersByPlan: [String: String] = [:]
         // 套餐分组：providerId → 组名（web 端 model picker 同口径；provider 顺序保持）
         var groupsByPlan: [String: [String]] = [:]
         var planOrder: [String] = []
@@ -4838,6 +4898,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     if !(groupsByPlan[plan]?.contains(label) ?? false) {
                         groupsByPlan[plan, default: []].append(label)
                     }
+                    // 复合键表：同名模型跨套餐各组各计（modelProviders 裸名表后到
+                    // 覆盖先到——点个人套餐行发出体验套餐 providerId，2026-10-08 报障）
+                    if !providerId.isEmpty {
+                        modelProvidersByPlan["\(plan)|\(label)"] = providerId
+                    }
                 }
             }
         }
@@ -4845,11 +4910,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         info.thoughtLevels = thoughtLevels
         info.planGroups = planOrder.map { ModelPlanGroup(plan: $0, models: groupsByPlan[$0] ?? []) }
         info.modelProviders = modelProviders
+        info.modelProvidersByPlan = modelProvidersByPlan
         // 当前绑定优先 preferredSelection（{providerId, modelId, options:{reasoningLevel}}），
         // 退化 effective.selection 同构
         let selection = view["preferredSelection"]?.objectValue
             ?? view["effective"]?.objectValue?["selection"]?.objectValue
         info.activeModel = selection?["modelId"]?.stringValue
+        info.activeProviderId = selection?["providerId"]?.stringValue
         info.activeThoughtLevel = selection?["options"]?.objectValue?["reasoningLevel"]?.stringValue
         return info
     }

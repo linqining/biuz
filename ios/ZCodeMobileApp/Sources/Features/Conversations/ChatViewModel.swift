@@ -129,15 +129,18 @@ final class ChatViewModel {
             ?? String(localized: "已下发 · 桌面端将切换运行设置")
     }
 
-    /// 主模型切换（switchModelConfig 三元组；thought 沿用当前档位）
+    /// 主模型切换（switchModelConfig 三元组；thought 沿用当前档位）。
+    /// `model` 接受面板行键「套餐|模型」（复合表权威解析 providerId）或裸模型名
+    /// （当前绑定走 activeProviderId，其余回退裸名表）
     func switchModel(_ model: String, thoughtLevel: String? = nil) async -> String? {
         guard let selection = modelSelection else {
             return String(localized: "不在连接态，无法切换桌面端模型")
         }
-        let provider = selection.modelProviders[model] ?? ""
+        let provider = selection.provider(forRowKey: model, model: model) ?? ""
         let thought = thoughtLevel ?? selection.activeThoughtLevel ?? ""
         let ack = await store.switchModelConfig(
-            conversationID, provider: provider, model: model, thought: thought)
+            conversationID, provider: provider,
+            model: selection.modelLabel(forRowKey: model), thought: thought)
         recordControlDiag("switchModel=\(model) thought=\(thought)", workId: nil, ack: ack)
         return Self.controlFeedback(ack, verb: "model")
     }
@@ -739,10 +742,7 @@ final class ChatViewModel {
                     return args[i + 1]
                 }
                 let targetModel = argValue("-ZCodeDiagSwitchModelTo") ?? selection.activeModel ?? ""
-                let provider = selection.modelProviders[targetModel]
-                    ?? (targetModel == selection.activeModel
-                        ? selection.modelProviders[selection.activeModel ?? ""] ?? ""
-                        : "")
+                let provider = selection.provider(forRowKey: nil, model: targetModel) ?? ""
                 let thought = argValue("-ZCodeDiagSwitchThoughtTo") ?? selection.activeThoughtLevel
                 ack = await store.switchModelConfig(
                     conversationID,
@@ -1083,9 +1083,10 @@ final class ChatViewModel {
         return delivered
     }
 
-    /// G-021：子代理只读转录加载（actor.sessionId → store 只读拉一页）
+    /// G-021：子代理只读转录加载（actor.sessionId → store 只读拉一页；页大小对齐
+    /// 主会话初始 loadHistory 的 200 行）
     func storeActorTranscript(sessionId: String) async -> [ChatMessage] {
-        await store.actorTranscript(sessionId: sessionId, limit: 100)
+        await store.actorTranscript(sessionId: sessionId, limit: 200)
     }
 
     /// G-015：失败工具卡「重试」→ retryTurn 下发（行合成 id "row-<n>" 携 rowId；

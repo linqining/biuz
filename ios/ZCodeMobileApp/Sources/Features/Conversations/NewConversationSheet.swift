@@ -39,6 +39,9 @@ struct NewConversationSheet: View {
     // 模型与思考等级（连接态可选）：getView 投影 + 会话前选择，随 firstInput.modelSelection 下发
     @State private var modelInfo: ModelSelectionInfo?
     @State private var selectedModel: String?
+    /// 模型面板行键「套餐|模型」（provider 复合解析用；nil = 未显式点选，跟随桌面
+    /// 当前绑定——provider(forRowKey:model:) 经 activeProviderId 消歧同名跨套餐）
+    @State private var selectedModelRowKey: String?
     @State private var selectedThought: String?
     @State private var thoughtOptions: [String] = []
     // 可选性修复（用户多次报障「模型和思考等级不能选是 bug」）：getView 首击失败
@@ -190,7 +193,8 @@ struct NewConversationSheet: View {
             .presentationDetents([.height(348)])
             .presentationDragIndicator(.hidden)
         }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, matching: .images)
+        // 图库可选图片+视频（上游 web 同口径；视频受 20MB 通道上限约束，超限在会话内上传事务拦截）
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, matching: .any(of: [.images, .videos]))
         .onChange(of: photoPickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             photoPickerItems = []
@@ -309,7 +313,7 @@ struct NewConversationSheet: View {
             let mediaType = contentType?.preferredMIMEType ?? "image/jpeg"
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
             stagedFiles.append(StagedNewAttachment(
-                name: "IMG_\(Int(Date().timeIntervalSince1970 * 1000)).\(ext)",
+                name: "\(mediaType.hasPrefix("video/") ? "VID" : "IMG")_\(Int(Date().timeIntervalSince1970 * 1000)).\(ext)",
                 mediaType: mediaType, data: data))
         }
     }
@@ -351,16 +355,24 @@ struct NewConversationSheet: View {
                                        selected: model == selectedModel)
                 }
             } else {
+                // 行 id/payload 携「套餐|模型」复合键（同名模型跨套餐按组解析
+                // providerId——payload 曾存裸名，modelProviders 后到覆盖先到：
+                // 点个人套餐行带出体验套餐 providerId，2026-10-08 报障）；
+                // 选中勾按行 provider == 当前绑定 provider 比对
                 items = info.planGroups.flatMap { group in
                     group.models.map { model in
-                        ComposerOptionItem(
-                            id: "\(group.plan)|\(model)",
+                        let rowKey = "\(group.plan)|\(model)"
+                        let providerMatches = info.activeProviderId?.isEmpty == false
+                            ? info.modelProvidersByPlan[rowKey] == info.activeProviderId
+                            : true
+                        return ComposerOptionItem(
+                            id: rowKey,
                             title: model,
                             detail: "",
                             icon: "cpu",
-                            selected: model == selectedModel,
+                            selected: model == selectedModel && providerMatches,
                             section: group.plan,
-                            payload: model)
+                            payload: rowKey)
                     }
                 }
             }
@@ -392,7 +404,10 @@ struct NewConversationSheet: View {
                 }
                 return
             }
-            selectedModel = option.payload ?? option.id
+            // 行键复合解析：selectedModel 存纯模型名（行值展示 + 思考档词表查询），
+            // provider 经 selectedModelRowKey 复合表解析（pendingModelSelection）
+            selectedModelRowKey = option.id
+            selectedModel = modelInfo?.modelLabel(forRowKey: option.id) ?? option.id
             selectedThought = nil
             Task { await reloadThoughtOptions() }
             UISelectionFeedbackGenerator().selectionChanged()
@@ -544,6 +559,7 @@ struct NewConversationSheet: View {
         if isRemote {
             modelInfo = await conversationStore.modelSelectionView()
             selectedModel = modelInfo?.activeModel ?? modelInfo?.models.first
+            selectedModelRowKey = nil
             selectedThought = modelInfo?.activeThoughtLevel
             await reloadThoughtOptions()
             // 首击失败静默补拉一次（sheet 停留期内桌面恢复常见——用户无需感知重试；
@@ -938,7 +954,11 @@ struct NewConversationSheet: View {
     /// 缺失一律返回 nil（桌面端以当前默认开跑，不阻断新建）
     private func pendingModelSelection() -> NewSessionModelSelection? {
         guard isRemote, let model = selectedModel else { return nil }
-        guard let provider = modelInfo?.modelProviders[model], !provider.isEmpty else { return nil }
+        // 行键复合解析优先（同名模型跨套餐不互串）；裸名回退经 activeProviderId/
+        // modelProviders。provider 映射缺失仍返回 nil——strict schema providerId
+        // min(1)，宁可不带选择也不发空 provider 拒整条 createSession
+        guard let provider = modelInfo?.provider(forRowKey: selectedModelRowKey, model: model),
+              !provider.isEmpty else { return nil }
         let thought = selectedThought ?? modelInfo?.activeThoughtLevel ?? ""
         return NewSessionModelSelection(providerId: provider, modelId: model, reasoningLevel: thought)
     }

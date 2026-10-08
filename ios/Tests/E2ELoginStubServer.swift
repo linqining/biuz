@@ -491,6 +491,22 @@ final class E2ELoginStubServer {
         lock.unlock()
     }
 
+    /// 测试钩子：预置任意会话（含子代理 sessionId）的转录行——G-021 子代理转录
+    /// 下钻 rowsRange 的数据面（客户端 actorTranscript 按 actor.sessionId 拉一页）
+    func setSessionRows(sessionId: String, rows: [[String: Any]]) {
+        lock.lock()
+        sessionRows[sessionId] = rows
+        nextRowId[sessionId] = (rows.compactMap { $0["rowId"] as? Int }.max() ?? 0) + 1
+        lock.unlock()
+    }
+
+    /// rowsRange 无游标尾窗页大小（缺省 3；转录渲染用例调大以一窗覆盖全部行型）
+    private var _rowsRangePageSize = 3
+    var rowsRangePageSize: Int {
+        get { lock.lock(); defer { lock.unlock() }; return _rowsRangePageSize }
+        set { lock.lock(); _rowsRangePageSize = newValue; lock.unlock() }
+    }
+
     /// 测试钩子：向全部活跃 channel 重放 workflowRuns state.updated（整键翻转断言）
     func fireWorkflowRunsStateForTest(sessionId: String, runs: [[String: Any]], delay: TimeInterval = 0.3) {
         lock.lock()
@@ -1056,8 +1072,8 @@ final class E2ELoginStubServer {
             _rowsRangeRequests.append((sessionId, beforeRowId))
             let allRows = sessionRows[sessionId] ?? []
             lock.unlock()
-            // 向上分页：beforeRowId 取更早一窗（页大小 3），无游标取尾部 3 行
-            let pageSize = 3
+            // 向上分页：beforeRowId 取更早一窗（页大小可调，缺省 3），无游标取尾部一窗
+            let pageSize = max(1, rowsRangePageSize)
             let page: [[String: Any]]
             let hasMore: Bool
             if let beforeRowId {

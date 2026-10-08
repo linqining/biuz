@@ -119,6 +119,12 @@ struct SessionWorkflowRunSummary: Identifiable, Equatable {
 /// 通路 A 投影（无 run 时 nil，行不渲染占位）
 struct WorkflowActivitySummary: Equatable {
     var runs: [SessionWorkflowRunSummary]
+
+    /// 运行中 run（pending|running）。行迷你轨道只画活 run——桌面侧栏同位过滤
+    /// 【实证·上游仓 workflowRunLine.ts:128-133】：visible = live || 未确认(ack)，
+    /// 移动端无「确认收起」UI、未确认已完成 run 无清除手段 → 取 live-only 口径
+    /// （用户裁决 2026-10-08「工作流只展示运行中的」）；溢出计数同源（ts:133）
+    var liveRuns: [SessionWorkflowRunSummary] { runs.filter(\.isLive) }
 }
 
 /// 阶段节点（详情面板节点链；含子代理节点：isSubagent=true 时渲染为子代理卡片）

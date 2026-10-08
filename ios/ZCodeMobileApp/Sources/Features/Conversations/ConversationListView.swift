@@ -913,8 +913,9 @@ struct ConversationRowView: View {
                     }
                 }
                 // G-007：workflowActivity 迷你轨道（随 sessions-index 帧实时更新；
-                // 无 run 时 nil → 不渲染任何占位）
-                if let activity = conversation.workflowActivity {
+                // 无 run 时 nil → 不渲染任何占位）。只画运行中 run（live-only 口径
+                // 见 WorkflowActivitySummary.liveRuns；全部收尾的会话行不渲染轨道）
+                if let activity = conversation.workflowActivity, !activity.liveRuns.isEmpty {
                     SessionWorkflowTrackView(activity: activity)
                         .padding(.top, 1)
                 }
@@ -971,7 +972,8 @@ struct ConversationRowView: View {
 // （桌面 WORKFLOW_RUN_LINE_MAX_LINES）；站点 ≤6 全画，更多以运行站为中心保留 ±2
 // 共 5 站 +「+n」尾（桌面 foldWorkflowRunRail 固定窗口）。双线段简化口径：
 // 站 i 的 alongside 含 i-1 即视为与前一站并行（桌面按折带连通分量算轨道号，移动端
-// 迷你轨道只画一层并行关系）。
+// 迷你轨道只画一层并行关系）。run 级过滤：只画运行中（live-only，桌面 ts:128-133
+// 为 live||未确认，移动端无确认 UI——用户裁决 2026-10-08「只展示运行中的」）。
 
 /// 迷你轨道站点（折叠窗口计算后的渲染模型）
 struct WorkflowRailStation: Equatable {
@@ -1093,8 +1095,10 @@ struct WorkflowRunRailRow: View {
 struct SessionWorkflowTrackView: View {
     let activity: WorkflowActivitySummary
 
-    private var visibleRuns: [SessionWorkflowRunSummary] { Array(activity.runs.prefix(2)) }
-    private var overflowCount: Int { max(0, activity.runs.count - visibleRuns.count) }
+    /// 可见 run = 运行中（live-only 口径，WorkflowActivitySummary.liveRuns——桌面
+    /// workflowRunLine.ts:128-133 为 live||未确认，移动端无确认 UI 取 live-only）
+    private var visibleRuns: [SessionWorkflowRunSummary] { Array(activity.liveRuns.prefix(2)) }
+    private var overflowCount: Int { max(0, activity.liveRuns.count - visibleRuns.count) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
