@@ -84,7 +84,7 @@ enum ConnectURLParser {
         /// 横幅 meta 行（中继：机器名 · 云中继）
         var relaySummary: String {
             guard case .relay(let link) = self else { return "" }
-            return "\(link.machineName ?? "桌面端") · 云中继 · \(link.endpointHost ?? "")"
+            return String(localized: "\(link.machineName ?? "桌面端") · 云中继 · \(link.endpointHost ?? "")")
         }
 
         var directHost: String {

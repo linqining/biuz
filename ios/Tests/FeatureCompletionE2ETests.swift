@@ -170,6 +170,9 @@ final class FeatureCompletionE2ETests: XCTestCase {
             "-ZCodeE2EResetState",
             // E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配；连接成功后换真实 Store）
             "-ZCodeDemoData",
+            // 开发者模式强制开启（l1-btn-manual / l3-btn-update-token 手动链路用例依赖；
+            // 简洁态回归门 test16 不带本参数，自证默认态）
+            "-ZCodeDevMode",
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthClientID", "stub-client-e2e",
@@ -193,6 +196,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
         application.terminate()
         var arguments = [
             "-ZCodeDemoData",
+            "-ZCodeDevMode",
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthClientID", "stub-client-e2e",
@@ -1512,5 +1516,140 @@ final class FeatureCompletionE2ETests: XCTestCase {
         XCTAssertNil(target?.workspaceIdentity,
                      "归属工作区无 identity 时不得携带连接工作区的 ws-e2e-1（identity 错配同样使桌面侧 workspaceKey 失配）")
         snap(application, "52-subscribe-workspace-target")
+    }
+
+    /// test16 连接页简洁态回归（2026-10-08 用户裁决「连接页只留扫码主路径，手动输入 /
+    /// 桌面端开启指引 / 令牌说明仅开发者模式呈现」）：默认态（不带 -ZCodeDevMode）L1
+    /// 只有扫码 + 品牌 + 最近卡，扫码页无手动逃生口；设置页品牌行 7 连击开启开发者
+    /// 模式后入口整体回归。launchFresh 基础参数含 -ZCodeDevMode，本用例专用裸参数
+    /// 冷启动自证默认态；-ZCodeE2EResetState 会清除设置档（开发者模式不跨用例残留）。
+    func test16_connectHomeCleanByDefaultAndDevModeRevealsManualEntries() throws {
+        let application = XCUIApplication()
+        application.launchArguments = [
+            "-ZCodeE2EResetState",
+            "-ZCodeDemoData",
+            "-AppleLanguages", "(zh-Hans)",
+            "-ZCodeOpenConnectFlow",
+        ]
+        application.launch()
+
+        // ① 默认态：扫码主路径在场；手动输入 / 桌面端指引 / 令牌 footer 全部不在场。
+        // 防瞬态（AGENTS §5-16 cfprefsd 口径）：上一轮通过用例 step③ 的开发者模式写
+        // 随 SIGKILL 可能未冲洗，reset 清除与首屏读有竞态——发现手动入口即二次冷启
+        // 复核（此时 cfprefsd 已定态）
+        XCTAssertTrue(element(application, "l1-btn-scan").waitForExistence(timeout: 10),
+                      "连接页应有扫码主 CTA")
+        if element(application, "l1-btn-manual").waitForExistence(timeout: 2) {
+            application.terminate()
+            application.launch()
+            _ = element(application, "l1-btn-scan").waitForExistence(timeout: 10)
+        }
+        XCTAssertFalse(element(application, "l1-btn-manual").exists,
+                       "默认态连接页不得出现手动输入入口")
+        XCTAssertFalse(element(application, "l1-row-help").exists,
+                       "默认态连接页不得出现「如何在桌面端开启」入口")
+        XCTAssertFalse(element(application, "l1-foot-token-note").exists,
+                       "默认态连接页不得出现访问令牌说明 footer")
+
+        // ② 扫码页：手动逃生口与「桌面端未出码」指引不在场（header ✕ 保留关闭路径）。
+        // 关闭后必须等 cover 真正消失（l1-s-act-close 出树）再点 L1 关闭——cover 收起
+        // 动画窗口内 L1 ✕ 不可命中（hit point -1,-1 空点，test16 首跑实证）
+        element(application, "l1-btn-scan").tap()
+        let scanClose = element(application, "l1-s-act-close")
+        XCTAssertTrue(scanClose.waitForExistence(timeout: 8),
+                      "扫码页应打开且关闭钮在场")
+        // 相机权限系统弹窗（springboard 层，App 树不可见；拦截期间 App 内合成 tap 全部
+        // 被吞——test16 连续三轮「✕ 点击无反应」实证）。首次扫码触发 requestAccess，
+        // 弹窗异步升窗（授权后 TCC 按设备+bundle 持久；宿主机另有 simctl privacy grant
+        // 兜底）——6s 窗口轮询四个语种按钮，命中即点
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allowLabels = ["好", "OK", "允许", "Allow"]
+        let alertDeadline = Date().addingTimeInterval(6)
+        while Date() < alertDeadline {
+            var tapped = false
+            for label in allowLabels where springboard.buttons[label].exists {
+                springboard.buttons[label].tap()
+                tapped = true
+                break
+            }
+            if tapped { break }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertFalse(element(application, "l1-s-btn-manual").exists,
+                       "默认态扫码页不得出现手动输入逃生口")
+        var scanClosed = false
+        for attempt in 0..<3 {
+            if !scanClose.exists { scanClosed = true; break }
+            NSLog("test16 diag: scanClose frame=\(NSCoder.string(for: scanClose.frame)) appFrame=\(NSCoder.string(for: application.frame)) hittable=\(scanClose.isHittable)")
+            scanClose.tap()
+            if waitUntil(timeout: 5, "扫码页应收起") { !scanClose.exists } {
+                scanClosed = true
+                break
+            }
+            snap(application, "56-diag-scan-close-\(attempt)")
+        }
+        XCTAssertTrue(scanClosed, "扫码页应能关闭回连接页")
+
+        // ③ 设置页品牌行 7 连击 → 开发者模式开启（公告 + 开发者分组在场）。
+        // 注意：四 Tab 根页同挂 ZStack，未选中 Tab 的元素 exists=true 但不可命中——
+        // 必须以「l4-row-add 可命中」实证已切到设置页，否则后续滚动全部空转
+        element(application, "l1-act-close").tap()
+        let meTab = element(application, "12-tab-me")
+        XCTAssertTrue(meTab.waitForExistence(timeout: 10), "关闭连接流后应回主界面（四 Tab）")
+        let addRowEarly = element(application, "l4-row-add")
+        var onSettings = false
+        for _ in 0..<3 {
+            meTab.tap()
+            if addRowEarly.waitForExistence(timeout: 4), addRowEarly.isHittable {
+                onSettings = true
+                break
+            }
+        }
+        XCTAssertTrue(onSettings, "应切到设置页（添加服务器行可命中）")
+        let brandRow = element(application, "12-brand-name")
+        // 设置页 ScrollView 用整屏 swipeUp 揭示（ZCodeMobileE2ETests.scrollToReveal 先例；
+        // scrollToHittable 的坐标拖拽在本页实测空转）——揭示判定 = 帧在界内且高于浮层 TabBar
+        let appFrame = application.frame
+        var brandRevealed = false
+        for attempt in 0..<10 {
+            let f = brandRow.exists ? brandRow.frame : .zero
+            NSLog("test16 diag: brand frame=\(NSCoder.string(for: f)) appFrame=\(NSCoder.string(for: appFrame))")
+            if brandRow.exists,
+               appFrame.minY + 40 < f.midY,
+               f.maxY < appFrame.maxY - 95 {
+                brandRevealed = true
+                break
+            }
+            application.swipeUp()
+        }
+        XCTAssertTrue(brandRevealed, "设置页应可滚动到品牌行")
+        for _ in 0..<7 { brandRow.tap() }
+        XCTAssertTrue(element(application, "12-dev-announce").waitForExistence(timeout: 4),
+                      "7 连击应触发开发者模式开启公告")
+        XCTAssertTrue(element(application, "12-row-dev-mode").waitForExistence(timeout: 4),
+                      "开发者模式开启后设置页应出现开发者分组开关")
+
+        // ④ 重开连接流：手动入口 / 指引入口回归，且可进入手动连接页
+        let addRow = element(application, "l4-row-add")
+        var addRevealed = false
+        for _ in 0..<6 {
+            if addRow.exists, addRow.isHittable {
+                addRevealed = true
+                break
+            }
+            application.swipeDown()
+        }
+        XCTAssertTrue(addRevealed, "「添加服务器」行应可滚动回可命中区")
+        addRow.tap()
+        XCTAssertTrue(element(application, "l1-btn-manual").waitForExistence(timeout: 8),
+                      "开发者模式下连接页手动输入入口应回归")
+        XCTAssertTrue(element(application, "l1-row-help").exists,
+                      "开发者模式下连接页桌面端指引入口应回归")
+        XCTAssertTrue(element(application, "l1-foot-token-note").exists,
+                      "开发者模式下连接页令牌说明 footer 应回归")
+        element(application, "l1-btn-manual").tap()
+        XCTAssertTrue(element(application, "l1-field-host").waitForExistence(timeout: 8),
+                      "应进入手动连接页")
+        snap(application, "56-devmode-connect-entries-restored")
     }
 }

@@ -66,9 +66,14 @@ struct ZCodeMobileApp: App {
                     case .login:
                         LoginFlowView()
                             .environment(session)
+                            // cover 内容不自动继承根环境（session 同款教训）：连接页/
+                            // 扫码页/失败页现读 AppSettingsModel（开发者模式 gating），
+                            // 缺注入 = EnvironmentValues 下标 trap 闪退（test16 首跑实证）
+                            .environment(appSettings)
                     case .connect(let editTokenOnly):
                         ConnectFlowView(initialEditTokenOnly: editTokenOnly)
                             .environment(session)
+                            .environment(appSettings)
                     }
                 }
         }

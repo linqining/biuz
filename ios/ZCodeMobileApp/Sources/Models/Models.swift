@@ -175,6 +175,9 @@ struct WorkflowRunSummary: Identifiable, Equatable {
     var cancellable: Bool = false
     /// 控制/设置命令的定位键（run 对象自带 workId；缺席时以 runId 充当，web 同构）
     var workId: String?
+    /// 阶段词汇在场（任一节点/实例带 phaseName 出生戳；上游 runHasPhaseVocabulary
+    /// 同口径）——决定无戳实例的归属：有词汇只归「未分组」站，无词汇归全部站
+    var hasPhaseVocabulary: Bool = false
     /// 起止时间（宽容解析：毫秒数/ISO 双形态，缺席 = nil——多 run 排序回退表序；
     /// 字段未在桌面 §10 词表取证，仅移动端显示排序用）
     var startedAt: Date?
@@ -186,6 +189,43 @@ struct WorkflowRunSummary: Identifiable, Equatable {
 
     /// 进度点计数（done 节点 / 总节点）
     var doneCount: Int { nodes.filter { $0.status == .done }.count }
+
+    /// display 阶段名截断上界（上游 DISPLAY_PHASE_NAME_BOUND，phase-name.ts:39）
+    static let phaseNameDisplayBound = 128
+    /// 无戳实例承接站的保留 id（store 侧合成「未分组」站时使用）
+    static let unphasedStationID = "station-unphased"
+
+    /// display 阶段名 ↔ 运行时出生戳的唯一关联规则【实证·上游仓 phase-name.ts
+    /// phaseNameMatches:44-49 逐字移植】：精确匹配优先；display 名顶到截断上界才按
+    /// 前缀兜底——前缀只在截断真的发生过时才开，否则「计划」会误认「计划修复」。
+    static func phaseNameMatches(_ displayName: String, _ runtimeName: String) -> Bool {
+        if displayName == runtimeName { return true }
+        return displayName.count >= phaseNameDisplayBound && runtimeName.hasPrefix(displayName)
+    }
+
+    /// 子代理实例 → 阶段行归属【实证·上游仓 instance-phases.ts phasesOf 三分支移植】：
+    /// ① 有戳按名字匹配；② 无戳：有词汇只归「未分组」站、无词汇归全部站（无戳 ↔ 无名
+    /// 是同一事实的两面）；③ 匹配为空的实例归全部站——「宁可重复显示，也不把一个
+    /// 在跑的子代理藏起来」。此前精确相等匹配下，截断名/无戳实例永远无站可归，
+    /// 阶段行 actors 恒空、永远不可展开（用户报障「点击工作流某项不展开」根因之一）。
+    func actors(boundTo node: WorkflowNodeSummary) -> [WorkflowActorSummary] {
+        var bound: [WorkflowActorSummary] = []
+        var orphans: [WorkflowActorSummary] = []
+        for actor in actors {
+            guard let stamp = actor.phaseName else {
+                if node.id == Self.unphasedStationID || !hasPhaseVocabulary {
+                    bound.append(actor)
+                }
+                continue
+            }
+            if Self.phaseNameMatches(node.label, stamp) {
+                bound.append(actor)
+            } else if !nodes.contains(where: { Self.phaseNameMatches($0.label, stamp) }) {
+                orphans.append(actor)
+            }
+        }
+        return bound.isEmpty ? orphans : bound
+    }
 }
 
 // MARK: - 会话面板投影（goal / plan / btw 后台工作 / side 子代理；桌面 state.* 同名宽容解析）
@@ -217,6 +257,31 @@ struct BackgroundWorkSummary: Identifiable, Equatable {
     /// 关联 run / 子会话（下钻入口；nil = 无）
     var runId: String?
     var sessionId: String?
+    /// 起止时间（上游 backgroundWorkSummarySchema.startedAt/endedAt【实证·上游仓
+    /// snapshot.ts:352-367】；宽容毫秒/ISO 双形态解析，缺席 nil 不显示时长）
+    var startedAt: Date?
+    var endedAt: Date?
+    /// 桌面忙等标记（上游 blocked；缺席 = false）
+    var blocked: Bool = false
+
+    /// 运行中判定（上游官方派生口径：backgroundWorks.some(w => w.status === "running")，
+    /// snapshot.ts:136 注释逐字——「运行中的参考价值更大」的协议层依据）
+    var isRunning: Bool { rawStatus == "running" }
+
+    /// 后台状态原词 → 本地化文案：权威四态闭集 running|resultPending|failed|cancelled
+    /// 【实证·上游仓 backgroundWorkSummarySchema】+ 旧桌面宽容词；未知原词回退原文
+    var statusText: String {
+        switch rawStatus {
+        case "running": return String(localized: "运行中")
+        case "resultPending": return String(localized: "待投递")
+        case "failed": return String(localized: "失败")
+        case "cancelled": return String(localized: "已取消")
+        case "completed", "done": return String(localized: "已完成")
+        case "stopped": return String(localized: "已停止")
+        case "pending", "queued": return String(localized: "待执行")
+        default: return rawStatus ?? ""
+        }
+    }
 }
 
 /// state.subagents 投影（side 面板）：子代理会话实例，只读转录下钻
@@ -478,4 +543,22 @@ struct AppSettings: Equatable, Codable {
     var model: String = "GLM-5.3"
     var thoughtLevel: ThoughtLevel = .medium
     var language: String = "跟随系统"
+    /// 开发者模式（默认关）：连接页默认只留扫码主路径；开启后显示手动输入地址 /
+    /// 桌面端开启指引 / 访问令牌说明等开发向入口。设置页品牌行连点 7 次切换；
+    /// `-ZCodeDevMode` 启动参数可强制开启（E2E 手动链路用例依赖）
+    var developerMode: Bool = false
+
+    init() {}
+
+    // 旧存档无 developerMode 键：合成解码遇缺键整档失败 → load() 回退默认值
+    // （外观/语言/模型偏好全部丢失），故逐键 decodeIfPresent 兼容升级
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        appearance = try container.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? .system
+        notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? "GLM-5.3"
+        thoughtLevel = try container.decodeIfPresent(ThoughtLevel.self, forKey: .thoughtLevel) ?? .medium
+        language = try container.decodeIfPresent(String.self, forKey: .language) ?? "跟随系统"
+        developerMode = try container.decodeIfPresent(Bool.self, forKey: .developerMode) ?? false
+    }
 }

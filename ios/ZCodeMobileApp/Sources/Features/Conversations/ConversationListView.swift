@@ -236,12 +236,12 @@ struct ConversationListView: View {
                 cleanupTarget = nil
             }
         } message: {
-            Text("将删除失败任务「\(cleanupTarget?.title ?? "")」及其本地记录，桌面端同步删除")
+            Text(String(localized: "将删除失败任务「\(cleanupTarget?.title ?? "")」及其本地记录，桌面端同步删除"))
         }
         // 工作区切换确认（P3-10 §10.5：影响三面板数据面，确认层保留；主键「切换」为
         // 普通按钮——切换不丢数据且桌面任务不受影响，非 destructive）
         .confirmationDialog(
-            "切换到 \(switchTarget?.label ?? switchTarget?.path ?? "")？",
+            String(localized: "切换到 \(switchTarget?.label ?? switchTarget?.path ?? "")？"),
             isPresented: Binding(
                 get: { switchTarget != nil },
                 set: { if !$0 { switchTarget = nil } }),
@@ -511,12 +511,12 @@ struct ConversationListView: View {
                 }
             } label: {
                 switcherPillLabel(
-                    "工作区 \(current?.label ?? current?.path ?? "--")", chevron: true, spinner: false)
+                    String(localized: "工作区 \(current?.label ?? current?.path ?? "--")"), chevron: true, spinner: false)
             }
             .accessibilityIdentifier("04-switcher-workspace")
         } else {
             switcherPillLabel(
-                "工作区 \(current?.label ?? current?.path ?? "--")", chevron: false, spinner: false)
+                String(localized: "工作区 \(current?.label ?? current?.path ?? "--")"), chevron: false, spinner: false)
                 .accessibilityIdentifier("04-switcher-workspace-readonly")
         }
     }

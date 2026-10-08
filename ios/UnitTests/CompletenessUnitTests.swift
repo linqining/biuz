@@ -129,6 +129,34 @@ final class CompletenessUnitTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - AppSettings 旧档兼容解码（开发者模式字段 2026-10-08 追加）
+
+    /// 旧版设置档（无 developerMode 键）解码必须整档存活：合成 Codable 遇缺键抛
+    /// keyNotFound → UserDefaultsSettingsStore.load() 回退默认值，外观/语言/模型偏好
+    /// 全部丢失（升级即重置事故）；decodeIfPresent 逐键兼容后旧档字段应逐一保留
+    func testAppSettingsLegacyArchiveDecodesWithoutDeveloperModeKey() throws {
+        let legacyJSON = Data("""
+        {"appearance":"dark","notificationsEnabled":false,"model":"GLM-5","thoughtLevel":"high","language":"English"}
+        """.utf8)
+        let settings = try JSONDecoder().decode(AppSettings.self, from: legacyJSON)
+        XCTAssertEqual(settings.appearance, .dark)
+        XCTAssertEqual(settings.notificationsEnabled, false)
+        XCTAssertEqual(settings.model, "GLM-5")
+        XCTAssertEqual(settings.thoughtLevel, .high)
+        XCTAssertEqual(settings.language, "English")
+        XCTAssertEqual(settings.developerMode, false, "旧档缺键应落默认关")
+    }
+
+    /// 新档含 developerMode 键的编解码回环
+    func testAppSettingsDeveloperModeRoundTrip() throws {
+        var settings = AppSettings()
+        settings.developerMode = true
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertEqual(decoded.developerMode, true, "开发者模式开应回环保留")
+        XCTAssertEqual(decoded, settings)
+    }
 }
 
 /// 斜杠命令解析（composer 能力命令面；web sX 解析器同构拦截子集，
@@ -272,5 +300,4 @@ final class WorkspaceConfigThoughtKeyTests: XCTestCase {
         XCTAssertEqual(info.activeModel, "GLM-5.3-Flash")
         XCTAssertEqual(info.activeThoughtLevel, "max")
     }
-
 }

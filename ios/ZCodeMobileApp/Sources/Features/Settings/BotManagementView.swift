@@ -148,7 +148,7 @@ final class BotStore {
                 ?? []
             bots = items.compactMap(Self.parseBot)
         } catch {
-            lastError = "listBots 失败 · \(error.localizedDescription)"
+            lastError = String(localized: "listBots 失败 · \(error.localizedDescription)")
         }
     }
 
@@ -196,7 +196,7 @@ final class BotStore {
             bindCode = BotBindCode(code: code, expiresAt: expiresAt, ttlMs: ttl)
             actionNotice = nil
         } catch {
-            actionNotice = "绑定码生成失败 · \(error.localizedDescription)"
+            actionNotice = String(localized: "绑定码生成失败 · \(error.localizedDescription)")
         }
     }
 
@@ -206,7 +206,7 @@ final class BotStore {
         let saved = await saveBot(connection: connection, bot: bot, droppingBindingIdentity: true)
         if saved {
             _ = await resetBotState(connection: connection, botID: bot.id, silent: true)
-            actionNotice = "已解绑 · \(bot.name)"
+            actionNotice = String(localized: "已解绑 · \(bot.name)")
             await refresh(connection: connection)
         }
         return saved
@@ -217,12 +217,12 @@ final class BotStore {
         let arg = RPCValue.jsonObject { $0.set("botId", bot.id) }
         do {
             _ = try await connection.call("bots", "deleteBot", arg)
-            actionNotice = "已删除 · \(bot.name)"
+            actionNotice = String(localized: "已删除 · \(bot.name)")
             bindCode = nil
             await refresh(connection: connection)
             return true
         } catch {
-            actionNotice = "删除失败 · \(error.localizedDescription)"
+            actionNotice = String(localized: "删除失败 · \(error.localizedDescription)")
             return false
         }
     }
@@ -232,11 +232,11 @@ final class BotStore {
         let arg = RPCValue.jsonObject { $0.set("botId", bot.id) }
         do {
             _ = try await connection.call("bots", "removeBotSecret", arg)
-            actionNotice = "已移除密钥 · \(bot.name)"
+            actionNotice = String(localized: "已移除密钥 · \(bot.name)")
             await refresh(connection: connection)
             return true
         } catch {
-            actionNotice = "移除密钥失败 · \(error.localizedDescription)"
+            actionNotice = String(localized: "移除密钥失败 · \(error.localizedDescription)")
             return false
         }
     }
@@ -268,7 +268,7 @@ final class BotStore {
             return true
         } catch {
             if !silent {
-                actionNotice = "重置失败 · \(error.localizedDescription)"
+                actionNotice = String(localized: "重置失败 · \(error.localizedDescription)")
             }
             return false
         }
@@ -300,7 +300,7 @@ final class BotStore {
             _ = try await connection.call("bots", "saveBot", arg)
             return true
         } catch {
-            actionNotice = "saveBot 失败 · \(error.localizedDescription)"
+            actionNotice = String(localized: "saveBot 失败 · \(error.localizedDescription)")
             return false
         }
     }
@@ -311,7 +311,7 @@ final class BotStore {
             raw["enabled"] = .bool(enabled)
         }
         if ok {
-            actionNotice = enabled ? "已启用 · \(bot.name)" : "已停用 · \(bot.name)"
+            actionNotice = enabled ? String(localized: "已启用 · \(bot.name)") : String(localized: "已停用 · \(bot.name)")
             await refresh(connection: connection)
         }
         return ok
@@ -321,7 +321,7 @@ final class BotStore {
     func saveCredential(connection: ZCodeServerConnection, bot: BotInfo, credential: String) async -> Bool {
         let ok = await saveBot(connection: connection, bot: bot, credentialValue: credential)
         if ok {
-            actionNotice = "凭据已保存 · \(bot.name)（桌面端凭据存储）"
+            actionNotice = String(localized: "凭据已保存 · \(bot.name)（桌面端凭据存储）")
             await refresh(connection: connection)
         }
         return ok
@@ -410,7 +410,7 @@ struct BotManagementView: View {
                         .padding(.horizontal, 2)
                         .accessibilityIdentifier("12-bot-notice")
                 }
-                Text("共 \(store.bots.count) 个通道 · \(store.contextsCount) 个绑定上下文")
+                Text(String(localized: "共 \(store.bots.count) 个通道 · \(store.contextsCount) 个绑定上下文"))
                     .font(T.font(11))
                     .foregroundColor(T.text3)
                     .padding(.horizontal, 2)
@@ -473,9 +473,9 @@ struct BotManagementView: View {
                         StatusPill(text: "已停用", kind: .tag, compact: true)
                     }
                 }
-                Text(bot.isBound
-                     ? "\(bot.providerLabel) · 已绑定 \(bot.displayName ?? bot.providerUserId ?? "")"
-                     : "\(bot.providerLabel) · 未绑定" + (bot.hasCredential ? " · 凭据已配置" : " · 未配置凭据"))
+                    Text(bot.isBound
+                         ? String(localized: "\(bot.providerLabel) · 已绑定 \(bot.displayName ?? bot.providerUserId ?? "")")
+                         : String(localized: "\(bot.providerLabel) · 未绑定") + (bot.hasCredential ? String(localized: " · 凭据已配置") : String(localized: " · 未配置凭据")))
                     .font(T.font(11.5))
                     .foregroundColor(T.text3)
                     .lineLimit(1)
@@ -837,7 +837,7 @@ struct BotDetailView: View {
                             .clipShape(RoundedRectangle(cornerRadius: T.rM))
                     }
                     .accessibilityIdentifier("12-bot-act-copy-bind")
-                    Text("在聊天软件私聊该 Bot 发送此命令，即完成账号绑定（有效期 \(code.ttlMs / 1000) 秒）")
+                    Text(String(localized: "在聊天软件私聊该 Bot 发送此命令，即完成账号绑定（有效期 \(code.ttlMs / 1000) 秒）"))
                         .font(T.font(10.5))
                         .foregroundColor(T.text3)
                 }
@@ -856,7 +856,7 @@ struct BotDetailView: View {
             HStack(spacing: T.sp2) {
                 Text("工作区上下文").font(T.font(13, .semibold)).foregroundColor(T.text3)
                 Spacer()
-                Text("\(botStates.count) 个")
+                Text(String(localized: "\(botStates.count) 个"))
                     .font(T.mono(11))
                     .foregroundColor(T.text3)
             }

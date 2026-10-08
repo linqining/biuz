@@ -429,18 +429,18 @@ extension ConversationStore {
         sessionID: String, uploadId: String, fileName: String, mime: String,
         totalBytes: Int, totalChunks: Int, checksum: String
     ) async -> Result<AttachmentBeginOutcome, AttachmentRPCError> {
-        .failure(AttachmentRPCError(text: "演示态无附件上传面"))
+        .failure(AttachmentRPCError(text: String(localized: "演示态无附件上传面")))
     }
     func attachmentChunkV4(
         sessionID: String, uploadId: String, chunkIndex: Int, dataBase64: String
     ) async -> Result<Int, AttachmentRPCError> {
-        .failure(AttachmentRPCError(text: "演示态无附件上传面"))
+        .failure(AttachmentRPCError(text: String(localized: "演示态无附件上传面")))
     }
     func attachmentCommitV4(sessionID: String, uploadId: String) async -> Result<String, AttachmentRPCError> {
-        .failure(AttachmentRPCError(text: "演示态无附件上传面"))
+        .failure(AttachmentRPCError(text: String(localized: "演示态无附件上传面")))
     }
     func attachmentAbortV4(sessionID: String, uploadId: String) async -> Result<Void, AttachmentRPCError> {
-        .failure(AttachmentRPCError(text: "演示态无附件上传面"))
+        .failure(AttachmentRPCError(text: String(localized: "演示态无附件上传面")))
     }
     func sendWithAttachments(
         _ text: String, attachments: [OutgoingAttachment], requestedDelivery: String?,

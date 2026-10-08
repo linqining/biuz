@@ -145,25 +145,25 @@ enum PValidator {
 
         case .string(let minLength):
             guard let s = value.stringValue else {
-                return .failure(["\(path): 期望 string，实际 \(describe(value))"])
+                return .failure([String(localized: "\(path): 期望 string，实际 \(describe(value))")])
             }
             guard s.count >= minLength else {
-                return .failure(["\(path): 长度 \(s.count) < min(\(minLength))"])
+                return .failure([String(localized: "\(path): 长度 \(s.count) < min(\(minLength))")])
             }
             return PValidation(value: value, errors: [], warnings: [])
 
         case .patternedString(let pattern):
             guard let s = value.stringValue else {
-                return .failure(["\(path): 期望 string，实际 \(describe(value))"])
+                return .failure([String(localized: "\(path): 期望 string，实际 \(describe(value))")])
             }
             guard pattern.matches(s) else {
-                return .failure(["\(path): 不匹配 \(pattern) 约束（值前缀 \(s.prefix(32))）"])
+                return .failure([String(localized: "\(path): 不匹配 \(pattern) 约束（值前缀 \(s.prefix(32))）")])
             }
             return PValidation(value: value, errors: [], warnings: [])
 
         case .integer(let min, let max):
             guard let i = value.intValue else {
-                return .failure(["\(path): 期望 integer，实际 \(describe(value))"])
+                return .failure([String(localized: "\(path): 期望 integer，实际 \(describe(value))")])
             }
             if let min, i < min { return .failure(["\(path): \(i) < min(\(min))"]) }
             if let max, i > max { return .failure(["\(path): \(i) > max(\(max))"]) }
@@ -171,29 +171,29 @@ enum PValidator {
 
         case .number:
             guard value.doubleValue != nil else {
-                return .failure(["\(path): 期望 number，实际 \(describe(value))"])
+                return .failure([String(localized: "\(path): 期望 number，实际 \(describe(value))")])
             }
             return PValidation(value: value, errors: [], warnings: [])
 
         case .boolean:
             guard value.boolValue != nil else {
-                return .failure(["\(path): 期望 boolean，实际 \(describe(value))"])
+                return .failure([String(localized: "\(path): 期望 boolean，实际 \(describe(value))")])
             }
             return PValidation(value: value, errors: [], warnings: [])
 
         case .anyOf(let values):
             guard let s = value.stringValue, values.contains(s) else {
                 return .failure([
-                    "\(path): 值 \(describe(value)) 不在词表 [\(values.sorted().joined(separator: "|"))]"])
+                    String(localized: "\(path): 值 \(describe(value)) 不在词表 [\(values.sorted().joined(separator: "|"))]")])
             }
             return PValidation(value: value, errors: [], warnings: [])
 
         case .array(let element, let maxItems):
             guard let array = value.arrayValue else {
-                return .failure(["\(path): 期望 array，实际 \(describe(value))"])
+                return .failure([String(localized: "\(path): 期望 array，实际 \(describe(value))")])
             }
             if let maxItems, array.count > maxItems {
-                return .failure(["\(path): 元素数 \(array.count) > max(\(maxItems))"])
+                return .failure([String(localized: "\(path): 元素数 \(array.count) > max(\(maxItems))")])
             }
             var errors: [String] = []
             var warnings: [String] = []
@@ -209,13 +209,13 @@ enum PValidator {
 
         case .strictBase64(let maxBytes):
             guard let s = value.stringValue else {
-                return .failure(["\(path): 期望 string，实际 \(describe(value))"])
+                return .failure([String(localized: "\(path): 期望 string，实际 \(describe(value))")])
             }
             guard let byteLength = strictBase64ByteLength(s) else {
-                return .failure(["\(path): invalid base64（必须自带完整 padding、'=' 仅限尾部 ≤2 位、长度为 4 的倍数）"])
+                return .failure([String(localized: "\(path): invalid base64（必须自带完整 padding、'=' 仅限尾部 ≤2 位、长度为 4 的倍数）")])
             }
             guard byteLength <= maxBytes else {
-                return .failure(["\(path): 解码 \(byteLength) 字节 > max(\(maxBytes))"])
+                return .failure([String(localized: "\(path): 解码 \(byteLength) 字节 > max(\(maxBytes))")])
             }
             return PValidation(value: value, errors: [], warnings: [])
 
@@ -228,7 +228,7 @@ enum PValidator {
         _ value: JSONValue, shape: PObjectShape, path: String
     ) -> PValidation {
         guard let dict = value.objectValue else {
-            return .failure(["\(path): 期望 object，实际 \(describe(value))"])
+            return .failure([String(localized: "\(path): 期望 object，实际 \(describe(value))")])
         }
         var errors: [String] = []
         var warnings: [String] = []
@@ -237,7 +237,7 @@ enum PValidator {
         for (key, field) in shape.fields {
             guard let present = dict[key] else {
                 if !field.optional {
-                    errors.append("\(path).\(key): 缺失必填键")
+                    errors.append(String(localized: "\(path).\(key): 缺失必填键"))
                 }
                 continue
             }
@@ -245,7 +245,7 @@ enum PValidator {
                 if field.nullable {
                     output[key] = .null
                 } else {
-                    errors.append("\(path).\(key): 不接受 null")
+                    errors.append(String(localized: "\(path).\(key): 不接受 null"))
                 }
                 continue
             }
@@ -258,9 +258,9 @@ enum PValidator {
         for key in dict.keys where shape.fields[key] == nil {
             if shape.denyKeys.contains(key) {
                 // 服务端注入字段：客户端携带即违规（上游会剥真值，携带=构造 bug）
-                errors.append("\(path).\(key): 服务端注入字段，客户端不得构造")
+                errors.append(String(localized: "\(path).\(key): 服务端注入字段，客户端不得构造"))
             } else if shape.strict {
-                errors.append("\(path).\(key): 未知键（strict）")
+                errors.append(String(localized: "\(path).\(key): 未知键（strict）"))
             } else {
                 // zod strip 语义：剥离后放行，但本地显性告警（上游此路是静默的）
                 warnings.append("\(path).\(key): 未知键已剥离（strip，服务端同语义）")
@@ -303,7 +303,7 @@ enum PValidator {
         case .double(let d): return "number(\(d))"
         case .string(let s): return "string(\"\(s.prefix(24))\")"
         case .array(let a): return "array(\(a.count))"
-        case .object(let o): return "object(\(o.count) 键)"
+        case .object(let o): return String(localized: "object(\(o.count) 键)")
         }
     }
 }

@@ -13,8 +13,9 @@ final class NavigationAndBotsE2ETests: XCTestCase {
     private func launch(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         // 本地化后固定测试语言（中文断言稳定，G-063）；
-        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）
-        app.launchArguments = ["-ZCodeDemoData", "-AppleLanguages", "(zh-Hans)"] + arguments
+        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）；
+        // -ZCodeDevMode：开发者模式强制开启（连接页 l1-btn-manual 手动链路用例依赖）
+        app.launchArguments = ["-ZCodeDemoData", "-ZCodeDevMode", "-AppleLanguages", "(zh-Hans)"] + arguments
         app.launch()
         return app
     }

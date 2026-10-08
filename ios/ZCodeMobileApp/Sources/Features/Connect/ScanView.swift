@@ -6,8 +6,14 @@ import SwiftUI
 struct ScanView: View {
     /// L3「重新扫码更新令牌」模式：识别成功后仅更新令牌不新建服务器
     var updateTokenMode = false
+    /// 显式关闭回调（presenting 侧置 isPresented=false）。内嵌 fullScreenCover 中
+    /// `@Environment(\.dismiss)` 不生效（嵌套 cover 下环境 dismiss 不绑定内层
+    /// presentation——扫码页 ✕ 点了没反应，test16 2026-10-08 实证）；未传时回退
+    /// 环境 dismiss（兼容 RootView 等旧入口）
+    var onClose: (() -> Void)? = nil
 
     @Environment(AppSession.self) private var session
+    @Environment(AppSettingsModel.self) private var settings
     @Environment(\.dismiss) private var dismiss
     @State private var permissionDenied = false
     @State private var inlineError: String?
@@ -22,23 +28,40 @@ struct ScanView: View {
             } else {
                 CameraScannerView(onRecognized: handleRecognized)
                     .ignoresSafeArea()
+                    // UIViewRepresentable 偶发压住 SwiftUI 兄弟视图的 hit-test（✕ 点击
+                    // 无反应而 a11y 帧/hittable/app idle 均正常——2026-10-08 test16 帧级
+                    // 诊断实证）。预览层零触摸需求（识别走 AVCaptureMetadataOutput 回调），
+                    // 显式关断触摸测试
+                    .allowsHitTesting(false)
                 VStack {
                     frameOverlay
                     Spacer()
                     if let error = inlineError {
                         inlineErrorRow(error)
                     }
-                    bottomEscape
+                    // 手动输入逃生口与「桌面端未出码」指引均为开发向信息：仅开发者模式呈现
+                    // （关闭后取景器保留 header ✕ 关闭，主路径不死路）
+                    if settings.effectiveDeveloperMode {
+                        bottomEscape
+                    }
                 }
             }
         }
         .task { await checkPermission() }
     }
 
+    private func closeTapped() {
+        if let onClose {
+            onClose()
+        } else {
+            dismiss()
+        }
+    }
+
     private var header: some View {
         HStack(spacing: T.sp2) {
             Button {
-                dismiss()
+                closeTapped()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 15, weight: .semibold))
@@ -91,7 +114,7 @@ struct ScanView: View {
     private var bottomEscape: some View {
         VStack(spacing: 10) {
             Button {
-                dismiss()
+                closeTapped()
             } label: {
                 Label("改用手动输入连接", systemImage: "server.rack")
                     .font(T.font(13.5, .semibold))
@@ -146,16 +169,18 @@ struct ScanView: View {
                         .clipShape(RoundedRectangle(cornerRadius: T.rM))
                 }
                 .accessibilityIdentifier("l1-s-btn-settings")
-                Button {
-                    dismiss()
-                } label: {
-                    Label("改用手动输入连接", systemImage: "server.rack")
-                        .font(T.font(13.5, .semibold))
-                        .foregroundColor(T.text)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                if settings.effectiveDeveloperMode {
+                    Button {
+                        closeTapped()
+                    } label: {
+                        Label("改用手动输入连接", systemImage: "server.rack")
+                            .font(T.font(13.5, .semibold))
+                            .foregroundColor(T.text)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                    }
+                    .accessibilityIdentifier("l1-s-btn-manual-denied")
                 }
-                .accessibilityIdentifier("l1-s-btn-manual-denied")
             }
             .card(padding: 20)
             .padding(.horizontal, T.sp6)
@@ -192,12 +217,12 @@ struct ScanView: View {
                 // 剪贴板/手动路径同款 connectRelayLink（用户 2026-10-06「扫码连接
                 // 根本没通」：扫码分支此前只认局域网直连链接，relay 二维码被当
                 // 无效码处理，永远不发起中继连接）
-                dismiss()
+                closeTapped()
                 await session.connectRelayLink(text)
             case .direct(let parsed):
                 if updateTokenMode, let existing = session.savedServer {
                     // L3 401 恢复：只更新令牌重连
-                    dismiss()
+                    closeTapped()
                     await session.updateToken(for: existing, token: parsed.token ?? "")
                 } else {
                     var server = ServerConfig(
@@ -211,7 +236,7 @@ struct ScanView: View {
                         server.preferredWorkspacePath = existing.preferredWorkspacePath
                     }
                     ServerRegistry.upsert(server)
-                    dismiss()
+                    closeTapped()
                     await session.connect(server: server)
                 }
             }
@@ -279,13 +304,17 @@ struct CameraScannerView: UIViewRepresentable {
     final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
         var onRecognized: ((String) -> Void)?
         private let session = AVCaptureSession()
+        /// 会话专用串行队列：startRunning/stopRunning 均为阻塞调用（Apple 文档明示），
+        /// **严禁主线程**——模拟器相机服务卡死时 startRunning 无限挂起主队列（
+        /// _buildAndRunGraph → _waitInMode，2026-10-08 test16 sample 实证 1867/1917
+        /// 采样困于该栈），表象 = 整个 UI 触摸/更新停摆而动画与 AX 照常，极难排查
+        private let sessionQueue = DispatchQueue(label: "cn.biuz.scan.sessionQueue")
         private var previewLayer: AVCaptureVideoPreviewLayer?
         private var configured = false
         private var lastEmitted = TimeInterval(0)
 
         func attach(to container: UIView, onRecognized: @escaping (String) -> Void) {
             self.onRecognized = onRecognized
-            configureIfNeeded()
             let previewLayer = AVCaptureVideoPreviewLayer(session: session)
             previewLayer.videoGravity = .resizeAspectFill
             previewLayer.frame = container.bounds
@@ -293,15 +322,14 @@ struct CameraScannerView: UIViewRepresentable {
             self.previewLayer = previewLayer
 
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.previewLayer?.frame = container.bounds
-                if self.session.isRunning == false {
-                    self.session.startRunning()
-                }
+                self?.previewLayer?.frame = container.bounds
+            }
+            sessionQueue.async { [weak self] in
+                self?.configureAndStart()
             }
         }
 
-        private func configureIfNeeded() {
+        private func configureAndStart() {
             guard !configured else { return }
             configured = true
             guard let device = AVCaptureDevice.default(for: .video),
@@ -315,11 +343,16 @@ struct CameraScannerView: UIViewRepresentable {
                 output.metadataObjectTypes = [.qr]
             }
             session.commitConfiguration()
+            if session.isRunning == false {
+                session.startRunning()
+            }
         }
 
         func stop() {
-            DispatchQueue.main.async { [weak self] in
-                self?.session.stopRunning()
+            sessionQueue.async { [weak self] in
+                if let self, self.session.isRunning {
+                    self.session.stopRunning()
+                }
             }
         }
 

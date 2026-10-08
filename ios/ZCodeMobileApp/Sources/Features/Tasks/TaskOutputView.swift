@@ -5,7 +5,7 @@ import SwiftUI
 final class TerminalViewModel {
     enum Segment: Hashable {
         case bash, trajectory
-        var label: String { self == .bash ? "后台 Bash" : "模型轨迹" }
+        var label: String { self == .bash ? String(localized: "后台 Bash") : String(localized: "模型轨迹") }
         var id: String { self == .bash ? "bash" : "traj" }
     }
 
@@ -88,7 +88,7 @@ struct TaskOutputView: View {
         }
         .scrollIndicators(.hidden)
         .background(T.bg)
-        .navigationTitle("执行输出")
+        .navigationTitle(String(localized: "执行输出"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { outputModel.currentTask = task }
         .task {
@@ -117,8 +117,8 @@ struct TaskOutputView: View {
             }
         }
         .onDisappear { viewModel.stop() }
-        .confirmationDialog("停止该任务？", isPresented: $showStopConfirm, titleVisibility: .visible) {
-            Button("停止任务", role: .destructive) {
+        .confirmationDialog(String(localized: "停止该任务？"), isPresented: $showStopConfirm, titleVisibility: .visible) {
+            Button(String(localized: "停止任务"), role: .destructive) {
                 Task {
                     await store.stop(taskID: task.id)
                     let all = await store.tasks()
@@ -127,7 +127,7 @@ struct TaskOutputView: View {
                     }
                 }
             }
-            Button("继续运行", role: .cancel) {}
+            Button(String(localized: "继续运行"), role: .cancel) {}
         }
     }
 
@@ -169,7 +169,7 @@ struct TaskOutputView: View {
     private var readonlyMetaRows: some View {
         VStack(spacing: 0) {
             if let modelSelection = outputModel.modelSelection {
-                metaRow(icon: "cpu", label: "绑定模型", value: modelSelection,
+                metaRow(icon: "cpu", label: String(localized: "绑定模型"), value: modelSelection,
                         identifier: "07-meta-model")
                 Divider().overlay(T.border)
             }
@@ -177,14 +177,14 @@ struct TaskOutputView: View {
                 let text = options.sorted { $0.key < $1.key }
                     .map { "\($0.key)=\($0.value)" }
                     .joined(separator: " · ")
-                metaRow(icon: "slider.horizontal.3", label: "会话配置", value: text,
+                metaRow(icon: "slider.horizontal.3", label: String(localized: "会话配置"), value: text,
                         identifier: "07-meta-config")
                 Divider().overlay(T.border)
             }
             if let usage = outputModel.tokenUsage {
                 let formatted = ByteCountFormatter.string(fromByteCount: Int64(usage.total), countStyle: .memory)
-                metaRow(icon: "number", label: "Token 用量",
-                        value: "输入 \(usage.input) · 输出 \(usage.output) · 合计 \(formatted)",
+                metaRow(icon: "number", label: String(localized: "Token 用量"),
+                        value: String(localized: "输入 \(usage.input) · 输出 \(usage.output) · 合计 \(formatted)"),
                         identifier: "07-meta-usage")
             }
         }
@@ -234,7 +234,7 @@ struct TaskOutputView: View {
                     copied = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
                 } label: {
-                    Label(copied ? "已复制" : "复制", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(copied ? String(localized: "已复制") : String(localized: "复制"), systemImage: copied ? "checkmark" : "doc.on.doc")
                         .font(T.font(11, .medium))
                         .foregroundColor(copied ? T.accentText : T.text3)
                         .frame(minWidth: 44, minHeight: 44)

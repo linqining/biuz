@@ -28,6 +28,9 @@ struct NewConversationSheet: View {
     @State private var showFilePicker = false
     /// 新建失败提示（未连接态 Empty store 防御路径；正常路径恒 nil）
     @State private var createFailure: String?
+    /// 提交在途守卫（用户报障 2026-10-08「相同请求没有做去重拦截」）：createSession
+    /// 等待窗内再次点按「开始任务」不再发起第二次创建（store 级在途合并之外的首道拦截）
+    @State private var isSubmitting = false
     /// 连接态标记（G-013）：当前连接的桌面端即执行端，无信封级执行端路由——
     /// 连接态隐藏执行端单选卡、机器胶囊只读展示当前连接；演示态保留单选（Mock 语义）
     @State private var isRemote = false
@@ -38,6 +41,10 @@ struct NewConversationSheet: View {
     @State private var selectedModel: String?
     @State private var selectedThought: String?
     @State private var thoughtOptions: [String] = []
+    // 可选性修复（用户多次报障「模型和思考等级不能选是 bug」）：getView 首击失败
+    // 不再退化只读兜底——行内点按重取 + 行下提示，成功即开面板
+    @State private var isLoadingModelInfo = false
+    @State private var modelLoadHint: String?
 
     // 新建会话附件（用户 2026-10-07 第五次报障「新建会话附件不能使用」根因：
     // 附件 chip 是 disabledChip 占位从未接通）。暂存待传文件——上传事务需要
@@ -126,6 +133,14 @@ struct NewConversationSheet: View {
             PrimaryButton(title: "开始任务", identifier: "03-submit-start") {
                 Task { await submit() }
             }
+            .disabled(isSubmitting)
+            .opacity(isSubmitting ? 0.7 : 1)
+            .overlay(alignment: .trailing) {
+                if isSubmitting {
+                    ProgressView().tint(T.onAccent).padding(.trailing, T.sp4)
+                        .accessibilityIdentifier("03-submit-progress")
+                }
+            }
             .padding(.horizontal, T.sp4)
             .padding(.vertical, T.sp2)
             .background(T.bgElevated)
@@ -197,6 +212,7 @@ struct NewConversationSheet: View {
         .sheet(item: $composerSheet) { kind in
             ComposerOptionSheet(
                 title: kind.title,
+                footer: sheetFooter(kind),
                 options: sheetOptions(kind)) { option in
                 composerSheet = nil
                 applySheetPick(kind, option)
@@ -210,6 +226,10 @@ struct NewConversationSheet: View {
     // MARK: 提交分流（附件 draft / slash 意图预填 / 常规 firstInput）
 
     private func submit() async {
+        // 去重拦截：在途时忽略再次点按（等待窗内连点曾产生多份桌面会话）
+        guard !isSubmitting else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
         // 项目层选择随 createSession 的 workspaceId 下发（directory 参数承载）；
         // 连接态模型/思考等级随 firstInput.modelSelection 下发（会话前选择）
         let selection = pendingModelSelection()
@@ -319,25 +339,32 @@ struct NewConversationSheet: View {
     private func sheetOptions(_ kind: ComposerSheetKind) -> [ComposerOptionItem] {
         switch kind {
         case .model:
-            guard let info = modelInfo else { return [] }
+            // 清单未就绪（getView 失败/为空）给「重新获取」项——面板不空白死路
+            let reloadItem = ComposerOptionItem(
+                id: "reload-model", title: String(localized: "重新获取模型列表"),
+                detail: "", icon: "arrow.clockwise")
+            guard let info = modelInfo, !info.models.isEmpty else { return [reloadItem] }
+            let items: [ComposerOptionItem]
             if info.planGroups.isEmpty {
-                return info.models.map { model in
+                items = info.models.map { model in
                     ComposerOptionItem(id: model, title: model, detail: "", icon: "cpu",
                                        selected: model == selectedModel)
                 }
-            }
-            return info.planGroups.flatMap { group in
-                group.models.map { model in
-                    ComposerOptionItem(
-                        id: "\(group.plan)|\(model)",
-                        title: model,
-                        detail: "",
-                        icon: "cpu",
-                        selected: model == selectedModel,
-                        section: group.plan,
-                        payload: model)
+            } else {
+                items = info.planGroups.flatMap { group in
+                    group.models.map { model in
+                        ComposerOptionItem(
+                            id: "\(group.plan)|\(model)",
+                            title: model,
+                            detail: "",
+                            icon: "cpu",
+                            selected: model == selectedModel,
+                            section: group.plan,
+                            payload: model)
+                    }
                 }
             }
+            return items.isEmpty ? [reloadItem] : items
         case .thought:
             return displayedThoughtLevels.map { level in
                 ComposerOptionItem(id: level, title: level, detail: "", icon: "brain",
@@ -351,6 +378,20 @@ struct NewConversationSheet: View {
     private func applySheetPick(_ kind: ComposerSheetKind, _ option: ComposerOptionItem) {
         switch kind {
         case .model:
+            // 「重新获取」项：重拉 getView，成功重开面板（pick 闭包已收起本面板）
+            if option.id == "reload-model" {
+                Task {
+                    modelInfo = await conversationStore.modelSelectionView()
+                    if modelInfo?.models.isEmpty == false {
+                        modelLoadHint = nil
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        composerSheet = .model
+                    } else {
+                        modelLoadHint = String(localized: "模型列表获取失败 · 桌面端未回执，点按重试")
+                    }
+                }
+                return
+            }
             selectedModel = option.payload ?? option.id
             selectedThought = nil
             Task { await reloadThoughtOptions() }
@@ -361,6 +402,14 @@ struct NewConversationSheet: View {
         default:
             break
         }
+    }
+
+    /// 面板页脚：模型清单未就绪时思考档为静态梯——所选档位能否随会话下发取决于
+    /// provider 映射，如实标注（不静默假可选）
+    private func sheetFooter(_ kind: ComposerSheetKind) -> String? {
+        guard kind == .thought else { return nil }
+        if let providers = modelInfo?.modelProviders, !providers.isEmpty { return nil }
+        return String(localized: "模型列表未就绪 · 所选档位以桌面端当前默认为准")
     }
 
     // MARK: 三层上下文胶囊（账号 / 机器 / 项目）
@@ -497,6 +546,21 @@ struct NewConversationSheet: View {
             selectedModel = modelInfo?.activeModel ?? modelInfo?.models.first
             selectedThought = modelInfo?.activeThoughtLevel
             await reloadThoughtOptions()
+            // 首击失败静默补拉一次（sheet 停留期内桌面恢复常见——用户无需感知重试；
+            // 仍失败不阻断新建，行内点按可再取）
+            if modelInfo == nil {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if !Task.isCancelled, modelInfo == nil {
+                    modelInfo = await conversationStore.modelSelectionView()
+                    if let info = modelInfo {
+                        selectedModel = selectedModel ?? info.activeModel ?? info.models.first
+                        if selectedThought == nil {
+                            selectedThought = info.activeThoughtLevel
+                            await reloadThoughtOptions()
+                        }
+                    }
+                }
+            }
             // slash 建议数据源（内建 + workspace-config 合并，与会话页 slashMenuCommands 同构）
             let config = await conversationStore.workspaceConfig()
             slashCommands = ChatViewModel.mergedSlashCommands(config: config)
@@ -745,7 +809,9 @@ struct NewConversationSheet: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("03-row-directory")
                 Divider().overlay(T.border).padding(.leading, 44)
-                if isRemote, let info = modelInfo, !info.models.isEmpty {
+                if isRemote {
+                    // 连接态恒可选（用户多次报障「模型和思考等级不能选是 bug，不是要你做成
+                    // 不能选」）：getView 首击失败/为空不再是只读 info 兜底——行内点按重取
                     modelSelectionRow
                     Divider().overlay(T.border).padding(.leading, 44)
                     thoughtSelectionRow
@@ -757,6 +823,14 @@ struct NewConversationSheet: View {
             }
             .background(T.bgCard)
             .clipShape(RoundedRectangle(cornerRadius: T.rL))
+            // getView 重取提示（行下 inline，不弹窗——03-create-fail 同款呈现位）
+            if let modelLoadHint {
+                Text(modelLoadHint)
+                    .font(T.font(11))
+                    .foregroundColor(T.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("03-model-load-hint")
+            }
         }
     }
 
@@ -787,15 +861,42 @@ struct NewConversationSheet: View {
 
     // MARK: 模型 / 思考等级选择（连接态；数据源 model-selection.getView；自绘面板）
 
-    /// 模型行：ComposerOptionSheet（套餐分节 + 选中勾），默认跟随桌面端当前绑定
+    /// 模型行：ComposerOptionSheet（套餐分节 + 选中勾），默认跟随桌面端当前绑定。
+    /// getView 未就绪（首击超时/清单为空）时点按先重取，成功即开面板、失败落行下
+    /// 提示（不静默、不再退化只读）
     private var modelSelectionRow: some View {
         Button {
-            composerSheet = .model
+            Task { await openModelPanel() }
         } label: {
-            row(label: "模型", value: selectedModel ?? "--", icon: "cpu")
+            row(label: "模型",
+                value: isLoadingModelInfo ? String(localized: "获取中…") : (selectedModel ?? "--"),
+                icon: "cpu")
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("03-row-model")
+    }
+
+    private func openModelPanel() async {
+        guard !isLoadingModelInfo else { return }
+        if modelInfo?.models.isEmpty != false {
+            isLoadingModelInfo = true
+            modelInfo = await conversationStore.modelSelectionView()
+            isLoadingModelInfo = false
+            guard modelInfo?.models.isEmpty == false else {
+                modelLoadHint = String(localized: "模型列表获取失败 · 桌面端未回执，点按重试")
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                return
+            }
+        }
+        modelLoadHint = nil
+        if selectedModel == nil {
+            selectedModel = modelInfo?.activeModel ?? modelInfo?.models.first
+        }
+        if selectedThought == nil {
+            selectedThought = modelInfo?.activeThoughtLevel
+            await reloadThoughtOptions()
+        }
+        composerSheet = .model
     }
 
     /// 思考档行：词表按当前模型查询（workspace-config），缺席退化为 getView 词表 →
@@ -805,7 +906,7 @@ struct NewConversationSheet: View {
             composerSheet = .thought
         } label: {
             row(label: "思考等级",
-                value: selectedThought?.isEmpty == false ? selectedThought! : "默认",
+                value: selectedThought?.isEmpty == false ? selectedThought! : String(localized: "默认"),
                 icon: "brain")
         }
         .buttonStyle(.plain)

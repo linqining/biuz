@@ -366,7 +366,7 @@ actor RemoteFileStore: @preconcurrency FileStore {
             do {
                 let result = try await connection.call("git", "getChanges", arg)
                 guard let changes = result.jsonValue?.arrayValue else {
-                    throw RPCError(message: "getChanges 回执非数组", name: "badReply")
+                    throw RPCError(message: String(localized: "getChanges 回执非数组"), name: "badReply")
                 }
                 var files: [DiffFile] = []
                 for change in changes.prefix(20) { // 移动端有界展示
@@ -447,7 +447,7 @@ actor RemoteFileStore: @preconcurrency FileStore {
                 let result = try await connection.call(
                     "zcode-agent", "conversationFileChangesV4", .json(.object(builder.fields)))
                 guard let dict = result.jsonValue?.objectValue else {
-                    throw RPCError(message: "conversationFileChangesV4 回执非对象", name: "badReply")
+                    throw RPCError(message: String(localized: "conversationFileChangesV4 回执非对象"), name: "badReply")
                 }
                 var files: [DiffFile] = []
                 for item in dict["items"]?.arrayValue ?? [] {

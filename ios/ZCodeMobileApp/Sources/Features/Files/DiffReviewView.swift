@@ -11,9 +11,9 @@ final class DiffViewModel {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .workspaceUnstaged: return "未暂存"
-            case .workspaceStaged: return "已暂存"
-            case .session: return "本次会话"
+            case .workspaceUnstaged: return String(localized: "未暂存")
+            case .workspaceStaged: return String(localized: "已暂存")
+            case .session: return String(localized: "本次会话")
             }
         }
     }
@@ -183,7 +183,7 @@ struct DiffReviewView: View {
                     icon: "checkmark.seal",
                     title: emptyTitle,
                     detail: emptyDetail,
-                    cta: "浏览工作区文件",
+                    cta: String(localized: "浏览工作区文件"),
                     ctaAction: { router.pushFileTree() },
                     ctaIdentifier: "08-act-browse-empty")
                 .accessibilityIdentifier("08-empty")
@@ -196,7 +196,7 @@ struct DiffReviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("文件").font(T.font(17, .bold)).foregroundColor(T.text)
+                Text(String(localized: "文件")).font(T.font(17, .bold)).foregroundColor(T.text)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -259,13 +259,13 @@ struct DiffReviewView: View {
     }
 
     private var emptyTitle: String {
-        viewModel.source == .session ? "本会话暂无文件变更" : "工作区是干净的"
+        viewModel.source == .session ? String(localized: "本会话暂无文件变更") : String(localized: "工作区是干净的")
     }
 
     private var emptyDetail: String {
         viewModel.source == .session
-            ? "该会话尚未产生文件写入，或变更已回退"
-            : "没有待审查的变更，或已全部处理完毕"
+            ? String(localized: "该会话尚未产生文件写入，或变更已回退")
+            : String(localized: "没有待审查的变更，或已全部处理完毕")
     }
 
     private var fileList: some View {
@@ -351,7 +351,7 @@ struct DiffReviewView: View {
             Image(systemName: "ellipsis.circle")
                 .font(.system(size: 12))
                 .foregroundColor(T.text3)
-            Text("仅显示前 20 个文件，更多变更请在桌面端查看")
+            Text(String(localized: "仅显示前 20 个文件，更多变更请在桌面端查看"))
                 .font(T.font(11.5))
                 .foregroundColor(T.text3)
             Spacer(minLength: 0)
@@ -422,7 +422,7 @@ struct DiffReviewView: View {
             Text("-\(viewModel.removedTotal)")
                 .font(T.mono(12, .semibold))
                 .foregroundColor(T.del)
-            Text("\(viewModel.files.count) 个文件")
+            Text(String(localized: "\(viewModel.files.count) 个文件"))
                 .font(T.font(11.5))
                 .foregroundColor(T.text3)
             if viewModel.pendingCount > 0 {
@@ -482,12 +482,12 @@ struct DiffFileCardView: View {
                 Button(role: .destructive) {
                     Task { await viewModel.decide(file, approved: false, store: store) }
                 } label: {
-                    Label("回退此文件", systemImage: "arrow.uturn.backward")
+                    Label(String(localized: "回退此文件"), systemImage: "arrow.uturn.backward")
                 }
                 Button {
                     UIPasteboard.general.string = file.path
                 } label: {
-                    Label("复制路径", systemImage: "doc.on.doc")
+                    Label(String(localized: "复制路径"), systemImage: "doc.on.doc")
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -524,7 +524,7 @@ struct DiffFileCardView: View {
             HStack(spacing: T.sp2) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(T.accentText)
-                Text("已批准")
+                Text(String(localized: "已批准"))
                     .font(T.font(13, .semibold))
                     .foregroundColor(T.accentText)
                 Spacer()
@@ -535,7 +535,7 @@ struct DiffFileCardView: View {
             HStack(spacing: T.sp2) {
                 Image(systemName: "arrow.uturn.backward.circle.fill")
                     .foregroundColor(T.red)
-                Text("已回退")
+                Text(String(localized: "已回退"))
                     .font(T.font(13, .semibold))
                     .foregroundColor(T.red)
                 Spacer()
@@ -551,7 +551,7 @@ struct DiffFileCardView: View {
                         // 进行中指示（Spinner+disabled）：桌面 stage/unstage 往返秒级，
                         // 无反馈即「点了没反应」（2026-10-06 用户回归反馈）
                         if viewModel.deciding.contains(file.id) { SpinnerView(size: 12) }
-                        Text(viewModel.deciding.contains(file.id) ? "处理中…" : "拒绝")
+                        Text(viewModel.deciding.contains(file.id) ? String(localized: "处理中…") : String(localized: "拒绝"))
                             .font(T.font(13, .semibold))
                     }
                     .foregroundColor(T.red)
@@ -565,7 +565,7 @@ struct DiffFileCardView: View {
                 } label: {
                     HStack(spacing: T.sp1) {
                         if viewModel.deciding.contains(file.id) { SpinnerView(size: 12) }
-                        Text(viewModel.deciding.contains(file.id) ? "处理中…" : "批准")
+                        Text(viewModel.deciding.contains(file.id) ? String(localized: "处理中…") : String(localized: "批准"))
                             .font(T.font(13, .semibold))
                     }
                     .foregroundColor(T.onAccent)

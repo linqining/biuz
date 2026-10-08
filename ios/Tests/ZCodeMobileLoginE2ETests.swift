@@ -110,6 +110,8 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
     private func launchFresh(openFlow: OpenFlow? = nil, demoData: Bool = true) -> XCUIApplication {
         var arguments = [
             "-ZCodeE2EResetState",
+            // -ZCodeDevMode：开发者模式（l1-btn-manual 手动配对 / l3-btn-update-token 用例依赖）
+            "-ZCodeDevMode",
         ] + (demoData ? ["-ZCodeDemoData"] : []) + [
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
@@ -132,6 +134,7 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
     private func relaunch(_ application: XCUIApplication) -> XCUIApplication {
         application.terminate()
         application.launchArguments = [
+            "-ZCodeDevMode",
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthRedirectURI", "http://127.0.0.1:\(stub.port)/cn/share/callback",

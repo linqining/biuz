@@ -41,9 +41,9 @@ struct FileTreeView: View {
     /// G-031：连接态组头显示当前连接 workspace 真实路径；演示态保留演示路径
     private var headerPath: String {
         if case .connected = session.mode, let ws = session.connection.workspace {
-            return "工作区 \(ws.path)"
+            return String(localized: "工作区 \(ws.path)")
         }
-        return "工作区 ~/work/zcode"
+        return String(localized: "工作区 ~/work/zcode")
     }
 
     /// 命中行：搜索回执优先（连接态），否则树内过滤（演示态 + 未命中时回退）
@@ -116,7 +116,7 @@ struct FileTreeView: View {
                         HStack(spacing: T.sp2) {
                             Image(systemName: "folder")
                                 .font(.system(size: 13))
-                            Text("工作区没有可显示的文件")
+                            Text(String(localized: "工作区没有可显示的文件"))
                                 .font(T.font(12.5))
                             Spacer(minLength: 0)
                         }
@@ -141,7 +141,7 @@ struct FileTreeView: View {
             }
         }
         .background(T.bg)
-        .navigationTitle("工作区文件")
+        .navigationTitle(String(localized: "工作区文件"))
         .navigationBarTitleDisplayMode(.inline)
         // P3-8：一站式提交 sheet。提交成功走「乐观同帧 + 后台对账」：onCommitted
         // 与 loading 停止同一渲染帧清零 staged 计数（文件消失不再滞后于 loading）；
@@ -274,7 +274,7 @@ struct FileTreeView: View {
                     Image(systemName: "arrow.up.doc")
                         .font(.system(size: 13))
                         .foregroundColor(stagedCount == nil || stagedCount == 0 ? T.text3 : T.accentText)
-                    Text("提交")
+                    Text(String(localized: "提交"))
                         .font(T.font(14, .medium))
                         .foregroundColor(T.text)
                     Spacer()
@@ -317,7 +317,7 @@ struct FileTreeView: View {
             // .accessibilityIdentifier("09-row-checkpoint-entry")
         } header: {
             // HIDDEN(H3)：检查点入口隐藏后组头不再提及（原「提交与检查点」）
-            Text("提交")
+            Text(String(localized: "提交"))
                 .font(T.font(11, .semibold))
                 .foregroundColor(T.text3)
         }
@@ -405,7 +405,7 @@ struct FilePreviewView: View {
 
     enum Segment: String, CaseIterable {
         case preview, source
-        var label: String { self == .preview ? "预览" : "源码" }
+        var label: String { self == .preview ? String(localized: "预览") : String(localized: "源码") }
     }
 
     /// 二进制预览类别（按扩展名分发；nil = 文本文件走原有两段视图）
@@ -542,10 +542,10 @@ struct FilePreviewView: View {
             set: { if $0 == nil { shareURL = nil } })) { payload in
             ActivityView(payload: payload)
         }
-        .alert("无法分享", isPresented: Binding(
+        .alert(String(localized: "无法分享"), isPresented: Binding(
             get: { shareNotice != nil },
             set: { if !$0 { shareNotice = nil } })) {
-            Button("知道了", role: .cancel) {}
+            Button(String(localized: "知道了"), role: .cancel) {}
         } message: {
             Text(shareNotice ?? "")
         }
@@ -589,7 +589,7 @@ struct FilePreviewView: View {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 18))
                     .foregroundColor(T.orangeBright)
-                Text("文件内容读取失败")
+                Text(String(localized: "文件内容读取失败"))
                     .font(T.font(13.5, .semibold))
                     .foregroundColor(T.text)
             }
@@ -622,7 +622,7 @@ struct FilePreviewView: View {
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: T.rM))
                     .accessibilityIdentifier("09-binary-image")
-                Text("图片预览 · \(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))")
+                Text(String(localized: "图片预览 · \(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))"))
                     .font(T.font(11))
                     .foregroundColor(T.text3)
             }
@@ -638,13 +638,13 @@ struct FilePreviewView: View {
                     Image(systemName: kind == .image ? "photo" : "doc.richtext")
                         .font(.system(size: 18))
                         .foregroundColor(T.text3)
-                    Text(kind == .image ? "图片" : "PDF")
+                    Text(kind == .image ? String(localized: "图片") : "PDF")
                         .font(T.font(13.5, .semibold))
                         .foregroundColor(T.text)
                 }
                 Text(binaryFailed
-                     ? "当前桌面端未返回二进制预览数据（readBinaryPreview），请在桌面端查看该文件。"
-                     : "正在读取二进制预览…")
+                     ? String(localized: "当前桌面端未返回二进制预览数据（readBinaryPreview），请在桌面端查看该文件。")
+                     : String(localized: "正在读取二进制预览…"))
                     .font(T.font(12))
                     .foregroundColor(T.text2)
                     .lineSpacing(4)
@@ -681,7 +681,7 @@ struct FilePreviewView: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
                 }
-                Text(isLoadingMore ? "加载中…" : "已截断 · 加载更多（\(loadedBytes.formatted()) / \(totalBytes.formatted()) 字节）")
+                Text(isLoadingMore ? String(localized: "加载中…") : String(localized: "已截断 · 加载更多（\(loadedBytes.formatted()) / \(totalBytes.formatted()) 字节）"))
                     .font(T.font(12, .medium))
             }
             .foregroundColor(T.accentText)
@@ -821,7 +821,7 @@ struct CommitSheet: View {
         VStack(spacing: 0) {
             Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
             HStack {
-                Text("提交到 \(branchDisplayName)")
+                Text(String(localized: "提交到 \(branchDisplayName)"))
                     .font(T.font(15, .bold))
                     .foregroundColor(T.text)
                     .lineLimit(1)
@@ -829,7 +829,7 @@ struct CommitSheet: View {
                 Button {
                     dismiss()
                 } label: {
-                    Text("取消")
+                    Text(String(localized: "取消"))
                         .font(T.font(14, .medium))
                         .foregroundColor(T.text2)
                         .frame(minWidth: 44, minHeight: 44)
@@ -883,26 +883,26 @@ struct CommitSheet: View {
         }
         // 提交确认（design §8.5 从严 destructive；弹层写明将提交哪些文件——用户硬要求）
         .confirmationDialog(
-            "确认提交 \(stagedFiles.count) 个文件到 \(branchDisplayName)？",
+            String(localized: "确认提交 \(stagedFiles.count) 个文件到 \(branchDisplayName)？"),
             isPresented: $showCommitConfirm,
             titleVisibility: .visible) {
-            Button("提交", role: .destructive) {
+            Button(String(localized: "提交"), role: .destructive) {
                 Task { await performCommit() }
             }
             .accessibilityIdentifier("09-commit-confirm-submit")
-            Button("取消", role: .cancel) {}
+            Button(String(localized: "取消"), role: .cancel) {}
         } message: {
             Text(commitConfirmMessage)
         }
         // 非空时重新生成 → 先确认覆盖（design §8.3.2 简化规则）
-        .alert("覆盖已编辑的提交信息？", isPresented: $showOverwriteConfirm) {
-            Button("覆盖", role: .destructive) {
+        .alert(String(localized: "覆盖已编辑的提交信息？"), isPresented: $showOverwriteConfirm) {
+            Button(String(localized: "覆盖"), role: .destructive) {
                 Task { await generateAndFill() }
             }
             .accessibilityIdentifier("09-commit-overwrite-confirm")
-            Button("取消", role: .cancel) {}
+            Button(String(localized: "取消"), role: .cancel) {}
         } message: {
-            Text("当前内容将被 AI 生成结果替换。")
+            Text(String(localized: "当前内容将被 AI 生成结果替换。"))
         }
     }
 
@@ -910,7 +910,7 @@ struct CommitSheet: View {
 
     private var stagedList: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
-            Text("已暂存（\(stagedFiles.count)）")
+            Text(String(localized: "已暂存（\(stagedFiles.count)）"))
                 .font(T.font(12, .semibold))
                 .foregroundColor(T.text3)
             VStack(spacing: 0) {
@@ -956,9 +956,9 @@ struct CommitSheet: View {
                                 .font(.system(size: 11))
                         }
                         Text(isGenerating
-                             ? "AI 生成中…"
+                             ? String(localized: "AI 生成中…")
                              : (message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                ? "AI 生成提交信息" : "重新生成"))
+                                ? String(localized: "AI 生成提交信息") : String(localized: "重新生成")))
                             .font(T.font(11.5, .medium))
                     }
                     .foregroundColor(T.accentText)
@@ -982,7 +982,7 @@ struct CommitSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: T.rM))
                     .accessibilityIdentifier("09-commit-field")
                 if message.isEmpty {
-                    Text("写一句提交信息，或让 AI 生成")
+                    Text(String(localized: "写一句提交信息，或让 AI 生成"))
                         .font(T.mono(13))
                         .foregroundColor(T.text3)
                         .padding(.leading, 14)
@@ -1001,7 +1001,7 @@ struct CommitSheet: View {
             HStack(spacing: T.sp1) {
                 // 提交进行中指示（confirmationDialog 确认后）：桌面 commit 往返秒级
                 if isCommitting { SpinnerView(size: 14) }
-                Text(isCommitting ? "提交中…" : "提交")
+                Text(isCommitting ? String(localized: "提交中…") : String(localized: "提交"))
                     .font(T.font(15, .semibold))
                     .foregroundColor(canCommit ? T.onAccent : T.text3)
             }
@@ -1170,14 +1170,14 @@ struct CheckpointSheet: View {
         VStack(spacing: 0) {
             Capsule().fill(T.borderStrong).frame(width: 36, height: 4).padding(.top, T.sp2)
             HStack {
-                Text("检查点")
+                Text(String(localized: "检查点"))
                     .font(T.font(15, .bold))
                     .foregroundColor(T.text)
                 Spacer()
                 Button {
                     dismiss()
                 } label: {
-                    Text("取消")
+                    Text(String(localized: "取消"))
                         .font(T.font(14, .medium))
                         .foregroundColor(T.text2)
                         .frame(minWidth: 44, minHeight: 44)
@@ -1234,16 +1234,16 @@ struct CheckpointSheet: View {
         .presentationDragIndicator(.hidden)
         .task { await reload() }
         // 创建：可选说明 alert（design §11A；带 TextField 先例 ApprovalSheetView）
-        .alert("创建检查点", isPresented: $showCreateAlert) {
-            TextField("说明（可选）", text: $noteText)
+        .alert(String(localized: "创建检查点"), isPresented: $showCreateAlert) {
+            TextField(String(localized: "说明（可选）"), text: $noteText)
                 .accessibilityIdentifier("09-checkpoint-note")
-            Button("取消", role: .cancel) { noteText = "" }
-            Button("创建") {
+            Button(String(localized: "取消"), role: .cancel) { noteText = "" }
+            Button(String(localized: "创建")) {
                 Task { await performCreate() }
             }
             .accessibilityIdentifier("09-checkpoint-create-send")
         } message: {
-            Text("为当前工作区状态创建快照，之后可随时恢复到该时刻。")
+            Text(String(localized: "为当前工作区状态创建快照，之后可随时恢复到该时刻。"))
         }
         // 恢复确认（破坏性 · 硬要求 destructive，文案按 design §11A 逐字）
         .confirmationDialog(
@@ -1252,16 +1252,16 @@ struct CheckpointSheet: View {
                 get: { pendingRestore != nil },
                 set: { if !$0 { pendingRestore = nil } }),
             titleVisibility: .visible) {
-            Button("恢复", role: .destructive) {
+            Button(String(localized: "恢复"), role: .destructive) {
                 if let target = pendingRestore {
                     Task { await performRestore(target) }
                 }
                 pendingRestore = nil
             }
             .accessibilityIdentifier("09-checkpoint-confirm-restore")
-            Button("取消", role: .cancel) { pendingRestore = nil }
+            Button(String(localized: "取消"), role: .cancel) { pendingRestore = nil }
         } message: {
-            Text("工作区文件将回退到该时刻，之后的改动会丢失（可通过再次恢复撤销）。")
+            Text(String(localized: "工作区文件将回退到该时刻，之后的改动会丢失（可通过再次恢复撤销）。"))
         }
     }
 
@@ -1280,7 +1280,7 @@ struct CheckpointSheet: View {
             HStack(spacing: 5) {
                 Image(systemName: "plus")
                     .font(.system(size: 12, weight: .semibold))
-                Text(isCreating ? "创建中…" : "创建检查点")
+                Text(isCreating ? String(localized: "创建中…") : String(localized: "创建检查点"))
                     .font(T.font(13, .semibold))
             }
             .foregroundColor(T.onAccent)
@@ -1299,10 +1299,10 @@ struct CheckpointSheet: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 20))
                 .foregroundColor(T.orangeBright)
-            Text("检查点信息不可用")
+            Text(String(localized: "检查点信息不可用"))
                 .font(T.font(13, .semibold))
                 .foregroundColor(T.text)
-            Text("当前桌面端未返回检查点清单，可稍后重试。")
+            Text(String(localized: "当前桌面端未返回检查点清单，可稍后重试。"))
                 .font(T.font(11.5))
                 .foregroundColor(T.text3)
                 .multilineTextAlignment(.center)
@@ -1340,7 +1340,7 @@ struct CheckpointSheet: View {
                         Button {
                             pendingRestore = checkpoint
                         } label: {
-                            Text("恢复")
+                            Text(String(localized: "恢复"))
                                 .font(T.font(13, .semibold))
                                 .foregroundColor(T.red)
                                 .padding(.horizontal, T.sp3)

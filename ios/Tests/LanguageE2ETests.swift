@@ -10,8 +10,9 @@ final class LanguageE2ETests: XCTestCase {
 
     private func launch(language: String, arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）
-        app.launchArguments = ["-ZCodeDemoData", "-AppleLanguages", "(\(language))", "-AppleLocale", language == "en" ? "en_US" : "zh_CN"] + arguments
+        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）；
+        // -ZCodeDevMode：开发者模式（L1 手动入口英文断言依赖该入口在场）
+        app.launchArguments = ["-ZCodeDemoData", "-ZCodeDevMode", "-AppleLanguages", "(\(language))", "-AppleLocale", language == "en" ? "en_US" : "zh_CN"] + arguments
         app.launch()
         return app
     }

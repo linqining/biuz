@@ -72,7 +72,7 @@ enum ConnectError: Error, Equatable {
         switch self {
         case .http(let status, let endpoint): return "HTTP \(status) · \(endpoint)"
         case .timeout(let endpoint): return "TIMEOUT · \(endpoint)"
-        case .protocolVersion(let actual): return "PROTOCOL \(actual) · 期望 remote v1 · v4 v3"
+        case .protocolVersion(let actual): return String(localized: "PROTOCOL \(actual) · 期望 remote v1 · v4 v3")
         case .emptyWorkspaces: return "workspaces=[]"
         case .handshakeFailed(let detail): return "HANDSHAKE · \(detail)"
         case .transport(let detail): return "WS · \(detail)"
@@ -94,7 +94,7 @@ enum ServerInfoClient {
     /// 连接测试（L4-B：1.5s 超时，仅探测不建 WS）；L2 第一步超时 3s 自动重试 1 次。
     static func probe(server: ServerConfig, timeout: TimeInterval) async -> ProbeResult {
         guard let url = URL(string: server.baseURL)?.appendingPathComponent("api/server-info") else {
-            return ProbeResult(info: nil, status: nil, latencyMs: 0, error: .transport("无效地址"))
+            return ProbeResult(info: nil, status: nil, latencyMs: 0, error: .transport(String(localized: "无效地址")))
         }
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         var items = components.queryItems ?? []
@@ -103,7 +103,7 @@ enum ServerInfoClient {
         }
         components.queryItems = items
         guard let requestURL = components.url else {
-            return ProbeResult(info: nil, status: nil, latencyMs: 0, error: .transport("无效地址"))
+            return ProbeResult(info: nil, status: nil, latencyMs: 0, error: .transport(String(localized: "无效地址")))
         }
 
         let started = Date()
@@ -129,7 +129,7 @@ enum ServerInfoClient {
         guard let json = try? JSONDecoder().decode(JSONValue.self, from: data),
               let info = ServerRemoteInfo.parse(json) else {
             return ProbeResult(info: nil, status: status, latencyMs: latency,
-                               error: .transport("server-info 解析失败"))
+                               error: .transport(String(localized: "server-info 解析失败")))
         }
         guard info.protocolVersion == ServerRemoteInfo.expectedProtocolVersion else {
             return ProbeResult(info: info, status: status, latencyMs: latency,
@@ -317,8 +317,8 @@ final class ZCodeServerConnection {
         progress.discover.meta = "\(probe.status ?? 200) · \(probe.latencyMs)ms"
         log(.ok, "GET /api/server-info → \(probe.status ?? 200) · \(probe.latencyMs)ms")
         guard let info = probe.info else {
-            await finishFailure(.transport("server-info 缺失"))
-            return .failure(.transport("server-info 缺失"))
+            await finishFailure(.transport(String(localized: "server-info 缺失")))
+            return .failure(.transport(String(localized: "server-info 缺失")))
         }
         serverInfo = info
         if let name = info.name {
@@ -364,7 +364,7 @@ final class ZCodeServerConnection {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     if self.manuallyCancelled { return }
-                    let connectError = ConnectError.transport(error.map { $0.localizedDescription } ?? "连接中断")
+                    let connectError = ConnectError.transport(error.map { $0.localizedDescription } ?? String(localized: "连接中断"))
                     self.notifyDroppedIfConnected(connectError.headline)
                     self.state = .disconnected(connectError)
                     self.teardownTransport()
@@ -396,7 +396,7 @@ final class ZCodeServerConnection {
         do {
             let helloValue = try await client.call("zcode-agent", "helloConversationV4", .undefined, timeout: 5)
             guard let hello = V4HelloMessage.parse(helloValue.jsonValue ?? .null) else {
-                throw ConnectError.handshakeFailed("hello 解析失败")
+                throw ConnectError.handshakeFailed(String(localized: "hello 解析失败"))
             }
             guard hello.protocolVersion == V4HelloMessage.wireProtocolVersion else {
                 throw ConnectError.protocolVersion(actual: "v4 wire v\(hello.protocolVersion)")
@@ -474,7 +474,7 @@ final class ZCodeServerConnection {
         logs.removeAll()
         var progress = ConnectProgress()
         guard let link = server.relay else {
-            let error = ConnectError.transport("中继配置缺失")
+            let error = ConnectError.transport(String(localized: "中继配置缺失"))
             await finishFailure(error)
             return .failure(error)
         }
@@ -512,7 +512,7 @@ final class ZCodeServerConnection {
                 Task { @MainActor [weak self] in
                     guard let self, !self.manuallyCancelled else { return }
                     let connectError = ConnectError.transport(
-                        error.map { $0.localizedDescription } ?? "中继连接中断")
+                        error.map { $0.localizedDescription } ?? String(localized: "中继连接中断"))
                     self.notifyDroppedIfConnected(connectError.headline)
                     self.state = .disconnected(connectError)
                     self.teardownTransport()
@@ -521,7 +521,7 @@ final class ZCodeServerConnection {
             progress.auth.phase = .done
             progress.auth.meta = "auth matched"
             progress.websocket.phase = .done
-            progress.websocket.meta = summary.desktopAppVersion.map { "桌面 v\($0)" } ?? "paired"
+            progress.websocket.meta = summary.desktopAppVersion.map { String(localized: "桌面 v\($0)") } ?? "paired"
             log(.ok, "WS + auth 握手完成 · pair_status=matched · \(summary.sessionCount) 个会话")
 
             progress.handshake.phase = .done
@@ -604,10 +604,10 @@ final class ZCodeServerConnection {
         func attempt() async throws -> V4HelloMessage {
             let helloValue = try await client.call("zcode-agent", "helloConversationV4", .undefined, timeout: 5)
             guard let hello = V4HelloMessage.parse(helloValue.jsonValue ?? .null) else {
-                throw ConnectError.handshakeFailed("hello 解析失败")
+                throw ConnectError.handshakeFailed(String(localized: "hello 解析失败"))
             }
             guard hello.protocolVersion == V4HelloMessage.wireProtocolVersion else {
-                throw ConnectError.handshakeFailed("中继桥 v4 wire v\(hello.protocolVersion)")
+                throw ConnectError.handshakeFailed(String(localized: "中继桥 v4 wire v\(hello.protocolVersion)"))
             }
             return hello
         }
@@ -660,16 +660,16 @@ final class ZCodeServerConnection {
     /// 局域网直连无此消息面。
     func switchRelayWorkspace(to target: ServerWorkspaceInfo) async -> Result<ServerWorkspaceInfo, ConnectError> {
         guard isActive, let relayClient, workspace != nil else {
-            return .failure(.transport("工作区切换仅支持云中继连接"))
+            return .failure(.transport(String(localized: "工作区切换仅支持云中继连接")))
         }
         guard let current = workspace, current.path != target.path else {
-            return .failure(.transport("目标已是当前工作区"))
+            return .failure(.transport(String(localized: "目标已是当前工作区")))
         }
         // C-12：workspaceKey 一律取清单原始 key；未收录返回失败（非法 key 切换必败）
         guard let key = await relayClient.resolvedWorkspaceKey(
             forPath: target.path, identity: target.workspaceIdentity) else {
             log(.error, "目标工作区不在桌面清单（无原始 workspaceKey）· \(target.path)")
-            return .failure(.transport("目标工作区不在桌面清单"))
+            return .failure(.transport(String(localized: "目标工作区不在桌面清单")))
         }
         log(.working, "workspace-bridge-open（切换）→ \(target.path)")
         // 桥重开 + 订阅重定向；先清 workspace-config 重放缓存（旧工作区帧不重放给新
@@ -703,7 +703,7 @@ final class ZCodeServerConnection {
     /// UI 入口，保留协议面供断连工作区恢复场景接线。
     func reconnectRelayWorkspace(workspaceKey: String) async -> Result<JSONValue, ConnectError> {
         guard isActive, let relayTransport else {
-            return .failure(.transport("工作区重连仅支持云中继连接"))
+            return .failure(.transport(String(localized: "工作区重连仅支持云中继连接")))
         }
         do {
             let response = try await relayTransport.requestAppPayload(
@@ -847,7 +847,7 @@ final class ZCodeServerConnection {
     private static func mapRelayError(_ error: RPCError) -> ConnectError {
         switch error.name {
         case "TimeoutError":
-            return .timeout(endpoint: "中继 auth/bridge")
+            return .timeout(endpoint: String(localized: "中继 auth/bridge"))
         case "RelayFailure", "RelayClosed":
             return .handshakeFailed(error.message)
         default:
@@ -1114,15 +1114,15 @@ final class ZCodeServerConnection {
     func call(_ channel: String, _ command: String, _ arg: RPCValue = .undefined,
               timeout: TimeInterval = 30) async throws -> RPCValue {
         guard let client, isActive else {
-            throw RPCError(message: "未连接桌面端", name: "NotConnected")
+            throw RPCError(message: String(localized: "未连接桌面端"), name: "NotConnected")
         }
         let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: arg)
         if verdict.isBlocked {
-            let reason = verdict.reason ?? "直写类命令"
+            let reason = verdict.reason ?? String(localized: "直写类命令")
             blockedExecutionCalls.append(reason)
             if blockedExecutionCalls.count > 20 { blockedExecutionCalls.removeFirst(blockedExecutionCalls.count - 20) }
             log(.error, "边界拦截 · \(reason)")
-            throw RPCError(message: "移动端边界：\(reason) 属手机直写面，不接", name: "ReadOnlyViolation")
+            throw RPCError(message: String(localized: "移动端边界：\(reason) 属手机直写面，不接"), name: "ReadOnlyViolation")
         }
         do {
             return try await client.call(channel, command, arg, timeout: timeout)

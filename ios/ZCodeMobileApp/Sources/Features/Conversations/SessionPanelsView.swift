@@ -217,6 +217,12 @@ struct SessionPanelsView: View {
             guard let run = runs.first else { return nil }
             return "\(run.doneCount)/\(run.nodes.count)"
         case .works:
+            // 徽标运行中优先（用户裁决「运行中的参考价值更大」，上游 hasBackgroundWork
+            // 派生口径同源）：有运行中显示「N 运行中」，全结束显示总数
+            let runningCount = viewModel.backgroundWorks.filter(\.isRunning).count
+            if runningCount > 0 {
+                return String(localized: "\(runningCount) 运行中")
+            }
             return "\(viewModel.backgroundWorks.count)"
         case .subagents:
             return "\(viewModel.subagentSessions.count)"
@@ -502,6 +508,18 @@ struct GoalEditSheet: View {
 struct PlanPanelView: View {
     let plan: PlanPanelSummary
 
+    /// 计划状态原词 → 本地化文案（宽容映射；未知原词回退原文）
+    static func planStatusText(_ raw: String) -> String {
+        switch raw {
+        case "running", "active": return String(localized: "运行中")
+        case "completed", "done": return String(localized: "已完成")
+        case "failed", "errored": return String(localized: "失败")
+        case "stopped": return String(localized: "已停止")
+        case "pending", "draft": return String(localized: "待执行")
+        default: return raw
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
             HStack(spacing: T.sp2) {
@@ -514,7 +532,7 @@ struct PlanPanelView: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if let status = plan.rawStatus, !status.isEmpty {
-                    StatusPill(text: status, kind: .tag, compact: true)
+                    StatusPill(text: Self.planStatusText(status), kind: .tag, compact: true)
                 }
             }
             Text(plan.content)
@@ -603,7 +621,7 @@ struct WorkflowPanelContent: View {
     private var phaseChain: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(run.nodes.enumerated()), id: \.element.id) { index, node in
-                let actors = run.actors.filter { $0.phaseName == node.label }
+                let actors = run.actors(boundTo: node)
                 let expanded = expandedPhases.contains(node.id)
                 HStack(alignment: .top, spacing: T.sp3) {
                     VStack(spacing: 0) {
@@ -618,9 +636,10 @@ struct WorkflowPanelContent: View {
                     .frame(width: 16)
 
                     VStack(alignment: .leading, spacing: T.sp1) {
-                        // 阶段行（有子代理实例才可展开）
+                        // 阶段行（桌面 WorkflowRunPhaseList.tsx 同构：每行都是无条件
+                        // toggle——此前有子代理实例才可展开，无实例行点了没反应，
+                        // 用户报障「点击工作流某项不展开」；桌面展开为空也翻面）
                         Button {
-                            guard !actors.isEmpty else { return }
                             withAnimation(.easeInOut(duration: 0.15)) {
                                 if expanded {
                                     expandedPhases.remove(node.id)
@@ -639,10 +658,10 @@ struct WorkflowPanelContent: View {
                                     Text("\(actors.filter { $0.status == .done }.count)/\(actors.count)")
                                         .font(T.mono(10.5, .semibold))
                                         .foregroundColor(T.text3)
-                                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                                        .font(.system(size: 9, weight: .semibold))
-                                        .foregroundColor(T.text3)
                                 }
+                                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(T.text3)
                             }
                             .contentShape(Rectangle())
                         }
@@ -945,52 +964,116 @@ private struct MenuConcurrencyPicker: View {
 }
 
 // MARK: - btw 后台工作面板（cancel/resume 命令面）
+//
+// UI 口径（2026-10-09 用户裁决「运行中的参考价值更大」）：运行中条目置顶全量显示，
+// 已结束（resultPending/failed/cancelled 等）折叠为一行「已完成与已停止」按需展开——
+// 默认视图只占运行中的高度，恢复入口保留在折叠组内。运行中判定与状态四态词表
+// 均按上游 backgroundWorkSummarySchema（协议文档 §9.13）。
 
 struct WorksPanelView: View {
     let works: [BackgroundWorkSummary]
     var onCancel: (String) async -> Void
     var onResume: (String, String?) async -> Void
 
+    @State private var historyExpanded = false
+
+    private var running: [BackgroundWorkSummary] { works.filter(\.isRunning) }
+    private var history: [BackgroundWorkSummary] { works.filter { !$0.isRunning } }
+
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp1) {
-            ForEach(works) { work in
-                HStack(spacing: T.sp2) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 11))
-                        .foregroundColor(T.blue)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(work.title ?? work.workId)
-                            .font(T.font(12, .medium))
-                            .foregroundColor(T.text)
-                            .lineLimit(1)
-                        if let status = work.rawStatus, !status.isEmpty {
-                            Text(status)
-                                .font(T.mono(9.5))
-                                .foregroundColor(T.text3)
-                        }
+            ForEach(running) { work in
+                row(work)
+            }
+            if !history.isEmpty {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { historyExpanded.toggle() }
+                } label: {
+                    HStack(spacing: T.sp1) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(T.text3)
+                            .rotationEffect(.degrees(historyExpanded ? 90 : 0))
+                        Text(String(localized: "已完成与已停止（\(history.count)）"))
+                            .font(T.mono(9.5, .semibold))
+                            .foregroundColor(T.text3)
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
-                    if work.resumable {
-                        rowButton(icon: "arrow.clockwise", label: String(localized: "恢复")) {
-                            await onResume(work.workId, work.title)
-                        }
-                        .accessibilityIdentifier("05-works-act-resume-\(work.workId)")
-                    }
-                    if work.cancellable {
-                        rowButton(icon: "stop.fill", label: String(localized: "取消")) {
-                            await onCancel(work.workId)
-                        }
-                        .accessibilityIdentifier("05-works-act-cancel-\(work.workId)")
-                    }
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, T.sp2)
+                    .padding(.vertical, 5)
                 }
-                .padding(.horizontal, T.sp2)
-                .padding(.vertical, 5)
-                .background(T.blueDim.opacity(0.5))
-                .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("05-works-history-toggle")
+                if historyExpanded {
+                    ForEach(history) { work in
+                        row(work)
+                    }
+                    .transition(.opacity)
+                }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-panel-works")
+    }
+
+    /// 行状态行：状态文案 + 已运行/耗时（上游 startedAt/endedAt；运行中=至今，已结束=跨度）
+    private static func durationText(_ work: BackgroundWorkSummary) -> String? {
+        guard let startedAt = work.startedAt else { return nil }
+        let end = work.endedAt ?? Date()
+        let seconds = Int(end.timeIntervalSince(startedAt).rounded())
+        guard seconds >= 0 else { return nil }
+        if seconds < 60 { return String(localized: "\(seconds) 秒") }
+        let minutes = seconds / 60
+        if minutes < 60 { return String(localized: "\(minutes) 分") }
+        return String(localized: "\(minutes / 60) 小时 \(minutes % 60) 分")
+    }
+
+    private func row(_ work: BackgroundWorkSummary) -> some View {
+        HStack(spacing: T.sp2) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 11))
+                .foregroundColor(work.isRunning ? T.blue : T.text3)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(work.title ?? work.workId)
+                    .font(T.font(12, .medium))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    // blocked = 桌面忙等（上游 backgroundWorkSummarySchema.blocked）
+                    if work.blocked {
+                        Text(String(localized: "已阻塞"))
+                            .font(T.mono(9.5))
+                            .foregroundColor(T.orange)
+                    }
+                    Text(work.statusText)
+                        .font(T.mono(9.5))
+                        .foregroundColor(T.text3)
+                    if let duration = Self.durationText(work) {
+                        Text("· \(duration)")
+                            .font(T.mono(9.5))
+                            .foregroundColor(T.text3)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            if work.resumable {
+                rowButton(icon: "arrow.clockwise", label: String(localized: "恢复")) {
+                    await onResume(work.workId, work.title)
+                }
+                .accessibilityIdentifier("05-works-act-resume-\(work.workId)")
+            }
+            if work.cancellable {
+                rowButton(icon: "stop.fill", label: String(localized: "取消")) {
+                    await onCancel(work.workId)
+                }
+                .accessibilityIdentifier("05-works-act-cancel-\(work.workId)")
+            }
+        }
+        .padding(.horizontal, T.sp2)
+        .padding(.vertical, 5)
+        .background(work.isRunning ? T.blueDim.opacity(0.5) : T.bgInput.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: T.rS))
     }
 
     private func rowButton(

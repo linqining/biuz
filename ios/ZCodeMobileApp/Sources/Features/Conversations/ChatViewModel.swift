@@ -67,9 +67,10 @@ final class ChatViewModel {
     }
 
     /// 面板投影刷新（panelStateUpdated 事件与 load/任意事件后的轻量全量重读；
-    /// 全部为内存读，成本可忽略）
+    /// 全部为内存读，成本可忽略）。不再按 isReadOnly 门控：演示态（Mock）的后台
+    /// 工作投影同样需要装配（v1.25 起 mock c1 提供演示 works）——mock 各投影
+    /// 除 works 外均走协议默认空实现，远端口径不变。
     func refreshPanels() async {
-        guard isReadOnly else { return }
         goalSummary = await store.goalSummary(in: conversationID)
         planPanel = await store.planPanel(in: conversationID)
         backgroundWorks = await store.backgroundWorks(in: conversationID)
@@ -837,6 +838,18 @@ final class ChatViewModel {
                 await refreshSessionModelOverlay()
             }
         }
+    }
+
+    /// getView 首击失败的手动重试（连接态只读兜底 pills 点按触发；用户多次报障
+    /// 「模型/思考等级不能选是 bug」——getView 失败不得终态化为只读）。成功即回填
+    /// chips（store 成功路径亦 yield 进 observeModelSelection 流，两路幂等）
+    func retryModelSelection() async -> Bool {
+        guard isReadOnly else { return modelSelection != nil }
+        if modelSelection != nil { return true }
+        guard let info = await store.modelSelectionView(), !info.models.isEmpty else { return false }
+        modelSelection = info
+        await refreshThoughtLevels()
+        return true
     }
 
     /// 会话级模型选择覆盖（用户报障「桌面改了手机不同步」：桌面 composer 改的是

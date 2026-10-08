@@ -22,7 +22,7 @@ struct ConnectingView: View {
                 }
                 .scrollIndicators(.hidden)
                 Button(action: onCancel) {
-                    Label("取消连接", systemImage: "xmark")
+                    Label(String(localized: "取消连接"), systemImage: "xmark")
                         .font(T.font(15, .semibold))
                         .foregroundColor(T.text)
                         .frame(maxWidth: .infinity, minHeight: 48)
@@ -37,7 +37,7 @@ struct ConnectingView: View {
 
     private var header: some View {
         HStack {
-            Text("连接中")
+            Text(String(localized: "连接中"))
                 .font(T.font(16.5, .bold))
                 .foregroundColor(T.text)
             Spacer()
@@ -63,7 +63,7 @@ struct ConnectingView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             VStack(alignment: .leading, spacing: 3) {
                 // 头部时序：首次连接以 host:port 占位，server-info 返回后升级为名称
-                Text("正在连接 \(displayHost)")
+                Text(String(localized: "正在连接 \(displayHost)"))
                     .font(T.font(15, .heavy))
                     .foregroundColor(T.text)
                     .lineLimit(1)
@@ -73,7 +73,7 @@ struct ConnectingView: View {
                     .foregroundColor(T.text3)
             }
             Spacer()
-            StatusPill(text: "连接中", kind: .run)
+            StatusPill(text: String(localized: "连接中"), kind: .run)
         }
         .padding(.vertical, 4)
     }
@@ -88,11 +88,11 @@ struct ConnectingView: View {
     private var subtitle: String {
         if session.savedServer?.relay != nil {
             return session.connection.serverInfo.map { _ in
-                "云端中继 · auth 握手完成 · 桥与订阅建立中"
-            } ?? "云中继直连 wss · auth 握手与桥建立中"
+                String(localized: "云端中继 · auth 握手完成 · 桥与订阅建立中")
+            } ?? String(localized: "云中继直连 wss · auth 握手与桥建立中")
         }
-        return session.connection.serverInfo.map { _ in "server-info 已返回 · 正在建立会话" }
-            ?? "首次连接 · 名称待 server-info 返回后显示"
+        return session.connection.serverInfo.map { _ in String(localized: "server-info 已返回 · 正在建立会话") }
+            ?? String(localized: "首次连接 · 名称待 server-info 返回后显示")
     }
 
     private var progress: ConnectProgress {
@@ -108,7 +108,7 @@ struct ConnectingView: View {
             HStack(spacing: 10) {
                 HStack(spacing: 8) {
                     Circle().fill(T.blue).frame(width: 7, height: 7)
-                    Text("连接进度 · \(progress.completedCount + progress.runningCount)/5")
+                    Text(String(localized: "连接进度 · \(progress.completedCount + progress.runningCount)/5"))
                         .font(T.font(13, .bold))
                         .foregroundColor(T.text2)
                 }
@@ -119,21 +119,21 @@ struct ConnectingView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
 
-            stepRow(id: "l2-step-discover", name: "发现服务",
+            stepRow(id: "l2-step-discover", name: String(localized: "发现服务"),
                     detail: "GET /api/server-info", state: progress.discover)
             stepRow(id: authRequiredFree ? "l2-n-step-auth" : "l2-step-auth",
-                    name: authRequiredFree ? "免鉴权" : "校验访问令牌",
+                    name: authRequiredFree ? String(localized: "免鉴权") : String(localized: "校验访问令牌"),
                     detail: authRequiredFree
-                        ? "--no-token · authRequired=false · 不校验令牌"
+                        ? String(localized: "--no-token · authRequired=false · 不校验令牌")
                         : "?token=*** · authRequired=true",
                     state: progress.auth)
-            stepRow(id: "l2-step-ws", name: "建立 WebSocket",
+            stepRow(id: "l2-step-ws", name: String(localized: "建立 WebSocket"),
                     detail: "\(session.savedServer?.wsBaseURL ?? "")/ws · web-remote-replayable",
                     state: progress.websocket)
-            stepRow(id: "l2-step-handshake", name: "协议握手 v4",
+            stepRow(id: "l2-step-handshake", name: String(localized: "协议握手 v4"),
                     detail: "helloConversationV4 · clientKind=mobileApp",
                     state: progress.handshake)
-            stepRow(id: "l2-step-workspace", name: "载入工作区",
+            stepRow(id: "l2-step-workspace", name: String(localized: "载入工作区"),
                     detail: "workspaces[0] · \(session.connection.workspace?.path ?? "…")",
                     state: progress.workspace)
         }
@@ -260,6 +260,7 @@ struct ConnectFailureView: View {
     var onRetry: () -> Void
     var onDone: () -> Void
 
+    @Environment(AppSettingsModel.self) private var settings
     @State private var showDeleteConfirm = false
 
     var body: some View {
@@ -275,7 +276,7 @@ struct ConnectFailureView: View {
                             .contentShape(Rectangle())
                     }
                     Spacer()
-                    Text("连接失败")
+                    Text(String(localized: "连接失败"))
                         .font(T.font(16.5, .bold))
                         .foregroundColor(T.text)
                     Spacer()
@@ -287,7 +288,7 @@ struct ConnectFailureView: View {
                         recoveryActions
                         comparisonList
                         deleteButton
-                        Text("令牌随桌面进程存活 · 删除将同时清除 Keychain 中的令牌\n请仅在可信局域网使用 · wss:// 需自备反向代理")
+                        Text(String(localized: "令牌随桌面进程存活 · 删除将同时清除 Keychain 中的令牌\n请仅在可信局域网使用 · wss:// 需自备反向代理"))
                             .font(T.font(10.5))
                             .foregroundColor(T.text3)
                             .multilineTextAlignment(.center)
@@ -302,9 +303,9 @@ struct ConnectFailureView: View {
         }
         .sheet(isPresented: $showDeleteConfirm) {
             ConfirmSheet(
-                title: "删除「\(server.name ?? server.displayAddress)」？",
-                message: "将清除本机 Keychain 中的访问令牌与最近连接记录；桌面端服务不受影响，可随时重新扫码添加。",
-                confirmTitle: "删除服务器", confirmIcon: "trash",
+                title: String(localized: "删除「\(server.name ?? server.displayAddress)」？"),
+                message: String(localized: "将清除本机 Keychain 中的访问令牌与最近连接记录；桌面端服务不受影响，可随时重新扫码添加。"),
+                confirmTitle: String(localized: "删除服务器"), confirmIcon: "trash",
                 identifierPrefix: "l5-sheet-del") {
                     onDoneConfirmed()
                 } onConfirmAction: {
@@ -373,18 +374,18 @@ struct ConnectFailureView: View {
         switch error {
         case .http(let status, _):
             return status == 401
-                ? "桌面端重启后令牌会重新生成（自动生成模式，无过期与撤销接口），旧令牌随即失效。重新扫码或粘贴新链接即可更新。"
-                : "服务返回 HTTP \(status)。请确认桌面端 zcode --web 进程存活后重试。"
+                ? String(localized: "桌面端重启后令牌会重新生成（自动生成模式，无过期与撤销接口），旧令牌随即失效。重新扫码或粘贴新链接即可更新。")
+                : String(localized: "服务返回 HTTP \(status)。请确认桌面端 zcode --web 进程存活后重试。")
         case .timeout:
-            return "请求超时。请自查三件事：手机与桌面机在同一局域网、zcode --web 进程运行中（端口 \(server.port)）、本地网络权限已允许（设置 → 隐私与安全性 → 本地网络，被拒时请求静默失败）。"
+            return String(localized: "请求超时。请自查三件事：手机与桌面机在同一局域网、zcode --web 进程运行中（端口 \(server.port)）、本地网络权限已允许（设置 → 隐私与安全性 → 本地网络，被拒时请求静默失败）。")
         case .protocolVersion(let actual):
-            return "服务端协议为 \(actual)，本端要求 remote v1 · v4 wire v3。请升级其中一端后重试（不做静默降级）。"
+            return String(localized: "服务端协议为 \(actual)，本端要求 remote v1 · v4 wire v3。请升级其中一端后重试（不做静默降级）。")
         case .emptyWorkspaces:
-            return "server-info 返回的工作区列表为空。请在桌面端检查 --workspace / ZCODE_SERVER_WORKSPACE 配置后重试。"
+            return String(localized: "server-info 返回的工作区列表为空。请在桌面端检查 --workspace / ZCODE_SERVER_WORKSPACE 配置后重试。")
         case .handshakeFailed(let detail):
-            return "v4 握手失败（\(detail)）。请确认桌面端版本支持 v4 协议后重试。"
+            return String(localized: "v4 握手失败（\(detail)）。请确认桌面端版本支持 v4 协议后重试。")
         case .transport(let detail):
-            return "无法建立 WebSocket（\(detail)）。请确认桌面端 zcode --web 进程运行中且端口可达。"
+            return String(localized: "无法建立 WebSocket（\(detail)）。请确认桌面端 zcode --web 进程运行中且端口可达。")
         }
     }
 
@@ -395,17 +396,21 @@ struct ConnectFailureView: View {
             case .http(let status, _) where status == 401:
                 PrimaryButton(title: "重新扫码更新令牌", identifier: "l3-btn-rescan", action: onRescan)
             case .protocolVersion:
-                primaryButton(title: "升级后重试", identifier: "l3-btn-retry", action: onRetry)
+                primaryButton(title: String(localized: "升级后重试"), identifier: "l3-btn-retry", action: onRetry)
             case .timeout:
-                primaryButton(title: "原配置重试", identifier: "l3-btn-retry", action: onRetry)
+                primaryButton(title: String(localized: "原配置重试"), identifier: "l3-btn-retry", action: onRetry)
             default:
-                primaryButton(title: "原配置重试", identifier: "l3-btn-retry", action: onRetry)
+                primaryButton(title: String(localized: "原配置重试"), identifier: "l3-btn-retry", action: onRetry)
             }
             HStack(spacing: 10) {
-                secondaryButton(title: "原配置重试", icon: "arrow.clockwise", identifier: "l3-btn-retry-secondary") {
+                secondaryButton(title: String(localized: "原配置重试"), icon: "arrow.clockwise", identifier: "l3-btn-retry-secondary") {
                     Task { onRetry() }
                 }
-                secondaryButton(title: "手动更新令牌", icon: "key", identifier: "l3-btn-update-token", action: onManualToken)
+                // 手动更新令牌 = 手动输入族入口：仅开发者模式（正式用户 401 恢复走
+                // 「重新扫码」主 CTA；二按钮单列时全宽）
+                if settings.effectiveDeveloperMode {
+                    secondaryButton(title: String(localized: "手动更新令牌"), icon: "key", identifier: "l3-btn-update-token", action: onManualToken)
+                }
             }
         }
     }
@@ -435,22 +440,22 @@ struct ConnectFailureView: View {
 
     private var comparisonList: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("常见错误对照 · 4 态")
+            Text(String(localized: "常见错误对照 · 4 态"))
                 .font(T.font(13, .bold))
                 .foregroundColor(T.text2)
             VStack(spacing: 0) {
                 row(id: "l3-row-401", icon: "key", tint: T.red,
-                    title: "401 · 令牌不匹配",
-                    detail: "桌面重启后自动令牌轮换 → 重新扫码 / 粘贴新链接")
+                    title: String(localized: "401 · 令牌不匹配"),
+                    detail: String(localized: "桌面重启后自动令牌轮换 → 重新扫码 / 粘贴新链接"))
                 row(id: "l3-row-timeout", icon: "wifi", tint: T.orange,
-                    title: "超时 · 无法连接",
-                    detail: "同一局域网？zcode --web 运行中？本地网络权限已允许（被拒时请求静默失败）→ 重试")
+                    title: String(localized: "超时 · 无法连接"),
+                    detail: String(localized: "同一局域网？zcode --web 运行中？本地网络权限已允许（被拒时请求静默失败）→ 重试"))
                 row(id: "l3-row-protocol", icon: "square.stack.3d.up", tint: T.violet,
-                    title: "协议版本不匹配",
-                    detail: "需 remote v1 / v4 wire v3 → 升级一端")
+                    title: String(localized: "协议版本不匹配"),
+                    detail: String(localized: "需 remote v1 / v4 wire v3 → 升级一端"))
                 row(id: "l3-row-empty-ws", icon: "folder", tint: T.text2,
-                    title: "工作区列表为空",
-                    detail: "在桌面端检查 --workspace / ZCODE_SERVER_WORKSPACE 配置 → 重试")
+                    title: String(localized: "工作区列表为空"),
+                    detail: String(localized: "在桌面端检查 --workspace / ZCODE_SERVER_WORKSPACE 配置 → 重试"))
             }
             .background(T.bgCard)
             .clipShape(RoundedRectangle(cornerRadius: T.rL))
@@ -484,7 +489,7 @@ struct ConnectFailureView: View {
         Button {
             showDeleteConfirm = true
         } label: {
-            Label("删除此服务器", systemImage: "trash")
+            Label(String(localized: "删除此服务器"), systemImage: "trash")
                 .font(T.font(13.5, .semibold))
                 .foregroundColor(T.red)
                 .frame(maxWidth: .infinity, minHeight: 44)
@@ -543,7 +548,7 @@ struct ConfirmSheet: View {
                 }
                 .accessibilityIdentifier("\(identifierPrefix)-act-confirm")
                 Button(action: onCancel) {
-                    Text("取消")
+                    Text(String(localized: "取消"))
                         .font(T.font(15, .semibold))
                         .foregroundColor(T.text)
                         .frame(maxWidth: .infinity, minHeight: 48)

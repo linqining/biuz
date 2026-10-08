@@ -81,7 +81,7 @@ struct TaskBoardView: View {
         }
         let leftover = filtered.filter { !claimed.contains($0.id) }
         if !leftover.isEmpty {
-            sections.append(DesktopTaskBoardSection(id: "__ungrouped", name: "未分组", tasks: leftover))
+            sections.append(DesktopTaskBoardSection(id: "__ungrouped", name: String(localized: "未分组"), tasks: leftover))
         }
         return sections.isEmpty ? nil : sections
     }
@@ -166,11 +166,11 @@ struct TaskBoardView: View {
                 } else if model.tasks.isEmpty {
                     EmptyStateView(
                         icon: "tray",
-                        title: "还没有任务",
+                        title: String(localized: "还没有任务"),
                         // H8/L-8：如实口径——任务在已连接的桌面端执行（原文案「云端沙盒中
                         // 执行」为虚假承诺，审查报告 §六 L-8）
-                        detail: "从新建任务开始，Agent 将在已连接的桌面端执行",
-                        cta: "新建任务", ctaAction: { showNewSheet = true },
+                        detail: String(localized: "从新建任务开始，Agent 将在已连接的桌面端执行"),
+                        cta: String(localized: "新建任务"), ctaAction: { showNewSheet = true },
                         ctaIdentifier: "02-btn-newtask")
                     .accessibilityIdentifier("02-empty")
                 } else {
@@ -184,7 +184,7 @@ struct TaskBoardView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("任务").font(T.font(17, .bold)).foregroundColor(T.text)
+                Text(String(localized: "任务")).font(T.font(17, .bold)).foregroundColor(T.text)
             }
         }
         // id 绑定 store 实例：连接成功后数据源 mock→远端 切换时重新拉取并重挂观察流
@@ -257,27 +257,27 @@ struct TaskBoardView: View {
                 } else {
                     // 回退路径：本地状态四组（桌面分组不可用/演示态）
                     if !waiting.isEmpty {
-                        groupHeader("待操作", count: waiting.count)
+                        groupHeader(String(localized: "待操作"), count: waiting.count)
                         ForEach(waiting) { item in
                             TaskCardView(task: item, onApprove: { approvalTarget = $0 })
                         }
                     }
                     if !running.isEmpty {
-                        groupHeader("进行中", count: running.count)
+                        groupHeader(String(localized: "进行中"), count: running.count)
                         ForEach(running) { item in
                             TaskCardView(task: item, onApprove: { approvalTarget = $0 })
                                 .id("\(item.id)-\(item.status.rawValue)")
                         }
                     }
                     if !failed.isEmpty {
-                        groupHeader("失败", count: failed.count)
+                        groupHeader(String(localized: "失败"), count: failed.count)
                         ForEach(failed) { item in
                             TaskCardView(task: item, onApprove: { approvalTarget = $0 })
                         }
                     }
                     if !done.isEmpty {
                         let visible = showAllDone ? done : Array(done.prefix(3))
-                        groupHeader("已完成", count: done.count)
+                        groupHeader(String(localized: "已完成"), count: done.count)
                         ForEach(visible) { task in
                             TaskCardView(task: task, onApprove: { approvalTarget = $0 })
                                 .id("\(task.id)-\(task.status.rawValue)")
@@ -306,7 +306,7 @@ struct TaskBoardView: View {
             Text(greetingText)
                 .font(T.font(22, .heavy))
                 .foregroundColor(T.text)
-            Text("\(running.count) 个任务进行中 · \(waiting.count) 个待操作")
+            Text(String(localized: "\(running.count) 个任务进行中 · \(waiting.count) 个待操作"))
                 .font(T.font(12))
                 .foregroundColor(T.text3)
         }
@@ -317,10 +317,10 @@ struct TaskBoardView: View {
     private var greetingText: String {
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
-        case 5..<11: return "早上好"
-        case 11..<13: return "中午好"
-        case 13..<18: return "下午好"
-        default: return "晚上好"
+        case 5..<11: return String(localized: "早上好")
+        case 11..<13: return String(localized: "中午好")
+        case 13..<18: return String(localized: "下午好")
+        default: return String(localized: "晚上好")
         }
     }
 
@@ -400,7 +400,7 @@ struct TaskBoardView: View {
             Image(systemName: "info.circle")
                 .font(.system(size: 12))
                 .foregroundColor(T.text3)
-            Text("桌面分组不可用 · 已按状态分组")
+            Text(String(localized: "桌面分组不可用 · 已按状态分组"))
                 .font(T.font(11.5))
                 .foregroundColor(T.text3)
             Spacer(minLength: 0)
@@ -520,7 +520,7 @@ struct TaskCardView: View {
                 Button {
                     onApprove(task)
                 } label: {
-                    Text("去审批")
+                    Text(String(localized: "去审批"))
                         .font(T.font(12.5, .semibold))
                         .foregroundColor(T.onOrange)
                         .padding(.horizontal, T.sp3)

@@ -218,7 +218,7 @@ actor RelayChannelClient: RPCChannelTransport {
     /// workspace-bridge-open → workspace-bridge-ready → 桥身份绑定 → 等待 Initialize([200])
     private func openBridge(workspaceKey: String?, taskId: String?) async throws {
         guard let workspaceKey, !workspaceKey.isEmpty else {
-            throw RPCError(message: "中继 bootstrap 未提供 activeWorkspaceKey", name: "RelayFailure")
+            throw RPCError(message: String(localized: "中继 bootstrap 未提供 activeWorkspaceKey"), name: "RelayFailure")
         }
         bridgeGeneration += 1
         let bridgeSessionId = UUID().uuidString.hexString
@@ -241,7 +241,7 @@ actor RelayChannelClient: RPCChannelTransport {
             bridgeSessionId: bridgeSessionId)
         let bridge = ready["bridge"]
         guard let readySessionId = bridge?["bridgeSessionId"]?.stringValue else {
-            throw RPCError(message: "workspace-bridge-ready 缺 bridge 字段", name: "RelayFailure")
+            throw RPCError(message: String(localized: "workspace-bridge-ready 缺 bridge 字段"), name: "RelayFailure")
         }
         lastRecoveryId = bridge?["recoveryId"]?.stringValue
         bridgeIdentity = RelayFrameCodec.Identity(
@@ -301,7 +301,7 @@ actor RelayChannelClient: RPCChannelTransport {
         let timeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             await self?.failInitializeWaiters(
-                RPCError(message: "等待桥内 Initialize 超时", name: "TimeoutError"))
+                RPCError(message: String(localized: "等待桥内 Initialize 超时"), name: "TimeoutError"))
         }
         defer { timeoutTask.cancel() }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -309,7 +309,7 @@ actor RelayChannelClient: RPCChannelTransport {
             switch state {
             case .idle: continuation.resume()
             case .closed:
-                continuation.resume(throwing: RPCError(message: "连接在 Initialize 前已关闭", name: "ConnectionClosed"))
+                continuation.resume(throwing: RPCError(message: String(localized: "连接在 Initialize 前已关闭"), name: "ConnectionClosed"))
             case .uninitialized: initializeWaiters.append(continuation)
             }
         }
@@ -344,13 +344,13 @@ actor RelayChannelClient: RPCChannelTransport {
         let errored = pendingResponses
         pendingResponses.removeAll()
         for (_, continuation) in errored {
-            continuation.resume(throwing: RPCError(message: "中继重连，请求已中断", name: "Reconnecting"))
+            continuation.resume(throwing: RPCError(message: String(localized: "中继重连，请求已中断"), name: "Reconnecting"))
         }
         do {
             try await openBridge(workspaceKey: workspaceKey, taskId: activeTaskId)
         } catch {
             log(.error, "桥重建失败：\(error.localizedDescription)")
-            handleTerminalFailure(.relayUnavailable("桥重建失败"))
+            handleTerminalFailure(.relayUnavailable(String(localized: "桥重建失败")))
         }
     }
 
@@ -379,7 +379,7 @@ actor RelayChannelClient: RPCChannelTransport {
         pendingResponses.removeAll()
         for (_, continuation) in errored {
             continuation.resume(throwing: RPCError(
-                message: "桥退化重建，请求已中断（\(reason)）", name: "Reconnecting"))
+                message: String(localized: "桥退化重建，请求已中断（\(reason)）"), name: "Reconnecting"))
         }
         do {
             try await openBridge(workspaceKey: workspaceKey, taskId: activeTaskId)
@@ -387,7 +387,7 @@ actor RelayChannelClient: RPCChannelTransport {
         } catch {
             if await transport.isPaired {
                 log(.error, "退化桥重建失败：\(error.localizedDescription)")
-                handleTerminalFailure(.relayUnavailable("退化桥重建失败"))
+                handleTerminalFailure(.relayUnavailable(String(localized: "退化桥重建失败")))
             } else {
                 // 重建途中传输失联：不走终态，paired 恢复链路（transportDidPair）接管
                 log(.info, "退化桥重建中断（传输失联）· 等 paired 恢复后重建")
@@ -466,13 +466,13 @@ actor RelayChannelClient: RPCChannelTransport {
     /// 活跃 eventListen 重发）。失败回滚原工作区桥（尽力）后原样上抛。
     func switchBridgeWorkspace(workspaceKey: String, workspacePath: String) async throws {
         guard state == .idle else {
-            throw RPCError(message: "通道未就绪（state=\(state)）", name: "NotInitialized")
+            throw RPCError(message: String(localized: "通道未就绪（state=\(state)）"), name: "NotInitialized")
         }
         // 并发切换串行守卫：上一笔切换事务未完成时新请求立即拒绝（UI 层 isSwitching
         // 禁用之外的纵深防御；bridgeRebuildInFlight 只挡重建两路，挡不住并发 switch
         // 互踩单槽 bridgeOpenWaiter）
         guard !switchInFlight else {
-            throw RPCError(message: "已有工作区切换在进行中", name: "SwitchInProgress")
+            throw RPCError(message: String(localized: "已有工作区切换在进行中"), name: "SwitchInProgress")
         }
         // 切换全程持重建互斥（含失败回滚）：degraded 快速重建/paired 恢复重建在切换
         // 在途时并发 openBridge 会互踩单槽 bridgeOpenWaiter
@@ -491,7 +491,7 @@ actor RelayChannelClient: RPCChannelTransport {
         let errored = pendingResponses
         pendingResponses.removeAll()
         for (_, continuation) in errored {
-            continuation.resume(throwing: RPCError(message: "工作区切换，请求已中断", name: "Reconnecting"))
+            continuation.resume(throwing: RPCError(message: String(localized: "工作区切换，请求已中断"), name: "Reconnecting"))
         }
         redirectListenerWorkspacePath(to: workspacePath)
         activeWorkspaceKey = workspaceKey
@@ -511,7 +511,7 @@ actor RelayChannelClient: RPCChannelTransport {
                     try await openBridge(workspaceKey: previousKey, taskId: previousTaskId)
                 } catch {
                     let combined = "\(switchError.localizedDescription)"
-                        + "（回滚原工作区亦失败：\(error.localizedDescription)，可断开重连恢复）"
+                        + String(localized: "（回滚原工作区亦失败：\(error.localizedDescription)，可断开重连恢复）")
                     throw RPCError(
                         message: combined,
                         name: (switchError as? RPCError)?.name ?? "SwitchFailed")
@@ -539,7 +539,7 @@ actor RelayChannelClient: RPCChannelTransport {
         state = .closed
         bridgeIdentity = nil
         activeEventListeners.removeAll()
-        let error = RPCError(message: "连接已关闭", name: "ConnectionClosed")
+        let error = RPCError(message: String(localized: "连接已关闭"), name: "ConnectionClosed")
         failPending(error)
         failInitializeWaiters(error)
         eventHandlers.removeAll()
@@ -556,7 +556,7 @@ actor RelayChannelClient: RPCChannelTransport {
     func call(_ channel: String, _ command: String, _ arg: RPCValue = .undefined,
               timeout: TimeInterval = 30) async throws -> RPCValue {
         guard state == .idle else {
-            throw RPCError(message: "通道未就绪（state=\(state)）", name: "NotInitialized")
+            throw RPCError(message: String(localized: "通道未就绪（state=\(state)）"), name: "NotInitialized")
         }
         let id = lastRequestId
         lastRequestId += 1
@@ -570,7 +570,7 @@ actor RelayChannelClient: RPCChannelTransport {
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             await self?.resolveResponse(
                 id: id,
-                result: .failure(RPCError(message: "RPC 超时：\(channel).\(command)", name: "TimeoutError")))
+                result: .failure(RPCError(message: String(localized: "RPC 超时：\(channel).\(command)"), name: "TimeoutError")))
         }
         defer { timeoutTask.cancel() }
 
@@ -664,7 +664,7 @@ actor RelayChannelClient: RPCChannelTransport {
         case .promiseErrorObj:
             guard let id = headerItems[safe: 1]?.intValue else { return }
             resolveResponse(id: id, result: .failure(
-                RPCError(message: "RPC 错误对象", name: "ErrorObj", detail: body.jsonValue)))
+                RPCError(message: String(localized: "RPC 错误对象"), name: "ErrorObj", detail: body.jsonValue)))
         case .eventFire:
             guard let id = headerItems[safe: 1]?.intValue else { return }
             eventHandlers[id]?(body)
@@ -689,9 +689,9 @@ actor RelayChannelClient: RPCChannelTransport {
 
     private func decodeError(_ body: RPCValue) -> RPCError {
         guard let json = body.jsonValue, case .object(let dict) = json else {
-            return RPCError(message: "未知 RPC 错误", name: "Error")
+            return RPCError(message: String(localized: "未知 RPC 错误"), name: "Error")
         }
-        var error = RPCError(message: "未知 RPC 错误", name: "Error", detail: .object(dict))
+        var error = RPCError(message: String(localized: "未知 RPC 错误"), name: "Error", detail: .object(dict))
         if case .string(let message)? = dict["message"] { error.message = message }
         if case .string(let name)? = dict["name"] { error.name = name }
         return error

@@ -9,6 +9,10 @@ struct SettingsView: View {
     /// 关于区 · 桌面宿主信息（system.info 只读投影：platform + homedir；连接态拉取，
     /// 断开/未连接不渲染；读取失败如实呈「未获取」——联调排障省口头确认）
     @State private var desktopHostLine: String?
+    /// 开发者模式隐藏开关：设置页品牌行连点 7 次切换（正经产品默认态不在设置页
+    /// 暴露「开发者」概念）；计数无超时窗，E2E 连点 7 次即可稳定触发
+    @State private var brandTapCount = 0
+    @State private var developerModeAnnouncement: String?
 
     var body: some View {
         ScrollView {
@@ -36,12 +40,28 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.top, T.sp2)
                     .accessibilityIdentifier("12-foot-data-source")
+                // HIDDEN(开发者模式)：品牌行连点 7 次切换开发者模式（连接页手动输入 /
+                // 桌面端指引 / 令牌说明等开发向入口的总开关）；切换后临时公告 2.5s 自动退场
+                // （具名解绑：`if let developerModeAnnouncement` 影子名与 .task 内属性赋值
+                // 同名会触发 Swift 前端断言崩溃，2026-10-08 构建实证）
+                if let announcement = developerModeAnnouncement {
+                    Text(announcement)
+                        .font(T.font(10.5, .semibold))
+                        .foregroundColor(T.accentText)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .accessibilityIdentifier("12-dev-announce")
+                        .task {
+                            try? await Task.sleep(for: .seconds(2.5))
+                            developerModeAnnouncement = nil
+                        }
+                }
                 // 品牌名独立可测锚点（e2e 断言 App 自我指称，works-with 桌面端描述性引用另行表述）
                 Text("BiuZ · 为 ZCode 社区版桌面端打造的移动遥控台")
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .accessibilityIdentifier("12-brand-name")
+                    .onTapGesture { handleBrandTap() }
             }
             .padding(.horizontal, T.sp4)
             .padding(.top, T.sp2)
@@ -127,7 +147,7 @@ struct SettingsView: View {
                     sessionRow(
                         icon: "plus",
                         title: "添加服务器",
-                        subtitle: "扫码 / 剪贴板 / 手动输入",
+                        subtitle: settings.effectiveDeveloperMode ? String(localized: "扫码 / 剪贴板 / 手动输入") : String(localized: "扫码 / 剪贴板"),
                         online: nil,
                         value: nil)
                 }
@@ -139,8 +159,24 @@ struct SettingsView: View {
     }
 
     private var accountValue: String {
-        if session.oauthUserInfo == nil { return "未登录" }
-        return session.isOAuthExpired ? "已过期" : "已登录"
+        // String(localized:) 查表（en 态 Signed in/Signed out/Expired）——此前裸中文经
+        // sessionRow 纯 Text 直出，en 态与用户卡「Signed out」同屏残留中文（Language
+        // test02 存量断言，a3a3870 起即矛盾；语言套件未进门禁故长期未暴露）
+        if session.oauthUserInfo == nil { return String(localized: "未登录") }
+        return session.isOAuthExpired ? String(localized: "已过期") : String(localized: "已登录")
+    }
+
+    /// 品牌行连点 7 次 → 翻转开发者模式（经典隐藏开关；无超时窗，逐次点击均计数）
+    private func handleBrandTap() {
+        brandTapCount += 1
+        guard brandTapCount >= 7 else { return }
+        brandTapCount = 0
+        let turnedOn = !settings.value.developerMode
+        settings.update { $0.developerMode = turnedOn }
+        developerModeAnnouncement = turnedOn
+            ? String(localized: "开发者模式已开启")
+            : String(localized: "开发者模式已关闭")
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
     /// 行内容（identifier 由调用处的 Button 持有，保证 e2e firstMatch 命中带完整 label 的按钮元素）
@@ -325,7 +361,7 @@ struct SettingsView: View {
     /// G-034：设备行副标题绑真实连接态——仅显示可证实的在线设备（不再硬编码假在线）
     private var pairingSubtitle: String {
         if case .connected(let server) = session.mode {
-            return "\(server.name ?? server.displayAddress) 在线"
+            return String(localized: "\(server.name ?? server.displayAddress) 在线")
         }
         return "未连接桌面端"
     }
@@ -334,9 +370,9 @@ struct SettingsView: View {
     private var pairingValue: String {
         let paired = ServerRegistry.servers.count
         if case .connected = session.mode {
-            return "\(paired) 台已配对 · 1 台在线"
+            return String(localized: "\(paired) 台已配对 · 1 台在线")
         }
-        return "\(paired) 台已配对 · 0 台在线"
+        return String(localized: "\(paired) 台已配对 · 0 台在线")
     }
 
     private var settingGroups: some View {
@@ -373,28 +409,28 @@ struct SettingsView: View {
                 // H9（U-2）：假值三目（12.4M tokens/128 条等演示串）永久移除——
                 // 恒用「连接后同步…」引导文案，value 恒 nil
                 navRow(route: .usage, icon: "chart.bar", title: "用量统计",
-                       subtitle: "连接后同步桌面用量",
+                       subtitle: String(localized: "连接后同步桌面用量"),
                        value: nil, identifier: "12-row-usage")
                 navRow(route: .memory, icon: "brain", title: "记忆",
-                       subtitle: "连接后同步桌面记忆",
+                       subtitle: String(localized: "连接后同步桌面记忆"),
                        value: nil, identifier: "12-row-memory")
             }
             group("Agent 能力") {
                 navRow(route: .skills, icon: "wand.and.stars", title: "技能",
-                       subtitle: "连接后同步桌面技能",
+                       subtitle: String(localized: "连接后同步桌面技能"),
                        value: nil, identifier: "12-row-skills")
                 navRow(route: .mcp, icon: "server.rack", title: "MCP",
-                       subtitle: "连接后同步桌面 MCP",
+                       subtitle: String(localized: "连接后同步桌面 MCP"),
                        value: nil, identifier: "12-row-mcp")
                 navRow(route: .plugins, icon: "puzzlepiece.extension", title: "插件商店",
                        subtitle: nil, value: nil, badge: "New", identifier: "12-row-plugins")
                 navRow(route: .automation, icon: "clock.badge.checkmark", title: "自动化",
                        subtitle: "定时任务与触发器", value: nil, badge: "Beta", identifier: "12-row-automation")
                 // P2 批次只读页入口（G-022/G-024/G-025；写面均维持拦截）
-                navRow(route: .savedWorkflows, icon: "flowchart.fill", title: "工作流库",
-                       subtitle: "已保存工作流与最近运行", value: nil, identifier: "12-row-workflows")
+                navRow(route: .savedWorkflows, icon: "flowchart.fill", title: String(localized: "工作流库"),
+                       subtitle: String(localized: "已保存工作流与最近运行"), value: nil, identifier: "12-row-workflows")
                 navRow(route: .offPeakTasks, icon: "moon.stars", title: "错峰任务",
-                       subtitle: "低峰期排队的后台任务", value: nil, identifier: "12-row-offpeak")
+                       subtitle: String(localized: "低峰期排队的后台任务"), value: nil, identifier: "12-row-offpeak")
                 // HIDDEN(对齐修复): 反馈工单入口隐藏（feedback.list 双重未取证：web feedbackService 仅
                 // create/comment/upload 族无 list，app 侧形状亦未探针——审查报告 §五）· 恢复条件：feedback.list
                 // 真机探针回执成形后还原（设计稿 H1；destination 的 .feedbackTickets 分支保留编译）
@@ -404,8 +440,20 @@ struct SettingsView: View {
                 // H9：保留按连接态二分（连接态「读取与修改」/未连接「连接后可读写」——
                 // 二分是时态正确性所需，删除的只是演示态特供假值）
                 navRow(route: .desktopSettings, icon: "desktopcomputer", title: "桌面设置",
-                       subtitle: session.isConnected ? "读取与修改桌面端设置" : "连接桌面端后可读写",
+                       subtitle: session.isConnected ? String(localized: "读取与修改桌面端设置") : String(localized: "连接桌面端后可读写"),
                        value: nil, identifier: "12-row-desktop-settings")
+            }
+            // HIDDEN(开发者模式)：开发者分组仅在开发者模式开启时出现（总开关自持——
+            // 关闭本开关分组即消失；品牌行 7 连击为隐藏开启入口）
+            if settings.effectiveDeveloperMode {
+                group("开发者") {
+                    toggleRow(icon: "hammer.fill", title: "开发者模式",
+                              subtitle: "连接页显示手动输入 / 桌面端开启指引 / 令牌说明",
+                              isOn: Binding(
+                                get: { settings.value.developerMode },
+                                set: { newValue in settings.update { $0.developerMode = newValue } }),
+                              identifier: "12-row-dev-mode")
+                }
             }
         }
     }
@@ -419,7 +467,7 @@ struct SettingsView: View {
         case .serverAccount: ServerAccountConfigView()
         // P2 批次只读页（写面均维持 ReadOnlyGate 拦截）
         case .savedWorkflows:
-            RemoteCapabilityListPage(capability: .savedWorkflows, title: "工作流库", icon: "flowchart.fill")
+            RemoteCapabilityListPage(capability: .savedWorkflows, title: String(localized: "工作流库"), icon: "flowchart.fill")
         case .offPeakTasks:
             RemoteCapabilityListPage(capability: .offPeak, title: "错峰任务", icon: "moon.stars")
         case .feedbackTickets:
@@ -469,7 +517,9 @@ struct SettingsView: View {
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: T.sp2) {
-            Text(title)
+            // G-007：String 参传入时 Text(_ String) 不查本地化表——包装 LocalizedStringKey
+            // 恢复 xcstrings 查表（navRow 同口径；「开发者」等新分组与既有 en 条目依赖）
+            Text(LocalizedStringKey(title))
                 .font(T.font(12, .semibold))
                 .foregroundColor(T.text3)
                 .padding(.leading, 2)
@@ -510,8 +560,9 @@ struct SettingsView: View {
         HStack(spacing: T.sp2) {
             rowLeading(icon: icon)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(T.font(14.5)).foregroundColor(T.text)
-                Text(subtitle)
+                // G-007：包装 LocalizedStringKey 恢复 xcstrings 查表（navRow 同口径）
+                Text(LocalizedStringKey(title)).font(T.font(14.5)).foregroundColor(T.text)
+                Text(LocalizedStringKey(subtitle))
                     .font(T.font(11.5))
                     .foregroundColor(T.text3)
                     .lineLimit(1)

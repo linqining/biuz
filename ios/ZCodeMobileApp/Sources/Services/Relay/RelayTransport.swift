@@ -146,8 +146,8 @@ actor RelayTransport {
         cancelTimers()
         reconnectLoopTask?.cancel()
         reconnectLoopTask = nil
-        failAppWaiters(RPCError(message: "中继连接已关闭", name: "ConnectionClosed"))
-        failPairedWaiters(RPCError(message: "中继连接已关闭", name: "ConnectionClosed"))
+        failAppWaiters(RPCError(message: String(localized: "中继连接已关闭"), name: "ConnectionClosed"))
+        failPairedWaiters(RPCError(message: String(localized: "中继连接已关闭"), name: "ConnectionClosed"))
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         state = .closed
@@ -186,13 +186,13 @@ actor RelayTransport {
 
     private func openSocketAndAuthenticate(timeout: TimeInterval) async throws {
         guard var components = URLComponents(string: config.wssURL) else {
-            throw RPCError(message: "中继地址无效：\(config.wssURL)", name: "RelayConfig")
+            throw RPCError(message: String(localized: "中继地址无效：\(config.wssURL)"), name: "RelayConfig")
         }
         if components.scheme == nil {
             components.scheme = "wss"
         }
         guard let url = components.url else {
-            throw RPCError(message: "中继地址无效：\(config.wssURL)", name: "RelayConfig")
+            throw RPCError(message: String(localized: "中继地址无效：\(config.wssURL)"), name: "RelayConfig")
         }
         socketGeneration += 1
         let task = urlSession.webSocketTask(with: url)
@@ -223,7 +223,7 @@ actor RelayTransport {
         let timeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             await self?.failPairedWaiters(
-                RPCError(message: "中继鉴权超时（auth 握手无响应）", name: "TimeoutError"))
+                RPCError(message: String(localized: "中继鉴权超时（auth 握手无响应）"), name: "TimeoutError"))
         }
         defer { timeoutTask.cancel() }
         do {
@@ -234,7 +234,7 @@ actor RelayTransport {
                 case .failed(let reason):
                     continuation.resume(throwing: RPCError(message: reason.codeText, name: "RelayFailure"))
                 case .closed:
-                    continuation.resume(throwing: RPCError(message: "连接在鉴权前已关闭", name: "ConnectionClosed"))
+                    continuation.resume(throwing: RPCError(message: String(localized: "连接在鉴权前已关闭"), name: "ConnectionClosed"))
                 default: pairedWaiters.append(continuation)
                 }
             }
@@ -452,7 +452,7 @@ actor RelayTransport {
     private func rejectErrorPayload(_ payload: JSONValue, zcodeType: String) {
         let message = Self.errorText(payload)
         let error = RPCError(
-            message: message.isEmpty ? "\(zcodeType) 错误帧" : message,
+            message: message.isEmpty ? String(localized: "\(zcodeType) 错误帧") : message,
             name: "RelayAppError", detail: payload)
         if let requestId = payload["requestId"]?.stringValue,
            let waiter = appRequestWaiters.removeValue(forKey: requestId) {
@@ -483,7 +483,7 @@ actor RelayTransport {
             return
         }
         frameDegraded = true
-        let reason = message.isEmpty ? "reason 未携带" : message
+        let reason = message.isEmpty ? String(localized: "reason 未携带") : message
         log(.error, "bridge-degraded · \(reason)")
         bridgeDegradedHandler?(reason)
     }
@@ -522,7 +522,7 @@ actor RelayTransport {
     func requestAppPayload(_ payload: [String: JSONValue], zcodeType: String,
                            timeout: TimeInterval, bridgeSessionId: String? = nil) async throws -> JSONValue {
         guard state == .paired else {
-            throw RPCError(message: "中继未配对（state=\(state)）", name: "NotPaired")
+            throw RPCError(message: String(localized: "中继未配对（state=\(state)）"), name: "NotPaired")
         }
         let requestId = payload["requestId"]?.stringValue ?? UUID().uuidString
         var request = payload
@@ -553,12 +553,12 @@ actor RelayTransport {
             guard let waiter = bridgeOpenWaiter else { return }
             bridgeOpenWaiter = nil
             log(.error, "\(zcodeType) 响应超时")
-            waiter.continuation.resume(throwing: RPCError(message: "\(zcodeType) 响应超时", name: "TimeoutError"))
+            waiter.continuation.resume(throwing: RPCError(message: String(localized: "\(zcodeType) 响应超时"), name: "TimeoutError"))
             return
         }
         guard let waiter = appRequestWaiters.removeValue(forKey: requestId) else { return }
         log(.error, "\(zcodeType) 响应超时")
-        waiter.resume(throwing: RPCError(message: "\(zcodeType) 响应超时", name: "TimeoutError"))
+        waiter.resume(throwing: RPCError(message: String(localized: "\(zcodeType) 响应超时"), name: "TimeoutError"))
     }
 
     /// app 层单向通知帧（web sendPayload 面，C-11）：mobile-view-state-update 无 requestId、
@@ -602,7 +602,7 @@ actor RelayTransport {
     /// checkReplayDeadline 判退化的上抛（帧身份在场才通知——未开桥时无退化语义）
     private func notifyLocalBridgeDegraded() {
         guard frameIdentity != nil else { return }
-        let reason = "rpc-frame 45s 无 ack（replay 宽限超时）"
+        let reason = String(localized: "rpc-frame 45s 无 ack（replay 宽限超时）")
         log(.error, reason)
         bridgeDegradedHandler?(reason)
     }
@@ -665,7 +665,7 @@ actor RelayTransport {
         guard !intentionallyClosed, state != .closed else { return }
         socket = nil
         stopHeartbeat()
-        failPairedWaiters(RPCError(message: "传输中断：\(error.localizedDescription)", name: "TransportError"))
+        failPairedWaiters(RPCError(message: String(localized: "传输中断：\(error.localizedDescription)"), name: "TransportError"))
         if hadPairedSession || reconnectAttempt > 0 {
             scheduleReconnect()
         } else {
@@ -678,7 +678,7 @@ actor RelayTransport {
         socket?.cancel(with: .abnormalClosure, reason: nil)
         socket = nil
         stopHeartbeat()
-        failPairedWaiters(RPCError(message: "心跳超时重连", name: "StaleConnection"))
+        failPairedWaiters(RPCError(message: String(localized: "心跳超时重连"), name: "StaleConnection"))
         await reopenWithBackoff()
     }
 
@@ -723,7 +723,7 @@ actor RelayTransport {
             }
         }
         if !intentionallyClosed {
-            enterTerminalFailure(.relayUnavailable("重试 \(Self.maxReconnectAttempts) 次仍失败"))
+            enterTerminalFailure(.relayUnavailable(String(localized: "重试 \(Self.maxReconnectAttempts) 次仍失败")))
         }
     }
 
@@ -793,7 +793,7 @@ actor RelayTransport {
     /// 发送一条 RPC 载荷（serialize(header)+serialize(body)）；饱和时挂起等待水位回落。
     func sendRPCMessage(_ bytes: Data) async throws {
         guard let identity = frameIdentity, !frameDegraded, state == .paired else {
-            throw RPCError(message: "rpc-frame 通道不可用", name: "ChannelUnavailable")
+            throw RPCError(message: String(localized: "rpc-frame 通道不可用"), name: "ChannelUnavailable")
         }
         // 饱和水位：高 1MB 暂停，低 256KB 恢复
         while saturated {
@@ -801,13 +801,13 @@ actor RelayTransport {
                 saturationWaiters.append(continuation)
             }
             guard frameIdentity != nil, !frameDegraded, state == .paired else {
-                throw RPCError(message: "rpc-frame 通道不可用", name: "ChannelUnavailable")
+                throw RPCError(message: String(localized: "rpc-frame 通道不可用"), name: "ChannelUnavailable")
             }
         }
         guard let frames = RelayFrameCodec.encodeMessage(
             bytes, identity: identity,
             firstPhysicalSeq: nextPhysicalSeq, messageSeq: nextMessageSeq) else {
-            throw RPCError(message: "RPC 载荷超限（maxMessageBytes=16MB）", name: "MessageTooLarge")
+            throw RPCError(message: String(localized: "RPC 载荷超限（maxMessageBytes=16MB）"), name: "MessageTooLarge")
         }
         // 外层信封字节精确测量（每帧 JSON 文本 UTF8 长度；常规路径仅 1 片）
         let outerBytes = frames.reduce(0) { frame, payload in
@@ -818,7 +818,7 @@ actor RelayTransport {
             // replayBufferExceeded：degraded → 整桥重建（由 RelayChannelClient 编排）
             frameDegraded = true
             log(.error, "replay 缓冲超限（>8MB）· 通道 degraded")
-            throw RPCError(message: "replay 缓冲超限", name: "Degraded")
+            throw RPCError(message: String(localized: "replay 缓冲超限"), name: "Degraded")
         }
         let messageSeq = nextMessageSeq
         outboundBatches.append((messageSeq, frames, outerBytes, Date(), 0))

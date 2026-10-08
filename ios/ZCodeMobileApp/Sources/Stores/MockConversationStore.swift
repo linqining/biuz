@@ -162,6 +162,35 @@ actor MockConversationStore: @preconcurrency ConversationStore {
             concurrencyCeiling: 3)
     }
 
+    /// 后台工作演示投影（c1）：1 运行中置顶 + 2 已结束折叠——面板「运行中优先」
+    /// 口径的目检数据（状态四态词表与上游 backgroundWorkSummarySchema 一致）
+    func backgroundWorks(in conversationID: String) async -> [BackgroundWorkSummary] {
+        guard conversationID == "c1" else { return [] }
+        let now = Date()
+        return [
+            BackgroundWorkSummary(
+                workId: "demo-work-run-1", title: "全量回归 swift test",
+                kind: "bash", rawStatus: "running",
+                cancellable: true, resumable: false,
+                runId: nil, sessionId: nil,
+                startedAt: now.addingTimeInterval(-187), endedAt: nil, blocked: false),
+            BackgroundWorkSummary(
+                workId: "demo-work-run-2", title: "生成周报草稿",
+                kind: "bash", rawStatus: "resultPending",
+                cancellable: false, resumable: false,
+                runId: nil, sessionId: nil,
+                startedAt: now.addingTimeInterval(-540), endedAt: now.addingTimeInterval(-420),
+                blocked: false),
+            BackgroundWorkSummary(
+                workId: "demo-work-run-3", title: "依赖图扫描",
+                kind: "bash", rawStatus: "failed",
+                cancellable: false, resumable: true,
+                runId: nil, sessionId: nil,
+                startedAt: now.addingTimeInterval(-3600), endedAt: now.addingTimeInterval(-3480),
+                blocked: false),
+        ]
+    }
+
     // MARK: - 回复脚本
 
     private func runReply(_ steps: [ReplyStep], conversationID: String, replyID: String) async {

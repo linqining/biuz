@@ -12,6 +12,8 @@
 		BBBB10070000000000000003 /* ConversationCommandFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA10070000000000000003 /* ConversationCommandFactory.swift */; };
 		BBBB10070000000000000004 /* AckActivationBarrier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA10070000000000000004 /* AckActivationBarrier.swift */; };
 		BBBB10070000000000000005 /* ProtocolSchemaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA10070000000000000005 /* ProtocolSchemaTests.swift */; };
+		BBBB10070000000000000008 /* WorkflowActorBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA10070000000000000008 /* WorkflowActorBindingTests.swift */; };
+		BBBB10070000000000000009 /* BackgroundWorkPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA10070000000000000009 /* BackgroundWorkPanelTests.swift */; };
 		BBBB10070000000000000006 /* CommandFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA10070000000000000006 /* CommandFactoryTests.swift */; };
 		BBBB10070000000000000007 /* AckActivationBarrierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA10070000000000000007 /* AckActivationBarrierTests.swift */; };
 		002950721655AE315013635C /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2D54E8CDE727E93B064055 /* RootView.swift */; };
@@ -111,6 +113,8 @@
 		AAAA10070000000000000003 /* ConversationCommandFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationCommandFactory.swift; sourceTree = "<group>"; };
 		AAAA10070000000000000004 /* AckActivationBarrier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AckActivationBarrier.swift; sourceTree = "<group>"; };
 		AAAA10070000000000000005 /* ProtocolSchemaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolSchemaTests.swift; sourceTree = "<group>"; };
+		AAAA10070000000000000008 /* WorkflowActorBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowActorBindingTests.swift; sourceTree = "<group>"; };
+		AAAA10070000000000000009 /* BackgroundWorkPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkPanelTests.swift; sourceTree = "<group>"; };
 		AAAA10070000000000000006 /* CommandFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandFactoryTests.swift; sourceTree = "<group>"; };
 		AAAA10070000000000000007 /* AckActivationBarrierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AckActivationBarrierTests.swift; sourceTree = "<group>"; };
 		0266B0BDA4341531C4BB8EAB /* ZCodeMobileLoginE2ETests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZCodeMobileLoginE2ETests.swift; sourceTree = "<group>"; };
@@ -287,6 +291,8 @@
 				AAAA10070000000000000007 /* AckActivationBarrierTests.swift */,
 				AAAA10070000000000000006 /* CommandFactoryTests.swift */,
 				AAAA10070000000000000005 /* ProtocolSchemaTests.swift */,
+				AAAA10070000000000000008 /* WorkflowActorBindingTests.swift */,
+				AAAA10070000000000000009 /* BackgroundWorkPanelTests.swift */,
 				CC85D0006A385C2129A7D97B /* ReadOnlyGateTests.swift */,
 				CBFB9FD9310D919F26F5DA83 /* RelayLinkTests.swift */,
 				6ABFC2280688B1F228898495 /* TaskNotificationContentTests.swift */,
@@ -700,6 +706,8 @@
 				A1B2C3D4E5F6070899AABBCC /* DraftHandoffModelSelectionTests.swift in Sources */,
 				1A73CEFE48C996FA3D99A8AA /* ReadOnlyGateTests.swift in Sources */,
 				BBBB10070000000000000005 /* ProtocolSchemaTests.swift in Sources */,
+				BBBB10070000000000000008 /* WorkflowActorBindingTests.swift in Sources */,
+				BBBB10070000000000000009 /* BackgroundWorkPanelTests.swift in Sources */,
 				BBBB10070000000000000006 /* CommandFactoryTests.swift in Sources */,
 				BBBB10070000000000000007 /* AckActivationBarrierTests.swift in Sources */,
 				79B4C8627E2F9049E3C419A0 /* RelayLinkTests.swift in Sources */,

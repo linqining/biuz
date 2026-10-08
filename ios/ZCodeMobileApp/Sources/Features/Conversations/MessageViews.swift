@@ -344,7 +344,7 @@ struct UserBubble: View {
                     .foregroundColor(T.text)
                     .lineSpacing(4)
                 if text.count > Self.displayLimit {
-                    Button(expanded ? "收起" : "展开全部（\(text.count) 字）") {
+                    Button(expanded ? String(localized: "收起") : String(localized: "展开全部（\(text.count) 字）")) {
                         withAnimation { expanded.toggle() }
                     }
                     .font(T.font(11.5, .semibold))
@@ -382,7 +382,7 @@ struct MarkdownMessageBody: View {
                 MarkdownBlockView(block: block)
             }
             if text.count > Self.displayLimit, !streaming {
-                Button(expanded ? "收起" : "展开全部（\(text.count) 字）") {
+                Button(expanded ? String(localized: "收起") : String(localized: "展开全部（\(text.count) 字）")) {
                     withAnimation { expanded.toggle() }
                 }
                 .font(T.font(11.5, .semibold))
@@ -886,15 +886,15 @@ struct ThinkingBlockView: View {
         case .streaming:
             if let startedAt = thinking.startedAt {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text("已思考 \(max(0, Int(Date().timeIntervalSince(startedAt))))s")
+                    Text(String(localized: "已思考 \(max(0, Int(Date().timeIntervalSince(startedAt))))s"))
                 }
             }
         case .done:
             let characters = thinking.text.count
             if let duration = thinking.duration {
-                Text("用时 \(Int(duration.rounded()))s · \(characters) 字")
+                Text(String(localized: "用时 \(Int(duration.rounded()))s · \(characters) 字"))
             } else {
-                Text("\(characters) 字")
+                Text(String(localized: "\(characters) 字"))
             }
         case .interrupted:
             EmptyView()

@@ -140,10 +140,10 @@ struct LoginFlowView: View {
                 .font(.system(size: 13))
                 .foregroundColor(T.text3)
             VStack(alignment: .leading, spacing: 1) {
-                Text("授权页未响应？")
+                Text(String(localized: "授权页未响应？"))
                     .font(T.font(11.5, .semibold))
                     .foregroundColor(T.text2)
-                Text("检查网络后关闭并重新发起")
+                Text(String(localized: "检查网络后关闭并重新发起"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
             }
@@ -152,7 +152,7 @@ struct LoginFlowView: View {
                 noCallbackFallback = false
                 startOAuth(provider) // 重置一次性 state 重走 O1→O2-A
             } label: {
-                Label("关闭并重新发起", systemImage: "arrow.clockwise")
+                Label(String(localized: "关闭并重新发起"), systemImage: "arrow.clockwise")
                     .font(T.font(12.5, .semibold))
                     .foregroundColor(T.text2)
                     .padding(.horizontal, T.sp3)
@@ -178,7 +178,7 @@ struct LoginFlowView: View {
         authorizeURL = oauth.buildAuthorizeURL(provider: target, state: pendingState)
         noCallbackFallback = false
         guard authorizeURL != nil else {
-            exchangeError = .exchangeFailed("无法构建授权 URL")
+            exchangeError = .exchangeFailed(String(localized: "无法构建授权 URL"))
             step = .failure
             return
         }
@@ -210,7 +210,7 @@ struct LoginFlowView: View {
                 return
             }
             guard let code = params.code, !code.isEmpty else {
-                exchangeError = .exchangeFailed("回调缺少 code")
+                exchangeError = .exchangeFailed(String(localized: "回调缺少 code"))
                 exchangeStep = .callback
                 step = .failure
                 return
@@ -237,7 +237,7 @@ struct LoginFlowView: View {
         exchangeStep = .callback
         exchangeLogs = [ConnectLogLine(kind: .ok, text: "callback received · state match")]
         exchangeStep = .stateCheck
-        exchangeLogs.append(ConnectLogLine(kind: .ok, text: "state 校验通过 · 防伪一致"))
+        exchangeLogs.append(ConnectLogLine(kind: .ok, text: String(localized: "state 校验通过 · 防伪一致")))
         exchangeStep = .exchanging
         exchangeLogs.append(ConnectLogLine(kind: .working, text: "POST /api/v1/oauth/token · provider=\(provider.rawValue) · code=***"))
         Task {
@@ -252,18 +252,18 @@ struct LoginFlowView: View {
                 } catch {
                     exchangeError = .keychainFailed
                     exchangeStep = .keychain
-                    exchangeLogs.append(ConnectLogLine(kind: .error, text: "Keychain 写入失败"))
+                    exchangeLogs.append(ConnectLogLine(kind: .error, text: String(localized: "Keychain 写入失败")))
                     withAnimation { step = .failure }
                     return
                 }
                 exchangeStep = .keychain
-                exchangeLogs.append(ConnectLogLine(kind: .ok, text: "凭据写入 Keychain · tokenSet + userInfo"))
+                exchangeLogs.append(ConnectLogLine(kind: .ok, text: String(localized: "凭据写入 Keychain · tokenSet + userInfo")))
                 session.handleOAuthSuccess(tokenSet: tokenSet, userInfo: userInfo)
                 exchangeStep = .done
                 withAnimation { step = .success }
             } catch let error as OAuthError {
                 exchangeError = error
-                exchangeLogs.append(ConnectLogLine(kind: .error, text: "交换失败 · \(Self.describe(error))"))
+                exchangeLogs.append(ConnectLogLine(kind: .error, text: String(localized: "交换失败 · \(Self.describe(error))")))
                 withAnimation { step = .failure }
             } catch {
                 exchangeError = .exchangeFailed(error.localizedDescription)
@@ -280,7 +280,7 @@ struct LoginFlowView: View {
     }
 
     private func cancelFlow() {
-        exchangeLogs.append(ConnectLogLine(kind: .info, text: "用户取消 · 清除暂存 state"))
+        exchangeLogs.append(ConnectLogLine(kind: .info, text: String(localized: "用户取消 · 清除暂存 state")))
         step = .home
     }
 
@@ -292,11 +292,11 @@ struct LoginFlowView: View {
 
     private static func describe(_ error: OAuthError) -> String {
         switch error {
-        case .userCancelled: return "用户取消"
+        case .userCancelled: return String(localized: "用户取消")
         case .serverError(let detail): return "error=\(detail)"
-        case .stateMismatch: return "state 校验失败"
+        case .stateMismatch: return String(localized: "state 校验失败")
         case .exchangeFailed(let detail): return detail
-        case .keychainFailed: return "Keychain 写入失败"
+        case .keychainFailed: return String(localized: "Keychain 写入失败")
         }
     }
 }
@@ -318,7 +318,7 @@ struct LoginHomeView: View {
                 brand
                 PrimaryButton(title: "使用 Z.ai 账号登录", identifier: "o1-btn-oauth", action: onStartOAuth)
                 Button(action: onConnectDesktop) {
-                    Label("连接桌面端", systemImage: "display")
+                    Label(String(localized: "连接桌面端"), systemImage: "display")
                         .font(T.font(15, .semibold))
                         .foregroundColor(T.text)
                         .frame(maxWidth: .infinity, minHeight: 48)
@@ -347,7 +347,7 @@ struct LoginHomeView: View {
                     .font(T.font(24, .heavy))
                     .foregroundColor(T.text)
                     .accessibilityIdentifier("o1-brand-name")
-                Text("AI 编程智能体 · 移动工作台")
+                Text(String(localized: "AI 编程智能体 · 移动工作台"))
                     .font(T.font(13))
                     .foregroundColor(T.text2)
             }
@@ -365,11 +365,11 @@ struct LoginHomeView: View {
                     Image(systemName: "slider.horizontal.3")
                         .font(.system(size: 13))
                         .foregroundColor(T.text3)
-                    Text("高级选项")
+                    Text(String(localized: "高级选项"))
                         .font(T.font(12.5, .semibold))
                         .foregroundColor(T.text2)
                     Spacer()
-                    Text("BigModel · 其他登录方式")
+                    Text(String(localized: "BigModel · 其他登录方式"))
                         .font(T.font(10.5))
                         .foregroundColor(T.text3)
                     Image(systemName: advancedExpanded ? "chevron.up" : "chevron.down")
@@ -392,10 +392,10 @@ struct LoginHomeView: View {
                             .background(T.bgElevated)
                             .clipShape(RoundedRectangle(cornerRadius: T.rS))
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("通过 BigModel 智能体平台登录")
+                            Text(String(localized: "通过 BigModel 智能体平台登录"))
                                 .font(T.font(13, .semibold))
                                 .foregroundColor(T.text)
-                            Text("高级入口 · /login?appId=zcode · 默认无需改动")
+                            Text(String(localized: "高级入口 · /login?appId=zcode · 默认无需改动"))
                                 .font(T.font(11.5))
                                 .foregroundColor(T.text3)
                                 .lineLimit(1)
@@ -421,17 +421,17 @@ struct LoginHomeView: View {
 
     private var footer: some View {
         VStack(spacing: 2) {
-            Text("Z.ai 账号登录在应用内授权 Sheet 中完成，凭据仅存本机 Keychain")
+            Text(String(localized: "Z.ai 账号登录在应用内授权 Sheet 中完成，凭据仅存本机 Keychain"))
             // G-026：协议名可点 → 内嵌 WebView Sheet（可滚动/可关闭/断网失败态）
             HStack(spacing: 2) {
-                Text("也可跳过登录直接连接局域网桌面端 · 登录即同意")
+                Text(String(localized: "也可跳过登录直接连接局域网桌面端 · 登录即同意"))
                 Button { onAgreement(.terms) } label: {
-                    Text("《用户协议》").foregroundColor(T.accentText)
+                    Text(String(localized: "《用户协议》")).foregroundColor(T.accentText)
                 }
                 .accessibilityIdentifier("o1-act-agreement")
-                Text("与")
+                Text(String(localized: "与"))
                 Button { onAgreement(.privacy) } label: {
-                    Text("《隐私政策》").foregroundColor(T.accentText)
+                    Text(String(localized: "《隐私政策》")).foregroundColor(T.accentText)
                 }
                 .accessibilityIdentifier("o1-act-privacy")
             }
@@ -566,8 +566,8 @@ struct OAuthSheetView: View {
 
     private var domainLabel: String {
         switch provider {
-        case .zai: return "chat.z.ai · Z.ai 账号授权"
-        case .bigmodel: return "{origin}/login · BigModel 智能体平台"
+        case .zai: return String(localized: "chat.z.ai · Z.ai 账号授权")
+        case .bigmodel: return String(localized: "{origin}/login · BigModel 智能体平台")
         }
     }
 
@@ -680,7 +680,7 @@ struct OAuthProgressView: View {
                 logTerminal
                 Spacer(minLength: 16)
                 Button(action: onCancel) {
-                    Label("取消登录", systemImage: "xmark")
+                    Label(String(localized: "取消登录"), systemImage: "xmark")
                         .font(T.font(15, .semibold))
                         .foregroundColor(T.text)
                         .frame(maxWidth: .infinity, minHeight: 48)
@@ -704,15 +704,15 @@ struct OAuthProgressView: View {
                 .background(T.blueDim)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             VStack(alignment: .leading, spacing: 3) {
-                Text("已拦截授权回调")
+                Text(String(localized: "已拦截授权回调"))
                     .font(T.font(16.5, .heavy))
                     .foregroundColor(T.text)
-                Text("redirect 拦截 · 正在校验授权结果")
+                Text(String(localized: "redirect 拦截 · 正在校验授权结果"))
                     .font(T.font(11))
                     .foregroundColor(T.text3)
             }
             Spacer()
-            StatusPill(text: "授权中", kind: .run)
+            StatusPill(text: String(localized: "授权中"), kind: .run)
         }
         .padding(.vertical, 4)
     }
@@ -727,14 +727,14 @@ struct OAuthProgressView: View {
                     Text("code=").font(T.mono(11)).foregroundColor(T.codeLab)
                     Text(OAuthCredentialStore.mask(params.code ?? "…"))
                         .font(T.mono(11)).foregroundColor(T.text3)
-                    Text("  // 或 authCode，双兼容")
+                    Text(String(localized: "  // 或 authCode，双兼容"))
                         .font(T.mono(10.5)).foregroundColor(T.text3)
                 }
                 HStack(spacing: 4) {
                     Text("state=").font(T.mono(11)).foregroundColor(T.codeLab)
                     Text(params.state)
                         .font(T.mono(11)).foregroundColor(T.accentText)
-                    Text("  // 与发起值一致 ✓")
+                    Text(String(localized: "  // 与发起值一致 ✓"))
                         .font(T.mono(10.5)).foregroundColor(T.text3)
                 }
             }
@@ -752,7 +752,7 @@ struct OAuthProgressView: View {
             HStack(spacing: 10) {
                 HStack(spacing: 8) {
                     Circle().fill(T.blue).frame(width: 7, height: 7)
-                    Text("登录进度 · \(stepIndex)/4")
+                    Text(String(localized: "登录进度 · \(stepIndex)/4"))
                         .font(T.font(13, .bold))
                         .foregroundColor(T.text2)
                 }
@@ -763,15 +763,15 @@ struct OAuthProgressView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
 
-            stepRow(index: 0, name: "接收回调",
-                    detail: "code 已提取 · error 参数未出现", isDone: stepIndex > 1, isRunning: stepIndex == 1)
-            stepRow(index: 1, name: "校验 state",
-                    detail: "与发起值一致 · 防伪通过", isDone: stepIndex > 2, isRunning: stepIndex == 2)
-            stepRow(index: 2, name: "交换令牌",
+            stepRow(index: 0, name: String(localized: "接收回调"),
+                    detail: String(localized: "code 已提取 · error 参数未出现"), isDone: stepIndex > 1, isRunning: stepIndex == 1)
+            stepRow(index: 1, name: String(localized: "校验 state"),
+                    detail: String(localized: "与发起值一致 · 防伪通过"), isDone: stepIndex > 2, isRunning: stepIndex == 2)
+            stepRow(index: 2, name: String(localized: "交换令牌"),
                     detail: "POST /api/v1/oauth/token · provider=\(provider.rawValue)",
                     isDone: stepIndex > 3, isRunning: stepIndex == 3)
-            stepRow(index: 3, name: "凭据写入 Keychain",
-                    detail: "tokenSet + userInfo · 仅存本机",
+            stepRow(index: 3, name: String(localized: "凭据写入 Keychain"),
+                    detail: String(localized: "tokenSet + userInfo · 仅存本机"),
                     isDone: stepIndex > 4, isRunning: stepIndex == 4)
         }
         .background(T.bgCard)
@@ -944,10 +944,10 @@ struct AgreementWebViewSheet: View {
                             .frame(width: 56, height: 56)
                             .background(T.bgInput)
                             .clipShape(Circle())
-                        Text("加载失败")
+                        Text(String(localized: "加载失败"))
                             .font(T.font(14, .bold))
                             .foregroundColor(T.text)
-                        Text("检查网络后重试；协议内容也可在官网查看")
+                        Text(String(localized: "检查网络后重试；协议内容也可在官网查看"))
                             .font(T.font(11.5))
                             .foregroundColor(T.text3)
                         Button {
@@ -955,7 +955,7 @@ struct AgreementWebViewSheet: View {
                             // 重建视图触发重新加载
                             reloadToken += 1
                         } label: {
-                            Text("重试")
+                            Text(String(localized: "重试"))
                                 .font(T.font(13, .semibold))
                                 .foregroundColor(T.onAccent)
                                 .padding(.horizontal, T.sp4)

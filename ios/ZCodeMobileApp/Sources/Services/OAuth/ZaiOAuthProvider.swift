@@ -41,11 +41,11 @@ enum OAuthError: Error, Equatable {
 
     var title: String {
         switch self {
-        case .userCancelled: return "你取消了本次授权"
-        case .serverError: return "授权服务器返回错误"
-        case .stateMismatch: return "授权回调校验失败"
-        case .exchangeFailed: return "令牌交换失败"
-        case .keychainFailed: return "凭据写入失败"
+        case .userCancelled: return String(localized: "你取消了本次授权")
+        case .serverError: return String(localized: "授权服务器返回错误")
+        case .stateMismatch: return String(localized: "授权回调校验失败")
+        case .exchangeFailed: return String(localized: "令牌交换失败")
+        case .keychainFailed: return String(localized: "凭据写入失败")
         }
     }
 }
@@ -220,7 +220,7 @@ struct ZaiOAuthProvider {
 
     func exchangeToken(provider: OAuthProviderID, code: String, state: String, cookies: [HTTPCookie] = []) async throws -> (OAuthTokenSet, OAuthUserInfo) {
         guard let endpoint = URL(string: config.tokenOrigin)?.appendingPathComponent("api/v1/oauth/token") else {
-            throw OAuthError.exchangeFailed("无效的令牌端点")
+            throw OAuthError.exchangeFailed(String(localized: "无效的令牌端点"))
         }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -247,10 +247,10 @@ struct ZaiOAuthProvider {
         do {
             (data, response) = try await urlSession.data(for: request)
         } catch {
-            throw OAuthError.exchangeFailed("网络错误：\(error.localizedDescription)")
+            throw OAuthError.exchangeFailed(String(localized: "网络错误：\(error.localizedDescription)"))
         }
         guard let http = response as? HTTPURLResponse else {
-            throw OAuthError.exchangeFailed("无效响应")
+            throw OAuthError.exchangeFailed(String(localized: "无效响应"))
         }
         guard (200..<300).contains(http.statusCode) else {
             throw OAuthError.exchangeFailed("HTTP \(http.statusCode)")
@@ -264,7 +264,7 @@ struct ZaiOAuthProvider {
     private func normalizeTokenResponse(data: Data, provider: OAuthProviderID) throws -> (OAuthTokenSet, OAuthUserInfo) {
         guard let json = try? JSONDecoder().decode(JSONValue.self, from: data),
               case .object(let dict) = json else {
-            throw OAuthError.exchangeFailed("响应不是 JSON")
+            throw OAuthError.exchangeFailed(String(localized: "响应不是 JSON"))
         }
         if let code = dict["code"]?.intValue, code != 0 {
             let msg = dict["msg"]?.stringValue ?? "OAuth token exchange failed"
@@ -273,7 +273,7 @@ struct ZaiOAuthProvider {
         guard let dataDict = dict["data"]?.objectValue,
               let zcodeJwtToken = dataDict["token"]?.stringValue?.trimmingCharacters(in: .whitespaces),
               !zcodeJwtToken.isEmpty else {
-            throw OAuthError.exchangeFailed("响应缺少 data.token")
+            throw OAuthError.exchangeFailed(String(localized: "响应缺少 data.token"))
         }
         let accessToken: String?
         switch provider {
@@ -285,7 +285,7 @@ struct ZaiOAuthProvider {
                 .trimmingCharacters(in: .whitespaces)
         }
         guard let accessToken, !accessToken.isEmpty else {
-            throw OAuthError.exchangeFailed("响应缺少 data.\(provider.rawValue).access_token")
+            throw OAuthError.exchangeFailed(String(localized: "响应缺少 data.\(provider.rawValue).access_token"))
         }
 
         let expiresAt: Date?

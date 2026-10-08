@@ -1,5 +1,16 @@
 import SwiftUI
 
+/// 开发者模式（连接页开发向入口 gating）：App 内开关持久化于 AppSettings.developerMode
+/// （设置页品牌行连点 7 次切换）；`-ZCodeDevMode` 启动参数为开发构建 / E2E 强制开启
+/// 通道（手动连接链路用例依赖该参数保持旧断言面）
+enum DeveloperMode {
+    static let launchArgument = "-ZCodeDevMode"
+
+    static var forcedByLaunchArgument: Bool {
+        ProcessInfo.processInfo.arguments.contains(launchArgument)
+    }
+}
+
 /// 设置模型：UserDefaults 持久化（外观 / 通知 / 模型 / 思考等级 / 语言）
 @MainActor
 @Observable
@@ -20,6 +31,11 @@ final class AppSettingsModel {
 
     func update(_ mutate: (inout AppSettings) -> Void) {
         mutate(&value)
+    }
+
+    /// 开发者模式生效判定（设置开关 || 启动参数强制）
+    var effectiveDeveloperMode: Bool {
+        value.developerMode || DeveloperMode.forcedByLaunchArgument
     }
 }
 

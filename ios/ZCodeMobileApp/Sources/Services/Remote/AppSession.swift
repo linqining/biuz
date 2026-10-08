@@ -321,6 +321,10 @@ final class AppSession {
         }
         // 语言偏好一并复位（P1 语言切换持久化后，保证用例间无顺序依赖）
         UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        // 设置档一并复位（外观/模型/开发者模式等 zcode.settings.v1）：上一用例经品牌行
+        // 7 连击开启的开发者模式若残留，后续「简洁连接页」断言即假红。时序安全：本函数
+        // 于 AppSession 属性初始化器中执行，先于 ZCodeMobileApp.init 的 AppSettingsModel 加载
+        UserDefaults.standard.removeObject(forKey: UserDefaultsSettingsStore.storageKey)
         // 来源过滤档位一并复位（会话列表 chips 持久化键）：门禁轮次中被强杀的用例会把
         // 「云端沙盒/我的 Mac」档残留到下次冷启——cloud 档隐藏 source=="mac" 的全部行，
         // 后续用例的「演示行/替身行在场」首断言即全军覆没（第 1 轮门禁 Matrix test01/

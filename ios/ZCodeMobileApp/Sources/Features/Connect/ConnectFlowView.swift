@@ -79,7 +79,8 @@ struct ConnectFlowView: View {
         }
         .animation(.easeOut(duration: 0.22), value: session.mode)
         .fullScreenCover(isPresented: $showScanner) {
-            ScanView(updateTokenMode: scannerUpdateToken)
+            ScanView(updateTokenMode: scannerUpdateToken,
+                     onClose: { showScanner = false })
         }
         .task {
             // 上一次连接失败的残留态不得遮挡本次配置编辑（L4-B「更新令牌」入口）
@@ -97,6 +98,7 @@ struct ConnectFlowView: View {
 
 struct ConnectHomeView: View {
     @Environment(AppSession.self) private var session
+    @Environment(AppSettingsModel.self) private var settings
     var onScan: () -> Void
     var onManual: () -> Void
     var onHelp: () -> Void
@@ -105,6 +107,10 @@ struct ConnectHomeView: View {
     @State private var clipboardLink: ConnectURLParser.ParsedLink?
     @State private var probeReachable: Bool?
 
+    /// 开发者模式（默认关）：正式用户只看扫码主路径；手动输入 / 桌面端开启指引 /
+    /// 令牌说明为开发向信息，随开发者模式出现
+    private var developerMode: Bool { settings.effectiveDeveloperMode }
+
     var body: some View {
         ScrollView {
             VStack(spacing: T.sp3) {
@@ -112,18 +118,20 @@ struct ConnectHomeView: View {
                 brand
                 if let server = session.savedServer { recentCard(server) }
                 PrimaryButton(title: "扫码连接桌面端", identifier: "l1-btn-scan", action: onScan)
-                Button(action: onManual) {
-                    Label("手动输入地址连接", systemImage: "server.rack")
-                        .font(T.font(15, .semibold))
-                        .foregroundColor(T.text)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                if developerMode {
+                    Button(action: onManual) {
+                        Label(String(localized: "手动输入地址连接"), systemImage: "server.rack")
+                            .font(T.font(15, .semibold))
+                            .foregroundColor(T.text)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .accessibilityIdentifier("l1-btn-manual")
+                    helpRow
                 }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityIdentifier("l1-btn-manual")
-                helpRow
                 Spacer(minLength: 24)
-                footer
+                if developerMode { footer }
             }
             .padding(.horizontal, T.sp4)
             .padding(.top, T.sp1)
@@ -150,7 +158,7 @@ struct ConnectHomeView: View {
                 Text("BiuZ")
                     .font(T.font(22, .heavy))
                     .foregroundColor(T.text)
-                Text("连接桌面端 Agent 服务（ZCode 社区版），开始遥控与审批")
+                Text(String(localized: "连接桌面端 Agent 服务（ZCode 社区版），开始遥控与审批"))
                     .font(T.font(12.5))
                     .foregroundColor(T.text2)
             }
@@ -164,10 +172,10 @@ struct ConnectHomeView: View {
                 .font(.system(size: 13))
                 .foregroundColor(T.accentText)
             VStack(alignment: .leading, spacing: 1) {
-                Text(link.isRelay ? "检测到剪贴板中的云中继配对链接" : "检测到剪贴板中的连接链接")
+                Text(link.isRelay ? String(localized: "检测到剪贴板中的云中继配对链接") : String(localized: "检测到剪贴板中的连接链接"))
                     .font(T.font(12.5, .bold))
                     .foregroundColor(T.text)
-                Text(link.isRelay ? link.relaySummary : "\(link.directHost):\(link.directPort) · token 已就绪")
+                Text(link.isRelay ? link.relaySummary : String(localized: "\(link.directHost):\(link.directPort) · token 已就绪"))
                     .font(T.mono(10.5))
                     .foregroundColor(T.text3)
                     .lineLimit(1)
@@ -177,7 +185,7 @@ struct ConnectHomeView: View {
                 clipboardLink = nil
                 Task { await connectParsed(link) }
             } label: {
-                Text("一键填充")
+                Text(String(localized: "一键填充"))
                     .font(T.font(13, .semibold))
                     .foregroundColor(T.onAccent)
                     .padding(.horizontal, T.sp4)
@@ -210,7 +218,7 @@ struct ConnectHomeView: View {
                         .font(T.font(14.5, .bold))
                         .foregroundColor(T.text)
                     if server.relay != nil {
-                        Text("云中继")
+                        Text(String(localized: "云中继"))
                             .font(T.font(9, .bold))
                             .foregroundColor(T.accentText)
                             .padding(.horizontal, 5)
@@ -227,8 +235,8 @@ struct ConnectHomeView: View {
                     .foregroundColor(T.text3)
                     .lineLimit(1)
                 Text(server.lastConnectedAt.map {
-                    "上次连接 · " + Self.relativeFormatter.localizedString(for: $0, relativeTo: Date())
-                } ?? "尚未连接过")
+                    String(localized: "上次连接 · ") + Self.relativeFormatter.localizedString(for: $0, relativeTo: Date())
+                } ?? String(localized: "尚未连接过"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
             }
@@ -236,7 +244,7 @@ struct ConnectHomeView: View {
             Button {
                 Task { await connect(config: server) }
             } label: {
-                Text("连接")
+                Text(String(localized: "连接"))
                     .font(T.font(13.5, .semibold))
                     .foregroundColor(T.onAccent)
                     .padding(.horizontal, 20)
@@ -257,7 +265,7 @@ struct ConnectHomeView: View {
                     .font(.system(size: 13))
                     .foregroundColor(T.text3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("如何在桌面端开启？")
+                    Text(String(localized: "如何在桌面端开启？"))
                         .font(T.font(12.5, .semibold))
                         .foregroundColor(T.text)
                     Text("$ zcode --web --host 0.0.0.0")
@@ -280,12 +288,13 @@ struct ConnectHomeView: View {
     }
 
     private var footer: some View {
-        Text("访问令牌即服务器密码，仅存本机 Keychain\n服务无加密（ws://），请仅在可信局域网使用 · wss:// 需自备反向代理")
+        Text(String(localized: "访问令牌即服务器密码，仅存本机 Keychain\n服务无加密（ws://），请仅在可信局域网使用 · wss:// 需自备反向代理"))
             .font(T.font(11))
             .foregroundColor(T.text3)
             .multilineTextAlignment(.center)
             .lineSpacing(4)
             .padding(.bottom, 12)
+            .accessibilityIdentifier("l1-foot-token-note")
     }
 
     private func connectParsed(_ link: ConnectURLParser.ParsedLink) async {
@@ -371,21 +380,21 @@ struct ConnectHelpView: View {
             VStack(spacing: T.sp3) {
                 terminalCard
                 VStack(spacing: 0) {
-                    helpStep(1, title: "桌面机启动局域网服务",
-                             detail: "zcode --web --host 0.0.0.0 · Core 版仅 loopback，须走 --web 分发")
-                    helpStep(2, title: "终端打印带令牌的连接链接",
-                             detail: "http://<LAN-IP>:3030/?token=… · 令牌随进程存活")
-                    helpStep(3, title: "手机扫码 / 复制粘贴 / 手动输入",
-                             detail: "识别成功自动进入连接流程")
+                    helpStep(1, title: String(localized: "桌面机启动局域网服务"),
+                             detail: String(localized: "zcode --web --host 0.0.0.0 · Core 版仅 loopback，须走 --web 分发"))
+                    helpStep(2, title: String(localized: "终端打印带令牌的连接链接"),
+                             detail: String(localized: "http://<LAN-IP>:3030/?token=… · 令牌随进程存活"))
+                    helpStep(3, title: String(localized: "手机扫码 / 复制粘贴 / 手动输入"),
+                             detail: String(localized: "识别成功自动进入连接流程"))
                 }
                 .background(T.bgCard)
                 .clipShape(RoundedRectangle(cornerRadius: T.rL))
                 .overlay(RoundedRectangle(cornerRadius: T.rL).stroke(T.border, lineWidth: 1))
 
                 noteCard(icon: "qrcode", tint: T.violet,
-                         attributed: "桌面端出示二维码为后续版本能力（仓库暂无二维码渲染）；当前请复制终端打印的链接，回本页用「手动输入」粘贴或依赖剪贴板横幅。")
+                         attributed: String(localized: "桌面端出示二维码为后续版本能力（仓库暂无二维码渲染）；当前请复制终端打印的链接，回本页用「手动输入」粘贴或依赖剪贴板横幅。"))
                 noteCard(icon: "shield.lefthalf.filled", tint: T.orange,
-                         attributed: "首次连接系统将询问本地网络权限：「用于查找并连接同一局域网内的桌面端 Agent 服务（ZCode 社区版桌面端）」——拒绝后请求将静默失败，可随时在 设置 → 隐私与安全性 → 本地网络 中开启。")
+                         attributed: String(localized: "首次连接系统将询问本地网络权限：「用于查找并连接同一局域网内的桌面端 Agent 服务（ZCode 社区版桌面端）」——拒绝后请求将静默失败，可随时在 设置 → 隐私与安全性 → 本地网络 中开启。"))
 
                 Spacer(minLength: 16)
                 PrimaryButton(title: "知道了", identifier: "l1-h-btn-done") { dismiss() }
@@ -394,7 +403,7 @@ struct ConnectHelpView: View {
             .padding(.horizontal, T.sp4)
         }
         .scrollIndicators(.hidden)
-        .navigationTitle("连接帮助")
+        .navigationTitle(String(localized: "连接帮助"))
         .navigationBarTitleDisplayMode(.inline)
         .background(T.bg)
     }
@@ -405,7 +414,7 @@ struct ConnectHelpView: View {
                 Image(systemName: "terminal")
                     .font(.system(size: 12))
                     .foregroundColor(T.text3)
-                Text("桌面端终端")
+                Text(String(localized: "桌面端终端"))
                     .font(T.mono(10.5))
                     .foregroundColor(T.text3)
                 Spacer()
@@ -505,7 +514,7 @@ struct ManualConnectView: View {
             .padding(.top, T.sp1)
         }
         .scrollIndicators(.hidden)
-        .navigationTitle("手动连接")
+        .navigationTitle(String(localized: "手动连接"))
         .navigationBarTitleDisplayMode(.inline)
         .background(T.bg)
         .toolbar {
@@ -514,7 +523,7 @@ struct ManualConnectView: View {
                 Button {
                     Task { await submit() }
                 } label: {
-                    Text("连接")
+                    Text(String(localized: "连接"))
                         .font(T.font(14, .bold))
                         .foregroundColor(T.accentText)
                 }
@@ -560,7 +569,7 @@ struct ManualConnectView: View {
                 fieldError(error, id: "l1-field-host-err")
             }
             captionRow(icon: "terminal", tint: T.text3,
-                       text: "可粘贴完整链接（http/https/ws/wss）或云中继配对链接（https://…/remote/v4?…）；端口默认 3030，仅输 host:port 时补 http://")
+                       text: String(localized: "可粘贴完整链接（http/https/ws/wss）或云中继配对链接（https://…/remote/v4?…）；端口默认 3030，仅输 host:port 时补 http://"))
         }
     }
 
@@ -569,7 +578,7 @@ struct ManualConnectView: View {
             fieldLabel("访问令牌", pill: "安全输入 · 可选", pillId: "l1-field-kbd-token")
             HStack {
                 if showToken {
-                    TextField("留空即可（--no-token 部署）", text: $tokenText)
+                    TextField(String(localized: "留空即可（--no-token 部署）"), text: $tokenText)
                         .font(T.mono(16))
                         .foregroundColor(T.text)
                         .autocorrectionDisabled()
@@ -577,7 +586,7 @@ struct ManualConnectView: View {
                         .focused($tokenFocused)
                         .accessibilityIdentifier("l1-field-token")
                 } else {
-                    SecureField("留空即可（--no-token 部署）", text: $tokenText)
+                    SecureField(String(localized: "留空即可（--no-token 部署）"), text: $tokenText)
                         .font(T.mono(16))
                         .foregroundColor(T.text)
                         .focused($tokenFocused)
@@ -605,7 +614,7 @@ struct ManualConnectView: View {
             .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: T.rM))
             captionRow(icon: "shield.lefthalf.filled", tint: T.accentText,
-                       text: "即 URL 中 token= 段；桌面端 --no-token 启动时留空即可（authRequired=false）。仅存 Keychain，掩码展示（末 4 位）")
+                       text: String(localized: "即 URL 中 token= 段；桌面端 --no-token 启动时留空即可（authRequired=false）。仅存 Keychain，掩码展示（末 4 位）"))
         }
     }
 
@@ -619,7 +628,7 @@ struct ManualConnectView: View {
                 } else {
                     Image(systemName: "link")
                 }
-                Text("连接")
+                Text(String(localized: "连接"))
             }
             .font(T.font(15, .semibold))
             .foregroundColor(T.onAccent)
@@ -647,10 +656,12 @@ struct ManualConnectView: View {
 
     private func fieldLabel(_ title: String, pill: String, pillId: String) -> some View {
         HStack(spacing: 6) {
-            Text(title)
+            // G-007：包装 LocalizedStringKey 恢复 xcstrings 查表（en 态 Server address /
+            // Access token 依赖；此前纯 Text(String) 直出中文，Language test02 存量失败）
+            Text(LocalizedStringKey(title))
                 .font(T.font(12, .bold))
                 .foregroundColor(T.text2)
-            Text(pill)
+            Text(LocalizedStringKey(pill))
                 .font(T.font(10.5))
                 .foregroundColor(T.text3)
                 .padding(.horizontal, 7)
@@ -705,7 +716,7 @@ struct ManualConnectView: View {
         if let relay = ConnectURLParser.parseRelayLink(hostText) {
             // 识别即提示（解析为同步操作，提示不依赖连接结果的返回时序——
             // 中继失败最长可达 auth 15s 超时，提示不能等到那时才出现）
-            parseNotice = "已识别云中继配对链接 · \(relay.machineName ?? relay.endpointHost ?? "桌面端")"
+            parseNotice = String(localized: "已识别云中继配对链接 · \(relay.machineName ?? relay.endpointHost ?? String(localized: "桌面端"))")
             connecting = true
             await session.connectRelayLink(hostText)
             connecting = false
@@ -724,7 +735,7 @@ struct ManualConnectView: View {
         // 地址栏粘贴完整链接：?token= 段自动剥离入令牌栏（f-ok 提示）
         if let urlToken = parsed.token, !urlToken.isEmpty, tokenText.isEmpty {
             tokenText = urlToken
-            parseNotice = "已从粘贴的链接自动拆解：?token= 段已填入令牌栏"
+            parseNotice = String(localized: "已从粘贴的链接自动拆解：?token= 段已填入令牌栏")
         }
         let token = tokenText.isEmpty ? (parsed.token ?? "") : tokenText
 

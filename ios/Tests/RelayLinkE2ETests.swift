@@ -43,8 +43,8 @@ final class RelayLinkE2ETests: XCTestCase {
     private func launch(args: [String]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(zh-Hans)"] // 本地化后固定测试语言（中文断言稳定）
-        // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）
-        app.launchArguments = ["-ZCodeE2EResetState", "-ZCodeDemoData"] + args
+        // -ZCodeDemoData：E2E 演示开关；-ZCodeDevMode：开发者模式（手动连接入口用例依赖）
+        app.launchArguments = ["-ZCodeE2EResetState", "-ZCodeDemoData", "-ZCodeDevMode"] + args
         app.launch()
         return app
     }

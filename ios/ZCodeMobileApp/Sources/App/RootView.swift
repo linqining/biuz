@@ -148,7 +148,8 @@ struct RootView: View {
         }
         .animation(.easeOut(duration: 0.22), value: session.mode)
         .fullScreenCover(isPresented: $showScanner) {
-            ScanView(updateTokenMode: scannerUpdateToken)
+            ScanView(updateTokenMode: scannerUpdateToken,
+                     onClose: { showScanner = false })
         }
     }
 
@@ -429,7 +430,7 @@ struct DiffActionBar: View {
                 } label: {
                     HStack(spacing: T.sp1) {
                         if isApprovingAll { SpinnerView(size: 14) }
-                        Text(isApprovingAll ? "批准中…" : "全部批准")
+                        Text(isApprovingAll ? String(localized: "批准中…") : String(localized: "全部批准"))
                             .font(T.font(15, .semibold))
                             .foregroundColor(isApprovingAll ? T.text2 : T.onAccent)
                     }

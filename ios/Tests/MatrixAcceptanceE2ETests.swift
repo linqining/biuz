@@ -88,7 +88,8 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
     /// -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）
     @discardableResult
     private func launchDemo(extra: [String] = []) -> XCUIApplication {
-        app.launchArguments = ["-ZCodeE2EResetState", "-ZCodeDemoData", "-AppleLanguages", "(zh-Hans)"] + extra
+        // -ZCodeDevMode：开发者模式（l1-btn-manual 手动配对链路用例依赖）
+        app.launchArguments = ["-ZCodeE2EResetState", "-ZCodeDemoData", "-ZCodeDevMode", "-AppleLanguages", "(zh-Hans)"] + extra
         app.launch()
         return app
     }
@@ -98,6 +99,8 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
     private func launchFreshForStub() -> XCUIApplication {
         app.launchArguments = [
             "-ZCodeE2EResetState",
+            // -ZCodeDevMode：开发者模式（l1-btn-manual 手动配对链路用例依赖）
+            "-ZCodeDevMode",
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthRedirectURI", "http://127.0.0.1:\(stub.port)/cn/share/callback",
@@ -113,6 +116,7 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
                                    extra: [String] = []) -> XCUIApplication {
         application.terminate()
         application.launchArguments = [
+            "-ZCodeDevMode",
             "-ZCodeOAuthZaiOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthTokenOrigin", "http://127.0.0.1:\(stub.port)",
             "-ZCodeOAuthRedirectURI", "http://127.0.0.1:\(stub.port)/cn/share/callback",

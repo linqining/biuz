@@ -1653,7 +1653,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private func sendCommand(
         _ type: String, sessionId: String?, payload: JSONValue,
         casRevision: Bool = false, workspacePathOverride: String? = nil,
-        commandId: String? = nil
+        commandId: String? = nil, timeout: TimeInterval = 30
     ) async -> JSONValue? {
         guard let connection else { return nil }
         // CAS 类命令携当前 state 定位：baseRevision（state.revision）+
@@ -1699,7 +1699,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
         do {
             let ack = try await connection.call(
-                "zcode-agent", "sendConversationCommandV4", .json(built.outer))
+                "zcode-agent", "sendConversationCommandV4", .json(built.outer), timeout: timeout)
             if let json = ack.jsonValue {
                 // 回执 revisionAtDecision 回填为最新 state revision（CAS 后续命令用）
                 if let sessionId, let decided = json["revisionAtDecision"]?.intValue, decided > 0 {
@@ -1711,11 +1711,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                         forKey: "diag.cmd.shape")
                 }
             }
+            _lastCommandErrorText = ""
             return ack.jsonValue
         } catch {
             // 「平铺形态兜底」已移除（2026-10-07 重构）：兜底用新 commandId 重发违反
             // A12 幂等纪律（首次若实际执行仅回执丢失 = 双写）；嵌套形态自 v1.20 起
             // 为多轮探针实证唯一主路（队列 CAS/stop/createSession 全 accepted）
+            // 写失败错误原文落地（§5-12：RPCError.message 服务端 fault 原文，禁静默
+            // 吞成 nil——此前 createSession 失败只见「创建请求未送达」，真实拒因丢失）
+            _lastCommandErrorText = (error as? RPCError)?.message
+                ?? String(describing: error).prefix(300).description
             if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
                 UserDefaults.standard.set(
                     "type=\(type) envErr=\(String(describing: error).prefix(300))",
@@ -1867,15 +1872,52 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             conversationID, interactionId: interactionId, answer: .object(["freeText": .string(trimmed)]))
     }
 
-    /// 新建会话：标题/首条指令非空时以 createSession+firstInput 一次下发（桌面端
+    /// 新建会话（去重入口）：同 (标题, 目录, 执行端, 模型选择) 的并发创建合并为
+    /// 一次 createSession 下发、共享同一结果（用户报障 2026-10-08「相同请求没有
+    /// 做去重拦截」——超时等待窗内重复点按「开始任务」曾产生多份桌面会话，A12
+    /// 防双写）。真实流程在 performCreateConversation；请求完成后即出去重窗
+    /// （完成后再次提交 = 用户有意的重试，不拦）。
+    func createConversation(title: String, directory: String, executor: ExecutorKind,
+                            modelSelection: NewSessionModelSelection? = nil) async -> Conversation {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dedupKey = [trimmed, trimmedDirectory, executor.rawValue,
+                        modelSelection?.providerId ?? "",
+                        modelSelection?.modelId ?? "",
+                        modelSelection?.reasoningLevel ?? ""].joined(separator: "\u{1F}")
+        if let existing = inFlightCreates[dedupKey] {
+            return await existing.value
+        }
+        let empty = Conversation(id: "", title: trimmed.isEmpty ? String(localized: "新会话") : trimmed,
+                                 summary: "", directory: directory, updatedAt: Date())
+        let task = Task<Conversation, Never> { [weak self] in
+            guard let self else { return empty }
+            let conversation = await self.performCreateConversation(
+                title: title, directory: directory, executor: executor,
+                modelSelection: modelSelection)
+            await self.clearInFlightCreate(dedupKey)
+            return conversation
+        }
+        inFlightCreates[dedupKey] = task
+        return await task.value
+    }
+
+    private func clearInFlightCreate(_ key: String) {
+        inFlightCreates[key] = nil
+    }
+
+    /// 在途创建去重账本（键见 createConversation；任务自清）
+    private var inFlightCreates: [String: Task<Conversation, Never>] = [:]
+
+    /// 新建会话实体流程：标题/首条指令非空时以 createSession+firstInput 一次下发（桌面端
     /// 立即开跑首条 turn，边界内允许）；为空时保持 draft 空会话 + 转正写。
     /// modelSelection 非空时随 firstInput.modelSelection 下发（会话前模型选择，
     /// 字段形同 web：{providerId, modelId, options:{reasoningLevel}}）。
     /// 失败如实上抛（返回空 id Conversation + lastCreateFailureText 原文）——
     /// 此前 sessionId 取不到时兜底 `UUID()` 假成功（用户报障「创建之后再电脑端
     /// 看不到」：桌面端 zod 拒收后移动端凭空造了个本地会话），已废除。
-    func createConversation(title: String, directory: String, executor: ExecutorKind,
-                            modelSelection: NewSessionModelSelection? = nil) async -> Conversation {
+    private func performCreateConversation(title: String, directory: String, executor: ExecutorKind,
+                                           modelSelection: NewSessionModelSelection? = nil) async -> Conversation {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         // 项 2：directory 参数承载项目层选择（屏 03 项目胶囊）→ createSession workspaceId；
         // 未绑定（空）时回退连接时装配的 workspace（既有口径不变）
@@ -1910,19 +1952,39 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             // 信封 workspacePath 与 workspaceId 同源（web 同构：create 在目标 workspace
             // 里建）——此前恒带连接 workspace，远控上下文绑在其他 workspace 时
             // createSession 被拒（真机报障「新建会话不行/建后找不到」）
-            workspacePathOverride: trimmedDirectory.isEmpty ? nil : trimmedDirectory)
+            workspacePathOverride: trimmedDirectory.isEmpty ? nil : trimmedDirectory,
+            // 创建为重命令（桌面端携 firstInput 立即开跑首条 turn）：30s 缺省预算在
+            // 桌面繁忙/中继高延迟下超时（真机报障 2026-10-08「创建超时失败」）→ 60s
+            // 专项预算（§9.1.4 历史拉取同族治理）。**不做超时自动重发**（写命令，
+            // 回执丢失场景重发有双创建风险——如实失败 + 去重拦截 + 列表自然对账）
+            timeout: 60)
         let sessionId = ack?["result"]?.objectValue?["sessionId"]?.stringValue
             ?? ack?["sessionId"]?.stringValue
         guard let sessionId, !sessionId.isEmpty else {
             // createSession 被拒/未送达：如实失败（上游 schema strict——firstInput
-            // 载荷任一键不合形即整条拒收，如 providerId 空串 min(1)）
-            _lastCreateFailureText = ack == nil
-                ? String(localized: "创建请求未送达 · 连接中断或桌面端拒收")
-                : String(localized: "桌面端回执缺少 sessionId（创建被拒，请检查模型选择后重试）")
+            // 载荷任一键不合形即整条拒收，如 providerId 空串 min(1)）。拒因原文上屏
+            // （§5-12）：ack==nil = 传输层失败（最近一次 RPCError 原文）；ack 在场 =
+            // 服务端六态回执（CommandAck.failureText 组装 reasonCode+message）
+            if let ack {
+                _lastCreateFailureText = CommandAck(ack).failureText
+                    ?? String(localized: "桌面端回执缺少 sessionId（创建被拒，请检查模型选择后重试）")
+            } else {
+                let transport = await lastCommandErrorText().trimmingCharacters(in: .whitespacesAndNewlines)
+                if transport.contains("超时") {
+                    // 超时专属口径：请求可能已在桌面端落地（回执未归）——指引查列表，
+                    // 不纵容连续重试（配合在途去重，重试语义 = 用户有意为之）
+                    _lastCreateFailureText = String(localized: "创建请求超时 · 桌面端可能仍在处理，可稍后在会话列表查看，请勿连续重试")
+                } else {
+                    _lastCreateFailureText = transport.isEmpty
+                        ? String(localized: "创建请求未送达 · 连接中断或桌面端拒收")
+                        : String(localized: "创建请求未送达 · \(transport)")
+                }
+            }
             return Conversation(id: "", title: trimmed.isEmpty ? String(localized: "新会话") : trimmed,
                                 summary: "", directory: directory, updatedAt: Date())
         }
         _lastCreateFailureText = ""
+        _lastCommandErrorText = ""
         // 新会话即刻入 sessions 表（标题/归属/时间与创建参数同源）——否则列表一重载
         // （conversations() 走 sessions 投影）新建行就消失，直到桌面 sessions-index
         // 推送才回来（真机报障「新建会话后找不到」）
@@ -1952,6 +2014,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// requirement 方法实现，any 存在类型下经协议动态分派到达）
     private var _lastCreateFailureText = ""
     func lastCreateFailureText() async -> String { _lastCreateFailureText }
+
+    /// 最近一次 sendCommand 传输层失败原文（RPCError.message / 本地拒发描述；成功即清）。
+    /// 供调用方把「未送达」类笼统文案换成真实拒因（§5-12 写面禁静默吞错）。
+    private var _lastCommandErrorText = ""
+    func lastCommandErrorText() async -> String { _lastCommandErrorText }
 
     /// draft 转正（named gap：移动端新建空会话重启后丢失）：promoteDeferredDraftSession
     /// 把 v4 draft 会话写入 task index（session 类元数据写，不驱动 agent），
@@ -2895,6 +2962,43 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
 
         guard !nodes.isEmpty || !actors.isEmpty else { return nil }
+
+        // 无站/无戳兜底【实证·上游仓 instance-phases.ts phasesOf + workflow-graph
+        // withImplicitPhase 同构，2026-10-08 取证】：
+        // ① 全程无站（旧 CLI 无 phase() 标记）但有实例 → 合成隐式「工作流」单站承接，
+        //    否则实例无处渲染、面板只剩头部；
+        // ② 有站且有词汇（任一节点/实例带 phaseName 出生戳）、存在无戳实例（首个标记
+        //    前出生，或旧 CLI 不带戳）→ 表头合成「未分组」站承接——无戳 ↔ 无名站是
+        //    同一事实的两面。
+        let hasVocabulary = actors.contains { $0.phaseName != nil }
+            || rawNodes.contains { $0.objectValue?["phaseName"]?.stringValue != nil }
+        var finalNodes = nodes
+        if finalNodes.isEmpty, !actors.isEmpty {
+            finalNodes.append(WorkflowNodeSummary(
+                id: "station-implicit",
+                label: String(localized: "工作流"),
+                status: WorkflowStepStatus.mapRunStatus(rawStatus)))
+        } else if hasVocabulary, !finalNodes.isEmpty,
+                  actors.contains(where: { $0.phaseName == nil }) {
+            let unphased = actors.filter { $0.phaseName == nil }
+            let unphasedStatus: WorkflowStepStatus
+            if unphased.contains(where: { $0.status == .running }) {
+                unphasedStatus = .running
+            } else if unphased.contains(where: { $0.status == .failed }) {
+                unphasedStatus = .failed
+            } else if unphased.allSatisfy({ $0.status == .done }) {
+                unphasedStatus = .done
+            } else {
+                unphasedStatus = .pending
+            }
+            finalNodes.insert(
+                WorkflowNodeSummary(
+                    id: WorkflowRunSummary.unphasedStationID,
+                    label: String(localized: "未分组"),
+                    status: unphasedStatus),
+                at: 0)
+        }
+
         // 子代理模型宽容解析（字符串直传；对象形态取 modelId|name|id）
         let subagentModel: String? = {
             switch dict["subagentModel"] {
@@ -2914,7 +3018,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             stopReason: dict["stopReason"]?.stringValue,
             resumable: dict["resumable"]?.boolValue ?? false,
             truncated: dict["truncated"]?.boolValue ?? false,
-            nodes: nodes,
+            nodes: finalNodes,
             actors: actors,
             artifactsCount: dict["artifacts"]?.arrayValue?.count ?? 0,
             pendingQuestionsCount: dict["pendingQuestions"]?.arrayValue?.count ?? 0,
@@ -2926,6 +3030,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             subagentModel: subagentModel,
             cancellable: dict["cancellable"]?.boolValue ?? true,
             workId: workId,
+            hasPhaseVocabulary: hasVocabulary,
             startedAt: workflowRunTimestamp(dict, "startedAt"),
             updatedAt: workflowRunTimestamp(dict, "updatedAt"))
     }
@@ -3009,7 +3114,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 cancellable: d["cancellable"]?.boolValue ?? (status == "running"),
                 resumable: d["resumable"]?.boolValue ?? false,
                 runId: d["runId"]?.stringValue,
-                sessionId: d["sessionId"]?.stringValue ?? d["childSessionId"]?.stringValue)
+                sessionId: d["sessionId"]?.stringValue ?? d["childSessionId"]?.stringValue,
+                startedAt: Self.workflowRunTimestamp(d, "startedAt"),
+                endedAt: Self.workflowRunTimestamp(d, "endedAt"),
+                blocked: d["blocked"]?.boolValue ?? false)
         }
     }
 
@@ -4603,8 +4711,12 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 UserDefaults.standard.synchronize()
             }
             let info = Self.parseModelSelectionView(view)
-            modelSelectionCache = info
-            yieldModelSelection()
+            // 空清单不入缓存：缓存命中即短路重拉（空清单锁死会让重试面永远命中
+            // 空缓存——模型/思考可选性修复的兜底面）；成功非空才广播
+            if !info.models.isEmpty {
+                modelSelectionCache = info
+                yieldModelSelection()
+            }
             return info
         } catch {
             return nil

@@ -68,7 +68,7 @@ enum ConversationCommandFactory {
             guard validation.isValid, let value = validation.value else {
                 return .failure(Rejection(
                     reasonCode: "client.schemaViolation",
-                    message: "payload 校验失败：" + validation.errors.prefix(3).joined(separator: "; ")))
+                    message: String(localized: "payload 校验失败：") + validation.errors.prefix(3).joined(separator: "; ")))
             }
             normalizedPayload = value
             warnings += validation.warnings
@@ -99,7 +99,7 @@ enum ConversationCommandFactory {
         guard envelopeCheck.isValid else {
             return .failure(Rejection(
                 reasonCode: "client.schemaViolation",
-                message: "信封校验失败：" + envelopeCheck.errors.prefix(3).joined(separator: "; ")))
+                message: String(localized: "信封校验失败：") + envelopeCheck.errors.prefix(3).joined(separator: "; ")))
         }
         warnings += envelopeCheck.warnings
 

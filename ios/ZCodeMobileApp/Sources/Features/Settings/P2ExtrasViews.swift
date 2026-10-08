@@ -458,11 +458,11 @@ struct UsageStatsView: View {
                         label: String(localized: "最长聊天时长"),
                         id: "chat")
                     statCard(
-                        snapshot.summary.currentStreakDays.map { "\($0) 天" },
+                        snapshot.summary.currentStreakDays.map { String(localized: "\($0) 天") },
                         label: String(localized: "当前连续天数"),
                         id: "streak")
                     statCard(
-                        snapshot.summary.longestStreakDays.map { "\($0) 天" },
+                        snapshot.summary.longestStreakDays.map { String(localized: "\($0) 天") },
                         label: String(localized: "最长连续天数"),
                         id: "best-streak")
                     statCard(
@@ -622,10 +622,10 @@ struct UsageStatsView: View {
     static func tokenText(_ tokens: Double?) -> String? {
         guard let tokens else { return nil }
         if tokens >= 100_000_000 {
-            return String(format: "%.1f 亿", tokens / 100_000_000)
+            return String(format: String(localized: "%.1f 亿"), tokens / 100_000_000)
         }
         if tokens >= 10_000 {
-            return String(format: "%.0f 万", tokens / 10_000)
+            return String(format: String(localized: "%.0f 万"), tokens / 10_000)
         }
         return Int(tokens).description
     }
@@ -1086,7 +1086,7 @@ struct RemoteCapabilityListPage: View {
                 pendingUninstall = nil
             }
             .accessibilityIdentifier("12-capability-confirm-uninstall")
-            Button("取消", role: .cancel) { pendingUninstall = nil }
+            Button(String(localized: "取消"), role: .cancel) { pendingUninstall = nil }
         } message: {
             Text(String(localized: "其提供的工具将从桌面端 Agent 移除；可重新安装恢复。"))
         }
@@ -1238,7 +1238,7 @@ struct RemoteCapabilityListPage: View {
                 pendingInstall = nil
             }
             .accessibilityIdentifier("12-capability-confirm-install")
-            Button("取消", role: .cancel) { pendingInstall = nil }
+            Button(String(localized: "取消"), role: .cancel) { pendingInstall = nil }
         } message: {
             Text(String(localized: "将从「\(pendingInstall?.marketplace ?? "插件市场")」市场安装到桌面端（用户级），安装后其工具对桌面端 Agent 生效。"))
         }
@@ -1302,7 +1302,7 @@ struct RemoteCapabilityListPage: View {
     private func performUninstall(_ row: Row) {
         guard let connection = tryConnection(), uninstallingID == nil else { return }
         guard let workspacePath = connection.workspace?.path else {
-            notice = "卸载失败 · 请先在桌面端打开一个工作区"
+            notice = String(localized: "卸载失败 · 请先在桌面端打开一个工作区")
             noticeIsError = true
             return
         }
@@ -1318,7 +1318,7 @@ struct RemoteCapabilityListPage: View {
                     marketplace = try await lookupPluginMarketplace(connection, pluginName: row.title)
                 }
                 guard let marketplace, !marketplace.isEmpty else {
-                    notice = "卸载失败 · 无法确定「\(row.title)」的插件市场来源（listPlugins/getPluginsOverview 均未返回 marketplace）"
+                    notice = String(localized: "卸载失败 · 无法确定「\(row.title)」的插件市场来源（listPlugins/getPluginsOverview 均未返回 marketplace）")
                     noticeIsError = true
                     return
                 }
@@ -1336,7 +1336,7 @@ struct RemoteCapabilityListPage: View {
                 noticeIsError = false
                 await load()
             } catch {
-                notice = "卸载失败 · \(String(String(describing: error).prefix(160)))"
+                notice = String(localized: "卸载失败 · \(String(String(describing: error).prefix(160)))")
                 noticeIsError = true
             }
         }
@@ -1426,12 +1426,12 @@ struct RemoteCapabilityListPage: View {
     private func performInstall(_ plugin: MarketPlugin) {
         guard let connection = tryConnection(), installingID == nil else { return }
         guard let marketplace = plugin.marketplace, !marketplace.isEmpty else {
-            notice = "安装失败 · 无法确定「\(plugin.name)」的市场来源"
+            notice = String(localized: "安装失败 · 无法确定「\(plugin.name)」的市场来源")
             noticeIsError = true
             return
         }
         guard let workspacePath = connection.workspace?.path else {
-            notice = "安装失败 · 请先在桌面端打开一个工作区"
+            notice = String(localized: "安装失败 · 请先在桌面端打开一个工作区")
             noticeIsError = true
             return
         }
@@ -1457,7 +1457,7 @@ struct RemoteCapabilityListPage: View {
                    }) {
                     let d = failure.objectValue
                     let who = d?["pluginId"]?.stringValue ?? plugin.id
-                    notice = "安装失败 · \(who): \(d?["message"]?.stringValue ?? String(localized: "未知错误"))"
+                    notice = String(localized: "安装失败 · \(who): \(d?["message"]?.stringValue ?? String(localized: "未知错误"))")
                     noticeIsError = true
                     return
                 }
@@ -1465,7 +1465,7 @@ struct RemoteCapabilityListPage: View {
                 if let installed = result.jsonValue?["installedPlugins"]?.arrayValue {
                     let ids = Set(installed.compactMap { $0.objectValue?["id"]?.stringValue })
                     if !ids.contains(plugin.id), !ids.contains(plugin.name) {
-                        notice = "安装失败 · 桌面端回执未包含 \(plugin.name)"
+                        notice = String(localized: "安装失败 · 桌面端回执未包含 \(plugin.name)")
                         noticeIsError = true
                         return
                     }
@@ -1478,7 +1478,7 @@ struct RemoteCapabilityListPage: View {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 await load()
             } catch {
-                notice = "安装失败 · \(String(String(describing: error).prefix(160)))"
+                notice = String(localized: "安装失败 · \(String(String(describing: error).prefix(160)))")
                 noticeIsError = true
             }
         }
@@ -2239,62 +2239,64 @@ struct DesktopSettingsPage: View {
     /// validationAppSettings.ts:420-475 appSettingsObjectSchema，2026-10-08 取证】。
     /// 未收录键（内部态/新增项）回退显示原始键名。
     private static let keyNames: [String: String] = [
-        "locale": "界面语言",
-        "localePreference": "界面语言偏好",
-        "terminalInheritSystemProfile": "终端继承系统配置",
-        "terminalFontFamily": "终端字体",
-        "integratedTerminalShell": "本机终端 Shell",
-        "httpProxy": "HTTP 代理",
-        "httpProxyNoProxy": "不使用代理的地址",
-        "httpProxyCaCertPath": "自定义代理证书",
-        "embeddedBrowserAllowInsecureCertificates": "忽略证书校验",
-        "embeddedBrowserViewportPreference": "浏览器视口偏好",
-        "computerUseComposerEntryHidden": "输入框显示电脑操作按钮",
-        "taskAutoArchiveEnabled": "自动归档旧任务",
-        "taskAutoArchiveOlderThanDays": "归档保留时长（天）",
-        "closeToTrayOnWindows": "关闭时隐藏到托盘",
-        "keepAwakeWhileRunning": "任务运行时保持电脑唤醒",
-        "desktopZoomLevel": "界面缩放",
-        "desktopWindowSize": "窗口尺寸",
-        "desktopChromiumHardwareAccelerationEnabled": "界面硬件加速",
-        "messageStreamShowReasoning": "显示思考过程",
-        "messageStreamShowTodos": "显示待办列表",
-        "toolGroupingExploreEnabled": "分组显示探索工具",
-        "toolGroupingTerminalEnabled": "分组显示终端命令",
-        "toolGroupingChangesEnabled": "分组显示文件更改",
-        "zcodeInteractionBehavior": "交互行为（审批响应方式）",
-        "askUserQuestionAutoResolutionEnabled": "提问自动继续",
-        "modelIoFullRetentionEnabled": "完整保留模型输入输出",
-        "nativeSearchEnhancementsEnabled": "增强文件搜索（Find/Grep）",
-        "memoryEnabled": "工作区记忆",
-        "proactiveSuggestionsEnabled": "主动任务推荐",
-        "receivePreviewUpdates": "接收预览版更新",
-        "autoDownloadAndInstallUpdates": "自动下载并安装更新",
-        "dataBaseDir": "数据存储路径",
-        "shortcutBindings": "键盘快捷键",
-        "providerFamilyDomain": "套餐区域",
-        "providerFamilyConnectionSelections": "套餐连接选择",
+        "locale": String(localized: "界面语言"),
+        "localePreference": String(localized: "界面语言偏好"),
+        "terminalInheritSystemProfile": String(localized: "终端继承系统配置"),
+        "terminalFontFamily": String(localized: "终端字体"),
+        "integratedTerminalShell": String(localized: "本机终端 Shell"),
+        "httpProxy": String(localized: "HTTP 代理"),
+        "httpProxyNoProxy": String(localized: "不使用代理的地址"),
+        "httpProxyCaCertPath": String(localized: "自定义代理证书"),
+        "embeddedBrowserAllowInsecureCertificates": String(localized: "忽略证书校验"),
+        "embeddedBrowserViewportPreference": String(localized: "浏览器视口偏好"),
+        "computerUseComposerEntryHidden": String(localized: "输入框显示电脑操作按钮"),
+        "taskAutoArchiveEnabled": String(localized: "自动归档旧任务"),
+        "taskAutoArchiveOlderThanDays": String(localized: "归档保留时长（天）"),
+        "closeToTrayOnWindows": String(localized: "关闭时隐藏到托盘"),
+        "keepAwakeWhileRunning": String(localized: "任务运行时保持电脑唤醒"),
+        "desktopZoomLevel": String(localized: "界面缩放"),
+        "desktopWindowSize": String(localized: "窗口尺寸"),
+        "desktopChromiumHardwareAccelerationEnabled": String(localized: "界面硬件加速"),
+        "messageStreamShowReasoning": String(localized: "显示思考过程"),
+        "messageStreamShowTodos": String(localized: "显示待办列表"),
+        "toolGroupingExploreEnabled": String(localized: "分组显示探索工具"),
+        "toolGroupingTerminalEnabled": String(localized: "分组显示终端命令"),
+        "toolGroupingChangesEnabled": String(localized: "分组显示文件更改"),
+        "zcodeInteractionBehavior": String(localized: "交互行为（审批响应方式）"),
+        "askUserQuestionAutoResolutionEnabled": String(localized: "提问自动继续"),
+        "modelIoFullRetentionEnabled": String(localized: "完整保留模型输入输出"),
+        "nativeSearchEnhancementsEnabled": String(localized: "增强文件搜索（Find/Grep）"),
+        "memoryEnabled": String(localized: "工作区记忆"),
+        "proactiveSuggestionsEnabled": String(localized: "主动任务推荐"),
+        "receivePreviewUpdates": String(localized: "接收预览版更新"),
+        "autoDownloadAndInstallUpdates": String(localized: "自动下载并安装更新"),
+        "dataBaseDir": String(localized: "数据存储路径"),
+        "shortcutBindings": String(localized: "键盘快捷键"),
+        "providerFamilyDomain": String(localized: "套餐区域"),
+        "providerFamilyConnectionSelections": String(localized: "套餐连接选择"),
     ]
 
-    /// 显示值枚举对照（常见枚举的中文渲染；未命中回退原值）
+    /// 显示值枚举对照（常见枚举的本地化渲染；未命中回退原值——上游枚举值词表之外
+    /// 的内部态如实显示原词，不猜测）
     private static func localizedValue(_ value: JSONValue) -> String {
         guard let s = value.stringValue else {
-            if value == .bool(true) { return "开启" }
-            if value == .bool(false) { return "关闭" }
+            if value == .bool(true) { return String(localized: "开启") }
+            if value == .bool(false) { return String(localized: "关闭") }
             return String(describing: value)
         }
         switch s {
-        case "zh-CN": return "中文简体"
+        case "zh-CN": return String(localized: "中文简体")
         case "en-US": return "English"
-        case "system": return "跟随系统"
-        case "queue": return "排队等待确认"
-        case "guide": return "逐条引导确认"
-        case "zai": return "Z.ai（全球）"
-        case "bigmodel": return "BigModel（中国）"
-        case "auto": return "自动"
-        case "shell": return "指定 Shell"
+        case "system": return String(localized: "跟随系统")
+        case "queue": return String(localized: "排队等待确认")
+        case "guide": return String(localized: "逐条引导确认")
+        case "zai": return String(localized: "Z.ai（全球）")
+        case "bigmodel": return String(localized: "BigModel（中国）")
+        case "auto": return String(localized: "自动")
+        case "shell": return String(localized: "指定 Shell")
         case "cmd": return "CMD"
         case "git-bash": return "Git Bash"
+        case "powershell", "pwsh": return "PowerShell"
         default: return s
         }
     }
@@ -2364,10 +2366,10 @@ struct DesktopSettingsPage: View {
                 get: { editingEntry != nil },
                 set: { if !$0 { editingEntry = nil } }),
             presenting: editingEntry) { entry in
-            TextField("新值", text: $editText)
+            TextField(String(localized: "新值"), text: $editText)
                 .keyboardType(entry.value.stringValue == nil ? .numbersAndPunctuation : .default)
                 .accessibilityIdentifier("12-desktop-field-value")
-            Button("取消", role: .cancel) { editingEntry = nil }
+            Button(String(localized: "取消"), role: .cancel) { editingEntry = nil }
             Button(String(localized: "修改")) { commitEdit(entry) }
                 .accessibilityIdentifier("12-desktop-act-save")
         } message: { _ in
@@ -2387,7 +2389,7 @@ struct DesktopSettingsPage: View {
                 pendingChange = nil
             }
             .accessibilityIdentifier("12-desktop-confirm-update")
-            Button("取消", role: .cancel) { pendingChange = nil }
+            Button(String(localized: "取消"), role: .cancel) { pendingChange = nil }
         } message: {
             Text(String(localized: "将立即作用于桌面端，影响所有正在运行的会话。"))
         }
@@ -2534,7 +2536,7 @@ struct DesktopSettingsPage: View {
                     lastError = error
                 }
             }
-            throw lastError ?? RPCError(message: "桌面设置频道不可用", name: "NoSettingChannel")
+            throw lastError ?? RPCError(message: String(localized: "桌面设置频道不可用"), name: "NoSettingChannel")
         }
         do {
             return try await runOnce()
@@ -2565,7 +2567,7 @@ struct DesktopSettingsPage: View {
                 await load()
             } catch {
                 // 失败：行值回弹（本地未改，读自 entries）+ 错误提示
-                notice = "修改失败 · \(String(String(describing: error).prefix(160)))"
+                notice = String(localized: "修改失败 · \(String(String(describing: error).prefix(160)))")
                 noticeIsError = true
             }
         }
@@ -2581,14 +2583,14 @@ struct DesktopSettingsPage: View {
         switch entry.value {
         case .int:
             guard let parsed = Int(text) else {
-                notice = "「\(entry.key)」需要整数"
+                notice = String(localized: "「\(entry.key)」需要整数")
                 noticeIsError = true
                 return
             }
             newValue = .int(parsed)
         case .double:
             guard let parsed = Double(text) else {
-                notice = "「\(entry.key)」需要数字"
+                notice = String(localized: "「\(entry.key)」需要数字")
                 noticeIsError = true
                 return
             }
@@ -2701,7 +2703,7 @@ struct ResetConfirmSheet: View {
                     .frame(width: 38, height: 38)
                     .background(T.orange.opacity(0.14))
                     .clipShape(Circle())
-                Text("确认使用重置卡？")
+                Text(String(localized: "确认使用重置卡？"))
                     .font(T.font(16, .bold))
                     .foregroundColor(T.text)
                 Spacer()
@@ -2731,7 +2733,7 @@ struct ResetConfirmSheet: View {
                 // （此处置 nil 会先于回调把状态清空——sheet 呈现期捕获已规避）
                 onConfirm()
             } label: {
-                Text("确认使用")
+                Text(String(localized: "确认使用"))
                     .font(T.font(14.5, .semibold))
                     .foregroundColor(T.onAccent)
                     .frame(maxWidth: .infinity, minHeight: 46)
@@ -2744,7 +2746,7 @@ struct ResetConfirmSheet: View {
             Button {
                 dismiss()
             } label: {
-                Text("取消")
+                Text(String(localized: "取消"))
                     .font(T.font(14.5, .medium))
                     .foregroundColor(T.text2)
                     .frame(maxWidth: .infinity, minHeight: 46)

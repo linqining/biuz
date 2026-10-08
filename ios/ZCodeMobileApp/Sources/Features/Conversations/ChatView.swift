@@ -221,7 +221,7 @@ struct ChatView: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .accessibilityIdentifier("05-search-messages")
-            Text("\(viewModel.searchHitCount) 处命中")
+            Text(String(localized: "\(viewModel.searchHitCount) 处命中"))
                 .font(T.font(11))
                 .foregroundColor(viewModel.searchHitCount > 0 ? T.accentText : T.text3)
         }
@@ -1038,7 +1038,7 @@ struct WorkspaceHookReviewCard: View {
         // 信任确认（写桌面信任账本——放行 hook 在桌面执行；.alert 承载，confirmationDialog
         // 本 OS 渲染成锚定 popover——P2ExtrasViews.swift:65 同款先例）
         .alert(
-            "信任所选 \(selectedItems.count) 个 hook 项？",
+            String(localized: "信任所选 \(selectedItems.count) 个 hook 项？"),
             isPresented: $showTrustConfirm) {
             Button("信任") {
                 Task { await trustSelected() }
@@ -1080,7 +1080,7 @@ struct WorkspaceHookReviewCard: View {
                 .font(T.font(13.5, .semibold))
                 .foregroundColor(T.text)
             Spacer()
-            StatusPill(text: "待信任", kind: .wait, compact: true)
+            StatusPill(text: String(localized: "待信任"), kind: .wait, compact: true)
         }
     }
 
@@ -1183,7 +1183,7 @@ struct WorkspaceHookReviewCard: View {
             }
             Spacer(minLength: 0)
             if let trustState = item.trustState, !trustState.isEmpty {
-                Text(trustState == "trusted_persistent" ? "已信任" : trustState)
+                Text(trustState == "trusted_persistent" ? String(localized: "已信任") : trustState)
                     .font(T.font(10))
                     .foregroundColor(item.isTrusted ? T.accentText : T.text3)
             }
@@ -1216,7 +1216,7 @@ struct WorkspaceHookReviewCard: View {
                 Button {
                     showTrustConfirm = true
                 } label: {
-                    Text(deciding ? "信任中…" : "信任所选（\(selectedItems.count)）")
+                    Text(deciding ? String(localized: "信任中…") : String(localized: "信任所选（\(selectedItems.count)）"))
                         .font(T.font(14, .semibold))
                         .foregroundColor(selectedItems.isEmpty ? T.text3 : T.onAccent)
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -2053,7 +2053,7 @@ struct ComposerBar: View {
         Button {
             composerSheet = .thought
         } label: {
-            pill(icon: "brain", text: "思考·\(selection.activeThoughtLevel ?? "--")", chevron: true)
+            pill(icon: "brain", text: String(localized: "思考·\(selection.activeThoughtLevel ?? "--")"), chevron: true)
         }
         .accessibilityIdentifier("05-chip-thought")
     }
@@ -2073,8 +2073,26 @@ struct ComposerBar: View {
 
     private var toolsRow: some View {
         HStack(spacing: T.sp2) {
-            pill(icon: nil, text: settings.value.model)
-            pill(icon: "brain", text: "思考·\(settings.value.thoughtLevel.label)")
+            // 连接态只读兜底 pills 升级可点（用户多次报障「模型/思考等级不能选是 bug，
+            // 不是要你做成不能选」）：getView 首击失败时模型 pill 点按重取、成功即开
+            // 面板（chips 随流回归）；思考 pill 直开档位面板（静态梯兜底）。演示态保持只读
+            if viewModel.isReadOnly {
+                Button {
+                    Task { await retryThenOpenModelPanel() }
+                } label: {
+                    pill(icon: nil, text: settings.value.model)
+                }
+                .accessibilityIdentifier("05-chip-model")
+                Button {
+                    composerSheet = .thought
+                } label: {
+                    pill(icon: "brain", text: String(localized: "思考·\(settings.value.thoughtLevel.label)"))
+                }
+                .accessibilityIdentifier("05-chip-thought")
+            } else {
+                pill(icon: nil, text: settings.value.model)
+                pill(icon: "brain", text: String(localized: "思考·\(settings.value.thoughtLevel.label)"))
+            }
             Spacer(minLength: 0)
             // G-021：演示态用量为 Mock 动态值，如实标注「演示」；nil 不渲染
             if let usage = viewModel.contextUsage {
@@ -2082,6 +2100,16 @@ struct ComposerBar: View {
             }
         }
         .accessibilityIdentifier("05-composer-tools")
+    }
+
+    /// 模型兜底 pill：重取 getView，成功开模型面板、失败提示（05-chip-* identifier
+    /// 与 remoteChips 同名——两支互斥渲染，同屏不重复）
+    private func retryThenOpenModelPanel() async {
+        if await viewModel.retryModelSelection() {
+            composerSheet = .model
+        } else {
+            showSwitchHint(String(localized: "模型列表获取失败 · 桌面端未回执，点按重试"))
+        }
     }
 
     /// 上下文用量条（连接态=state.runtime.contextUsage；演示态=Mock 动态值）

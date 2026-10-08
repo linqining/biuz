@@ -55,7 +55,7 @@ enum RelayCloseReason: Equatable {
         case .sessionExpired: return "SESSION-EXPIRED · WS 4011"
         case .workspaceClosed: return "WORKSPACE-CLOSED · WS 4012"
         case .invalidMobileConnection: return "INVALID-MOBILE-CONNECTION · WS 4013 / AUTH_FAILED"
-        case .deviceOffline: return "DEVICE-OFFLINE · 宽限重连"
+        case .deviceOffline: return String(localized: "DEVICE-OFFLINE · 宽限重连")
         case .relayUnavailable(let detail): return "RELAY-UNAVAILABLE · \(detail)"
         }
     }

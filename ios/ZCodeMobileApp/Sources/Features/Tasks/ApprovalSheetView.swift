@@ -67,7 +67,7 @@ struct ApprovalSheetView: View {
                                 let failure = await hookAckFailure(
                                     await conversationStore.respondWorkspaceHookReview(
                                         task.id, reviewItemIds: ids),
-                                    verb: "信任")
+                                        verb: String(localized: "信任"))
                                 if failure == nil {
                                     decisionToast = String(localized: "已信任所选 hook 项")
                                     dismissAfterDecision()
@@ -77,13 +77,13 @@ struct ApprovalSheetView: View {
                             onRequest: {
                                 await hookAckFailure(
                                     await conversationStore.requestWorkspaceHookReview(task.id),
-                                    verb: "请求审核")
+                                    verb: String(localized: "请求审核"))
                             },
                             onRevoke: { ids in
                                 let failure = await hookAckFailure(
                                     await conversationStore.revokeWorkspaceHookTrust(
                                         task.id, reviewItemIds: ids),
-                                    verb: "撤销信任")
+                                        verb: String(localized: "撤销信任"))
                                 if failure == nil {
                                     decisionToast = String(localized: "已撤销信任")
                                     dismissAfterDecision()

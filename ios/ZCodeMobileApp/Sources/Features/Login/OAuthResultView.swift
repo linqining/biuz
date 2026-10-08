@@ -27,7 +27,7 @@ struct OAuthSuccessView: View {
                         .frame(width: 56, height: 56)
                         .background(T.accentDim)
                         .clipShape(Circle())
-                    Text("已使用 Z.ai 账号登录")
+                    Text(String(localized: "已使用 Z.ai 账号登录"))
                         .font(T.font(17, .heavy))
                         .foregroundColor(T.text)
                 }
@@ -42,7 +42,7 @@ struct OAuthSuccessView: View {
                 Spacer(minLength: 16)
                 Button(action: onContinue) {
                     HStack {
-                        Text("开始使用")
+                        Text(String(localized: "开始使用"))
                         Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
                     }
                     .font(T.font(15.5, .semibold))
@@ -70,7 +70,7 @@ struct OAuthSuccessView: View {
             case .noPairedDevice:
                 autoPhase = .noDevice
             case .failed(let source):
-                autoPhase = .failed(source: source, detail: "连接未成功，桌面端可能未在线")
+                autoPhase = .failed(source: source, detail: String(localized: "连接未成功，桌面端可能未在线"))
             }
         }
     }
@@ -86,10 +86,10 @@ struct OAuthSuccessView: View {
             HStack(spacing: T.sp3) {
                 SpinnerView(size: 16)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("正在连接我的 Mac…")
+                    Text(String(localized: "正在连接我的 Mac…"))
                         .font(T.font(12.5, .semibold))
                         .foregroundColor(T.text)
-                    Text(source ?? "正在发现已配对的桌面设备")
+                    Text(source ?? String(localized: "正在发现已配对的桌面设备"))
                         .font(T.mono(10.5))
                         .foregroundColor(T.text3)
                         .lineLimit(1)
@@ -102,13 +102,13 @@ struct OAuthSuccessView: View {
         case .noDevice:
             autoLinkGuide(
                 icon: "desktopcomputer.and.arrow.down", tint: T.orange,
-                title: "暂未发现已配对的桌面设备",
-                detail: "在桌面端打开 Web 远程控制并复制配对链接，回到这里粘贴即可直达；也可以先开始使用，稍后从连接页扫码。")
+                title: String(localized: "暂未发现已配对的桌面设备"),
+                detail: String(localized: "在桌面端打开 Web 远程控制并复制配对链接，回到这里粘贴即可直达；也可以先开始使用，稍后从连接页扫码。"))
         case .failed(let source, let detail):
             autoLinkGuide(
                 icon: "exclamationmark.triangle", tint: T.orange,
-                title: "连接 \(source ?? "我的 Mac") 失败",
-                detail: "\(detail)。可检查桌面端是否在线后重试，或重新复制配对链接粘贴。")
+                title: String(localized: "连接 \(source ?? String(localized: "我的 Mac")) 失败"),
+                detail: String(localized: "\(detail)。可检查桌面端是否在线后重试，或重新复制配对链接粘贴。"))
         }
     }
 
@@ -137,7 +137,7 @@ struct OAuthSuccessView: View {
                 Button {
                     connectFromClipboard()
                 } label: {
-                    Label("粘贴链接连接", systemImage: "doc.on.clipboard")
+                    Label(String(localized: "粘贴链接连接"), systemImage: "doc.on.clipboard")
                         .font(T.font(13, .semibold))
                         .foregroundColor(T.onAccent)
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -149,7 +149,7 @@ struct OAuthSuccessView: View {
                 Button {
                     onContinue()
                 } label: {
-                    Text("先去连接桌面端")
+                    Text(String(localized: "先去连接桌面端"))
                         .font(T.font(13, .semibold))
                         .foregroundColor(T.text)
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -171,18 +171,18 @@ struct OAuthSuccessView: View {
     private func connectFromClipboard() {
         guard let text = UIPasteboard.general.string,
               ConnectURLParser.parseRelayLink(text) != nil else {
-            pasteError = "剪贴板中没有云中继配对链接（桌面端 Web 远程控制 → 复制链接）"
+            pasteError = String(localized: "剪贴板中没有云中继配对链接（桌面端 Web 远程控制 → 复制链接）")
             return
         }
         pasteError = nil
-        autoPhase = .connecting(source: "剪贴板配对链接")
+        autoPhase = .connecting(source: String(localized: "剪贴板配对链接"))
         Task {
             await session.connectRelayLink(text)
             if case .connected = session.mode {
                 autoPhase = .connected
             } else {
                 session.cancelConnecting()
-                autoPhase = .failed(source: "剪贴板配对链接", detail: "链接无效或桌面端离线")
+                autoPhase = .failed(source: String(localized: "剪贴板配对链接"), detail: String(localized: "链接无效或桌面端离线"))
             }
         }
     }
@@ -213,23 +213,23 @@ struct OAuthSuccessView: View {
     private func tokenSetSummary(_ tokenSet: OAuthTokenSet) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: T.sp2) {
-                Text("凭据摘要 · tokenSet")
+                Text(String(localized: "凭据摘要 · tokenSet"))
                     .font(T.font(13, .bold))
                     .foregroundColor(T.text2)
-                Text("仅存 Keychain")
+                Text(String(localized: "仅存 Keychain"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
             }
             VStack(spacing: 0) {
                 summaryRow(icon: "key", title: "accessToken",
                            detail: "zai access_token · \(OAuthCredentialStore.mask(tokenSet.accessToken))",
-                           trailing: "掩码")
+                           trailing: String(localized: "掩码"))
                 summaryRow(icon: "checkmark.seal", title: "zcodeJwtToken",
-                           detail: "data.token · zcode JWT · 已签发", trailing: nil, tint: T.accentText)
+                           detail: String(localized: "data.token · zcode JWT · 已签发"), trailing: nil, tint: T.accentText)
                 summaryRow(icon: "clock", title: "expiresAt",
                            detail: tokenSet.expiresAt.map {
-                               "有效期至 \(Self.formatter.string(from: $0)) · 由 expires_in 换算"
-                           } ?? "未返回 expires_in", trailing: nil)
+                               String(localized: "有效期至 \(Self.formatter.string(from: $0)) · 由 expires_in 换算")
+                           } ?? String(localized: "未返回 expires_in"), trailing: nil)
             }
             .background(T.bgCard)
             .clipShape(RoundedRectangle(cornerRadius: T.rL))
@@ -266,7 +266,7 @@ struct OAuthSuccessView: View {
             Image(systemName: "curlybraces")
                 .font(.system(size: 11))
                 .foregroundColor(T.text3)
-            Text("后续请求携带 Authorization: Bearer {accessToken}（conversationSharePreviewClient.ts:145，转引）")
+            Text(String(localized: "后续请求携带 Authorization: Bearer {accessToken}（conversationSharePreviewClient.ts:145，转引）"))
                 .font(T.font(10.5))
                 .foregroundColor(T.text3)
         }
@@ -338,7 +338,7 @@ struct OAuthFailureView: View {
             VStack(spacing: T.sp3) {
                 errorCard
                 Button(action: onRetry) {
-                    Label("重新登录", systemImage: "arrow.clockwise")
+                    Label(String(localized: "重新登录"), systemImage: "arrow.clockwise")
                         .font(T.font(15, .semibold))
                         .foregroundColor(T.onAccent)
                         .frame(maxWidth: .infinity, minHeight: 48)
@@ -349,7 +349,7 @@ struct OAuthFailureView: View {
 
                 HStack(spacing: 10) {
                     Button(action: onSwitchProvider) {
-                        Label("改用 BigModel 登录", systemImage: "key")
+                        Label(String(localized: "改用 BigModel 登录"), systemImage: "key")
                             .font(T.font(13.5, .semibold))
                             .foregroundColor(T.text)
                             .frame(maxWidth: .infinity, minHeight: 44)
@@ -357,7 +357,7 @@ struct OAuthFailureView: View {
                     }
                     .accessibilityIdentifier("o3-btn-switch-provider")
                     Button(action: onSkip) {
-                        Label("跳过 · 连接桌面端", systemImage: "display")
+                        Label(String(localized: "跳过 · 连接桌面端"), systemImage: "display")
                             .font(T.font(13.5, .semibold))
                             .foregroundColor(T.text)
                             .frame(maxWidth: .infinity, minHeight: 44)
@@ -368,7 +368,7 @@ struct OAuthFailureView: View {
 
                 comparisonList
                 Spacer(minLength: 12)
-                Text("重试保留发起参数（client_id / redirect_uri）并重置一次性 state\n登录非使用前提：可跳过登录直接连接局域网桌面端")
+                Text(String(localized: "重试保留发起参数（client_id / redirect_uri）并重置一次性 state\n登录非使用前提：可跳过登录直接连接局域网桌面端"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
                     .multilineTextAlignment(.center)
@@ -420,50 +420,50 @@ struct OAuthFailureView: View {
 
     private var errCode: String {
         switch error {
-        case .userCancelled: return "未产生 code · 未产生 error"
+        case .userCancelled: return String(localized: "未产生 code · 未产生 error")
         case .serverError(let detail): return "error=\(detail)"
-        case .stateMismatch: return "state 缺失或不匹配"
+        case .stateMismatch: return String(localized: "state 缺失或不匹配")
         case .exchangeFailed(let detail): return "EXCHANGE · \(detail)"
-        case .keychainFailed: return "KEYCHAIN 写入失败"
+        case .keychainFailed: return String(localized: "KEYCHAIN 写入失败")
         }
     }
 
     private var explanation: String {
         switch error {
         case .userCancelled:
-            return "你在授权 Sheet 中取消了授权（✕ / 下拉抓手 / 页内「取消」等价），未产生 code 亦无 error 参数。重新登录即可再次发起，登录状态不受影响。"
+            return String(localized: "你在授权 Sheet 中取消了授权（✕ / 下拉抓手 / 页内「取消」等价），未产生 code 亦无 error 参数。重新登录即可再次发起，登录状态不受影响。")
         case .serverError(let detail):
-            return "授权服务器返回 error=\(detail)。可重试或改用 BigModel 登录；若持续出现请检查账号状态。"
+            return String(localized: "授权服务器返回 error=\(detail)。可重试或改用 BigModel 登录；若持续出现请检查账号状态。")
         case .stateMismatch:
-            return "回调 state 与发起值不一致或缺失（state 必填，防 CSRF）。为安全起见不接受降级，请重新发起授权。"
+            return String(localized: "回调 state 与发起值不一致或缺失（state 必填，防 CSRF）。为安全起见不接受降级，请重新发起授权。")
         case .exchangeFailed(let detail):
-            return "POST /api/v1/oauth/token 失败（\(detail)）。请检查网络后重试；code/token 不回显。"
+            return String(localized: "POST /api/v1/oauth/token 失败（\(detail)）。请检查网络后重试；code/token 不回显。")
         case .keychainFailed:
-            return "令牌交换成功但凭据写入 Keychain 失败。请重试登录；若持续失败请检查系统存储设置。"
+            return String(localized: "令牌交换成功但凭据写入 Keychain 失败。请重试登录；若持续失败请检查系统存储设置。")
         }
     }
 
     private var comparisonList: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("常见登录失败对照 · 5 态")
+            Text(String(localized: "常见登录失败对照 · 5 态"))
                 .font(T.font(13, .bold))
                 .foregroundColor(T.text2)
             VStack(spacing: 0) {
                 comparisonRow(id: "o3-row-cancel", icon: "xmark", tint: T.text2,
-                              title: "用户取消 / Sheet 关闭",
-                              detail: "✕ / 下拉 / 页内取消 → 未产生 code → 重新登录")
+                              title: String(localized: "用户取消 / Sheet 关闭"),
+                              detail: String(localized: "✕ / 下拉 / 页内取消 → 未产生 code → 重新登录"))
                 comparisonRow(id: "o3-row-error-param", icon: "exclamationmark.triangle", tint: T.red,
-                              title: "授权服务器返回 error",
-                              detail: "按 error 值展示原因（如 access_denied）→ 重试或换 Provider")
+                              title: String(localized: "授权服务器返回 error"),
+                              detail: String(localized: "按 error 值展示原因（如 access_denied）→ 重试或换 Provider"))
                 comparisonRow(id: "o3-row-state", icon: "shield", tint: T.orange,
-                              title: "state 缺失或不匹配",
-                              detail: "防伪校验失败（state 必填，缺失即报错）→ 重新发起，不接受降级")
+                              title: String(localized: "state 缺失或不匹配"),
+                              detail: String(localized: "防伪校验失败（state 必填，缺失即报错）→ 重新发起，不接受降级"))
                 comparisonRow(id: "o3-row-exchange", icon: "wifi", tint: T.blue,
-                              title: "令牌交换失败",
-                              detail: "POST /api/v1/oauth/token 超时或响应 code≠0 → 检查网络后重试")
+                              title: String(localized: "令牌交换失败"),
+                              detail: String(localized: "POST /api/v1/oauth/token 超时或响应 code≠0 → 检查网络后重试"))
                 comparisonRow(id: "o3-row-keychain", icon: "shield.lefthalf.filled", tint: T.orange,
-                              title: "Keychain 写入失败",
-                              detail: "交换成功但凭据落地失败 → 就地错误态，重试登录")
+                              title: String(localized: "Keychain 写入失败"),
+                              detail: String(localized: "交换成功但凭据落地失败 → 就地错误态，重试登录"))
             }
             .background(T.bgCard)
             .clipShape(RoundedRectangle(cornerRadius: T.rL))

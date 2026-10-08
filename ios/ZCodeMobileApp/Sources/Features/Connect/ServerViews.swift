@@ -5,6 +5,7 @@ import SwiftUI
 struct ServerAccountConfigView: View {
     @Environment(AppSession.self) private var session
     @Environment(AppRouter.self) private var router
+    @Environment(AppSettingsModel.self) private var settings
     @State private var showLogoutConfirm = false
     @State private var testResult: TestOutcome?
     /// G-028 刷新额度状态（真实重拉 + 结果反馈）
@@ -25,7 +26,7 @@ struct ServerAccountConfigView: View {
                 serverSection
                 testSection
                 Spacer(minLength: 12)
-                Text("退出登录仅清除账户层凭据（tokenSet），不影响已保存的服务器与令牌\n删除服务器请前往服务器详情")
+                Text(String(localized: "退出登录仅清除账户层凭据（tokenSet），不影响已保存的服务器与令牌\n删除服务器请前往服务器详情"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
                     .multilineTextAlignment(.center)
@@ -37,14 +38,14 @@ struct ServerAccountConfigView: View {
             .padding(.top, T.sp1)
         }
         .scrollIndicators(.hidden)
-        .navigationTitle("服务器与账户")
+        .navigationTitle(String(localized: "服务器与账户"))
         .navigationBarTitleDisplayMode(.inline)
         .background(T.bg)
         .sheet(isPresented: $showLogoutConfirm) {
             ConfirmSheet(
-                title: "退出登录「\(session.oauthUserInfo?.displayName ?? "")」？",
-                message: "仅清除本机 Keychain 中的 OAuth tokenSet（账户层）；已保存的服务器与访问令牌不受影响。重新登录需再次走授权流程。",
-                confirmTitle: "退出登录", confirmIcon: "xmark.circle",
+                title: String(localized: "退出登录「\(session.oauthUserInfo?.displayName ?? "")」？"),
+                message: String(localized: "仅清除本机 Keychain 中的 OAuth tokenSet（账户层）；已保存的服务器与访问令牌不受影响。重新登录需再次走授权流程。"),
+                confirmTitle: String(localized: "退出登录"), confirmIcon: "xmark.circle",
                 identifierPrefix: "l4-b-sheet-logout") {
                     showLogoutConfirm = false
                 } onConfirmAction: {
@@ -59,10 +60,10 @@ struct ServerAccountConfigView: View {
     private var accountSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                Text("账户")
+                Text(String(localized: "账户"))
                     .font(T.font(13, .bold))
                     .foregroundColor(T.text2)
-                Text("OAuth · tokenSet 仅存 Keychain")
+                Text(String(localized: "OAuth · tokenSet 仅存 Keychain"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
             }
@@ -90,7 +91,7 @@ struct ServerAccountConfigView: View {
                                 .foregroundColor(T.text)
                             StatusPill(text: "ZAI", kind: .done, compact: true)
                         }
-                        Text("@\(userInfo.username) · Coding Plan · 剩余额度（演示）")
+                        Text(String(localized: "@\(userInfo.username) · Coding Plan · 剩余额度（演示）"))
                             .font(T.font(11.5))
                             .foregroundColor(T.text3)
                     }
@@ -98,7 +99,7 @@ struct ServerAccountConfigView: View {
                 Spacer()
             }
             if let expiresAt = tokenSet.expiresAt {
-                Text("有效期至 \(OAuthSuccessView.formatter.string(from: expiresAt))")
+                Text(String(localized: "有效期至 \(OAuthSuccessView.formatter.string(from: expiresAt))"))
                     .font(T.mono(10.5))
                     .foregroundColor(T.text3)
             }
@@ -106,7 +107,7 @@ struct ServerAccountConfigView: View {
                 Button {
                     showLogoutConfirm = true
                 } label: {
-                    Label("退出登录", systemImage: "xmark")
+                    Label(String(localized: "退出登录"), systemImage: "xmark")
                         .font(T.font(13.5, .semibold))
                         .foregroundColor(T.red)
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -116,7 +117,7 @@ struct ServerAccountConfigView: View {
                 Button {
                     Task { await refreshQuota() }
                 } label: {
-                    Label(isRefreshingQuota ? "刷新中…" : "刷新额度", systemImage: isRefreshingQuota ? "hourglass" : "arrow.clockwise")
+                    Label(isRefreshingQuota ? String(localized: "刷新中…") : String(localized: "刷新额度"), systemImage: isRefreshingQuota ? "hourglass" : "arrow.clockwise")
                         .font(T.font(13.5, .semibold))
                         .foregroundColor(T.text)
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -133,7 +134,7 @@ struct ServerAccountConfigView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("l4-b-quota-notice")
             } else if let at = quotaRefreshedAt {
-                Text("已更新 · \(Self.quotaFormatter.string(from: at))")
+                Text(String(localized: "已更新 · \(Self.quotaFormatter.string(from: at))"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -179,9 +180,9 @@ struct ServerAccountConfigView: View {
                         Text(session.oauthUserInfo?.displayName ?? "")
                             .font(T.font(14, .bold))
                             .foregroundColor(T.text)
-                        StatusPill(text: "登录已过期", kind: .wait, compact: true)
+                        StatusPill(text: String(localized: "登录已过期"), kind: .wait, compact: true)
                     }
-                    Text("expiresAt=\(tokenSet.expiresAt.map { OAuthSuccessView.formatter.string(from: $0) } ?? "—") · 后续请求 401 → 引导重登")
+                    Text(String(localized: "expiresAt=\(tokenSet.expiresAt.map { OAuthSuccessView.formatter.string(from: $0) } ?? "—") · 后续请求 401 → 引导重登"))
                         .font(T.mono(11))
                         .foregroundColor(T.text3)
                 }
@@ -190,14 +191,14 @@ struct ServerAccountConfigView: View {
             Button {
                 session.requestLoginFlow()
             } label: {
-                Label("重新登录", systemImage: "arrow.clockwise")
+                Label(String(localized: "重新登录"), systemImage: "arrow.clockwise")
                     .font(T.font(13.5, .semibold))
                     .foregroundColor(T.onAccent)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .background(T.accent)
                     .clipShape(RoundedRectangle(cornerRadius: T.rM))
             }
-            Text("仅失效账户层 tokenSet，连接功能与已保存服务器不受影响；重登走 O1 主按钮（重置一次性 state），不做静默续期")
+            Text(String(localized: "仅失效账户层 tokenSet，连接功能与已保存服务器不受影响；重登走 O1 主按钮（重置一次性 state），不做静默续期"))
                 .font(T.font(10.5))
                 .foregroundColor(T.text3)
                 .lineSpacing(2)
@@ -215,10 +216,10 @@ struct ServerAccountConfigView: View {
                 .background(T.bgInput)
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 2) {
-                Text("未登录")
+                Text(String(localized: "未登录"))
                     .font(T.font(14, .bold))
                     .foregroundColor(T.text)
-                Text("连接桌面端无需登录 · 登录仅用于云端分享与额度")
+                Text(String(localized: "连接桌面端无需登录 · 登录仅用于云端分享与额度"))
                     .font(T.font(11))
                     .foregroundColor(T.text3)
             }
@@ -226,7 +227,7 @@ struct ServerAccountConfigView: View {
             Button {
                 session.requestLoginFlow()
             } label: {
-                Text("使用 Z.ai 账号登录")
+                Text(String(localized: "使用 Z.ai 账号登录"))
                     .font(T.font(13, .semibold))
                     .foregroundColor(T.onAccent)
                     .padding(.horizontal, T.sp4)
@@ -244,10 +245,10 @@ struct ServerAccountConfigView: View {
     private var serverSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                Text("服务地址与令牌")
+                Text(String(localized: "服务地址与令牌"))
                     .font(T.font(13, .bold))
                     .foregroundColor(T.text2)
-                Text("服务器密码 · Keychain")
+                Text(String(localized: "服务器密码 · Keychain"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
             }
@@ -256,20 +257,20 @@ struct ServerAccountConfigView: View {
                     Button {
                         session.requestConnectFlow(editTokenOnly: false)
                     } label: {
-                        serverRow(icon: "server.rack", title: "服务地址",
-                                  detail: "\(server.baseURL) · \(server.name ?? "未命名")",
-                                  value: "编辑")
+                        serverRow(icon: "server.rack", title: String(localized: "服务地址"),
+                                  detail: String(localized: "\(server.baseURL) · \(server.name ?? String(localized: "未命名"))"),
+                                  value: String(localized: "编辑"))
                     }
                     .accessibilityIdentifier("l4-b-row-host")
                     Divider().overlay(T.border)
                     Button {
                         session.requestConnectFlow(editTokenOnly: true)
                     } label: {
-                        serverRow(icon: "key", title: "访问令牌",
+                        serverRow(icon: "key", title: String(localized: "访问令牌"),
                                   detail: server.token.isEmpty
-                                      ? "免鉴权（--no-token）· 无过期，随桌面进程存活"
-                                      : "\(OAuthCredentialStore.mask(server.token)) · 无过期，随桌面进程存活",
-                                  value: "更新")
+                                      ? String(localized: "免鉴权（--no-token）· 无过期，随桌面进程存活")
+                                      : String(localized: "\(OAuthCredentialStore.mask(server.token)) · 无过期，随桌面进程存活"),
+                                  value: String(localized: "更新"))
                     }
                     .accessibilityIdentifier("l4-b-row-token")
                 }
@@ -280,8 +281,9 @@ struct ServerAccountConfigView: View {
                 Button {
                     session.requestConnectFlow(editTokenOnly: false)
                 } label: {
-                    serverRow(icon: "plus", title: "尚未配置服务器",
-                              detail: "扫码 / 剪贴板 / 手动输入", value: "添加")
+                    serverRow(icon: "plus", title: String(localized: "尚未配置服务器"),
+                              detail: settings.effectiveDeveloperMode ? String(localized: "扫码 / 剪贴板 / 手动输入") : String(localized: "扫码 / 剪贴板"),
+                              value: String(localized: "添加"))
                 }
                 .accessibilityIdentifier("l4-b-row-host")
                 .background(T.bgCard)
@@ -323,10 +325,10 @@ struct ServerAccountConfigView: View {
     private var testSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                Text("连接测试")
+                Text(String(localized: "连接测试"))
                     .font(T.font(13, .bold))
                     .foregroundColor(T.text2)
-                Text("GET /api/server-info · 1.5s 超时")
+                Text(String(localized: "GET /api/server-info · 1.5s 超时"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
             }
@@ -339,10 +341,10 @@ struct ServerAccountConfigView: View {
                         .background(T.bgElevated)
                         .clipShape(RoundedRectangle(cornerRadius: 9))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(testResult?.line1 ?? "尚未测试")
+                        Text(testResult?.line1 ?? String(localized: "尚未测试"))
                             .font(T.font(13, .semibold))
                             .foregroundColor(T.text)
-                        Text(testResult?.line2 ?? "测试仅探测可达性，不建立 WS 会话")
+                        Text(testResult?.line2 ?? String(localized: "测试仅探测可达性，不建立 WS 会话"))
                             .font(T.mono(11))
                             .foregroundColor(T.text3)
                             .lineLimit(2)
@@ -358,7 +360,7 @@ struct ServerAccountConfigView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.clockwise")
-                        Text("重新测试")
+                        Text(String(localized: "重新测试"))
                     }
                     .font(T.font(13.5, .semibold))
                     .foregroundColor(T.accentText)
@@ -385,20 +387,20 @@ struct ServerAccountConfigView: View {
 
     private func runTest() {
         guard let server = session.savedServer else {
-            testResult = TestOutcome(ok: false, line1: "未配置服务器", line2: "请先添加服务器")
+            testResult = TestOutcome(ok: false, line1: String(localized: "未配置服务器"), line2: String(localized: "请先添加服务器"))
             return
         }
-        testResult = TestOutcome(ok: false, line1: "测试中…", line2: server.baseURL)
+        testResult = TestOutcome(ok: false, line1: String(localized: "测试中…"), line2: server.baseURL)
         Task {
             let probe = await session.testConnection(to: server)
             if let info = probe.info, probe.error == nil {
-                let line1 = "可达 · \(probe.status ?? 200) OK · \(probe.latencyMs)ms"
+                let line1 = String(localized: "可达 · \(probe.status ?? 200) OK · \(probe.latencyMs)ms")
                 let line2 = "\(info.serverId) · v\(info.version) · authRequired=\(info.authRequired) · protocolVersion=\(info.protocolVersion)"
                 testResult = TestOutcome(ok: true, line1: line1, line2: line2)
             } else {
                 testResult = TestOutcome(
                     ok: false,
-                    line1: probe.error?.headline ?? "不可达",
+                    line1: probe.error?.headline ?? String(localized: "不可达"),
                     line2: probe.error?.codeLine ?? server.baseURL)
             }
         }
@@ -409,6 +411,7 @@ struct ServerAccountConfigView: View {
 
 struct ServerDetailView: View {
     @Environment(AppSession.self) private var session
+    @Environment(AppSettingsModel.self) private var settings
     @State private var showDeleteConfirm = false
     @State private var probe: ServerInfoClient.ProbeResult?
     @State private var selectedWorkspace: String?
@@ -432,16 +435,19 @@ struct ServerDetailView: View {
                     }
                     .padding(.bottom, 10)
                 } else {
-                    EmptyStateView(icon: "server.rack", title: "尚未配置服务器",
-                                   detail: "从「添加服务器」扫码或手动输入添加",
-                                   cta: "添加服务器", ctaAction: { session.requestConnectFlow(editTokenOnly: false) })
+                    EmptyStateView(icon: "server.rack", title: String(localized: "尚未配置服务器"),
+                                   // EmptyStateView 为纯 Text(String) 不查表（G-007），调用点包 String(localized:)
+                                   detail: settings.effectiveDeveloperMode
+                                       ? String(localized: "从「添加服务器」扫码或手动输入添加")
+                                       : String(localized: "从「添加服务器」扫码添加"),
+                                   cta: String(localized: "添加服务器"), ctaAction: { session.requestConnectFlow(editTokenOnly: false) })
                 }
             }
             .padding(.horizontal, T.sp4)
             .padding(.top, T.sp1)
         }
         .scrollIndicators(.hidden)
-        .navigationTitle(server?.name ?? "服务器详情")
+        .navigationTitle(server?.name ?? String(localized: "服务器详情"))
         .navigationBarTitleDisplayMode(.inline)
         .background(T.bg)
         .task {
@@ -451,9 +457,9 @@ struct ServerDetailView: View {
         }
         .sheet(isPresented: $showDeleteConfirm) {
             ConfirmSheet(
-                title: "删除「\(server?.name ?? server?.displayAddress ?? "")」？",
-                message: "将清除本机 Keychain 中的访问令牌与最近连接记录；桌面端服务不受影响，可随时重新扫码添加。",
-                confirmTitle: "删除服务器", confirmIcon: "trash",
+                title: String(localized: "删除「\(server?.name ?? server?.displayAddress ?? "")」？"),
+                message: String(localized: "将清除本机 Keychain 中的访问令牌与最近连接记录；桌面端服务不受影响，可随时重新扫码添加。"),
+                confirmTitle: String(localized: "删除服务器"), confirmIcon: "trash",
                 identifierPrefix: "l5-sheet-del") {
                     showDeleteConfirm = false
                 } onConfirmAction: {
@@ -478,28 +484,28 @@ struct ServerDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 0) {
-                        Text(server.name ?? "我的桌面端")
+                        Text(server.name ?? String(localized: "我的桌面端"))
                             .font(T.font(15.5, .heavy))
                             .foregroundColor(T.text)
                         ProbeDot(reachable: probe.map { $0.error == nil })
                     }
                     Text(server.lastConnectedAt.map {
-                        "上次连接 · " + ConnectHomeView.relativeFormatter.localizedString(for: $0, relativeTo: Date())
-                    } ?? "尚未连接过")
+                        String(localized: "上次连接 · ") + ConnectHomeView.relativeFormatter.localizedString(for: $0, relativeTo: Date())
+                    } ?? String(localized: "尚未连接过"))
                         .font(T.font(11))
                         .foregroundColor(T.text3)
                 }
                 Spacer()
             }
             VStack(alignment: .leading, spacing: 5) {
-                fieldRow("地址", server.baseURL)
+                fieldRow(String(localized: "地址"), server.baseURL)
                 fieldRow("serverId", probe?.info?.serverId ?? "—")
-                fieldRow("版本", probe?.info?.version ?? "—")
-                fieldRow("协议 · 鉴权", "remote v1 · v4 v3 · authReq=\(probe?.info?.authRequired.description ?? "—")")
+                fieldRow(String(localized: "版本"), probe?.info?.version ?? "—")
+                fieldRow(String(localized: "协议 · 鉴权"), "remote v1 · v4 v3 · authReq=\(probe?.info?.authRequired.description ?? "—")")
                 // 桌面端登录（oauth getProviders/getActiveProvider/restoreCachedSessionState
                 // 三只读投影；连接态才拉取，断开隐藏）
                 if let desktop = session.desktopOAuthInfo {
-                    fieldRow("桌面端登录", Self.desktopLoginText(desktop))
+                    fieldRow(String(localized: "桌面端登录"), Self.desktopLoginText(desktop))
                 }
             }
             .padding(.top, 8)
@@ -513,13 +519,13 @@ struct ServerDetailView: View {
     private static func desktopLoginText(_ desktop: DesktopOAuthInfo) -> String {
         let provider = desktop.activeProvider ?? desktop.providers.sorted().first
         if desktop.authenticated {
-            let who = desktop.userName ?? desktop.userHandle ?? "已登录"
+            let who = desktop.userName ?? desktop.userHandle ?? String(localized: "已登录")
             return provider.map { "\(who) · \($0)" } ?? who
         }
         if desktop.requiresReauthentication {
-            return "登录已过期 · 待桌面端重登"
+            return String(localized: "登录已过期 · 待桌面端重登")
         }
-        return provider.map { "未登录 · \($0)" } ?? "未登录"
+        return provider.map { String(localized: "未登录 · \($0)") } ?? String(localized: "未登录")
     }
 
     /// 连接态刷新桌面只读信息（进入详情页时补拉一次，保持卡片新鲜）。
@@ -549,16 +555,16 @@ struct ServerDetailView: View {
     private func workspaceSection(_ server: ServerConfig) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text("工作区 · \(session.connection.serverInfo?.workspaces.count ?? 0)")
+                Text(String(localized: "工作区 · \(session.connection.serverInfo?.workspaces.count ?? 0)"))
                     .font(T.font(13, .bold))
                     .foregroundColor(T.text2)
-                Text("默认取 server-info workspaces[0]")
+                Text(String(localized: "默认取 server-info workspaces[0]"))
                     .font(T.font(11))
                     .foregroundColor(T.text3)
             }
             let workspaces = session.connection.serverInfo?.workspaces ?? []
             if workspaces.isEmpty {
-                Text("尚未从 server-info 获取工作区（连接后显示）")
+                Text(String(localized: "尚未从 server-info 获取工作区（连接后显示）"))
                     .font(T.font(11))
                     .foregroundColor(T.text3)
             } else {
@@ -593,7 +599,7 @@ struct ServerDetailView: View {
                         .font(T.mono(12.5, selected ? .medium : .regular))
                         .foregroundColor(selected ? T.text : T.text2)
                         .lineLimit(1)
-                    Text("\(workspace.label ?? "") · \(selected ? "当前" : "") · workspaces[\(index)]")
+                    Text(String(localized: "\(workspace.label ?? "") · \(selected ? String(localized: "当前") : "") · workspaces[\(index)]"))
                         .font(T.font(11))
                         .foregroundColor(T.text3)
                 }
@@ -616,14 +622,14 @@ struct ServerDetailView: View {
     private var capabilityCard: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 10) {
-                Text("服务端能力")
+                Text(String(localized: "服务端能力"))
                     .font(T.font(12, .bold))
                     .foregroundColor(T.text2)
                 ForEach(session.connection.serverInfo?.capabilities ?? [], id: \.self) { capability in
                     StatusPill(text: capability, kind: .tag, compact: true)
                 }
             }
-            Text("chips = server-info.capabilities（仅展示）；clientHello 口径另源（握手 HelloMessage.capabilities 宣告键取子集）")
+            Text(String(localized: "chips = server-info.capabilities（仅展示）；clientHello 口径另源（握手 HelloMessage.capabilities 宣告键取子集）"))
                 .font(T.font(10.5))
                 .foregroundColor(T.text3)
                 .lineSpacing(2)
@@ -635,7 +641,7 @@ struct ServerDetailView: View {
 
     private func securitySection(_ server: ServerConfig) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("令牌与安全")
+            Text(String(localized: "令牌与安全"))
                 .font(T.font(13, .bold))
                 .foregroundColor(T.text2)
             VStack(spacing: 0) {
@@ -650,10 +656,10 @@ struct ServerDetailView: View {
                             .background(T.bgElevated)
                             .clipShape(RoundedRectangle(cornerRadius: 9))
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("更新令牌").font(T.font(14.5)).foregroundColor(T.text)
+                            Text(String(localized: "更新令牌")).font(T.font(14.5)).foregroundColor(T.text)
                             Text(server.token.isEmpty
-                                 ? "免鉴权（--no-token）"
-                                 : "Keychain · \(OAuthCredentialStore.mask(server.token)) · 401 时重扫")
+                                 ? String(localized: "免鉴权（--no-token）")
+                                 : String(localized: "Keychain · \(OAuthCredentialStore.mask(server.token)) · 401 时重扫"))
                                 .font(T.mono(11))
                                 .foregroundColor(T.text3)
                         }
@@ -676,10 +682,10 @@ struct ServerDetailView: View {
                         .background(T.bgElevated)
                         .clipShape(RoundedRectangle(cornerRadius: 9))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("传输安全").font(T.font(14.5)).foregroundColor(T.text)
+                        Text(String(localized: "传输安全")).font(T.font(14.5)).foregroundColor(T.text)
                         Text(server.useTLS
-                             ? "wss://（反向代理 TLS）"
-                             : "当前 ws:// 无加密 · 可信局域网 / 反向代理启用 wss")
+                             ? String(localized: "wss://（反向代理 TLS）")
+                             : String(localized: "当前 ws:// 无加密 · 可信局域网 / 反向代理启用 wss"))
                             .font(T.font(11))
                             .foregroundColor(T.text3)
                     }
@@ -706,10 +712,10 @@ struct ServerDetailView: View {
                     .background(T.redDim)
                     .clipShape(RoundedRectangle(cornerRadius: 9))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("删除此服务器")
+                    Text(String(localized: "删除此服务器"))
                         .font(T.font(14.5, .semibold))
                         .foregroundColor(T.red)
-                    Text("二次确认后清除 Keychain 令牌")
+                    Text(String(localized: "二次确认后清除 Keychain 令牌"))
                         .font(T.font(11))
                         .foregroundColor(T.text3)
                 }

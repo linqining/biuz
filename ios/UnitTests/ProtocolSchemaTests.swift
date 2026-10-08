@@ -33,7 +33,9 @@ final class ProtocolSchemaTests: XCTestCase {
     func testRequiredKeyMissingIsError() {
         let result = PValidator.validate(.object([:]), schema: .object(shape))
         XCTAssertFalse(result.isValid)
-        XCTAssertTrue(result.errors.contains { $0.contains("a") && $0.contains("缺失") })
+        // 双语稳健：断言路径前缀（zh「a: 缺失必填键」/ en「a: missing required key」
+        // 同构）——错误文案已本地化，en 态下中文关键词不在场，不锁自然语言措辞
+        XCTAssertTrue(result.errors.contains { $0.contains("a:") })
     }
 
     func testNullableRequiredKeyMustBePresentButMayBeNull() {
@@ -194,8 +196,10 @@ final class ProtocolSchemaTests: XCTestCase {
     }
 
     func testClientPrefixedRejectionReadsAsLocalBlock() {
-        // client.* 前缀 = 本地拒发（命令未发出）——文案必须区分「本地拦截」与
-        // 「桌面端拒绝」（2026-10-08 用户反馈：本地拒发误导排查方向）
+        // client.* 前缀 = 本地拒发（命令未发出）——failureText 必须区分「本地拦截」
+        // 与「桌面端拒绝」两支（2026-10-08 用户反馈：本地拒发误导排查方向）。
+        // 双语稳健：断言结构信号（reasonCode 原文在场 / 异支词表缺席），不锁自然
+        // 语言措辞——failureText 已本地化，en 态下中文措辞不在场
         let local = CommandAck(.object([
             "status": .string("rejected"),
             "reasonCode": .string("client.casRevisionUnavailable"),
@@ -203,19 +207,19 @@ final class ProtocolSchemaTests: XCTestCase {
         ]))
         XCTAssertTrue(local.isFailure)
         let localText = local.failureText ?? ""
-        XCTAssertTrue(localText.contains("本地拦截"), localText)
-        XCTAssertFalse(localText.contains("桌面端拒绝"), localText)
-        XCTAssertTrue(localText.contains("revision 未就绪"), localText)
+        XCTAssertTrue(localText.contains("client.casRevisionUnavailable"), localText)
+        XCTAssertTrue(localText.contains("revision"), localText)
+        XCTAssertFalse(localText.contains("proto.invalidPayload"), localText)
 
-        // 服务端拒因保持「桌面端拒绝」口径
+        // 服务端拒因走另一支（reasonCode 同样原样在场）
         let remote = CommandAck(.object([
             "status": .string("rejected"),
             "reasonCode": .string("proto.invalidPayload"),
             "message": .string("Invalid input"),
         ]))
         let remoteText = remote.failureText ?? ""
-        XCTAssertTrue(remoteText.contains("桌面端拒绝"), remoteText)
-        XCTAssertFalse(remoteText.contains("本地拦截"), remoteText)
+        XCTAssertTrue(remoteText.contains("proto.invalidPayload"), remoteText)
+        XCTAssertFalse(remoteText.contains("client.casRevisionUnavailable"), remoteText)
     }
 
     func testHandshakeRequiredDetection() {

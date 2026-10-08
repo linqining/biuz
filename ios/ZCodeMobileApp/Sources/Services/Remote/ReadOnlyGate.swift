@@ -220,7 +220,7 @@ enum ReadOnlyGate {
             if zcodeAgentDirectWriteCommands.contains(command) {
                 return Verdict(
                     classification: .directWrite,
-                    reason: "zcode-agent.\(command) 为直写/配置写面")
+                    reason: String(localized: "zcode-agent.\(command) 为直写/配置写面"))
             }
             // hello/init、subscribe/unsubscribe/resync、rowsRange/plans/workflow 读族、
             // usage、commandsQuery、backgroundBashOutput、附件读族、eventListen 均 readonly；
@@ -230,7 +230,7 @@ enum ReadOnlyGate {
             if directWriteTaskCommands.contains(command) {
                 return Verdict(
                     classification: .directWrite,
-                    reason: "zcode-task.\(command) 为桌面配置写面")
+                    reason: String(localized: "zcode-task.\(command) 为桌面配置写面"))
             }
             // 审批应答/停止/队列/消息投递/任务元数据写（setTaskPinned/archiveTask/
             // setTaskUnread/renameTask/unarchiveTask/listArchivedTasks）放行
@@ -239,7 +239,7 @@ enum ReadOnlyGate {
             if directWriteGitCommands.contains(command) {
                 return Verdict(
                     classification: .directWrite,
-                    reason: "git.\(command) 为工作区写操作")
+                    reason: String(localized: "git.\(command) 为工作区写操作"))
             }
             return Verdict(classification: .readOnly, reason: nil)
         case "file":
@@ -249,13 +249,13 @@ enum ReadOnlyGate {
             }
             return Verdict(
                 classification: .directWrite,
-                reason: "file.\(command) 不在移动端读白名单（文件直写类不接）")
+                reason: String(localized: "file.\(command) 不在移动端读白名单（文件直写类不接）"))
         default:
             if let blacklist = channelDirectWriteCommands[channel],
                blacklist.contains(command) {
                 return Verdict(
                     classification: .directWrite,
-                    reason: "\(channel).\(command) 为直写/配置写面")
+                    reason: String(localized: "\(channel).\(command) 为直写/配置写面"))
             }
             // file-watcher、model-selection、zcode-session（promoteDeferredDraftSession
             // 属 task-index 元数据写）等移动端使用的只读/session 面放行。
@@ -278,7 +278,7 @@ enum ReadOnlyGate {
         if directWriteConversationTypes.contains(type) {
             return Verdict(
                 classification: .directWrite,
-                reason: "sendConversationCommandV4→\(type)（文件回退直写）")
+                reason: String(localized: "sendConversationCommandV4→\(type)（文件回退直写）"))
         }
         if firstInputDependentTypes.contains(type),
            payload?.objectValue?["firstInput"] != nil {
