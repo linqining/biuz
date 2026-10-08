@@ -366,6 +366,15 @@ struct CommandAck: Equatable {
         return !(status == "accepted" || status == "duplicate" || status == "noop")
     }
 
+    /// 权威成功：六态词表内的非失败态（accepted/duplicate/noop）。status 缺席或
+    /// 词表外 = 「未知态」——桌面可能已受理也可能没有。读面可继续宽容，但**落本机
+    /// 持久化/chip 态只认权威成功**：一次误判落盘即与桌面真态脱钩且无投影时永不
+    /// 自愈（2026-10-09「计划模式丢失」根因之一）
+    var isAuthoritativeSuccess: Bool {
+        guard let status, statusKnown else { return false }
+        return !isFailure
+    }
+
     /// 失败文案（nil=成功/宽容成功）。reasonCode（或 status）+ 首条可读 message——
     /// message 可能是 zod issue 数组 JSON（取首个 "message": "…" 字段）或普通
     /// fault 原文，两者都取到可读文本（v1.21 前两套口径不一致的统一收口）。

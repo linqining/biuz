@@ -901,6 +901,12 @@ struct ConversationRowView: View {
                     if conversation.isRunning {
                         StatusPill(text: "运行中", kind: .run, compact: true)
                     }
+                    if conversation.pendingApprovalCount > 0 {
+                        // 桌面侧栏同款「等待确认」标（2026-10-08 用户报障 parity：
+                        // 「待审批的有显示，这个移动端也需要」；permission+userInput 合计）
+                        StatusPill(text: "等待确认", kind: .wait, compact: true)
+                            .accessibilityIdentifier("04-row-pending-\(conversation.id)")
+                    }
                     Spacer(minLength: 0)
                     Text(timeText)
                         .font(T.font(10.5, .medium))
@@ -912,7 +918,9 @@ struct ConversationRowView: View {
                         .foregroundColor(T.text2)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    if conversation.unreadCount > 0 {
+                    // 服务端挂起审批已由「等待确认」绿标表达，橙计数徽标只留给
+                    // 本地「标记未读」（避免同源双指示）
+                    if conversation.unreadCount > 0, conversation.pendingApprovalCount == 0 {
                         TabBadge(count: conversation.unreadCount, color: T.orangeBright)
                     }
                 }
@@ -956,15 +964,17 @@ struct ConversationRowView: View {
         }
     }
 
-    /// 行级进度点（要求 5 降级面：会话摘要行粒度——workflow/会话运行中即显示蓝点；
+    /// 行级运行指示（2026-10-08 用户报障 parity：「进行中的会话有个转圈 loading……
+    /// 这个移动端也需要」——桌面侧栏头像位是旋转 loading，静态蓝点升级为同款转圈；
     /// 详情页数据充足时由 WorkflowPanelView 承载完整节点链）
     private var runningDot: some View {
         Group {
             if conversation.isRunning {
-                Circle()
-                    .fill(T.blue)
-                    .frame(width: 10, height: 10)
-                    .overlay(Circle().stroke(T.bgCard, lineWidth: 2))
+                SpinnerView(size: 11)
+                    .padding(3)
+                    .background(Circle().fill(T.bgCard))
+                    .overlay(Circle().stroke(T.border, lineWidth: 1))
+                    .accessibilityIdentifier("04-row-running-\(conversation.id)")
             }
         }
     }

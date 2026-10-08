@@ -158,11 +158,22 @@ final class ChatViewModel {
     //
     // 状态单源在 ViewModel：胶囊 UI 态与 send() 的 requestedDelivery 实参同读此二值，
     // 不存在「UI 一张皮、发送另一张皮」。本地持久化走 ComposerModeStore（设计稿 §2.1
-    // 照抄执行目标先例）；协作模式无桌面读面（全 Sources 无投影，设计稿 §2.7③），
-    // 首屏显示本机偏好，点按切换即真实 CAS 下发并按回执落态。
+    // 照抄执行目标先例）。协作模式显示源 = state.config.mode 桌面投影（上游
+    // product-projection.ts:3785，命令面与 plan 工具路径共用；2026-10-09 前曾为
+    // 纯本机态无读面——桌面改回/重置后手机恒显旧值，用户报障「计划模式丢失」），
+    // 首屏先显本机偏好、投影到达即被桌面真值覆盖。
 
     /// 协作模式（"plan"|"build"；switchCollaborationMode CAS 成功后才落态+持久化）
     var collaborationMode: String = ComposerModeStore.collaborationDefault
+
+    /// 协作模式切换失败/未知态常驻错误行（nil = 无在案；区别于 3s switchHint——
+    /// 自动消失的提示用户根本看不到，「点了没反应」报障直接根因）
+    var collaborationModeFailureText: String?
+    /// 本地切换成功的收敛护栏（防 ack 与 state.config.mode 增量到达间隙内旧投影回闪）
+    private var lastLocalModeSwitch: (value: String, at: Date)?
+    /// 未知态回执（status 缺席/词表外）的切换目标值：state.config.mode 投影命中
+    /// 即定案并清失败行——桌面实际已受理与否由投影说话
+    private var pendingUnknownModeValue: String?
 
     /// 投递模式（移动端三档 "now"|"queue"|"guide"。A-2：now 为纯本机档——不下发
     /// setFollowupMode，send 恒携 requestedDelivery:"startNow"；queue/guide CAS
@@ -178,17 +189,53 @@ final class ChatViewModel {
         deliveryMode == "now" ? "startNow" : deliveryMode
     }
 
-    /// 协作模式切换（Plan/Build 胶囊；switchCollaborationMode CAS）。成功：落态 +
-    /// 持久化 + 返回 nil（UI 给选中震动）；失败：态不变，返回拒绝文案供 hint。
+    /// 协作模式切换（Plan/Build 胶囊；switchCollaborationMode CAS）。权威成功回执：
+    /// 落态 + 持久化 + 返回 nil（UI 给选中震动）并清失败行；失败/未知态：chip 不动、
+    /// 不落盘，文案同时落常驻错误行（collaborationModeFailureText）。
+    /// 未知态（status 缺席/词表外）不再宽容落盘——落盘即与桌面真态脱钩且无读面时
+    /// 永不自愈（2026-10-09「计划模式丢失」根因之一）；登记 pendingUnknownModeValue
+    /// 交 state.config.mode 投影定案。
     func switchCollaborationMode(_ mode: String) async -> String? {
         let ack = await store.switchCollaborationMode(conversationID, mode: mode)
         recordControlDiag("collabMode=\(mode)", workId: nil, ack: ack)
         if let failure = Self.controlFeedback(ack, verb: "collaborationMode") {
+            collaborationModeFailureText = failure
             return failure
         }
+        guard let ack, CommandAck(ack).isAuthoritativeSuccess else {
+            pendingUnknownModeValue = mode
+            let text = String(localized: "桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际模式为准")
+            collaborationModeFailureText = text
+            return text
+        }
         collaborationMode = mode
+        lastLocalModeSwitch = (mode, Date())
         ComposerModeStore.setCollaborationMode(mode, conversationID: conversationID)
+        collaborationModeFailureText = nil
         return nil
+    }
+
+    /// 协作模式桌面投影（state.config.mode 权威源，web SessionPane 同读口径）：
+    /// 订阅快照/增量每事件覆盖——桌面改回、桌面端操作、工具路径 enterPlanMode/
+    /// exitPlanMode 皆回流（上游投影注释明示两路共用），双端脱钩自愈。
+    func refreshCollaborationModeProjection() async {
+        guard isReadOnly,
+              let projected = await store.sessionCollaborationMode(in: conversationID),
+              ComposerModeStore.collaborationModes.contains(projected) else { return }
+        // 未知态等待期：首个投影即定案（不管与请求值是否一致——桌面真态说话），
+        // 清失败行后走统一覆盖
+        if pendingUnknownModeValue != nil {
+            pendingUnknownModeValue = nil
+            collaborationModeFailureText = nil
+        }
+        // ack 已权威成功但 config.mode 增量未达：旧值投影不回闪（3s 内以本地为准）
+        if let last = lastLocalModeSwitch,
+           Date().timeIntervalSince(last.at) < 3, projected != last.value {
+            return
+        }
+        guard projected != collaborationMode else { return }
+        collaborationMode = projected
+        ComposerModeStore.setCollaborationMode(projected, conversationID: conversationID)
     }
 
     /// 投递模式切换（立即/排队/引导）。A-2 修正（设计稿 §4.1）：now 档不下发
@@ -681,6 +728,8 @@ final class ChatViewModel {
         for await event in store.observeConversations() {
             // 会话级模型选择随 state delta 到达（便宜：内存字典读），逐事件覆盖
             await refreshSessionModelOverlay()
+            // 协作模式桌面投影（state.config.mode）同口径逐事件覆盖
+            await refreshCollaborationModeProjection()
             switch event {
             case .conversationsReplaced(let list):
                 if let match = list.first(where: { $0.id == conversationID }) {
@@ -1022,10 +1071,18 @@ final class ChatViewModel {
             return true
         case .plan(let task):
             draft = ""
-            // web planShortcut：先切 plan 模式（fire-and-forget，失败不阻断），再发任务
+            // web planShortcut：先切 plan 模式再发任务。切换失败/未知态不再
+            // fire-and-forget——任务以旧模式进桌面 = 用户看到的「/plan 没触发」
+            // （2026-10-09 报障）：阻断发送、草稿回填；拒因已在常驻错误行
+            // （collaborationModeFailureText），用户重试或改用 chip
             let modeFailure = await switchCollaborationMode("plan")
+            if let modeFailure {
+                showSlashHint(String(localized: "计划模式未切换 · 任务未发送"))
+                if draft.isEmpty { draft = text }
+                return true
+            }
             guard !task.isEmpty else {
-                showSlashHint(modeFailure ?? String(localized: "已切换计划模式"))
+                showSlashHint(String(localized: "已切换计划模式"))
                 return true
             }
             // 待发附件随任务（修复 2026-10-07「/plan + 附件发送后附件静默丢失」：
@@ -1047,9 +1104,6 @@ final class ChatViewModel {
                 uploads.clearCommitted(planAttachments)
                 lastSendUndeliveredText = nil
                 pendingNewSessionSelection = nil
-                if let modeFailure {
-                    showSlashHint(String(localized: "任务已发送 · 模式切换失败：\(modeFailure)"))
-                }
                 return true
             }
             // 任务未送达：走 U-6 标准通道（这是真消息丢失，回填保稿 + 持久错误行）
@@ -1171,8 +1225,9 @@ final class ChatViewModel {
 // MARK: - P1-2 composer 模式偏好持久化（协作模式 + 投递模式）
 //
 // ExecutionTargetStore 同构（ContextPicker.swift：per-conversation 键 + 全局默认，
-// 写时双写）；值域白名单校验防手改 plist 的脏值逃过枚举。协作模式无桌面读面，
-// 持久值即首屏显示值（设计稿 §2.7③ 如实口径）；投递模式兼作 send()
+// 写时双写）；值域白名单校验防手改 plist 的脏值逃过枚举。协作模式持久值为
+// 「最近已知桌面真值」（投影 config.mode 回流同写，2026-10-09 起非纯本机偏好）；
+// 投递模式兼作 send()
 // requestedDelivery 的实参源——成功切换才写入，保证「UI 态 = 发送值」。
 enum ComposerModeStore {
     /// 协作模式词表（switchCollaborationMode mode 值域【实证 web bundle】：

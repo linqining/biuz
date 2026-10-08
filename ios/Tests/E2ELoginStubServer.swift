@@ -515,6 +515,33 @@ final class E2ELoginStubServer {
         set { lock.lock(); _modelSelectionViewFail = newValue; lock.unlock() }
     }
 
+    /// getView 多套餐形态注水开关（新建 sheet「套餐|模型」复合行键路径此前 E2E
+    /// 从未走到——替身单 provider 无分组）：双 provider（个人/体验）同含 GLM-5.3，
+    /// 当前绑定个人套餐——同名跨套餐点选应发出对应套餐 providerId
+    private var _multiPlanModelSelection = false
+    var injectsMultiPlanModelSelection: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _multiPlanModelSelection }
+        set { lock.lock(); _multiPlanModelSelection = newValue; lock.unlock() }
+    }
+
+    /// 协作模式替身行为（test17 注水）：accept（默认）/ staleOnce（首击 stale 次击
+    /// accepted——CAS 重试链）/ statusAbsent（回执无 status——宽容判定曾假成功形态）
+    private var _collaborationModeBehavior = "accept"
+    var collaborationModeBehavior: String {
+        get { lock.lock(); defer { lock.unlock() }; return _collaborationModeBehavior }
+        set { lock.lock(); _collaborationModeBehavior = newValue; lock.unlock() }
+    }
+    /// switchCollaborationMode 收到次数
+    private var _collaborationModeCallCount = 0
+    var collaborationModeCallCount: Int {
+        lock.lock(); defer { lock.unlock() }; return _collaborationModeCallCount
+    }
+    /// 最近一次 switchCollaborationMode 的 payload.mode
+    private var _lastCollaborationMode: String?
+    var lastCollaborationMode: String? {
+        lock.lock(); defer { lock.unlock() }; return _lastCollaborationMode
+    }
+
     /// 测试钩子：会话快照 state 携带 modelSelection（chips 显示源；配合 getView 失败
     /// 开关构造「state 在场 + 词表缺席」的死锁前置态）
     private var _snapshotModelSelections: [String: [String: Any]] = [:]
@@ -1011,7 +1038,7 @@ final class E2ELoginStubServer {
             lock.unlock()
             // 回执 subscriptionId：客户端保存后用于 dropped → resyncSessionsIndexV4
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
-                                         body: StubRPC.object(["ok": true, "subscriptionId": "sub-sess-\(UUID().uuidString.prefix(6))"])))
+                                         body: StubRPC.object(["ok": true, "subscriptionId": "sub-sess-e2e"])))
             // 快照事件延迟下发：给客户端留出注册帧处理器的窗口（响应先于事件，二发幂等）
             fireSessionsIndex(topic: topic, channel: channel, delays: [0.25, 0.9])
         case "subscribeConversationV4":
@@ -1044,8 +1071,13 @@ final class E2ELoginStubServer {
             // logEpoch 均必填，替身形态对齐）。rows 恒空数组——行仍走 rowsRange，
             // 不改变既有行拉取断言面。suppressConversationSnapshot 抑制（test15）。
             sendConversationSnapshot(topic: topic, channel: channel)
+            // 回执 subscriptionId 与帧发射器共用固定值（v1.31 修复）：客户端帧过滤
+            // （官方 conversationProjectionStore.ts:606-621 同构）按「帧 subscriptionId
+            // == 回执 subscriptionId」丢弃旧订阅迟到帧——此前回执随机后缀、帧硬编码
+            // "sub-conv-e2e"，两值错配 = state.updated 增量全被丢，审批卡永不渲染
+            // （G-017 test08 连续失败的根因）
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
-                                         body: StubRPC.object(["ok": true, "subscriptionId": "sub-conv-\(UUID().uuidString.prefix(6))"])))
+                                         body: StubRPC.object(["ok": true, "subscriptionId": "sub-conv-e2e"])))
             // 订阅即下发挂起交互（state.updated → ChatView 审批卡数据源）
             if !pendingForSession.isEmpty {
                 fireConversationStateDelta(sessionId: sessionId(ofTopic: topic),
@@ -1071,7 +1103,7 @@ final class E2ELoginStubServer {
             _subscribedTopics.append(topic)
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
-                                         body: StubRPC.object(["ok": true, "subscriptionId": "sub-wsconfig-\(UUID().uuidString.prefix(6))"])))
+                                         body: StubRPC.object(["ok": true, "subscriptionId": "sub-wsconfig-e2e"])))
         case "resyncConversationV4", "resyncSessionsIndexV4", "resyncWorkspaceConfigV4":
             let subscriptionId = body.objectValue?["subscriptionId"]?.stringValue ?? "unknown"
             lock.lock()
@@ -1284,11 +1316,15 @@ final class E2ELoginStubServer {
                                          body: StubRPC.object(Self.stubSessionFileChanges)))
         case "getView" where channelName == "model-selection":
             // model-selection.getView：providers/models + preferredSelection（chips 只读数据源）。
-            // 失败注入开关：回 fault（死锁用例构造「state 在场 + 词表缺席」前置态）
+            // 失败注入开关：回 fault（死锁用例构造「state 在场 + 词表缺席」前置态）；
+            // 多套餐注水开关：双 provider 同名模型（复合行键/跨套餐消歧路径）
             if modelSelectionViewFails {
                 channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
                                              body: StubRPC.object(["fault": ["name": "StubFailure",
                                                                              "message": "model-selection getView injected failure"]])))
+            } else if injectsMultiPlanModelSelection {
+                channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
+                                             body: StubRPC.object(Self.stubModelSelectionViewMultiPlan)))
             } else {
                 channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(Self.stubModelSelectionView)))
             }
@@ -1795,7 +1831,14 @@ final class E2ELoginStubServer {
                 }
                 return mapped.isEmpty ? nil : mapped
             }
-            let userRow: [String: Any] = ["rowId": bumpRow(sessionId), "kind": "userInput", "text": text]
+            let userRow: [String: Any] = [
+                "rowId": bumpRow(sessionId), "kind": "userInput", "text": text,
+                // 上游真实形态【实证·上游仓 rows.ts:141：realUser 行 sourceCommandId 必带
+                // = 信封 commandId】。此前替身只推助手行不推用户行（注释「避免双气泡」）——
+                // 恰好掩盖了客户端回显消费缺陷（真实桌面必推用户行；2026-10-09 用户报障
+                // 「刚发消息两条、重进一条」在替身上从不复现的根因）。门禁 test26
+                "sourceCommandId": effective?["commandId"]?.stringValue ?? "",
+            ]
             let assistantRow: [String: Any] = [
                 "rowId": bumpRow(sessionId), "kind": "assistantText",
                 "text": "替身回执 · 已收到「\(text)」", "state": "complete",
@@ -1815,7 +1858,9 @@ final class E2ELoginStubServer {
             _lastSendTextPayloadKeys = effective?["payload"]?.objectValue?.keys.sorted() ?? []
             lock.unlock()
             reply(["result": ["accepted": true]])
-            // conversation 增量帧：只下发替身回复（用户行客户端已本地回显，避免双气泡）
+            // conversation 增量帧：真实桌面用户行/助手行**都推**（用户行携
+            // sourceCommandId 供客户端精确消费乐观回显——上游 rows.ts:141 同构）
+            fireConversationDelta(sessionId: sessionId, row: userRow, channel: channel, delay: 0.3)
             fireConversationDelta(sessionId: sessionId, row: assistantRow, channel: channel, delay: 0.35)
         case "resolveInteraction":
             let payloadDict = effective?["payload"]?.objectValue ?? [:]
@@ -1881,6 +1926,46 @@ final class E2ELoginStubServer {
             } else {
                 reply([
                     "commandId": "stub-cmd-\(nthCall)",
+                    "status": "accepted",
+                    "result": ["ok": true],
+                ])
+            }
+        case "switchCollaborationMode":
+            // 协作模式切换替身（test17）：计数 + payload.mode 记账；行为注水——
+            // staleOnce=首击 stale 次击 accepted（CAS 重试链）；statusAbsent=回执
+            // 无 status 键（宽容判定曾假成功落盘的形态，客户端应不落盘不改 chip）；
+            // reject=rejected 带拒因（常驻错误行原文断言）
+            lock.lock()
+            _collaborationModeCallCount += 1
+            let collabNth = _collaborationModeCallCount
+            if let mode = effective?["payload"]?.objectValue?["mode"]?.stringValue {
+                _lastCollaborationMode = mode
+            }
+            let collabBehavior = _collaborationModeBehavior
+            lock.unlock()
+            switch collabBehavior {
+            case "staleOnce" where collabNth == 1:
+                reply([
+                    "commandId": "stub-cmd-collab-\(collabNth)",
+                    "status": "stale",
+                    "reasonCode": "proto.staleRevision",
+                    "revisionAtDecision": 12119,
+                ])
+            case "statusAbsent":
+                reply([
+                    "commandId": "stub-cmd-collab-\(collabNth)",
+                    "result": ["ok": true],
+                ])
+            case "reject":
+                reply([
+                    "commandId": "stub-cmd-collab-\(collabNth)",
+                    "status": "rejected",
+                    "reasonCode": "stub.modeRejected",
+                    "message": "stub: collaboration mode rejected for e2e",
+                ])
+            default:
+                reply([
+                    "commandId": "stub-cmd-collab-\(collabNth)",
                     "status": "accepted",
                     "result": ["ok": true],
                 ])
@@ -2039,6 +2124,39 @@ final class E2ELoginStubServer {
         ],
     ]
 
+    /// model-selection.getView 多套餐形态（parseModelSelectionView 套餐分组按
+    /// providerId 子串 individual-coding-plan/start-plan/team-coding-plan 映射
+    /// 个人/体验/团队套餐）：双 provider 同含 GLM-5.3，当前绑定个人套餐——
+    /// 复合行键「个人套餐|GLM-5.3」「体验套餐|GLM-5.3」各自解析出正确 providerId
+    private static let stubModelSelectionViewMultiPlan: [String: Any] = [
+        "revision": 1,
+        "providers": [
+            [
+                "providerId": "account:zai-individual-coding-plan",
+                "providerName": "Z.ai Individual",
+                "models": [[
+                    "modelId": "GLM-5.3",
+                    "label": "GLM-5.3",
+                    "modelThoughtLevels": ["off", "low", "medium", "high", "max"],
+                ]],
+            ],
+            [
+                "providerId": "account:zai-start-plan",
+                "providerName": "Z.ai Starter",
+                "models": [[
+                    "modelId": "GLM-5.3",
+                    "label": "GLM-5.3",
+                    "modelThoughtLevels": ["off", "low", "medium"],
+                ]],
+            ],
+        ],
+        "preferredSelection": [
+            "providerId": "account:zai-individual-coding-plan",
+            "modelId": "GLM-5.3",
+            "options": ["reasoningLevel": "high"],
+        ],
+    ]
+
     /// provider-settings.getView 应答（【实证·上游仓 provider/facades.ts:149-163】
     /// ProviderSettingsProviderView：providerName?/enabled/executable/accountState?/
     /// effectiveConfig/models…；拒因四值【shared/src/account-provider-state.ts:7-11】）
@@ -2165,6 +2283,17 @@ final class E2ELoginStubServer {
                 "workspacePath": "/Users/e2e/zcode_mobile",
                 "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
             ],
+            // task-index 形态行（无 phase 键、状态走 ZCodeTaskMeta.status——跨工作区行
+            // 的真实数据形状；2026-10-09 报障「进行中的列表没有转圈」：客户端此前只认
+            // phase，task-index 来源行恒不转圈。门禁 test25 断言 04-row-running-sess-e2e-run2）
+            [
+                "sessionId": "sess-e2e-run2",
+                "title": "替身任务 · 跨区运行中",
+                "status": "running",
+                "lastActivityAt": Self.iso8601.string(from: Date()),
+                "lastAssistantPreview": "跨工作区任务输出中…",
+                "workspacePath": "/Users/e2e/matchclub",
+            ],
             // 六类行投影专用会话（消息流只读渲染断言：userInput/assistantText/reasoning/
             // toolCall/subagent/artifact 全 kind 覆盖；无挂起交互不产角标）
             [
@@ -2227,6 +2356,21 @@ final class E2ELoginStubServer {
         }
     }
 
+    /// conversation 帧单调 seq（v1.31 修复：客户端防回放过滤器按「toSeq ≤ 水位=迟到
+    /// 帧」丢弃——替身此前恒 fromSeq=1/toSeq=2，同一会话第二发起的增量全被丢：审批卡
+    /// 决议后不撤下（test08 578 行）、后发的行增量永不达（test07 抽风）。上游 CLI 每
+    /// topic 单调推进；替身按 sessionId 簿记，快照（冷启/重同步语义）重置归零。
+    private var _conversationSeqs: [String: Int] = [:]
+
+    /// 取下一帧 seq（from=当前值, to=当前值+1；调用方须持锁语义由本方法内聚）
+    private func nextConversationSeq(_ sessionId: String) -> (from: Int, to: Int) {
+        lock.lock(); defer { lock.unlock() }
+        let from = _conversationSeqs[sessionId] ?? 0
+        let to = from + 1
+        _conversationSeqs[sessionId] = to
+        return (from, to)
+    }
+
     /// conversation 快照帧（同步即时发送；subscribe 回执前 / resync 回执后两路共用）。
     /// revision=42/logEpoch=epoch-conv-1 对齐上游 conversationSnapshotSchema（两键必填）；
     /// rows 恒空数组（行仍走 rowsRange）；suppressConversationSnapshot 抑制（test15）。
@@ -2242,6 +2386,8 @@ final class E2ELoginStubServer {
         var snapshotState: [String: Any] = ["revision": 42, "pendingInteractions": []]
         lock.lock()
         if let ms = _snapshotModelSelections[sid] { snapshotState["modelSelection"] = ms }
+        // 快照 = 水位重置语义（冷启/重同步）：该会话增量 seq 归零，后续增量从 1 起单调
+        _conversationSeqs[sid] = 0
         lock.unlock()
         let snapshotFrame: [String: Any] = [
             "wireVersion": 1,
@@ -2273,6 +2419,7 @@ final class E2ELoginStubServer {
     /// conversation 增量事件（deltas 逻辑帧，row.appended）
     private func fireConversationDelta(sessionId: String, row: [String: Any], channel: ConnectionChannel, delay: TimeInterval) {
         let topic = "conversation/\(sessionId)"
+        let seq = nextConversationSeq(sessionId)
         let frame: [String: Any] = [
             "wireVersion": 1,
             "kind": "complete",
@@ -2283,8 +2430,8 @@ final class E2ELoginStubServer {
             "frame": [
                 "topic": topic,
                 "subscriptionId": "sub-conv-e2e",
-                "fromSeq": 0,
-                "toSeq": 1,
+                "fromSeq": seq.from,
+                "toSeq": seq.to,
                 "sentAt": Self.iso8601.string(from: Date()),
                 "payload": ["kind": "deltas", "deltas": [["op": "row.appended", "row": row]]],
             ],
@@ -2301,6 +2448,7 @@ final class E2ELoginStubServer {
     private func fireConversationStateDelta(sessionId: String, patch: [String: Any],
                                             channel: ConnectionChannel, delay: TimeInterval) {
         let topic = "conversation/\(sessionId)"
+        let seq = nextConversationSeq(sessionId)
         let frame: [String: Any] = [
             "wireVersion": 1,
             "kind": "complete",
@@ -2311,8 +2459,8 @@ final class E2ELoginStubServer {
             "frame": [
                 "topic": topic,
                 "subscriptionId": "sub-conv-e2e",
-                "fromSeq": 1,
-                "toSeq": 2,
+                "fromSeq": seq.from,
+                "toSeq": seq.to,
                 "sentAt": Self.iso8601.string(from: Date()),
                 "payload": ["kind": "deltas", "deltas": [["op": "state.updated", "patch": patch]]],
             ],

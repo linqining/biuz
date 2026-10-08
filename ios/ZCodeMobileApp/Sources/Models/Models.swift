@@ -419,6 +419,9 @@ struct Conversation: Identifiable, Equatable {
     var directory: String
     var updatedAt: Date
     var unreadCount: Int = 0
+    /// 服务端挂起审批数（pendingInteractionSummary permission+userInput 合计；
+    /// 桌面侧栏「等待确认」同源口径，2026-10-08 用户报障「待审批的有显示移动端也需要」）
+    var pendingApprovalCount: Int = 0
     var isPinned: Bool = false
     var isRunning: Bool = false
     var isArchived: Bool = false

@@ -1068,19 +1068,27 @@ struct AttachmentThumbView: View {
 
     @State private var preview: AttachmentPreview?
     @State private var failed = false
-    @State private var fullscreen: AttachmentPreview?
-    @State private var fullscreenVideo: VideoAttachmentIdentity?
+    /// 全屏承载单口（enum 合流，2026-10-09 报障「视频点击不能播放」加固：同一视图链上
+    /// 挂两个 fullScreenCover(item:) 时后挂者遮蔽先挂者——图片/视频共用一个 cover 位点）
+    private enum FullscreenAttachment: Identifiable {
+        case image(AttachmentPreview)
+        case video(URL)
+
+        var id: String {
+            switch self {
+            case .image(let preview): return "img-\(preview.id)"
+            case .video(let url): return "video-\(url.lastPathComponent)"
+            }
+        }
+    }
+    @State private var fullscreenItem: FullscreenAttachment?
     @State private var savedNotice: String?
     /// 视频封面帧（2026-10-08 报障「视频附件一直转圈」根因：video/* 无渲染分支，
     /// 预览到达后 image==nil、failed==false → 恒落 SpinnerView）
     @State private var videoPoster: UIImage?
     @State private var videoFileURL: URL?
-
-    /// fullScreenCover(item:) 要求 Identifiable——URL 的最小包装
-    struct VideoAttachmentIdentity: Identifiable {
-        let id = UUID()
-        let url: URL
-    }
+    /// 点按重取仍失败（附件读不回/写盘失败）——如实上屏，不静默空点
+    @State private var videoLoadFailed = false
 
     private var image: UIImage? {
         guard let preview, preview.mediaType.hasPrefix("image/") else { return nil }
@@ -1095,7 +1103,9 @@ struct AttachmentThumbView: View {
         Group {
             if let image {
                 Button {
-                    fullscreen = preview
+                    if let preview {
+                        fullscreenItem = .image(preview)
+                    }
                 } label: {
                     thumbFrame(Image(uiImage: image).resizable().scaledToFill())
                 }
@@ -1126,16 +1136,18 @@ struct AttachmentThumbView: View {
                 await prepareVideo()
             }
         }
-        .fullScreenCover(item: $fullscreen) { item in
-            AttachmentFullscreenView(preview: item) {
-                fullscreen = nil
-            } onSave: {
-                saveToPhotos(item)
-            }
-        }
-        .fullScreenCover(item: $fullscreenVideo) { item in
-            AttachmentVideoFullscreenView(videoURL: item.url) {
-                fullscreenVideo = nil
+        .fullScreenCover(item: $fullscreenItem) { item in
+            switch item {
+            case .image(let preview):
+                AttachmentFullscreenView(preview: preview) {
+                    fullscreenItem = nil
+                } onSave: {
+                    saveToPhotos(preview)
+                }
+            case .video(let url):
+                AttachmentVideoFullscreenView(videoURL: url) {
+                    fullscreenItem = nil
+                }
             }
         }
     }
@@ -1144,13 +1156,22 @@ struct AttachmentThumbView: View {
     /// 点按进全屏播放器
     @ViewBuilder private var videoThumb: some View {
         Button {
-            if let videoFileURL {
-                fullscreenVideo = VideoAttachmentIdentity(url: videoFileURL)
-            }
+            openVideo()
         } label: {
             thumbFrame(
                 Group {
-                    if let videoPoster {
+                    if videoLoadFailed {
+                        ZStack {
+                            T.bgInput
+                            VStack(spacing: T.sp1) {
+                                Image(systemName: "play.slash")
+                                    .font(.system(size: 18))
+                                Text("视频加载失败")
+                                    .font(T.font(10))
+                            }
+                            .foregroundColor(T.text3)
+                        }
+                    } else if let videoPoster {
                         Image(uiImage: videoPoster).resizable().scaledToFill()
                     } else {
                         ZStack {
@@ -1179,24 +1200,54 @@ struct AttachmentThumbView: View {
             .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
     }
 
-    /// 视频数据落临时文件（扩展名随 mime：mp4/quicktime/webm 常规三态）→
-    /// AVAssetImageGenerator 抽 0s 帧（背景线程回调，单帧即收）。失败静默走兜底格。
-    private func prepareVideo() async {
-        guard let preview, videoFileURL == nil else { return }
+    /// 视频点按（2026-10-09 用户报障「点击不能播放，是改了格式还是被清理了」）：
+    /// 缓存文件可能已被系统回收（切后台再回前台即可能发生——用户发完视频切桌面核对
+    /// 再回手机点按的远控使用形态必踩；封面帧在内存所以缩略图还在，点开只有黑屏）。
+    /// 点按即校验文件在场，缺则重取重建；仍失败如实上屏（禁静默空点）
+    private func openVideo() {
+        if let url = videoFileURL, FileManager.default.fileExists(atPath: url.path) {
+            fullscreenItem = .video(url)
+            return
+        }
+        Task {
+            await prepareVideo(force: true)
+            if let url = videoFileURL, FileManager.default.fileExists(atPath: url.path) {
+                fullscreenItem = .video(url)
+            } else {
+                videoLoadFailed = true
+            }
+        }
+    }
+
+    /// 视频数据落**稳定缓存路径**（Caches/biuz-video/<会话-附件键>.<ext>——原实现写
+    /// temporaryDirectory + 随机 UUID：iOS 可随时回收 tmp，切后台回来文件已失而封面
+    /// 仍在内存，点按即黑屏；稳定键跨视图重建/返场复用同一路径，不叠随机文件垃圾）
+    /// → AVAssetImageGenerator 抽 0s 帧（背景线程回调，单帧即收）。失败静默走兜底格；
+    /// force = 点按重取路径（文件被回收后重建；封面已在则不重抽）
+    private func prepareVideo(force: Bool = false) async {
+        guard let preview else { return }
+        if !force, let existing = videoFileURL,
+           FileManager.default.fileExists(atPath: existing.path) { return }
         let ext: String
         switch preview.mediaType {
         case "video/quicktime": ext = "mov"
         case "video/webm": ext = "webm"
         default: ext = "mp4"
         }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("biuz-att-\(UUID().uuidString).\(ext)")
+        let safeKey = ("\(sessionID)-\(ref)")
+            .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "att"
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("biuz-video", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("biuz-\(safeKey).\(ext)")
         do {
             try preview.data.write(to: url, options: .atomic)
         } catch {
             return
         }
         videoFileURL = url
+        videoLoadFailed = false
+        guard videoPoster == nil else { return }
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
@@ -1295,11 +1346,15 @@ struct AttachmentFullscreenView: View {
 }
 
 /// 视频附件全屏播放（2026-10-08 报障「视频在手机端没有显示」配套：缩略格点按进入；
-/// 自动开播，关闭即停并释放 player）。无保存入口——相册写入仅图片族（saveToPhotos 同口径）
+/// 自动开播，关闭即停并释放 player）。无保存入口——相册写入仅图片族（saveToPhotos 同口径）。
+/// AVPlayer 对不支持容器（webm 等）/损坏/失联文件不弹错只黑屏——KVO 状态失败如实
+/// 上屏（写面禁静默吞错 §5-12 同口径，2026-10-09 报障「点击不能播放」配套）
 struct AttachmentVideoFullscreenView: View {
     let videoURL: URL
     let onClose: () -> Void
     @State private var player: AVPlayer?
+    @State private var failureText: String?
+    @State private var statusObserver: NSKeyValueObservation?
 
     var body: some View {
         ZStack {
@@ -1307,6 +1362,17 @@ struct AttachmentVideoFullscreenView: View {
             if let player {
                 VideoPlayer(player: player)
                     .accessibilityIdentifier("05-attachment-video-full")
+            } else if let failureText {
+                VStack(spacing: T.sp2) {
+                    Image(systemName: "play.slash")
+                        .font(.system(size: 26))
+                        .foregroundColor(.white.opacity(0.7))
+                    Text(failureText)
+                        .font(T.font(13))
+                        .foregroundColor(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, T.sp4)
+                }
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -1328,8 +1394,16 @@ struct AttachmentVideoFullscreenView: View {
             let p = AVPlayer(url: videoURL)
             player = p
             p.play()
+            statusObserver = p.observe(\.status, options: [.new]) { player, _ in
+                guard player.status == .failed else { return }
+                Task { @MainActor in
+                    self.failureText = String(localized: "视频无法播放（格式不受支持或文件已损坏）")
+                }
+            }
         }
         .onDisappear {
+            statusObserver?.invalidate()
+            statusObserver = nil
             player?.pause()
             player = nil
         }

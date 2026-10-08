@@ -184,6 +184,28 @@ final class ProtocolSchemaTests: XCTestCase {
         XCTAssertFalse(CommandAck(.object(["status": .string("applied")])).isFailure)
     }
 
+    /// 权威成功判定（2026-10-09「计划模式丢失」修复）：落本机持久化/chip 态只认
+    /// 六态词表内非失败态；status 缺席/词表外 = 未知态，读面宽容但不得落盘
+    func testAckAuthoritativeSuccess() {
+        for status in ["accepted", "duplicate", "noop"] {
+            let ack = CommandAck(.object(["status": .string(status)]))
+            XCTAssertTrue(ack.isAuthoritativeSuccess, status)
+            XCTAssertFalse(ack.isFailure, status)
+        }
+        // 未知态：读面宽容（isFailure=false）但非权威成功
+        let absent = CommandAck(.object(["commandId": .string("c")]))
+        XCTAssertFalse(absent.isFailure, "宽容成功读面不变")
+        XCTAssertFalse(absent.isAuthoritativeSuccess, "status 缺席不得落盘")
+        let legacy = CommandAck(.object(["status": .string("applied")]))
+        XCTAssertFalse(legacy.isFailure)
+        XCTAssertFalse(legacy.isAuthoritativeSuccess, "词表外遗留值不得落盘")
+        for status in ["rejected", "stale", "failed"] {
+            let ack = CommandAck(.object(["status": .string(status)]))
+            XCTAssertTrue(ack.isFailure, status)
+            XCTAssertFalse(ack.isAuthoritativeSuccess, status)
+        }
+    }
+
     func testFirstReadableMessagePlainVsZod() {
         XCTAssertEqual(CommandAck.firstReadableMessage("boom"), "boom")
         XCTAssertEqual(

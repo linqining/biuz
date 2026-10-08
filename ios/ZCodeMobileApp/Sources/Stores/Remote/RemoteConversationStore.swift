@@ -167,6 +167,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private var pendingInteractions: [String: JSONValue] = [:]
     /// 会话级模型选择（state.modelSelection 键级替换；桌面 composer 变更随 delta 到达）
     private var sessionModelSelections: [String: JSONValue] = [:] // sessionId → 最新 pendingInteractions 数组
+    /// 会话协作模式投影（state.config.mode 键级替换；上游 product-projection.ts:3785
+    /// onSessionModeChanged → state.updated patch 顶层 config{mode, planEnabled}，
+    /// 命令面与 plan 工具路径 enterPlanMode/exitPlanMode 共用该投影——web
+    /// SessionPane 同读 config.mode 口径）
+    private var sessionCollaborationModes: [String: String] = [:]
     private var conversationSubscriptions: [String: EventSubscription] = [:]
     /// v4 订阅回执 subscriptionId（assembler dropped 时发 resyncConversationV4 的凭据）
     private var conversationSubscriptionIds: [String: String] = [:]
@@ -197,6 +202,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 拉一次做字段级回填；标题落定或窗口过期即停。只占位标题（"新会话"/空）登记。
     private var metaRefreshNextTry: [String: Date] = [:]
     private var metaRefreshDeadline: [String: Date] = [:]
+    /// membership 拉取节流戳（conversations() 每次调用都会触发；返场重拉后须节流）
+    private var membershipRefreshedAt: Date?
     /// bootstrap.tasks 派生的工作区清单（⑥归档拉取范围 + 写目标身份反查；setBootstrapTasks
     /// 时经 AppSession.deriveBootstrapWorkspaces 派生，与切换器枚举同源同公式）
     private var bootstrapWorkspaces: [ServerWorkspaceInfo] = []
@@ -242,6 +249,15 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         /// sessions-index 投影（setTaskPinned/archiveTask 写后的服务端回推；缺席 = 未投影）
         var pinned: Bool?
         var archived: Bool?
+        /// task-index 行状态（ZCodeTaskMeta.status【实证·上游仓 zcode-task-types-core.ts:173,331，
+        /// 词表 running|completed|error，「记录最后一次 prompt 的结果」】；tasks-index 持久层
+        /// task_status 列 2026-10-09 本机实测三值在案）。sessions-index 行无此键（phase 才是
+        /// 它的活性词表）——nil = 行未携带。
+        var taskStatus: String?
+        /// 行内是否真实携带 phase 键（缺省回填 "completedSuccess" 与真实终态不可辨——
+        /// 合成 isRunning 时缺 phase 行才能采纳 taskStatus，实携终态 phase 的行以
+        /// sessions-index 实时值为准，防 task-index 迟到 running 压过实时已收口）
+        var phaseExplicit: Bool = false
         /// 会话自带归属工作区（行内 workspacePath/workspace 字段；要求 4 分组键真源——
         /// 桌面侧栏多项目并存，不得以当前连接的 workspace 兜底，nil = 无法判定归属 → 列表归「其它」组）
         var workspacePath: String?
@@ -279,11 +295,17 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         await refreshDueSessionMeta()
         // membership join 后台刷新（置顶/归档组织态；不阻塞首屏——完成后经
         // conversationsReplaced 事件二次刷新。sessions-index 行无 pinned/archived 字段，
-        // 不拉 tasks-index 则桌面置顶/归档在移动端永久失明，用户报障 2026-10-07）
-        Task { [weak self] in
-            guard let self else { return }
-            await self.refreshTaskMembership()
-            await self.yieldConversationsReplaced()
+        // 不拉 tasks-index 则桌面置顶/归档在移动端永久失明，用户报障 2026-10-07）。
+        // 30s 节流（v1.31：列表 onAppear 返场重拉使本方法调用频次上升——逐 scope
+        // RPC 突发与刚打开会话的订阅/帧处理抢同一 actor，进详情审批卡晚到）
+        if membershipRefreshedAt == nil
+            || Date().timeIntervalSince(membershipRefreshedAt!) >= 30 {
+            membershipRefreshedAt = Date()
+            Task { [weak self] in
+                guard let self else { return }
+                await self.refreshTaskMembership()
+                await self.yieldConversationsReplaced()
+            }
         }
         let list = sortedConversations()
         // 诊断：会话清单（完整 id+标题前缀）转储，供 -ZCodeOpenConversationId 取 id
@@ -391,9 +413,14 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             if sessions[summary.sessionId] == nil {
                 sessions[summary.sessionId] = summary
                 merged += 1
-            } else if sessions[summary.sessionId]?.workspacePath == nil,
-                      let ws = summary.workspacePath {
-                sessions[summary.sessionId]?.workspacePath = ws
+            } else {
+                if sessions[summary.sessionId]?.workspacePath == nil, let ws = summary.workspacePath {
+                    sessions[summary.sessionId]?.workspacePath = ws
+                }
+                // task-index 是 status 字段的权威源（行携带即回填——运行/失败态跨刷新保留）
+                if let status = summary.taskStatus {
+                    sessions[summary.sessionId]?.taskStatus = status
+                }
             }
         }
         if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
@@ -541,6 +568,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                         if let ws = summary.workspacePath, existing.workspacePath != ws {
                             existing.workspacePath = ws
                         }
+                        // task-index 是 status 权威源：行携带即覆盖（含 running→completed
+                        // 收口推进；缺席不动——不剥掉既有值）
+                        if let status = summary.taskStatus {
+                            existing.taskStatus = status
+                        }
                         if existing.lastActivityAt == nil {
                             existing.lastActivityAt = summary.lastActivityAt
                         }
@@ -593,10 +625,23 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     // （真机实测：多项目只显示 mtt_mobile 一组）。无法判定归属 → 空串 → 「其它」组
                     directory: summary.workspacePath ?? "",
                     updatedAt: summary.lastActivityAt ?? Date.distantPast)
-                conversation.isRunning = summary.phase == "running" || summary.phase == "prewarming"
+                // 运行态双源合成（2026-10-09 用户报障「进行中的列表没有转圈」根因：
+                // 跨工作区行只来自 task-index，其行携带 status=running 而无 phase——
+                // 只认 phase 时全库运行行恒不转）。上游口径 buildTaskListResultFromSessions
+                // .ts:68 `status: sessionTask.status ?? taskIndexTask.status`、侧栏转圈
+                // taskListRowActivity.ts:43 phase running/prewarming——两源 OR 合成；
+                // 实携终态 phase 的行以 sessions-index 实时值为准（task-index 迟到的
+                // running 不压过实时收口），phase 缺席行才采纳 taskStatus
+                let phaseActive = summary.phase == "running" || summary.phase == "prewarming"
+                let phaseTerminal = summary.phaseExplicit
+                    && ["completedSuccess", "completedInterrupted", "error", "draft"]
+                        .contains(summary.phase)
+                conversation.isRunning = phaseActive
+                    || (summary.taskStatus == "running" && !phaseTerminal)
                 // 失败任务（桌面侧栏失败任务带「清理」；phase 词表 completedError 族宽容）
                 conversation.isFailed = summary.phase.lowercased().contains("error")
                     || summary.phase.lowercased().contains("failed")
+                    || summary.taskStatus == "error"
                 // G-007 通路 A：行迷你轨道数据（无 run 时 nil，行不渲染占位）
                 conversation.workflowActivity = Self.parseWorkflowActivity(summary.workflowActivity)
                 // 来源过滤（G-006）数据口径：连接态会话均来自当前桌面端（局域网/云中继
@@ -613,6 +658,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     ?? (archivedTaskIds.contains(summary.sessionId) ? true : nil)
                     ?? summary.archived ?? false
                 let pending = summary.pendingPermissionCount + summary.pendingUserInputCount
+                // 服务端挂起审批数（行「等待确认」绿标数据源；桌面侧栏同口径）
+                conversation.pendingApprovalCount = pending
                 // 未读 = 待交互数；「标记未读」本地置位（服务端无未读投影时仍可呈现）
                 conversation.unreadCount = localUnreadFlags[summary.sessionId] == true
                     ? max(pending, 1) : pending
@@ -775,7 +822,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             guard case .object(let dict) = delta else { continue }
             switch dict["op"]?.stringValue {
             case "session.upserted":
-                if let sessionJSON = dict["session"], let summary = SessionSummary.parse(sessionJSON) {
+                if let sessionJSON = dict["session"],
+                   var summary = SessionSummary.parse(sessionJSON) {
+                    // sessions-index 行不携 status：整行替换前保住 task-index 已回填的
+                    // 状态（丢掉则运行行在两源交替推送间闪断）
+                    if summary.taskStatus == nil {
+                        summary.taskStatus = sessions[summary.sessionId]?.taskStatus
+                    }
                     sessions[summary.sessionId] = summary
                 }
             case "session.removed":
@@ -791,9 +844,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     private func applySessionsSnapshot(_ snapshot: JSONValue) {
         guard case .object(let dict) = snapshot else { return }
+        let previous = sessions
         var next: [String: SessionSummary] = [:]
         for item in dict["sessions"]?.arrayValue ?? [] {
-            if let summary = SessionSummary.parse(item) {
+            if var summary = SessionSummary.parse(item) {
+                if summary.taskStatus == nil {
+                    summary.taskStatus = previous[summary.sessionId]?.taskStatus
+                }
                 next[summary.sessionId] = summary
             }
         }
@@ -838,8 +895,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 timeout: Self.pageFetchTimeout)
         }
         rebuildMessages(conversationID)
-        yieldToAll(.messagesReplaced(
-            conversationID: conversationID, messages: messages[conversationID] ?? []))
+        yieldReplacedSyncingBaseline(conversationID)
         return hasMore
     }
 
@@ -1414,12 +1470,29 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private func refreshPendingInteractions(_ conversationID: String, state: JSONValue) {
         if let array = state.objectValue?["pendingInteractions"]?.arrayValue {
             pendingInteractions[conversationID] = .array(array)
+            // v1.31 临时取证（test08 排查，验收后清理）：挂起交互到达计数与 kinds
+            UserDefaults.standard.set(
+                "n=\(array.count) kinds=\(array.compactMap { ($0.objectValue?["kind"] ?? $0.objectValue?["payload"]?.objectValue?["kind"])?.stringValue }.joined(separator: ","))",
+                forKey: "diag.pend.\(conversationID.prefix(14))")
+            UserDefaults.standard.synchronize()
         }
         // 会话级模型选择（桌面 composer 改的是 state.modelSelection——workspace 级
         // model-selection.getView/onDidChange 不覆盖会话级变更，chips 同步以此为权威源）
         if let ms = state.objectValue?["modelSelection"], !ms.isNull {
             sessionModelSelections[conversationID] = ms
         }
+        // 会话协作模式（state.config.mode 权威源；nil/空 = 桌面尚未投影，不落）
+        if let config = state.objectValue?["config"]?.objectValue,
+           let mode = config["mode"]?.stringValue, !mode.isEmpty {
+            sessionCollaborationModes[conversationID] = mode
+        }
+    }
+
+    /// 会话协作模式投影（state.config.mode；nil = 桌面尚未投影——订阅快照未到或
+    /// 旧桌面无该键。ChatViewModel 以此为 chip 权威显示源，桌面改回/工具路径
+    /// enterPlanMode 皆回流，脱钩自愈）
+    func sessionCollaborationMode(in conversationID: String) async -> String? {
+        sessionCollaborationModes[conversationID]
     }
 
     /// 会话级模型选择（state.modelSelection：{providerId, modelId, options:{reasoningLevel}}）
@@ -2046,6 +2119,12 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             (text: trimmed, anchor: anchor, commandId: commandId)
         let echo = ChatMessage(id: echoID, role: .user, text: trimmed, timestamp: Date())
         messages[conversationID, default: []].append(echo)
+        // 订阅方实收基线同步记账（2026-10-09 用户报障「刚发消息两条、重进一条」残留根因：
+        // 直发 append 不更新 lastYieldedMessages，后续 rebuild 差分以**不含回显**的陈旧
+        // previous 比对——[A,B]→[A,B,服务端行] 成「纯尾部新增」只发 append，ViewModel
+        // 里的回显永不撤除 → 双气泡；重进后全量重投影才收敛。凡绕过 yieldMessageEvents
+        // 直发事件，基线必须同步，否则下一次差分必然误判）
+        lastYieldedMessages[conversationID, default: []].append(echo)
         yieldToAll(.messageAppended(conversationID: conversationID, message: echo))
         var payload: [String: JSONValue] = ["text": .string(trimmed)]
         if let requestedDelivery, !requestedDelivery.isEmpty {
@@ -2090,8 +2169,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             // rejected 回执此前被当作「任务已发送」，用户侧表现为「发了没有回复」）
             pendingLocalSends[conversationID]?.removeValue(forKey: echoID)
             messages[conversationID]?.removeAll { $0.id == echoID }
-            yieldToAll(.messagesReplaced(
-                conversationID: conversationID, messages: messages[conversationID] ?? []))
+            yieldReplacedSyncingBaseline(conversationID)
             sendRejections[conversationID] = rejection
             // held 态识别（§11.2，服务端 session-flow.ts:41-45 + web SessionPane.tsx
             // :2886-2887）：缺 disposition / 确认过期（队列在确认窗口内变化）→
@@ -2199,6 +2277,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     if let at = summary.lastActivityAt,
                        existing.lastActivityAt == nil || at > (existing.lastActivityAt ?? .distantPast) {
                         existing.lastActivityAt = at
+                    }
+                    if let status = summary.taskStatus {
+                        existing.taskStatus = status
                     }
                     sessions[summary.sessionId] = existing
                 }
@@ -3134,8 +3215,15 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     /// resync 帧处理后 nudge：全量替换一次现有消息（幂等），驱动 observe 重查 workflowRun
     private func nudgeWorkflowRefresh(conversationID: String) {
-        yieldToAll(.messagesReplaced(
-            conversationID: conversationID, messages: messages[conversationID] ?? []))
+        yieldReplacedSyncingBaseline(conversationID)
+    }
+
+    /// 绕过 yieldMessageEvents 的直发全量替换：lastYieldedMessages 必须与订阅方实收
+    /// 保持一致（见 performSend 回显记账注释——基线失同步 = 下一次差分误判）
+    private func yieldReplacedSyncingBaseline(_ conversationID: String) {
+        let latest = messages[conversationID] ?? []
+        lastYieldedMessages[conversationID] = latest
+        yieldToAll(.messagesReplaced(conversationID: conversationID, messages: latest))
     }
 
     /// workflowRuns 状态键 → 表（整键替换；无 runs 数组形态忽略）
@@ -5389,6 +5477,16 @@ private extension RemoteConversationStore.SessionSummary {
             phase: dict["phase"]?.stringValue ?? "completedSuccess",
             lastActivityAt: parseLastActivityAt(dict),
             lastAssistantPreview: dict["lastAssistantPreview"]?.stringValue)
+        summary.phaseExplicit = dict["phase"]?.stringValue != nil
+        // task-index 状态键（canonical "status"【实证·上游仓 ZCodeTaskMeta.status】；
+        // taskStatus/task_status 序列化变体宽容）。词表外值不采（防把无关通道的
+        // status 键——如认证态——误读为任务状态）
+        if let candidate = dict["status"]?.stringValue
+            ?? dict["taskStatus"]?.stringValue
+            ?? dict["task_status"]?.stringValue,
+            ["running", "completed", "error"].contains(candidate) {
+            summary.taskStatus = candidate
+        }
         if let pending = dict["pendingInteractionSummary"]?.objectValue {
             summary.pendingPermissionCount = pending["permissionCount"]?.intValue ?? 0
             summary.pendingUserInputCount = pending["userInputCount"]?.intValue ?? 0

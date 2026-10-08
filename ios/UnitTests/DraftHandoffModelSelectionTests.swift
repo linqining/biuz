@@ -129,4 +129,24 @@ final class DraftHandoffModelSelectionTests: XCTestCase {
         let pendingAfterRetry = vm.pendingNewSessionSelection
         XCTAssertNil(pendingAfterRetry, "重试成功后清除")
     }
+
+    /// 提交门判定（2026-10-09「还是不能选」修复）：「明确做过选择但解析不出完整
+    /// provider 映射」必须拦截弹确认，禁止静默裸发（选了等于没选）；纯未选择直通
+    func testSubmitGateBlocksUnresolvedSelectionOnly() {
+        // 用户点过模型行（rowKey 在场）但 getView 失败解析不出 → 拦
+        XCTAssertTrue(NewConversationSheet.submitGateBlocked(
+            rowKey: "个人套餐|GLM-5.3", thought: nil, resolved: nil))
+        // 只选了思考档（词表静态梯可达）但模型映射缺失 → 同样拦（此前静默丢档）
+        XCTAssertTrue(NewConversationSheet.submitGateBlocked(
+            rowKey: nil, thought: "high", resolved: nil))
+        // 纯未选择（未点过任何行）→ 直通桌面默认，不拦
+        XCTAssertFalse(NewConversationSheet.submitGateBlocked(
+            rowKey: nil, thought: nil, resolved: nil))
+        // 解析成功 → 不拦（正常路径）
+        XCTAssertFalse(NewConversationSheet.submitGateBlocked(
+            rowKey: "个人套餐|GLM-5.3", thought: "high",
+            resolved: NewSessionModelSelection(
+                providerId: "account:zai-individual-coding-plan", modelId: "GLM-5.3",
+                reasoningLevel: "high")))
+    }
 }

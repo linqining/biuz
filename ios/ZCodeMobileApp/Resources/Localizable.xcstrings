@@ -13114,6 +13114,26 @@
         }
       }
     },
+    "视频加载失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video failed to load"
+          }
+        }
+      }
+    },
+    "视频无法播放（格式不受支持或文件已损坏）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video cannot be played (format unsupported or file corrupted)"
+          }
+        }
+      }
+    },
     "解绑" : {
       "localizations" : {
         "en" : {
@@ -15014,6 +15034,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "; and failed to clean up the new group (%@)"
+          }
+        }
+      }
+    },
+    "模型选择未能下发" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model selection could not be delivered"
+          }
+        }
+      }
+    },
+    "用默认模型继续" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue with default model"
+          }
+        }
+      }
+    },
+    "桌面端模型列表未回执，所选模型/思考等级无法随会话携带。可在行上重试获取后再开始，或用桌面端默认配置继续。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The desktop did not return its model list, so the selected model/reasoning level cannot be carried into the session. Retry fetching from the row, or continue with the desktop's default configuration."
+          }
+        }
+      }
+    },
+    "桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际模式为准" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop acknowledgment status unknown (status missing) · not saved locally; the desktop's actual mode prevails"
+          }
+        }
+      }
+    },
+    "计划模式未切换 · 任务未发送" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plan mode not switched · task not sent"
+          }
+        }
+      }
+    },
+    "投递模式为本机偏好 · 桌面端以实际执行为准" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delivery mode is a local preference · the desktop's actual execution prevails"
           }
         }
       }

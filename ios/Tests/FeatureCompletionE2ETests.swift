@@ -913,7 +913,11 @@ final class FeatureCompletionE2ETests: XCTestCase {
         app_navigationBack(app)
         waitGoneQuickly(element(app, "05-composer-input"), within: 4)
         let row2 = element(app, "04-row-sess-e2e-2")
-        XCTAssertTrue(row2.waitForExistence(timeout: 10), "列表应呈现 sess-e2e-2")
+        // zcode_mobile 分组在列表下部——LazyVStack 未物化行 exists=false（§5-14④），
+        // 裸 waitForExistence 只在恰好排屏内时才过（v1.31 起行内容随增量变富、分组
+        // 排布下移）——滚动查找 + 帧界内判定
+        XCTAssertTrue(row2.waitForExistence(timeout: 6)
+            || scrollToHittable(row2, application: app), "列表应呈现 sess-e2e-2")
         XCTAssertTrue(openConversation(row2, application: app),
                       "进入 sess-e2e-2 应推入详情（membership 重排/滚动重置由 openConversation 吸收）")
         waitLabel(element(app, "05-act-target"), contains: "E2E-Relay-Mac", timeout: 8,
@@ -1651,5 +1655,155 @@ final class FeatureCompletionE2ETests: XCTestCase {
         XCTAssertTrue(element(application, "l1-field-host").waitForExistence(timeout: 8),
                       "应进入手动连接页")
         snap(application, "56-devmode-connect-entries-restored")
+    }
+
+    // MARK: - 门禁 17：协作模式全链（计划模式 chip → CAS 命令 + stale 重试 +
+    // 未知回执不落盘 + 拒因常驻错误行）
+
+    /// 用户报障 2026-10-09「用 /plan 模式发出去没触发 plan」回归门。三段锁死：
+    /// ① stale-once：选计划模式 → 首击 stale 原样重发 → 替身计数 ≥2 且
+    ///   payload.mode=plan，accepted 后 chip 落「计划模式」；② statusAbsent：
+    ///   回执无 status 键（宽容判定曾假成功落盘的形态）→ chip 不变 + 常驻错误行
+    ///   在场（05-composer-mode-fail）；③ reject：rejected 带拒因 → 常驻错误行
+    ///   显示 reasonCode 原文（3s 轻提示错过即「点了没反应」的直接根因）。
+    /// 配套 App 侧修复：chip 接 state.config.mode 桌面投影（上游
+    /// product-projection.ts:3785，命令面与 plan 工具路径共用）+ 权威回执才落盘。
+    func test17_collaborationModeChainAckGateAndPersistentFailureRow() throws {
+        stub.collaborationModeBehavior = "staleOnce"
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+        let detailRow = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(openConversation(detailRow, application: application),
+                      "点击会话行应推入详情")
+        let modeChip = element(application, "05-chip-mode")
+        XCTAssertTrue(modeChip.waitForExistence(timeout: 12), "协作模式胶囊应在场（连接态）")
+
+        // ① stale-once → 重发命中 → chip 落计划模式
+        let planItems = application.buttons.matching(NSPredicate(format: "label == '计划模式'"))
+        XCTAssertTrue(openTargetMenu(modeChip, candidate: planItems),
+                      "点模式胶囊应弹出菜单（计划模式项在场）")
+        planItems.firstMatch.tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "stale 后应重发 switchCollaborationMode") {
+            stub.collaborationModeCallCount >= 2
+        }, "switchCollaborationMode stale 应原样重发；实际=\(stub.collaborationModeCallCount) 次")
+        XCTAssertEqual(stub.lastCollaborationMode, "plan",
+                       "重发命中应携带 payload.mode=plan")
+        XCTAssertTrue(waitUntil(timeout: 8, "accepted 后 chip 应落计划模式") {
+            modeChip.label.contains("计划模式")
+        }, "权威回执才落 chip 态；实际 chip=\(modeChip.label)")
+
+        // ② statusAbsent：回执无 status 键 → 不落盘（chip 不变）+ 常驻错误行在场
+        stub.collaborationModeBehavior = "statusAbsent"
+        let editItems = application.buttons.matching(NSPredicate(format: "label == '自动编辑'"))
+        XCTAssertTrue(openTargetMenu(modeChip, candidate: editItems),
+                      "再次点模式胶囊应弹出菜单（自动编辑项在场）")
+        editItems.firstMatch.tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "statusAbsent 切换应到达替身一次（不重试）") {
+            stub.collaborationModeCallCount == 3
+        }, "未知态不重发；实际=\(stub.collaborationModeCallCount) 次")
+        XCTAssertTrue(waitUntil(timeout: 8, "未知回执应落常驻错误行") {
+            element(application, "05-composer-mode-fail").exists
+        }, "status 缺席=未知态：本机不落盘，如实提示")
+        XCTAssertFalse(modeChip.label.contains("自动编辑"),
+                       "未知态不得改 chip（防与桌面真态脱钩）；实际 chip=\(modeChip.label)")
+        XCTAssertTrue(modeChip.label.contains("计划模式"),
+                      "未知态后 chip 保持原值；实际 chip=\(modeChip.label)")
+
+        // ③ reject：拒因原文常驻（非 3s 轻提示）
+        stub.collaborationModeBehavior = "reject"
+        let yoloItems = application.buttons.matching(NSPredicate(format: "label == '完全访问'"))
+        XCTAssertTrue(openTargetMenu(modeChip, candidate: yoloItems),
+                      "点模式胶囊应弹出菜单（完全访问项在场）")
+        yoloItems.firstMatch.tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "rejected 切换应到达替身") {
+            stub.collaborationModeCallCount == 4
+        }, "rejected 不重发（A14 确定性拒收）；实际=\(stub.collaborationModeCallCount) 次")
+        let failRow = element(application, "05-composer-mode-fail")
+        XCTAssertTrue(waitUntil(timeout: 8, "拒因原文应上常驻错误行") {
+            failRow.exists && failRow.label.contains("stub.modeRejected")
+        }, "常驻错误行应显示 reasonCode 原文供分诊；实际=\(failRow.label)")
+        XCTAssertFalse(modeChip.label.contains("完全访问"),
+                       "rejected 不得改 chip；实际 chip=\(modeChip.label)")
+        snap(application, "57-collab-mode-failure-row")
+        XCTAssertEqual(stub.blockedWriteCommandCount, 0,
+                       "协作模式切换全程不应产生边界外直写命令")
+    }
+
+    // MARK: - 门禁 18：新建 sheet 多套餐复合行键 + 提交门（禁静默裸发）
+
+    /// 两段锁死 2026-10-09「新会话的模型和思考强度还是不能选」：
+    /// ① 多套餐 getView（双 provider 同含 GLM-5.3，替身此前单 provider 无分组——
+    ///   复合行键路径 E2E 从未走到）：点「体验套餐|GLM-5.3」行 → createSession
+    ///   firstInput.modelSelection.providerId 应为体验套餐（同名跨套餐不互串）；
+    /// ② getView 失败 + 仅思考档可选（静态梯）→ 提交 → 确认弹层（此前静默裸发
+    ///   =「选了等于没选」）→「用默认模型继续」→ createSession 到达。
+    func test18_newSheetMultiPlanRowKeyAndSubmitGate() throws {
+        stub.injectsMultiPlanModelSelection = true
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+
+        // ① 多套餐：体验套餐同名行点选 → providerId 精确落体验套餐
+        let newButton = element(application, "04-act-new")
+        XCTAssertTrue(newButton.waitForExistence(timeout: 8), "会话页应有新建入口")
+        newButton.tap()
+        XCTAssertTrue(element(application, "03-input-title").waitForExistence(timeout: 8),
+                      "新建 Sheet 应弹出")
+        let modelRow = element(application, "03-row-model")
+        XCTAssertTrue(modelRow.waitForExistence(timeout: 10), "连接态应呈现可点模型行")
+        waitLabel(modelRow, contains: "GLM-5.3", timeout: 15,
+                  "多套餐 getView 行值应回显当前模型")
+        modelRow.tap()
+        XCTAssertTrue(element(application, "05-composer-option-sheet").waitForExistence(timeout: 6),
+                      "模型行应弹自绘面板（双套餐分组）")
+        let starterRow = element(application, "05-composer-option-体验套餐|GLM-5.3")
+        XCTAssertTrue(starterRow.waitForExistence(timeout: 6),
+                      "体验套餐|GLM-5.3 复合行键应在场（套餐分组投影）")
+        starterRow.tap()
+        XCTAssertTrue(waitGoneQuickly(element(application, "05-composer-option-sheet"), within: 4),
+                      "点选后面板应收起")
+        let titleInput = element(application, "03-input-title")
+        tapAndWaitKeyboard(titleInput, application: application)
+        titleInput.typeText("multi-plan-e2e")
+        element(application, "03-submit-start").tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "跨套餐点选应发出体验套餐 providerId") {
+            guard let selection = stub.lastCreateSessionModelSelection else { return false }
+            return selection["providerId"]?.stringValue == "account:zai-start-plan"
+                && selection["modelId"]?.stringValue == "GLM-5.3"
+        }, "同名跨套餐行应按复合行键解析 providerId；"
+            + "实际=\(String(describing: stub.lastCreateSessionModelSelection))")
+
+        // ② 提交门：getView 失败 + 仅思考档（静态梯）→ 提交弹确认，禁静默裸发
+        app_navigationBack(application)
+        waitGoneQuickly(element(application, "05-composer-input"), within: 5)
+        stub.modelSelectionViewFails = true
+        element(application, "04-act-new").tap()
+        XCTAssertTrue(element(application, "03-input-title").waitForExistence(timeout: 8),
+                      "新建 Sheet 应再次弹出")
+        let thoughtRow = element(application, "03-row-thought")
+        XCTAssertTrue(thoughtRow.waitForExistence(timeout: 6), "思考等级行应在场")
+        // getView 失败：模型行点不开面板（行下提示）；思考行走静态梯仍可选
+        let picked = waitUntil(timeout: 24, "思考档应可选（静态梯回退）") {
+            if !application.buttons["high"].exists {
+                thoughtRow.tap()
+                _ = application.buttons["high"].waitForExistence(timeout: 3)
+            }
+            application.buttons["high"].tap()
+            return thoughtRow.label.contains("high")
+        }
+        XCTAssertTrue(picked, "getView 失败下思考档仍应可点选")
+        let gateInput = element(application, "03-input-title")
+        tapAndWaitKeyboard(gateInput, application: application)
+        gateInput.typeText("submit-gate-e2e")
+        element(application, "03-submit-start").tap()
+        let confirmDefault = element(application, "03-confirm-default-model")
+        XCTAssertTrue(confirmDefault.waitForExistence(timeout: 8),
+                      "选择解析不出应弹提交门确认（禁静默裸发——选了等于没选的根因）")
+        snap(application, "58-submit-gate-confirm")
+        confirmDefault.tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "「用默认模型继续」应创建会话（createSession 到达）") {
+            stub.createSessionCount >= 2
+        }, "确认后直通默认创建；实际 createSession=\(stub.createSessionCount) 次")
+        XCTAssertEqual(stub.blockedWriteCommandCount, 0,
+                       "提交门路径不应产生边界外直写命令")
     }
 }

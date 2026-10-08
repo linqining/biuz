@@ -66,6 +66,13 @@ struct NewConversationSheet: View {
     @State private var slashCommands: [WorkspaceConfigInfo.SlashCommand] = []
     // 模型/思考自绘面板（ComposerOptionSheet 统一语言，用户 2026-10-07「样式一致」）
     @State private var composerSheet: ComposerSheetKind?
+    /// 「重新获取」重开标记：onDismiss（关闭完成态）再呈现——此前在 pick 闭包
+    /// dismiss 进行中 200ms 后直接重开，present-while-dismissing 真机可丢呈现
+    /// （AGENTS §5-15 同型竞态）
+    @State private var reopenModelPanelAfterDismiss = false
+    /// 提交门确认弹层：用户明确做过选择但解析不出完整 provider 映射（getView
+    /// 失败/行键失效）——禁静默裸发，给「用默认模型继续」显式出口
+    @State private var showSelectionDropConfirm = false
 
     /// slash 建议匹配：输入以 "/" 起头且聚焦时呈现
     private var slashMatches: [WorkspaceConfigInfo.SlashCommand] {
@@ -213,7 +220,12 @@ struct NewConversationSheet: View {
             .ignoresSafeArea()
         }
         // 模型/思考自绘面板（ComposerOptionSheet；medium/large——模型清单可能超一屏）
-        .sheet(item: $composerSheet) { kind in
+        .sheet(item: $composerSheet, onDismiss: {
+            if reopenModelPanelAfterDismiss {
+                reopenModelPanelAfterDismiss = false
+                composerSheet = .model
+            }
+        }) { kind in
             ComposerOptionSheet(
                 title: kind.title,
                 footer: sheetFooter(kind),
@@ -225,6 +237,22 @@ struct NewConversationSheet: View {
             .presentationDragIndicator(.hidden)
             .presentationBackground(T.bgElevated)
         }
+        // 提交门确认（选择解析不出时——「用默认模型继续」是显式选择，不是静默丢弃）
+        .confirmationDialog(
+            String(localized: "模型选择未能下发"),
+            isPresented: $showSelectionDropConfirm,
+            titleVisibility: .visible) {
+            Button(String(localized: "用默认模型继续")) {
+                Task { await performSubmit() }
+            }
+            .accessibilityIdentifier("03-confirm-default-model")
+            Button(String(localized: "取消"), role: .cancel) {
+                showSelectionDropConfirm = false
+            }
+            .accessibilityIdentifier("03-confirm-cancel")
+        } message: {
+            Text(String(localized: "桌面端模型列表未回执，所选模型/思考等级无法随会话携带。可在行上重试获取后再开始，或用桌面端默认配置继续。"))
+        }
     }
 
     // MARK: 提交分流（附件 draft / slash 意图预填 / 常规 firstInput）
@@ -232,10 +260,33 @@ struct NewConversationSheet: View {
     private func submit() async {
         // 去重拦截：在途时忽略再次点按（等待窗内连点曾产生多份桌面会话）
         guard !isSubmitting else { return }
+        // 连接态模型/思考等级随 firstInput.modelSelection 下发（会话前选择）。
+        // 提交门：用户明确做过选择（点过模型行/思考档）但解析不出完整 provider
+        // 映射（getView 失败/行键失效）→ 禁止静默裸发——此前「选了等于没选」：
+        // 桌面按默认开跑，用户侧零反馈。弹确认给「用默认模型继续」显式出口。
+        let selection = pendingModelSelection()
+        if Self.submitGateBlocked(
+            rowKey: selectedModelRowKey, thought: selectedThought, resolved: selection) {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            showSelectionDropConfirm = true
+            return
+        }
+        await performSubmit()
+    }
+
+    /// 提交门判定（可测静态）：「明确做过选择但解析不出完整选择」= 拦截弹确认；
+    /// 纯未选择（无行键无思考档）= 直通桌面默认，不拦
+    static func submitGateBlocked(
+        rowKey: String?, thought: String?, resolved: NewSessionModelSelection?) -> Bool {
+        resolved == nil && (rowKey != nil || thought != nil)
+    }
+
+    /// 实际创建（`selection` 为确认弹层「用默认继续」时的 nil 直通）
+    private func performSubmit() async {
+        guard !isSubmitting else { return }
         isSubmitting = true
         defer { isSubmitting = false }
-        // 项目层选择随 createSession 的 workspaceId 下发（directory 参数承载）；
-        // 连接态模型/思考等级随 firstInput.modelSelection 下发（会话前选择）
+        // 项目层选择随 createSession 的 workspaceId 下发（directory 参数承载）
         let selection = pendingModelSelection()
 
         // ① 附件随新会话：draft 创建（桌面不先跑——文件必须先于任务就位），
@@ -375,25 +426,36 @@ struct NewConversationSheet: View {
             if info.planGroups.isEmpty {
                 items = info.models.map { model in
                     ComposerOptionItem(id: model, title: model, detail: "", icon: "cpu",
-                                       selected: model == selectedModel)
+                                       // 用户点选优先（裸名分支 selectedModelRowKey 存裸名）
+                                       selected: selectedModelRowKey == model
+                                           || (selectedModelRowKey == nil && model == selectedModel))
                 }
             } else {
                 // 行 id/payload 携「套餐|模型」复合键（同名模型跨套餐按组解析
                 // providerId——payload 曾存裸名，modelProviders 后到覆盖先到：
-                // 点个人套餐行带出体验套餐 providerId，2026-10-08 报障）；
-                // 选中勾按行 provider == 当前绑定 provider 比对
+                // 点个人套餐行带出体验套餐 providerId，2026-10-08 报障）。
+                // 选中勾跟随用户点选行（selectedModelRowKey）；未点选过才按桌面
+                // 当前绑定预勾（providerMatches 消歧同名跨套餐）——此前勾恒按
+                // 「provider == 桌面绑定」比对，点同名他套餐行勾纹丝不动，观感
+                // 「选不中」（2026-10-09 报障「还是不能选」根因之一）
                 items = info.planGroups.flatMap { group in
                     group.models.map { model in
                         let rowKey = "\(group.plan)|\(model)"
-                        let providerMatches = info.activeProviderId?.isEmpty == false
-                            ? info.modelProvidersByPlan[rowKey] == info.activeProviderId
-                            : true
+                        let checked: Bool
+                        if let picked = selectedModelRowKey {
+                            checked = picked == rowKey
+                        } else {
+                            let providerMatches = info.activeProviderId?.isEmpty == false
+                                ? info.modelProvidersByPlan[rowKey] == info.activeProviderId
+                                : true
+                            checked = model == selectedModel && providerMatches
+                        }
                         return ComposerOptionItem(
                             id: rowKey,
                             title: model,
                             detail: "",
                             icon: "cpu",
-                            selected: model == selectedModel && providerMatches,
+                            selected: checked,
                             section: group.plan,
                             payload: rowKey)
                     }
@@ -413,14 +475,14 @@ struct NewConversationSheet: View {
     private func applySheetPick(_ kind: ComposerSheetKind, _ option: ComposerOptionItem) {
         switch kind {
         case .model:
-            // 「重新获取」项：重拉 getView，成功重开面板（pick 闭包已收起本面板）
+            // 「重新获取」项：置重开标记（onDismiss 关闭完成后再呈现，消
+            // present-while-dismissing 竞态），重拉 getView 成功即以新清单重开
             if option.id == "reload-model" {
+                reopenModelPanelAfterDismiss = true
                 Task {
                     modelInfo = await conversationStore.modelSelectionView()
                     if modelInfo?.models.isEmpty == false {
                         modelLoadHint = nil
-                        try? await Task.sleep(nanoseconds: 200_000_000)
-                        composerSheet = .model
                     } else {
                         modelLoadHint = String(localized: "模型列表获取失败 · 桌面端未回执，点按重试")
                     }
@@ -932,6 +994,20 @@ struct NewConversationSheet: View {
             guard modelInfo?.models.isEmpty == false else {
                 modelLoadHint = String(localized: "模型列表获取失败 · 桌面端未回执，点按重试")
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
+                // 失败后台自动补拉一次（sheet 停留期内桌面恢复常见——成功即静默
+                // 回填并清提示，不自动开面板；用户再点行即达）
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    guard modelInfo?.models.isEmpty != false else { return }
+                    let info = await conversationStore.modelSelectionView()
+                    if info?.models.isEmpty == false {
+                        modelInfo = info
+                        if selectedModel == nil {
+                            selectedModel = info?.activeModel ?? info?.models.first
+                        }
+                        modelLoadHint = nil
+                    }
+                }
                 return
             }
         }
@@ -982,7 +1058,8 @@ struct NewConversationSheet: View {
     /// 会话前选择组装：上游 modelSelectionSchema strict 且 providerId/modelId
     /// `trim().min(1)`——provider 映射缺失时**整条 createSession 被拒**（用户报障
     /// 「创建之后再电脑端看不到」根因：曾发空 providerId）。未选模型或 provider
-    /// 缺失一律返回 nil（桌面端以当前默认开跑，不阻断新建）
+    /// 缺失一律返回 nil——返回 nil 不再等于静默裸发：submit() 提交门对「明确做过
+    /// 选择但解析不出」弹确认（2026-10-09「还是不能选」修复），纯未选择才直通默认
     private func pendingModelSelection() -> NewSessionModelSelection? {
         guard isRemote, let model = selectedModel else { return nil }
         // 行键复合解析优先（同名模型跨套餐不互串）；裸名回退经 activeProviderId/

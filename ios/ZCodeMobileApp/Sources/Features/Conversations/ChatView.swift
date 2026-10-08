@@ -1509,6 +1509,22 @@ struct ComposerBar: View {
             if viewModel.isReadOnly {
                 modeRow
             }
+            // 协作模式切换失败/未知态持久错误行（2026-10-09「计划模式丢失」修复：
+            // 此前仅 3s 轻提示，错过即「点了没反应」；拒因原文常驻直至下次成功切换）
+            if let modeFailure = viewModel.collaborationModeFailureText {
+                HStack(spacing: T.sp2) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(T.red)
+                    Text(modeFailure)
+                        .font(T.font(12))
+                        .foregroundColor(T.red)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("05-composer-mode-fail")
+            }
             // U-6 发送失败持久错误行（优先级高于 3s 轻提示——数据安全提示不自动消失）
             if let sendFailure {
                 HStack(spacing: T.sp2) {
@@ -1749,14 +1765,12 @@ struct ComposerBar: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-composer-mode-row")
         .onAppear {
-            // §2.7③：协作模式无桌面读面（全 Sources 无投影），首屏只能显示本机偏好
-            // ——一次性如实标注；点按切换即真实 CAS 下发并按回执落态。
-            // §4.3：now 档投递同为纯本机态（A-2 后不下发命令），改显投递侧同句式
+            // 协作模式现接桌面投影（state.config.mode，ChatViewModel.refresh-
+            // CollaborationModeProjection 逐事件覆盖）——chip 为桌面真值，不再是
+            // 「本机偏好」；仅投递模式仍为纯本机档，一次性如实标注（§2.7③/§4.3）
             guard !modeDisclaimerShown else { return }
             modeDisclaimerShown = true
-            showSwitchHint(viewModel.deliveryMode == "now"
-                ? String(localized: "投递模式显示为本机偏好 · 桌面端会话模式以执行行为为准")
-                : String(localized: "显示为本机偏好 · 桌面端实际模式以执行行为为准"))
+            showSwitchHint(String(localized: "投递模式为本机偏好 · 桌面端以实际执行为准"))
         }
     }
 

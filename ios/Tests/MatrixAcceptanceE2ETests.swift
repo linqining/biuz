@@ -66,6 +66,46 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         return outcome == .completed
     }
 
+    // MARK: 列表滚动查找（FeatureCompletion 同款移植；§5-14④ 离屏行 exists=true 陈旧帧）
+
+    /// 元素帧落在应用可见界内（带 40pt 边距）才算「在屏」：LazyVStack 已物化但滚出
+    /// 视口的行报 exists/isHittable=true 陈旧帧——只查 isHittable 会跳过滚动直接点空
+    private func isOnScreen(_ el: XCUIElement, application: XCUIApplication) -> Bool {
+        guard el.exists else { return false }
+        let f = el.frame, b = application.frame
+        return f.midX >= b.minX && f.midX <= b.maxX
+            && f.midY >= b.minY + 40 && f.midY <= b.maxY - 40
+    }
+
+    private func dragScroll(_ application: XCUIApplication, fromDY: CGFloat, toDY: CGFloat) {
+        let start = application.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: fromDY))
+        let end = application.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: toDY))
+        start.press(forDuration: 0.06, thenDragTo: end)
+    }
+
+    /// 滚动查找直到目标真正在屏且可命中（目标在视口下方向上拖、上方向下拖）
+    @discardableResult
+    private func scrollToHittable(_ target: XCUIElement, application: XCUIApplication,
+                                  maxSwipes: Int = 8) -> Bool {
+        let deadline = Date().addingTimeInterval(20)
+        for _ in 0..<maxSwipes where Date() < deadline {
+            if isOnScreen(target, application: application), target.isHittable { return true }
+            let upward: Bool
+            if target.exists, target.frame.maxY < application.frame.minY + 80 {
+                upward = false
+            } else {
+                upward = true
+            }
+            if upward {
+                dragScroll(application, fromDY: 0.66, toDY: 0.26)
+            } else {
+                dragScroll(application, fromDY: 0.24, toDY: 0.64)
+            }
+            Thread.sleep(forTimeInterval: 0.4)
+        }
+        return isOnScreen(target, application: application) && target.isHittable
+    }
+
     /// 审批卡/计划卡挂在消息列表顶部，详情默认吸底滚动（defaultScrollAnchor(.bottom)）后
     /// 卡片可能滑出 LazyVStack 渲染窗口——tap 前下滑回顶部揭示（既有 test16 同款兜底）
     @discardableResult
@@ -553,10 +593,14 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
             element(application, "05-composer-input").exists
         }, "进入 sess-e2e-plan 详情")
 
-        // 结构化计划卡（区别于普通命令审批卡 05-approval-card）
+        // 结构化计划卡（区别于普通命令审批卡 05-approval-card）。卡片经订阅后的
+        // state.updated 增量（替身 delay 0.4s）到达——机器负载大时进详情整体变慢，
+        // 先有界等待存在性（v1.31：8 连查的 revealBySwipeDown 曾在卡片抵达前跑完）
         let planCard = element(application, "05-plan-card")
-        XCTAssertTrue(revealBySwipeDown(planCard, application: application),
+        XCTAssertTrue(planCard.waitForExistence(timeout: 12),
                       "plan_approval 交互应渲染结构化计划审批卡（05-plan-card）")
+        XCTAssertTrue(revealBySwipeDown(planCard, application: application),
+                      "计划审批卡应可点（必要时滚动揭示）")
         waitStaticText(application, containing: "修补会话重连竞态", timeout: 8,
                        "计划正文应来自 payload.input.plan（上游 ExitPlanMode 形态）")
         XCTAssertTrue(element(application, "05-act-plan-approve").exists
@@ -1122,5 +1166,76 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
             stub.switchModelConfigCallCount >= 1
         }, "选中模型应真实下发 switchModelConfig")
         snap(application, "model-panel-recovered")
+    }
+
+    // MARK: - 行级运行/待审批指示（2026-10-08 用户报障 parity：「进行中的会话有个转圈
+    // loading,待审批的有显示，这个移动端也需要」——桌面侧栏同款）
+
+    func test25_rowRunningAndPendingApprovalIndicators() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        // 替身 sessions-index：sess-e2e-1 = phase running + permissionCount 1
+        let row1 = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(row1.waitForExistence(timeout: 15), "列表应呈现 sess-e2e-1")
+        // 运行转圈（sessions-index phase 路径）
+        XCTAssertTrue(element(application, "04-row-running-sess-e2e-1").waitForExistence(timeout: 8),
+                      "运行中会话行应呈现转圈（phase=running 路径）")
+        // task-index 形态行（无 phase、status=running——跨工作区行真实形状，
+        // 2026-10-09 报障「进行中的列表没有转圈」根因路径）；离屏时滚动揭示
+        let run2Row = element(application, "04-row-sess-e2e-run2")
+        XCTAssertTrue(run2Row.waitForExistence(timeout: 8) || scrollToHittable(run2Row, application: application),
+                      "task-index 形态行应入列表")
+        XCTAssertTrue(waitUntil(timeout: 6, "task-index status 行应呈现转圈") {
+            element(application, "04-row-running-sess-e2e-run2").exists
+        }, "task-index status=running 行应呈现转圈（此前只认 phase 恒漏）")
+        // 已完成行不误转（status/phase 双终态词表收敛）
+        XCTAssertFalse(element(application, "04-row-running-sess-e2e-2").exists,
+                       "completedSuccess 行不应有运行转圈")
+        // 服务端挂起审批（permissionCount=1）→ 行「等待确认」绿标
+        XCTAssertTrue(element(application, "04-row-pending-sess-e2e-1").waitForExistence(timeout: 8),
+                      "挂起审批会话行应呈现「等待确认」标（pendingInteractionSummary 同源）")
+        snap(application, "matrix-row-running-pending")
+    }
+
+    // MARK: - 回显消费（2026-10-09 用户报障「刚发消息两条、重进一条」回归门）
+
+    /// 发送文本 → 替身按上游真实形态推**用户行**（sourceCommandId=信封 commandId，
+    /// rows.ts:141）+ 助手行 → 乐观回显必须被服务端行精确消费：正文恰出现一次。
+    /// 根因口径：直发 messageAppended(回显) 不记账 lastYieldedMessages，后续差分
+    /// 误判「纯尾部新增」只发 append，ViewModel 回显永不撤除 → 双气泡（重进全量
+    /// 重投影才收敛）。
+    func test26_sendEchoConsumedByServerRowSingleBubble() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+
+        let row = element(application, "04-row-sess-e2e-2")
+        XCTAssertTrue(row.waitForExistence(timeout: 10) || scrollToHittable(row, application: application),
+                      "列表应呈现 sess-e2e-2（必要时滚动揭示）")
+        row.tap()
+        let composer = element(application, "05-composer-input")
+        XCTAssertTrue(composer.waitForExistence(timeout: 12), "进入 sess-e2e-2 详情")
+
+        let marker = "回显消费验证-\(Int(Date().timeIntervalSince1970))"
+        XCTAssertTrue(typeInto(application, composer, text: marker), "输入框应可输入")
+        element(application, "05-composer-send").tap()
+
+        // 助手回执出现 = 用户行+助手行两帧均已抵达并投影
+        XCTAssertTrue(waitStaticText(application, containing: "替身回执 · 已收到", timeout: 12,
+                                     "服务端用户行/助手行增量应抵达并投影"),
+                      "发送后应收到替身回执")
+
+        // 正文恰出现一次：回显与服务端行（sourceCommandId 精确消费）不得同时在屏。
+        // 用户/助手双帧间隔 0.05s——等投影稳定后定数，再隔 1s 复采一次防计数瞬时态
+        let matches = application.staticTexts
+            .matching(NSPredicate(format: "label == %@", marker))
+        let settled = waitUntil(timeout: 8, "发送正文计数应在 1s 窗口内稳定") {
+            let first = matches.count
+            Thread.sleep(forTimeInterval: 1.0)
+            return matches.count == first
+        }
+        XCTAssertTrue(settled, "正文计数未稳定")
+        XCTAssertEqual(matches.count, 1,
+                       "发送正文应恰出现一次（实际 \(matches.count)——>1 = 乐观回显未被服务端行消费）")
+        snap(application, "matrix-g026-echo-consumed")
     }
 }
