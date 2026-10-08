@@ -83,14 +83,17 @@ enum ReadOnlyGate {
     /// 旧协议消息/会话管理入口（sendPrompt/compactSession/goalSession/closeSession）
     /// 随消息面纠偏一并放行，不再列入；仍拦截：会话配置切换（set*）、编辑器保存类
     /// 文件直写（writeWorkspaceFile/saveFile/writeFile/applyEdits）、harness 配置写
-    /// （respondSessionRuntimePreferences/grantWorkspaceHookTrust）、MCP 真实探测、
-    /// 模型调用（generateWorkspaceText/testModelConnectivity）、插件写族、
+    /// （respondSessionRuntimePreferences/grantWorkspaceHookTrust）、模型调用
+    /// （generateWorkspaceText/testModelConnectivity）、插件写族、
     /// workflow 文件写与自动化写族。
+    /// （2026-10-08 回归审核轮 §11.1#3：listMcpServerStatuses 移出——它是列表查询
+    /// 【实证·上游仓 zcodeAgentService.ts:3820】，设置页 MCP 页真实调用面；曾列入
+    /// 「MCP 真实探测」属误分类，连接态 MCP 页因此恒失败。）
     private static let zcodeAgentDirectWriteCommands: Set<String> = [
         "setModel", "setThoughtLevel", "setMode",
         "writeWorkspaceFile", "saveFile", "writeFile", "applyEdits",
         "respondSessionRuntimePreferences", "grantWorkspaceHookTrust",
-        "listMcpServerStatuses", "generateWorkspaceText", "testModelConnectivity",
+        "generateWorkspaceText", "testModelConnectivity",
         // 插件写族（改变 harness 插件工具面）。install/uninstall 放行（P3-11 插件
         // 卸载：桌面代执行，对齐 v1.5 git 写族分类先例——web 端同参同面；卸载 UI 带
         // confirmationDialog 确认；安装 UI 待市场浏览面后续版本接入，gate 先按分类

@@ -1654,6 +1654,21 @@ struct ComposerBar: View {
         }
         // 图库可选图片+视频（上游 web 同口径；视频受 20MB 通道上限约束，超限在附件上传事务拦截）
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, matching: .any(of: [.images, .videos]))
+        // held 态确认（§11.2）：暂停队列下发送被拒 → 清空/保留队列并发送
+        .confirmationDialog(
+            String(localized: "发送被暂停的队列拦下"),
+            isPresented: $viewModel.heldConfirmVisible,
+            titleVisibility: .visible) {
+            Button(String(localized: "清空队列并发送")) {
+                Task { await viewModel.confirmHeldSend(clearQueue: true) }
+            }
+            Button(String(localized: "保留队列并发送")) {
+                Task { await viewModel.confirmHeldSend(clearQueue: false) }
+            }
+            Button(String(localized: "取消"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "队列已暂停。发送前需确认如何处理挂起的排队消息（确认后按当前队列快照执行）。"))
+        }
         .onChange(of: photoPickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             photoPickerItems = []
@@ -2046,10 +2061,16 @@ struct ComposerBar: View {
         .accessibilityIdentifier("05-composer-remote-chips")
     }
 
-    /// 模型胶囊触发（面板：套餐分节 + 选中勾；回执失败在 chips 行上方提示）
+    /// 模型胶囊触发（面板：套餐分节 + 选中勾；回执失败在 chips 行上方提示）。
+    /// 点按守卫开门（2026-10-08 报障「对话框模型选不了」）：清单在场直开；getView
+    /// 失败/空回执种出的空清单走重拉——成功开面板、失败行上提示，不弹零行空面板
     private func modelMenu(_ selection: ModelSelectionInfo) -> some View {
         Button {
-            composerSheet = .model
+            if selection.hasSelectableModels {
+                composerSheet = .model
+            } else {
+                Task { await retryThenOpenModelPanel() }
+            }
         } label: {
             pill(icon: nil, text: selection.activeModel ?? "--", chevron: true)
         }
@@ -2335,6 +2356,7 @@ struct ComposerBar: View {
 
     private func importFiles(_ result: Result<[URL], Error>) {
         guard case .success(let urls) = result else { return }
+        var addedAny = false
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -2346,8 +2368,13 @@ struct ComposerBar: View {
                 name: url.lastPathComponent,
                 mediaType: AttachmentUploadService.mediaType(forFileExtension: url.pathExtension),
                 data: data) {
-                Task { await startUploadIfNeeded() }
+                addedAny = true
             }
+        }
+        // 单路批量补传（§11.2 并发治理：此前每 URL 一路 Task，多选 N 个文件即
+        // N 路并发上传事务，可击穿服务端 staged 64MB 预算）
+        if addedAny {
+            Task { await startUploadIfNeeded() }
         }
     }
 
@@ -2482,7 +2509,13 @@ struct PendingAttachmentThumb: View {
     var onRemove: () -> Void
     var onRetry: () -> Void
 
+    /// 解码缓存（§11.2：previewImage 此前是 computed property——每块送达更新
+    /// uploadedBytes 触发重渲染，20MB/54 块即 54 次全尺寸 UIImage 解码，大图
+    /// 上传期间 CPU/内存尖峰）。视图本地 @State 缓存一次解码结果
+    @State private var cachedPreview: UIImage?
+
     private var previewImage: UIImage? {
+        if let cachedPreview { return cachedPreview }
         guard item.isImage, let image = UIImage(data: item.data) else { return nil }
         return image
     }
@@ -2496,6 +2529,11 @@ struct PendingAttachmentThumb: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(width: 72, alignment: .leading)
+        }
+        .onAppear {
+            if cachedPreview == nil, item.isImage {
+                cachedPreview = UIImage(data: item.data)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-attach-item")
@@ -2546,7 +2584,8 @@ struct PendingAttachmentThumb: View {
             } else {
                 T.bgInput
                     .overlay(
-                        Image(systemName: item.isImage ? "photo" : "doc.fill")
+                        Image(systemName: item.isImage ? "photo"
+                            : (item.isVideo ? "video.fill" : "doc.fill"))
                             .font(.system(size: 18))
                             .foregroundColor(T.text3))
             }

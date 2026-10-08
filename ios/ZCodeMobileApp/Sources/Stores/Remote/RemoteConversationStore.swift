@@ -180,15 +180,23 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 重命名/未读的本地即时反馈 override（renameTask/setTaskUnread 写失败回滚）
     private var localTitleOverrides: [String: String] = [:]
     private var localUnreadFlags: [String: Bool] = [:]
-    /// 乐观回显的在途用户消息（conversationID → [消息ID: (文本, 锚点=发送时已知行数)]）；
-    /// 服务端 userInput 行抵达（同文本）后去重移除，避免重连/快照后出现双气泡
-    private var pendingLocalSends: [String: [String: (text: String, anchor: Int)]] = [:]
+    /// 乐观回显的在途用户消息（conversationID → [消息ID: (文本, 锚点=发送时已知行数,
+    /// commandId=本次 sendText 信封 id)]）；服务端 userInput 行带 sourceCommandId
+    /// 【实证·上游仓 rows.ts userInputRowSchema sourceCommandId「realUser/guided 必带」】
+    /// 时按 id 精确消费（同文本多次发送不互吞），旧行无此键回退同文本匹配
+    private var pendingLocalSends: [String: [String: (text: String, anchor: Int, commandId: String)]] = [:]
     /// 本地归档动作缓存（archiveTask/unarchiveTask 写后的即时呈现；listArchivedTasks 合并）
     private var localArchivedCache: [String: Conversation] = [:]
     /// 归档行自带的归属工作区（listArchivedTasks 行 workspacePath 字段；unarchiveTask
     /// 写目标以行归属为准——web 同款 `{taskId, workspacePath: 行.workspacePath,
     /// workspaceIdentity?}`，不得以当前连接工作区冒充，⑥ 2026-10-06）
     private var archivedTaskWorkspaces: [String: (path: String, identity: String?)] = [:]
+    /// 发送后活跃会话的元数据兜底刷新（2026-10-08 报障「新会话标题不回填」）：桌面
+    /// 自动命名随 sessions-index/task_title_changed 增量到达，但增量偶发不抵达且列表
+    /// 返场不重拉——sendText 成功后登记刷新窗口，conversations() 到期单区 listSessions
+    /// 拉一次做字段级回填；标题落定或窗口过期即停。只占位标题（"新会话"/空）登记。
+    private var metaRefreshNextTry: [String: Date] = [:]
+    private var metaRefreshDeadline: [String: Date] = [:]
     /// bootstrap.tasks 派生的工作区清单（⑥归档拉取范围 + 写目标身份反查；setBootstrapTasks
     /// 时经 AppSession.deriveBootstrapWorkspaces 派生，与切换器枚举同源同公式）
     private var bootstrapWorkspaces: [ServerWorkspaceInfo] = []
@@ -202,6 +210,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private var archivedTaskIds: Set<String> = []
     /// 最近一次归档/取消归档写失败原文（空串 = 无；列表页如实提示，写面禁止静默）
     private var _lastArchiveFailureText = ""
+    /// 任务元数据写（置顶/改名/未读/删除）最近一次失败原文（§11.2 写面禁静默——
+    /// 此前三处 catch 只回滚 override 不上屏，用户「点了没反应」无从分诊）
+    private var _lastTaskWriteFailureText = ""
+    func lastTaskWriteFailureText() async -> String { _lastTaskWriteFailureText }
     func lastArchiveFailureText() async -> String { _lastArchiveFailureText }
     /// workspace-config / model-selection 只读投影（连接态数据源）
     private var workspaceConfigState = WorkspaceConfigInfo()
@@ -263,6 +275,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         await ensureSessionsIndexSubscribed()
         await mergeBootstrapTaskIndex()
         await mergeGlobalTaskIndex()
+        // 发送后活跃会话的标题/预览兜底刷新（到期才拉，单区一次；不阻塞常规合并）
+        await refreshDueSessionMeta()
         // membership join 后台刷新（置顶/归档组织态；不阻塞首屏——完成后经
         // conversationsReplaced 事件二次刷新。sessions-index 行无 pinned/archived 字段，
         // 不拉 tasks-index 则桌面置顶/归档在移动端永久失明，用户报障 2026-10-07）
@@ -624,14 +638,33 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     // MARK: sessions-index 订阅
 
+    /// sessions-index 帧 topic 键（2026-10-08 回归审核轮 §11.2）：服务端按
+    /// resolveWorkspaceKey = identity || path 派发（zcodeAgentService.ts:5519-5521、
+    /// sessionsIndexTopic(target.workspaceIdentity?.trim() || target.workspacePath)
+    /// ——agentSessionsIndexTransport.ts:70-82）——identity 型工作区（remote/SSH/
+    /// WSL）帧 topic 是 identity 而非 path，此前恒用 path 注册 handler，
+    /// 该类工作区快照/增量全部静默丢弃（列表退化为 30s 聚合）。
+    private var sessionsIndexTopicKey: String {
+        if let identity = workspace.workspaceIdentity, !identity.isEmpty {
+            return identity
+        }
+        return workspace.path
+    }
+
     private func ensureSessionsIndexSubscribed() async {
         guard sessionsIndexSubscription == nil, let connection else { return }
-        let topic = "sessions-index/\(workspace.path)"
+        let topic = "sessions-index/\(sessionsIndexTopicKey)"
         do {
-            // 服务端签名要求 topic + workspacePath（zcodeAgentPluginParams.ts:8-11）
+            // 服务端签名要求 topic + workspacePath（zcodeAgentPluginParams.ts:8-11）；
+            // runtimePolicy=existing-only（被动订阅禁拉起 Agent——zcodeAgentService.ts:5494-5497
+            // 注释口径，此前缺省落入 start-if-needed，打开列表即可能为该区拉起 CLI）
             let arg = RPCValue.jsonObject { builder in
                 builder.set("topic", topic)
                 builder.set("workspacePath", workspace.path)
+                if let identity = workspace.workspaceIdentity, !identity.isEmpty {
+                    builder.set("workspaceIdentity", identity)
+                }
+                builder.set("runtimePolicy", "existing-only")
             }
             // handler 先于订阅注册：中继桥快照帧在 subscribe 回执前即推，
             // routeFrame 对未注册 topic 的帧会丢弃（workspace-config 的 replay 机制同一动因）
@@ -709,18 +742,24 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         } else {
             builder.set("base", JSONValue.null)
         }
+        builder.set("runtimePolicy", "existing-only")
         _ = try? await connection.call(
             "zcode-agent", "resyncSessionsIndexV4", .json(.object(builder.fields)))
     }
 
     private func disposeSessionsIndex() async {
         guard let connection, sessionsIndexSubscription != nil else { return }
-        await connection.removeFrameHandler(topic: "sessions-index/\(workspace.path)")
+        await connection.removeFrameHandler(topic: "sessions-index/\(sessionsIndexTopicKey)")
         sessionsIndexSubscription = nil
+        let subscriptionId = sessionsIndexSubscriptionId
         sessionsIndexSubscriptionId = nil
         let arg = RPCValue.jsonObject { builder in
-            builder.set("topic", "sessions-index/\(workspace.path)")
+            builder.set("topic", "sessions-index/\(sessionsIndexTopicKey)")
             builder.set("workspacePath", workspace.path)
+            // 同 disposeConversation：退订按 subscriptionId 精确匹配，必带（§11.1#2）
+            if let subscriptionId {
+                builder.set("subscriptionId", subscriptionId)
+            }
         }
         _ = try? await connection.call("zcode-agent", "unsubscribeSessionsIndexV4", arg)
     }
@@ -839,8 +878,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             // 帧面与订阅同 workspace【P0-1，2026-10-08 真机实据 sess_e8677b05】：订阅按
             // 归属寻址落 B 区 CLI，而 eventListen 恒绑连接区 A——上游 ownsFrame 按
             // workspaceKey 硬匹配，B 区帧永不投递（快照/revision/增量全丢）。幂等：
-            // 已挂路直接返回。
-            await connection.ensureConversationFrameStream(workspacePath: target.path)
+            // 已挂路直接返回。identity 型工作区携 identity（emitter 键口径，§11.2）。
+            await connection.ensureConversationFrameStream(
+                workspacePath: target.path, workspaceIdentity: target.identity)
             let arg = RPCValue.jsonObject { builder in
                 builder.set("topic", topic)
                 applySessionTarget(&builder, sessionID: conversationID)
@@ -964,14 +1004,36 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
     }
 
+    /// 会话关闭释放（2026-10-08 回归审核轮 §11.1#2）：官方 web 在 pane 引用归零后
+    /// 经 keep-warm 退订（sessionDataLayer.ts:130-164）；移动端对位——ChatViewModel
+    /// deinit 时调用（导航栈弹出销毁 @StateObject 的时机），订阅/帧 handler/
+    /// 水位/revision 一并回收 + 携 subscriptionId 真退订。重进会话由
+    /// ensureConversationSubscribed 幂等重订（快照权威重建）。
+    func closeConversation(_ conversationID: String) async {
+        conversationSubscriptions[conversationID]?.cancel()
+    }
+
     private func disposeConversation(_ conversationID: String) async {
         guard let connection, conversationSubscriptions.removeValue(forKey: conversationID) != nil else { return }
+        let subscriptionId = conversationSubscriptionIds.removeValue(forKey: conversationID)
         await frameBarrier.abort(conversationID)
         await connection.removeFrameHandler(topic: "conversation/\(conversationID)")
-        conversationSubscriptionIds.removeValue(forKey: conversationID)
         conversationWatermarks.removeValue(forKey: conversationID)
+        // 水位与 revision 同清（2026-10-08 回归审核轮 §11.3：此前只清水位不清
+        // revision——重进会话快照未回放窗口内 ensureStateRevision 会被残留旧值
+        // 立即满足，而 logEpoch 已清，非 row-target CAS 命令被本地拒发门误拦）
+        conversationStateRevisions.removeValue(forKey: conversationID)
+        snapshotState.removeValue(forKey: conversationID)
+        pendingInteractions.removeValue(forKey: conversationID)
         let arg = RPCValue.jsonObject { builder in
             builder.set("topic", "conversation/\(conversationID)")
+            // subscriptionId 必带（2026-10-08 回归审核轮 §11.1#2）：上游
+            // unsubscribeV4Route 按 subscriptionId 精确匹配路由
+            // （zcodeAgentService.ts:1696-1710），不中即静默 return——此前缺省
+            // 时退订恒为空操作，桌面侧订阅与帧 emitter 单调增长
+            if let subscriptionId {
+                builder.set("subscriptionId", subscriptionId)
+            }
             applySessionTarget(&builder, sessionID: conversationID)
         }
         _ = try? await connection.call("zcode-agent", "unsubscribeConversationV4", arg)
@@ -1011,6 +1073,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 "zcode-agent", "conversationRowsRangeV4", .json(.object(buildFields(builder))),
                 timeout: timeout)
             guard let dict = result.jsonValue?.objectValue else { return false }
+            // A9 读面校验（2026-10-08 回归审核轮 §11.2，官方 conversationProjection
+            // Store.ts:1004-1012 同构）：在途分页回执的 atLogEpoch 与订阅水位 epoch
+            // 不符（CLI 重启/换代窗口）→ 整批作废不并入——rowId 只在一个 epoch 内
+            // 有意义，旧纪元行复活进新表 = 跨纪元混行
+            if let atEpoch = dict["atLogEpoch"]?.stringValue,
+               let currentEpoch = conversationWatermarks[conversationID]?.logEpoch,
+               !currentEpoch.isEmpty, atEpoch != currentEpoch {
+                UserDefaults.standard.set(
+                    "rowsRange epoch 失配作废（at=\(atEpoch) current=\(currentEpoch)）",
+                    forKey: "diag.rowsrange.\(conversationID.prefix(14))")
+                return false
+            }
             let pageRows = (dict["rows"]?.arrayValue ?? []).compactMap { row -> RowRecord? in
                 guard let rowId = row.objectValue?["rowId"]?.intValue else { return nil }
                 return RowRecord(rowId: rowId, json: row)
@@ -1100,6 +1174,27 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     }
 
     private func handleConversationFrame(_ conversationID: String, frame: V4TopicFrame) {
+        // 帧过滤（2026-10-08 回归审核轮 §11.2，官方 conversationProjectionStore.ts:606-621 同构）：
+        // ① subscriptionId 过滤——旧订阅迟到帧直接丢（退订此前不带 subId 恒无效，桌面侧
+        //    旧订阅必然在场，其迟到帧回写旧状态是实害）；帧缺 subId（旧桌面）不过滤。
+        // ② fromSeq 连续性——已知水位且 delta 帧断档（fromSeq > 水位+1）时不猜、不写投影、
+        //    不推进水位，转全量 resync 恢复；迟到帧（toSeq ≤ 水位）静默丢。
+        if let knownSubId = conversationSubscriptionIds[conversationID],
+           !frame.subscriptionId.isEmpty, frame.subscriptionId != knownSubId {
+            return
+        }
+        if let (_, lastSeq) = conversationWatermarks[conversationID], frame.snapshot == nil {
+            if frame.toSeq <= lastSeq { return }
+            if frame.fromSeq > lastSeq + 1 {
+                if let subId = conversationSubscriptionIds[conversationID] {
+                    UserDefaults.standard.set(
+                        "帧断档（last=\(lastSeq) from=\(frame.fromSeq)）→ 全量 resync",
+                        forKey: "diag.watchdog.\(conversationID.prefix(14))")
+                    Task { await forceFullResync(conversationID: conversationID, subscriptionId: subId) }
+                }
+                return
+            }
+        }
         // 水位记录（resync base）：logEpoch 仅快照携带，缺席沿用旧值
         let previousEpoch = conversationWatermarks[conversationID]?.logEpoch
         conversationWatermarks[conversationID] = (
@@ -1115,8 +1210,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 // 全量 resync 语义标记回收：forceFullResync（base=null）后的第一帧
                 // 快照按权威全集整表替换（桌面已移除的行不残留——P2，2026-10-07
                 // 审查轮）；常规订阅快照仍按 rowId 键级合并（尾部窗口覆盖，旧行
-                // 保留——web 冷/热判定同构）
-                let replaceWholeTable = fullResyncSnapshotsPending.remove(conversationID) != nil
+                // 保留——web 冷/热判定同构）。
+                // A9 补齐（2026-10-08 回归审核轮 §11.2）：logEpoch 换代（CLI 重启/
+                // 重建/fork 会重新编号 rowId）时同样整表替换——rowId 只在一个 epoch
+                // 内有意义，跨纪元键级合并会把两个纪元的行拼进同表（官方
+                // conversationProjectionStore.ts:660-671「snapshot → 整体替换」）
+                let snapshotEpoch = dict["logEpoch"]?.stringValue
+                let epochChanged = previousEpoch != nil && snapshotEpoch != nil
+                    && snapshotEpoch != previousEpoch
+                let replaceWholeTable =
+                    fullResyncSnapshotsPending.remove(conversationID) != nil || epochChanged
                 if let rowsArray = dict["rows"]?.arrayValue {
                     var table: [Int: RowRecord] = replaceWholeTable
                         ? [:] : (rows[conversationID] ?? [:])
@@ -1129,9 +1232,39 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 } else if replaceWholeTable {
                     rows[conversationID] = [:]
                 }
-                if let state = dict["state"] {
+                // 快照 state 双形态（2026-10-08 回归审核轮 §11.1#1）：上游 main 的
+                // conversationSnapshotSchema 已扁平化（queue/pendingInteractions/
+                // workflowRuns/goal/plan 等全在快照顶层，snapshot.ts:470-509；CLI 发布
+                // 器与 host 转发均扁平直通），旧桌面为嵌套 state 键（真机 diag 实证
+                // state.revision）。合并视图 = 嵌套 state ∪ 顶层扁平键——两种桌面
+                // 形态下投影都成立；下游（refreshPendingInteractions/applyWorkflowRuns
+                // State/goal·plan 面板）继续按统一 merged state 读键。
+                let stateKeys: Set<String> = [
+                    "control", "availability", "inputRouting", "meta", "sharedContextImport",
+                    "config", "modelTransition", "usage", "queue", "pendingInteractions",
+                    "pendingCommands", "backgroundWorks", "subagents", "workflowRuns",
+                    "goal", "plan", "workspaceHookAdmission",
+                ]
+                var merged: [String: JSONValue] = dict["state"]?.objectValue ?? [:]
+                var hasState = !merged.isEmpty
+                for (key, value) in dict where stateKeys.contains(key) {
+                    merged[key] = value
+                    hasState = true
+                }
+                // 会话级模型选择的扁平位（上游 session-config.ts:7 为
+                // config.modelSelection）：兼容投影到既有 state.modelSelection 读法
+                if merged["modelSelection"] == nil || merged["modelSelection"] == .null {
+                    let config = dict["config"]?.objectValue
+                        ?? dict["state"]?.objectValue?["config"]?.objectValue
+                    if let selection = config?["modelSelection"], selection != .null {
+                        merged["modelSelection"] = selection
+                        hasState = true
+                    }
+                }
+                if hasState {
+                    let state = JSONValue.object(merged)
                     snapshotState[conversationID] = state
-                    if let revision = state.objectValue?["revision"]?.intValue {
+                    if let revision = merged["revision"]?.intValue {
                         conversationStateRevisions[conversationID] = revision
                     }
                     // 一次性取证：CAS baseRevision 的真实来源（快照顶层/state/帧序号；验收后移除）
@@ -1140,11 +1273,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                         let revisionLike = dict.filter { key, _ in
                             key.lowercased().contains("revision") || key.lowercased().contains("epoch") || key.lowercased().contains("seq")
                         }.map { "\($0)=\(String(describing: $1).prefix(40))" }.joined(separator: " ")
-                        let stateRevisionLike = state.objectValue?.filter { key, _ in
-                            key.lowercased().contains("revision") || key.lowercased().contains("epoch")
-                        }.map { "\($0)=\(String(describing: $1).prefix(40))" }.joined(separator: " ")
                         UserDefaults.standard.set(
-                            "frameSeq=\(frame.toSeq) top[\(revisionLike)] state[\(stateRevisionLike ?? "nil")]",
+                            "frameSeq=\(frame.toSeq) top[\(revisionLike)] state[revision=\(String(describing: merged["revision"]).prefix(20))]",
                             forKey: "diag.rev.dump")
                         UserDefaults.standard.synchronize()
                     }
@@ -1307,6 +1437,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         let table = rows[conversationID] ?? [:]
         var result: [ChatMessage] = []
         var serverUserTexts: Set<String> = []
+        var serverSourceCommandIds: Set<String> = []
         for rowId in table.keys.sorted() {
             guard let record = table[rowId],
                   let row = record.json.objectValue,
@@ -1315,6 +1446,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             case "userInput":
                 let text = row["text"]?.stringValue ?? ""
                 serverUserTexts.insert(text)
+                if let sourceCommandId = row["sourceCommandId"]?.stringValue, !sourceCommandId.isEmpty {
+                    serverSourceCommandIds.insert(sourceCommandId)
+                }
                 result.append(ChatMessage(
                     id: "row-\(rowId)", role: .user,
                     text: text,
@@ -1432,11 +1566,14 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         UserDefaults.standard.set(
             feedbackRows.isEmpty ? "none" : feedbackRows,
             forKey: "diag.feedback.\(conversationID.prefix(14))")
-        // 在途回显：同文本服务端行已抵达 → 消费掉；未抵达的按锚点插入保持时间序
+        // 在途回显：服务端行 sourceCommandId 与发送 commandId 相等（精确）或同文本
+        // （旧行兜底）任一命中即消费掉；未抵达的按锚点插入保持时间序
         // （服务端不回推用户行时，回显应位于其发送后的助手回复之前）
         if var outstanding = pendingLocalSends[conversationID], !outstanding.isEmpty {
             var consumedIDs: [String] = []
-            for (echoID, entry) in outstanding where serverUserTexts.contains(entry.text) {
+            for (echoID, entry) in outstanding
+            where serverSourceCommandIds.contains(entry.commandId)
+                || serverUserTexts.contains(entry.text) {
                 consumedIDs.append(echoID)
             }
             for echoID in consumedIDs {
@@ -1499,8 +1636,14 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     private func yieldMessageEvents(_ conversationID: String, latest: [ChatMessage]) {
         let previous = lastYieldedMessages[conversationID] ?? []
+        // 回显消费即中段变更（尾部「删回显+加行」总数不变，append 语义表达不了——
+        // 2026-10-08 用户报障「消息重复」根因：走 append 分支后 ViewModel 里的回显
+        // 永不移除）。共享前缀任一 id 错位即发全量 replaced，驱动订阅方整表重建。
+        let headDrifted = previous.count > 0
+            && zip(previous, latest).contains { $0.id != $1.id }
         // 首帧 / 头部插入（loadOlder 前置历史）/ 收缩：尾部 append 语义表达不了，发全量 replaced
-        if previous.isEmpty || previous.first?.id != latest.first?.id || latest.count < previous.count {
+        if previous.isEmpty || previous.first?.id != latest.first?.id || latest.count < previous.count
+            || headDrifted {
             yieldToAll(.messagesReplaced(conversationID: conversationID, messages: latest))
         } else {
             for (index, message) in latest.enumerated() where index >= previous.count {
@@ -1645,7 +1788,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     static func mapTodoStatus(_ raw: String) -> TodoState {
         switch raw.lowercased() {
         case "completed", "done", "success": return .done
-        case "in_progress", "running", "active", "now": return .now
+        case "in_progress", "inProgress", "running", "active", "now": return .now
         case "failed", "error", "cancelled", "aborted": return .failed
         default: return .todo
         }
@@ -1666,6 +1809,35 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private func rowWorkspacePath(_ conversationID: String) -> String {
         sessions[conversationID]?.workspacePath.flatMap { $0.isEmpty ? nil : $0 }
             ?? workspace.path
+    }
+
+    /// 会话归属 workspace 只读解析（跨 Store 复用——RemoteFileStore 的会话域
+    /// 方法按归属寻址，§11.3：conversationFileChangesV4 此前缺 workspace 信封，
+    /// 跨工作区会话 getReadOnlyClient 按 undefined 键不命中任何活跃 workspace）
+    func conversationWorkspaceTarget(for sessionID: String) -> (path: String, identity: String?) {
+        workspaceTarget(for: sessionID, overridePath: nil)
+    }
+
+    /// 会话当前 revision/logEpoch 水位（fileChanges 的 base 数据源——web 用当前
+    /// 水位而非恒 0；无订阅水位时回退 0/"0" 旧语义）
+    func conversationBaseWatermark(for sessionID: String) -> (revision: Int, logEpoch: String) {
+        (conversationStateRevisions[sessionID] ?? 0,
+         conversationWatermarks[sessionID]?.logEpoch ?? "0")
+    }
+
+    /// zcode-task 行级写的统一寻址（2026-10-08 回归审核轮 §11.2/§11.3）：path 与
+    /// identity 都取**行归属工作区**——setArchived 既有口径（:2209-2217）抽公共；
+    /// 此前 setPinned/renameTask/setTaskUnread 只带行归属 path 不带归属 identity，
+    /// deleteTask 更是行 path + 连接区 identity 混搭——identity 在场即压倒 path
+    /// （resolveWorkspaceKey = identity || path，taskIndexRepo.ts:169-171），跨区
+    /// 行在 identity 型工作区上写落错区或被拒。
+    private func taskWriteTarget(_ conversationID: String) -> (path: String, identity: String?) {
+        let path = sessions[conversationID]?.workspacePath.flatMap { $0.isEmpty ? nil : $0 }
+            ?? archivedTaskWorkspaces[conversationID]?.path
+            ?? workspace.path
+        let identity = archivedTaskWorkspaces[conversationID]?.identity
+            ?? bootstrapWorkspaces.first { $0.path == path }?.workspaceIdentity
+        return (path, (identity?.isEmpty == true) ? nil : identity)
     }
 
     /// 写命令的 workspace 寻址目标：目标会话自带 workspacePath 优先（跨工作区会话
@@ -1780,6 +1952,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 最近一次 sendText 桌面拒因（sendRejectionText 协议读面；成功发送即清除）
     private var sendRejections: [String: String] = [:]
 
+    /// held 态待确认标记（§11.2：拒因 heldQueueDispositionRequired /
+    /// guard.heldQueueConfirmationStale 时置位，确认重发成功/新发送清除）
+    private var heldQueuePending: [String: Bool] = [:]
+
     func sendRejectionText(in conversationID: String) async -> String? {
         sendRejections[conversationID]
     }
@@ -1790,7 +1966,12 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 数组两形态；旧桌面缺 status 字段按成功，不破坏现有可用路径）。
     /// 返回 nil = 送达；非 nil = 拒因文案。
     nonisolated static func sendTextRejectionText(_ ack: JSONValue?) -> String? {
-        guard ack?.objectValue != nil else { return String(localized: "连接中断，消息未送达") }
+        guard ack?.objectValue != nil else {
+            // §11.2：回执缺席 = 连接断开**或超时**——超时时桌面可能已受理（上游靠
+            // pendingCommandRegistry 先记账再对账区分；移动端无该机制，如实提示
+            // 歧义，防止用户在假阴性下重发造成双开 turn）
+            return String(localized: "消息未送达 · 连接中断或超时（超时时桌面可能仍在处理，重发前建议先确认会话列表，避免重复发送）")
+        }
         return CommandAck(ack).failureText
     }
 
@@ -1810,11 +1991,59 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         _ text: String, attachments: [OutgoingAttachment], requestedDelivery: String?,
         modelSelection: NewSessionModelSelection?,
         in conversationID: String) async -> Bool {
+        await performSend(
+            text, attachments: attachments, requestedDelivery: requestedDelivery,
+            modelSelection: modelSelection,
+            heldQueueDisposition: nil, expectedHeldQueueItemIds: nil,
+            in: conversationID)
+    }
+
+    /// held 态确认重发（§11.2）：disposition ∈ clearQueueAndSend|keepQueueAndSend
+    /// + expectedHeldQueueItemIds（CLI 在执行 clear/keep 前校验集合一致——
+    /// command.ts:78-95；stale 拒绝 guard.heldQueueConfirmationStale 同链再确认）
+    @discardableResult
+    func sendHeldConfirmed(
+        _ text: String, attachments: [OutgoingAttachment],
+        disposition: String, expectedHeldQueueItemIds: [String],
+        requestedDelivery: String?, modelSelection: NewSessionModelSelection?,
+        in conversationID: String) async -> Bool {
+        await performSend(
+            text, attachments: attachments, requestedDelivery: requestedDelivery,
+            modelSelection: modelSelection,
+            heldQueueDisposition: disposition,
+            expectedHeldQueueItemIds: expectedHeldQueueItemIds,
+            in: conversationID)
+    }
+
+    /// 最近一次发送是否卡在 held 确认（确认弹层数据源；成功重发/新发送即清）
+    func heldQueueConfirmationPending(in conversationID: String) async -> Bool {
+        heldQueuePending[conversationID] == true
+    }
+
+    /// 当前挂起队列条目 id 集（快照 state.queue.items[].queueItemId）
+    func queueHeldItemIds(in conversationID: String) async -> [String] {
+        let items = snapshotState[conversationID]?.objectValue?["queue"]?
+            .objectValue?["items"]?.arrayValue ?? []
+        return items.compactMap {
+            $0.objectValue?["queueItemId"]?.stringValue
+                ?? $0.objectValue?["itemId"]?.stringValue
+                ?? $0.objectValue?["id"]?.stringValue }
+    }
+
+    private func performSend(
+        _ text: String, attachments: [OutgoingAttachment], requestedDelivery: String?,
+        modelSelection: NewSessionModelSelection?,
+        heldQueueDisposition: String?, expectedHeldQueueItemIds: [String]?,
+        in conversationID: String) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let echoID = "local-send-\(UUID().uuidString)"
+        // 信封 commandId 前置生成并登记到回显条目（A12 幂等：重发不变）——服务端
+        // userInput 行 sourceCommandId 即它，精确消费回显的依据
+        let commandId = UUID().uuidString
         let anchor = rows[conversationID]?.count ?? 0
-        pendingLocalSends[conversationID, default: [:]][echoID] = (text: trimmed, anchor: anchor)
+        pendingLocalSends[conversationID, default: [:]][echoID] =
+            (text: trimmed, anchor: anchor, commandId: commandId)
         let echo = ChatMessage(id: echoID, role: .user, text: trimmed, timestamp: Date())
         messages[conversationID, default: []].append(echo)
         yieldToAll(.messageAppended(conversationID: conversationID, message: echo))
@@ -1845,7 +2074,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 ])
             })
         }
-        let ack = await sendCommand("sendText", sessionId: conversationID, payload: .object(payload))
+        // held 确认重发载荷（§11.2：仅确认路径携带——常规发送不携）
+        if let heldQueueDisposition, !heldQueueDisposition.isEmpty {
+            payload["heldQueueDisposition"] = .string(heldQueueDisposition)
+        }
+        if let expectedHeldQueueItemIds, !expectedHeldQueueItemIds.isEmpty {
+            payload["expectedHeldQueueItemIds"] = .array(
+                expectedHeldQueueItemIds.map { .string($0) })
+        }
+        let ack = await sendCommand(
+            "sendText", sessionId: conversationID, payload: .object(payload), commandId: commandId)
         if let rejection = Self.sendTextRejectionText(ack) {
             // 未送达（连接断开/桌面拒收）：撤销乐观回显（在途表同步清除），下次重试
             // 不产生重影；拒因在案供 UI 错误行据实呈现（写面禁假成功 §5.12——
@@ -1855,31 +2093,122 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             yieldToAll(.messagesReplaced(
                 conversationID: conversationID, messages: messages[conversationID] ?? []))
             sendRejections[conversationID] = rejection
+            // held 态识别（§11.2，服务端 session-flow.ts:41-45 + web SessionPane.tsx
+            // :2886-2887）：缺 disposition / 确认过期（队列在确认窗口内变化）→
+            // 标记待确认，UI 弹「清空/保留并发送」；其余失败不标记
+            let reason = CommandAck(ack).reasonCode
+            heldQueuePending[conversationID] =
+                reason == "heldQueueDispositionRequired"
+                || reason == "guard.heldQueueConfirmationStale"
             return false
         }
         sendRejections[conversationID] = nil
+        heldQueuePending[conversationID] = nil
+        // 首条消息发出后桌面端会生成标题（title_source=generated）——登记兜底刷新窗口
+        registerMetaRefreshIfNeeded(conversationID)
         // 投影 watchdog（P0-2，官方 expectAcceptedInputProjection 同构：
         // conversationProjectionStore.ts:1247-1274 sendText ACK 后 2s 投影静默 →
         // requestRecovery）：sendText 被桌面接受但 2s 后行表仍无该会话的行
         // （ userInput 行/快照/增量任一未达——真机 sess_e8677b05 帧 workspace 错位
         // 的兜底出口），主动 same-sub 全量 resync 拉一次。幂等：行已增长即放弃。
         scheduleProjectionWatchdog(
-            conversationID: conversationID, anchorRows: anchor + 1)
+            conversationID: conversationID, anchorRows: anchor + 1, commandId: commandId)
         return true
     }
 
     /// sendText 投影 watchdog：2s 后行数未越过锚点（服务端 userInput 行未达/快照
     /// 未重放）→ 强制全量 resync 一次。行在 watchdog 窗口内正常到达则无事发生。
-    private func scheduleProjectionWatchdog(conversationID: String, anchorRows: Int) {
+    /// 队列感知（2026-10-08 回归审核轮 §11.2，官方 conversationProjectionStore.ts:78-88
+    /// 同构）：命中锚定 commandId 的 queue 条目（sourceCommandId）也算收口——
+    /// requestedDelivery=queue / 桌面 followupMode=queue 的投递不产生行，
+    /// 此前每条排队消息都误触发一次全量 resync。
+    private func scheduleProjectionWatchdog(
+        conversationID: String, anchorRows: Int, commandId: String
+    ) {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard let self else { return }
             guard (await self.rows[conversationID]?.count ?? 0) < anchorRows else { return }
+            let queued = await self.snapshotState[conversationID]?.objectValue?["queue"]?
+                .objectValue?["items"]?.arrayValue ?? []
+            if queued.contains(where: {
+                $0.objectValue?["sourceCommandId"]?.stringValue == commandId }) {
+                return
+            }
             guard let subId = await self.conversationSubscriptionIds[conversationID] else { return }
             UserDefaults.standard.set(
                 "sendText accepted 后 2s 投影静默（anchor=\(anchorRows) rows=\(await self.rows[conversationID]?.count ?? -1)）→ resync",
                 forKey: "diag.watchdog.\(conversationID.prefix(14))")
             await self.forceFullResync(conversationID: conversationID, subscriptionId: subId)
+        }
+    }
+
+    // MARK: 发送后元数据兜底刷新（标题/预览；2026-10-08 报障「新会话标题不回填」）
+
+    /// 仅占位标题（"新会话"/空串）登记——桌面自动命名只发生在这类会话上；
+    /// 用户命名/已回填标题的会话不值得周期拉取
+    private func registerMetaRefreshIfNeeded(_ conversationID: String) {
+        let currentTitle = sessions[conversationID]?.title ?? ""
+        let placeholder = String(localized: "新会话")
+        guard currentTitle.isEmpty || currentTitle == placeholder else { return }
+        let now = Date()
+        metaRefreshDeadline[conversationID] = now.addingTimeInterval(600)
+        metaRefreshNextTry[conversationID] = now.addingTimeInterval(15)
+    }
+
+    /// conversations() 前置调用：到期会话单区 listSessions 拉一次，字段级回填
+    /// 标题/预览/活跃时间（只改 sessions 既有行，不新增行——新增行归
+    /// sessions-index/bootstrap 通道）。目标会话标题落定即注销；30s 重试至窗口过期。
+    private func refreshDueSessionMeta() async {
+        guard connection != nil, !metaRefreshNextTry.isEmpty else { return }
+        let now = Date()
+        // 值拷贝快照遍历（循环内会改原表——Swift 字典迭代期变更即崩）
+        let dueSnapshot = metaRefreshNextTry
+        for (conversationID, nextTry) in dueSnapshot {
+            guard now >= nextTry else { continue }
+            if now > (metaRefreshDeadline[conversationID] ?? .distantPast) {
+                metaRefreshNextTry.removeValue(forKey: conversationID)
+                metaRefreshDeadline.removeValue(forKey: conversationID)
+                continue
+            }
+            metaRefreshNextTry[conversationID] = now.addingTimeInterval(30)
+            let path = sessions[conversationID]?.workspacePath ?? workspace.path
+            do {
+                var builder = JSONObjectBuilder()
+                builder.set("workspacePath", path)
+                let result = try await connection?.call(
+                    "zcode-agent", "listSessions", .json(.object(builder.fields)))
+                let items = result?.jsonValue?.arrayValue
+                    ?? result?.jsonValue?["sessions"]?.arrayValue
+                    ?? []
+                var targetTitleFilled = false
+                for item in items {
+                    guard let summary = SessionSummary.parse(item),
+                          var existing = sessions[summary.sessionId] else { continue }
+                    if localTitleOverrides[summary.sessionId] == nil,
+                       !summary.title.isEmpty, summary.title != existing.title {
+                        existing.title = summary.title
+                        if summary.sessionId == conversationID {
+                            targetTitleFilled = true
+                        }
+                    }
+                    if let preview = summary.lastAssistantPreview, !preview.isEmpty,
+                       preview != existing.lastAssistantPreview {
+                        existing.lastAssistantPreview = preview
+                    }
+                    if let at = summary.lastActivityAt,
+                       existing.lastActivityAt == nil || at > (existing.lastActivityAt ?? .distantPast) {
+                        existing.lastActivityAt = at
+                    }
+                    sessions[summary.sessionId] = existing
+                }
+                if targetTitleFilled {
+                    metaRefreshNextTry.removeValue(forKey: conversationID)
+                    metaRefreshDeadline.removeValue(forKey: conversationID)
+                }
+            } catch {
+                // 到期未拉到：30s 后本方法再试；窗口（10min）过期静默放弃
+            }
         }
     }
 
@@ -1889,8 +2218,20 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// §四口径清理：去掉多余的 reason:"user-requested"（web schema 非 strict 曾被
     /// strip 后 accepted，探针实证无害——现按 web 同形收敛为空 payload）。
     @discardableResult
+    /// 停止当前 turn。expectedForegroundExecutionId 竞态保护（2026-10-08 回归审核轮
+    /// §11.3，command.ts:144-147【实证·上游仓】）：来自 state.control.activeWorks——
+    /// CLI 用它拒绝「会误杀后续无关执行的迟到 Stop」（当前 turn 恰收尾、队列下一
+    /// turn 已启动的窗口）。best-effort：投影缺席则不带（旧桌面/无 activeWorks 均旧
+    /// 语义，不带不破坏）。
     func stopTurn(sessionId: String) async -> JSONValue? {
-        await sendCommand("stop", sessionId: sessionId, payload: .object([:]))
+        var payload: [String: JSONValue] = [:]
+        let activeWorks = snapshotState[sessionId]?.objectValue?["control"]?
+            .objectValue?["activeWorks"]?.arrayValue ?? []
+        if let execId = activeWorks.compactMap({
+                $0.objectValue?["foregroundExecutionId"]?.stringValue }).first, !execId.isEmpty {
+            payload["expectedForegroundExecutionId"] = .string(execId)
+        }
+        return await sendCommand("stop", sessionId: sessionId, payload: .object(payload))
     }
 
     /// 提问应答：解析最新 userInput/elicitation 类挂起交互 → resolveInteraction
@@ -2076,9 +2417,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         localPinnedOverrides[conversationID] = pinned
         yieldConversationsReplaced()
         guard let connection else { return }
+        let target = taskWriteTarget(conversationID)
         var builder = JSONObjectBuilder()
         builder.set("taskId", conversationID)
-        builder.set("workspacePath", rowWorkspacePath(conversationID))
+        builder.set("workspacePath", target.path)
+        if let identity = target.identity {
+            builder.set("workspaceIdentity", identity)
+        }
         builder.set("pinned", pinned)
         do {
             _ = try await connection.call("zcode-task", "setTaskPinned", .json(.object(builder.fields)))
@@ -2091,9 +2436,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             } else {
                 pinnedTaskIds.remove(conversationID)
             }
+            _lastTaskWriteFailureText = ""
         } catch {
             localPinnedOverrides[conversationID] = previous
             yieldConversationsReplaced()
+            _lastTaskWriteFailureText = Self.loadFailureText(verb: "置顶", error: error)
         }
     }
 
@@ -2177,7 +2524,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
     }
 
-    /// 重命名（P1-5）：renameTask 双写 + 本地标题 override 即时反馈，失败回滚。
+    /// 重命名（P1-5）：renameTask 双写 + 本地标题 override 即时反馈，失败回滚 +
+    /// 拒因上屏（§11.2 写面禁静默——此前 catch 只回滚，「点了没反应」无从分诊）。
     func renameConversation(_ title: String, conversationID: String) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -2185,12 +2533,17 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         localTitleOverrides[conversationID] = trimmed
         yieldConversationsReplaced()
         guard let connection else { return }
+        let target = taskWriteTarget(conversationID)
         var builder = JSONObjectBuilder()
         builder.set("taskId", conversationID)
-        builder.set("workspacePath", rowWorkspacePath(conversationID))
+        builder.set("workspacePath", target.path)
+        if let identity = target.identity {
+            builder.set("workspaceIdentity", identity)
+        }
         builder.set("title", trimmed)
         do {
             _ = try await connection.call("zcode-task", "renameTask", .json(.object(builder.fields)))
+            _lastTaskWriteFailureText = ""
         } catch {
             if let previous {
                 localTitleOverrides[conversationID] = previous
@@ -2198,25 +2551,32 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 localTitleOverrides.removeValue(forKey: conversationID)
             }
             yieldConversationsReplaced()
+            _lastTaskWriteFailureText = Self.loadFailureText(verb: "改名", error: error)
         }
     }
 
     /// 标记未读（P1-5）：本地置位 + setTaskUnread unread:true（compare-and-clear 的反向）。
-    /// 写失败回滚本地置位（写面禁静默 §5-12——此前 `_ = try?` 吞错：本地已读、
-    /// 快照回弹，用户点按无任何反馈；回滚=可见失败，下次快照真置位会再同步）。
+    /// 写失败回滚本地置位 + 拒因上屏（写面禁静默 §5-12；回滚=可见失败，下次快照真置位
+    /// 会再同步）。
     func markUnread(conversationID: String) async {
         localUnreadFlags[conversationID] = true
         yieldConversationsReplaced()
         guard let connection else { return }
+        let target = taskWriteTarget(conversationID)
         var builder = JSONObjectBuilder()
         builder.set("taskId", conversationID)
-        builder.set("workspacePath", rowWorkspacePath(conversationID))
+        builder.set("workspacePath", target.path)
+        if let identity = target.identity {
+            builder.set("workspaceIdentity", identity)
+        }
         builder.set("unread", true)
         do {
             _ = try await connection.call("zcode-task", "setTaskUnread", .json(.object(builder.fields)))
+            _lastTaskWriteFailureText = ""
         } catch {
             localUnreadFlags[conversationID] = nil
             yieldConversationsReplaced()
+            _lastTaskWriteFailureText = Self.loadFailureText(verb: "标记未读", error: error)
         }
     }
 
@@ -2322,17 +2682,21 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// workspaceIdentity?}；归档区删除同款。桌面代执行写，ReadOnlyGate 已放行）
     func deleteTask(_ conversationID: String) async -> Bool {
         guard let connection else { return false }
+        // 行归属统一寻址（此前行 path + 连接区 identity 混搭——§11.3，见 taskWriteTarget 注）
+        let target = taskWriteTarget(conversationID)
         var builder = JSONObjectBuilder()
         builder.set("taskId", conversationID)
-        builder.set("workspacePath", rowWorkspacePath(conversationID))
-        if let identity = workspace.workspaceIdentity, !identity.isEmpty {
+        builder.set("workspacePath", target.path)
+        if let identity = target.identity {
             builder.set("workspaceIdentity", identity)
         }
         do {
             _ = try await connection.call(
                 "zcode-task", "deleteTask", .json(.object(builder.fields)))
+            _lastTaskWriteFailureText = ""
             return true
         } catch {
+            _lastTaskWriteFailureText = Self.loadFailureText(verb: "删除", error: error)
             return false
         }
     }
@@ -2364,6 +2728,20 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             ?? dict["toolName"]?.stringValue
             ?? payload["title"]?.stringValue
             ?? payload["toolName"]?.stringValue
+        // 2026-10-08 报障「plan 模式审核没出来」根因：上游 ExitPlanMode 挂起交互
+        // kind="userInput"，plan_approval 只在 payload.schema.interaction
+        // 【实证·上游仓 product-projection.ts:3117-3134 schema:{interaction:"plan_approval",
+        // toolName} + interaction-broker.ts:286】——按 schema 归位 kind，审批卡才出得来。
+        // AskUserQuestion 同为 kind="userInput" 但 schema 无此键，不受影响。
+        let schemaInteraction = payload["schema"]?.objectValue?["interaction"]?.stringValue
+            ?? dict["schema"]?.objectValue?["interaction"]?.stringValue
+        if interaction.kind == "userInput", schemaInteraction == "plan_approval" {
+            interaction.kind = "plan_approval"
+            // 审批卡标题用审核原因（payload.prompt），工具名退居兜底
+            if let prompt = payload["prompt"]?.stringValue, !prompt.isEmpty {
+                interaction.title = prompt
+            }
+        }
         interaction.command = dict["command"]?.stringValue
             ?? dict["inputText"]?.stringValue
             ?? payload["command"]?.stringValue
@@ -2392,13 +2770,17 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 guard let id, !id.isEmpty else { return nil }
                 return RemoteInteractionOption(id: id, label: label ?? id)
             }
-        // G-017：plan_approval 计划文本（payload.renderContext.plan / 顶层 renderContext / plan 字段）
+        // G-017：plan_approval 计划文本。宽容链：renderContext.plan / 顶层 plan /
+        // payload.input.plan（上游实证：request.input.plan 为计划正文，
+        // zcodeTaskServiceAdapter.ts:4944-4947「直接取 schema ?? input 会丢 input.plan」）
         let renderContext = payload["renderContext"]?.objectValue
             ?? dict["renderContext"]?.objectValue
         if renderContext?["kind"]?.stringValue == "plan_approval",
            let plan = renderContext?["plan"]?.stringValue, !plan.isEmpty {
             interaction.planText = plan
         } else if let plan = payload["plan"]?.stringValue ?? dict["plan"]?.stringValue, !plan.isEmpty {
+            interaction.planText = plan
+        } else if let plan = payload["input"]?.objectValue?["plan"]?.stringValue, !plan.isEmpty {
             interaction.planText = plan
         }
         // workspace hook 信任审核：payload 宽容解析审核项（列表键/元素键均未取证，
@@ -2476,8 +2858,25 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let connection else { return [] }
         var builder = JSONObjectBuilder()
-        builder.set("workspacePath", workspace.path)
-        builder.set("searchQuery", trimmed)
+        // 参数形状对齐上游 ZCodeTaskListQuery（zcodeTaskListTypes.ts:12-18：
+        // {kind, workspaceScopes, sortBy, search?, limit?}——2026-10-08 回归审核轮
+        // §11.1#7：此前只发 {workspacePath, searchQuery}——键名臆造 + 缺必填
+        // kind/workspaceScopes，调用恒 fault 被 try? 吞成空，远端全文检索死路）。
+        // scopes 覆盖 bootstrap 已知全工作区（web 全局检索同口径），缺省回退当前区。
+        builder.set("kind", "timeline")
+        let scopes: [[String: JSONValue]] = bootstrapWorkspaces.isEmpty
+            ? [["workspacePath": .string(workspace.path)]]
+            : bootstrapWorkspaces.map { ws in
+                var scope: [String: JSONValue] = ["workspacePath": .string(ws.path)]
+                if let identity = ws.workspaceIdentity, !identity.isEmpty {
+                    scope["workspaceIdentity"] = .string(identity)
+                }
+                return scope
+            }
+        builder.set("workspaceScopes", .array(scopes.map { .object($0) }))
+        builder.set("sortBy", "updated")
+        builder.set("limit", 50)
+        builder.set("search", trimmed)
         guard let result = try? await connection.call(
             "zcode-task", "listTaskList", .json(.object(builder.fields))),
             let items = result.jsonValue?["items"]?.arrayValue ?? result.jsonValue?.arrayValue else {
@@ -2491,7 +2890,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 title: d["title"]?.stringValue ?? String(localized: "未命名会话"),
                 summary: d["lastAssistantPreview"]?.stringValue ?? "",
                 directory: d["workspacePath"]?.stringValue ?? workspace.path,
-                updatedAt: (d["lastActivityAt"]?.intValue).map {
+                updatedAt: (d["lastActivityAt"]?.intValue
+                    ?? d["updatedAt"]?.intValue
+                    ?? d["createdAt"]?.intValue).map {
                     Date(timeIntervalSince1970: Double($0) / 1000)
                 } ?? .distantPast)
             // snippets 命中摘要（验收②）：join 展示首条命中片段
@@ -3098,7 +3499,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         guard let goal = snapshotState[conversationID]?.objectValue?["goal"] else { return nil }
         if case .null = goal { return nil }
         guard let d = goal.objectValue else { return nil }
-        let text = d["text"]?.stringValue
+        // objective = 上游 main 权威键（goalStateSchema，snapshot.ts:405-410——含
+        // targetId/objective/summaryTitle/iterations）；其余为旧桌面宽容形态
+        let text = d["objective"]?.stringValue
+            ?? d["text"]?.stringValue
             ?? d["description"]?.stringValue
             ?? d["content"]?.stringValue
             ?? d["prompt"]?.stringValue
@@ -3113,18 +3517,24 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         guard let plan = snapshotState[conversationID]?.objectValue?["plan"] else { return nil }
         if case .null = plan { return nil }
         guard let d = plan.objectValue else { return nil }
-        // 正文多形态：content/text/markdown/body 直取；entries/ steps 数组逐行拼
+        // 正文多形态：content/text/markdown/body 直取；items（上游 main 权威键——
+        // planStateSchema {items:[{id, content, status: pending|inProgress|completed}],
+        // updatedAt}，snapshot.ts:419-446）/entries/steps 数组逐行拼
         var content = d["content"]?.stringValue
             ?? d["text"]?.stringValue
             ?? d["markdown"]?.stringValue
             ?? d["body"]?.stringValue
         if content == nil || content?.isEmpty == true {
-            let entries = d["entries"]?.arrayValue ?? d["steps"]?.arrayValue ?? []
+            let entries = d["items"]?.arrayValue ?? d["entries"]?.arrayValue ?? d["steps"]?.arrayValue ?? []
             let lines = entries.compactMap { e -> String? in
                 guard let o = e.objectValue else { return e.stringValue }
-                let title = o["title"]?.stringValue ?? o["text"]?.stringValue ?? ""
-                let done = o["status"]?.stringValue == "done" || o["completed"]?.boolValue == true
-                return (done ? "✓ " : "· ") + title
+                let title = o["content"]?.stringValue ?? o["title"]?.stringValue ?? o["text"]?.stringValue ?? ""
+                let done = o["status"]?.stringValue == "done"
+                    || o["status"]?.stringValue == "completed"
+                    || o["completed"]?.boolValue == true
+                let running = o["status"]?.stringValue == "inProgress"
+                    || o["status"]?.stringValue == "in_progress"
+                return (done ? "✓ " : (running ? "▸ " : "· ")) + title
             }
             content = lines.isEmpty ? nil : lines.joined(separator: "\n")
         }
@@ -3454,15 +3864,21 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     }
 
     /// 启动已保存工作流（§4 设计稿「工作流库」行卡「启动」）。§7.2:406 词表在列、
-    /// 非 CAS 全集成员——普通信封直发。conversationID 传 nil 时信封 sessionId=null
-    /// （createSession 同路：工作流库页无会话上下文，会话由桌面创建，回执
-    /// result.sessionId 宽容提取交调用方跳转）。payload {workflowId, args?}【宽容：
-    /// 设计稿 §4.3 候选形 {workflowId|name, args} 全部未取证；args 为动态参数表单
-    /// 键值，桌面 schema 待探针】。
+    /// 非 CAS 全集成员——普通信封直发。payload 形状对齐上游（2026-10-08 回归审核轮
+    /// §11.1#9，command.ts:236-240【实证·上游仓】）：`{name: min(1), scope?:
+    /// "project"|"global", args?}`——此前发 workflowId 为臆造键（schema 必填 name
+    /// 缺失必被拒 proto.invalidPayload，H2 入口恢复时 100% 失败）。
+    /// 上游语义（useSavedWorkflowLauncher.ts:159-191）：先 createSession 拿
+    /// sessionId 再发——移动端 conversationID 传 nil 走信封 sessionId=null 幂等桶，
+    /// 回执 result.sessionId 宽容提取交调用方跳转（探针后视需要补会话前置）。
     @discardableResult
     func startSavedWorkflow(
-        _ conversationID: String?, workflowId: String, args: [String: JSONValue]?) async -> JSONValue? {
-        var payload: [String: JSONValue] = ["workflowId": .string(workflowId)]
+        _ conversationID: String?, name: String, scope: String? = nil,
+        args: [String: JSONValue]?) async -> JSONValue? {
+        var payload: [String: JSONValue] = ["name": .string(name)]
+        if let scope, !scope.isEmpty {
+            payload["scope"] = .string(scope)
+        }
         if let args, !args.isEmpty { payload["args"] = .object(args) }
         return await sendCommand(
             "startSavedWorkflow", sessionId: conversationID, payload: .object(payload))
@@ -4131,17 +4547,20 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// G-019 通路 C：历史 run 事件分页重建（实时表为空时兜底）——
     /// conversationWorkflowRunEventsV4（journal-backed）宽容拉 ≤2 页，按 type 名重建
     /// 阶段链（phase-entered/phase-* 事件的 phase 名首现序）与 actor 概要，事件计数入面板。
+    /// 分页形状对齐上游（2026-10-08 回归审核轮 §11.1#8，transport.ts:599-628）：
+    /// 请求 strict {sessionId, runId, afterSequence?, limit≤500}、回执 {events[], hasMore}
+    /// ——此前发 cursor 读 nextCursor 均为臆造键，恒截断在第一页。
     func rebuildWorkflowRunFromEvents(_ conversationID: String, runId: String) async -> WorkflowRunSummary? {
         guard let connection else { return nil }
         var events: [JSONValue] = []
-        var cursor: JSONValue = .null
+        var afterSequence: Int?
         for _ in 0..<2 {
             var builder = JSONObjectBuilder()
             applySessionTarget(&builder, sessionID: conversationID)
             builder.set("runId", runId)
-            builder.set("limit", 200)
-            if cursor != .null {
-                builder.set("cursor", cursor)
+            builder.set("limit", 500)
+            if let afterSequence {
+                builder.set("afterSequence", .int(afterSequence))
             }
             guard let result = try? await connection.call(
                 "zcode-agent", "conversationWorkflowRunEventsV4", .json(.object(builder.fields))) else {
@@ -4151,12 +4570,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 ?? result.jsonValue?["result"]?.objectValue?["events"]?.arrayValue
                 ?? []
             events.append(contentsOf: page)
-            // 分页游标宽容取键；无游标/空页即停
-            let next = result.jsonValue?["nextCursor"]
-                ?? result.jsonValue?["result"]?.objectValue?["nextCursor"]
-                ?? .null
-            if next == .null || page.isEmpty { break }
-            cursor = next
+            // 下一页游标 = 末条事件 sequence（上游无 nextCursor 键）
+            let hasMore = result.jsonValue?["hasMore"]?.boolValue
+                ?? result.jsonValue?["result"]?.objectValue?["hasMore"]?.boolValue
+                ?? false
+            if !hasMore || page.isEmpty { break }
+            afterSequence = page.last?.objectValue?["sequence"]?.intValue
+            if afterSequence == nil { break }
         }
         guard !events.isEmpty else { return nil }
 
@@ -4299,7 +4719,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 桌面 schema（zcode-protocol-v4/transport.ts:955-1024）：
     /// params {sessionId, ref, target?, attachmentIndex?, offset, limit≤chunkMax}，
     /// result {dataBase64, mediaType(image/*|video/*|application/pdf), totalBytes, nextOffset?}。
-    /// 分块循环聚合，4MB 上限保护；失败返回 nil（UI 不渲染占位死块）。
+    /// 分块循环聚合；上限 60 块 ≈ 30MB（=attachmentPreviewMaxChunks，core.ts:92——
+    /// 2026-10-08 回归审核轮 §11.1#10：此前 8 块 ≈4MB 是旧 4MB 通道时代口径，20MB
+    /// 放宽后大图/附件回显被静默截断成花图；越界 = 截断，按上游 previewTruncated
+    /// 语义作失败处理，禁止拿前缀冒充完整预览）；失败返回 nil（UI 不渲染占位死块）。
     func attachmentPreview(sessionID: String, ref: String) async -> AttachmentPreview? {
         // 中继瞬断（Reconnecting）会打断分块读：首败退避 1.2s 重试一次
         if let first = await attachmentPreviewOnce(sessionID: sessionID, ref: ref) {
@@ -4317,7 +4740,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         var offset = 0
         let chunkLimit = 512 * 1024
         defer { if DiagnosticAttachmentFlag.enabled { UserDefaults.standard.set("ref=\(ref) chunks=\(chunks.count) mediaType=\(mediaType ?? "nil") bytes=\(totalBytes)", forKey: "diag.attachment.last") } }
-        for _ in 0..<8 { // 上限 8 块 ≈ 4MB
+        var expectMore = true
+        for _ in 0..<60 { // 上限 60 块 ≈ 30MB（attachmentPreviewMaxChunks）
             var builder = JSONObjectBuilder()
             applySessionTarget(&builder, sessionID: sessionID)
             builder.set("ref", ref)
@@ -4335,7 +4759,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 chunks.append(base64)
                 if mediaType == nil { mediaType = dict["mediaType"]?.stringValue }
                 totalBytes = dict["totalBytes"]?.intValue ?? totalBytes
-                guard let next = dict["nextOffset"]?.intValue else { break }
+                guard let next = dict["nextOffset"]?.intValue else {
+                    expectMore = false
+                    break
+                }
                 offset = next
             } catch {
                 if DiagnosticAttachmentFlag.enabled {
@@ -4343,6 +4770,14 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 }
                 return nil
             }
+        }
+        // 循环耗尽仍有 nextOffset = 截断（上游 fault.attachment.previewTruncated 同
+        // 语义）：不作部分预览，交 failed 分支
+        if expectMore {
+            if DiagnosticAttachmentFlag.enabled {
+                UserDefaults.standard.set("preview truncated bytes=\(totalBytes)", forKey: "diag.attachment.err")
+            }
+            return nil
         }
         guard let mediaType else { return nil }
         // 分块 base64 各自带 padding/可能夹杂空白：整串解码失败时按块独立解码拼接
@@ -4911,9 +5346,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         info.planGroups = planOrder.map { ModelPlanGroup(plan: $0, models: groupsByPlan[$0] ?? []) }
         info.modelProviders = modelProviders
         info.modelProvidersByPlan = modelProvidersByPlan
-        // 当前绑定优先 preferredSelection（{providerId, modelId, options:{reasoningLevel}}），
-        // 退化 effective.selection 同构
+        // 当前绑定优先 preferredSelection（{providerId, modelId, options:{reasoningLevel}}）；
+        // 退化 effectiveSelection（上游顶层键，facades.ts:201 EffectiveModelSelectionResult）
+        // → effective.selection（历史宽容形态）
         let selection = view["preferredSelection"]?.objectValue
+            ?? view["effectiveSelection"]?.objectValue
             ?? view["effective"]?.objectValue?["selection"]?.objectValue
         info.activeModel = selection?["modelId"]?.stringValue
         info.activeProviderId = selection?["providerId"]?.stringValue

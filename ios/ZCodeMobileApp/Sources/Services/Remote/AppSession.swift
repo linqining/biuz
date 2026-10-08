@@ -90,6 +90,11 @@ struct CodingPlanEntitlementInfo: Equatable {
     var unavailableReason: String?
     /// 顶层 remaining（web 仅做在场判定；单位语义未取证，原样字符串透出）
     var remainingText: String?
+    /// mcpQuota.aggregate 原始形态（§11.2：MCP 配额只在 entitlement 快照——
+    /// usage-stats.ts:80-86/269-280 实证 usage 快照无此键；web 消费
+    /// resolveMcpQuotaLimit(effectiveEntitlementSnapshot)。供 usage 窗口
+    /// 合并阶段造「ZCode MCP」行）
+    var mcpQuotaAggregate: JSONValue? = nil
 }
 
 /// 使用统计快照（usage-stats.getAppUsageSnapshot；桌面「使用统计」页同源数据）
@@ -501,7 +506,64 @@ final class AppSession {
         // 权益快照顺读链末位（usage-stats 对并发快照请求拒绝——见 usageStatsCall 注释，
         // 与上方两读保持串行，不 async let）
         codingPlanEntitlements = await Self.fetchCodingPlanEntitlements(connection: connection)
+        mergeMcpQuotaWindow()
         await probeRemoteControlBootstrap()
+    }
+
+    /// 「ZCode MCP」窗口合并（§11.2：mcpQuota 只在 entitlement 快照——
+    /// resolveMcpQuotaLimit(effectiveEntitlementSnapshot)，codingPlanQuota
+    /// Presentation.ts:61-65【实证·上游仓】；此前从 usage 快照读恒 nil，
+    /// MCP 额度行永远不渲染）
+    private func mergeMcpQuotaWindow() {
+        guard let aggregate = codingPlanEntitlements?.mcpQuotaAggregate?.objectValue,
+              var usage = codingPlanUsage else { return }
+        guard !usage.windows.contains(where: { $0.level == "MCP" }) else { return }
+        if let window = Self.makeMcpQuotaWindow(aggregate) {
+            usage.windows.append(window)
+            codingPlanUsage = usage
+        }
+    }
+
+    /// mcpQuota.aggregate → 窗口行（ currentValue/usage/nextResetTime 同
+    /// makeWindow 口径——fetchCodingPlanUsage 内局部函数的静态化副本）
+    private static func makeMcpQuotaWindow(_ d: [String: JSONValue]) -> CodingPlanQuotaWindow? {
+        var window = CodingPlanQuotaWindow(
+            level: "MCP",
+            label: String(localized: "ZCode MCP"),
+            used: d["currentValue"]?.intValue,
+            limit: d["usage"]?.intValue,
+            unit: d["currentValue"] != nil ? String(localized: "条") : nil,
+            percentUsed: nil,
+            resetsAtText: nil)
+        if let pct = d["percentage"]?.doubleValue {
+            window.percentUsed = max(0, min(100, pct * 100))
+        }
+        if let nextReset = d["nextResetTime"]?.doubleValue, nextReset > 0 {
+            window.resetsAtText = Self.shortFormatter.string(
+                from: Date(timeIntervalSince1970: nextReset / 1000))
+        }
+        return window
+    }
+
+    /// Coding Plan 额度单项重拉（用量页主卡快路径，2026-10-08 报障「用量要等很久」：
+    /// 原链 5 段串行 RPC 全部完成才撤 loading——桌面繁忙/中继高延迟时最坏数分钟转圈）。
+    /// 失败不清既有缓存值（读面 last-good 纪律）。
+    func refreshCodingPlanUsage() async {
+        guard connection.isActive else { return }
+        codingPlanUsage = await Self.fetchCodingPlanUsage(connection: connection)
+        mergeMcpQuotaWindow()
+    }
+
+    /// 只读链后台合并句柄（usage-stats 拒并发快照请求——在途不重发，完成自清）
+    private var readonlyBackgroundTask: Task<Void, Never>?
+
+    /// 只读链后台补全（用量页主卡先行渲染后调用）
+    func refreshDesktopReadonlyInfoInBackground() {
+        guard readonlyBackgroundTask == nil else { return }
+        readonlyBackgroundTask = Task { [weak self] in
+            await self?.refreshDesktopReadonlyInfo()
+            self?.readonlyBackgroundTask = nil
+        }
     }
 
     /// 多 workspace 枚举探测（web 远控 REST 面，2026-10-06 bundle 取证）：
@@ -776,12 +838,8 @@ final class AppSession {
                 }
             }
             usage.windows = windows
-            // ZCode MCP（独立字段 mcpQuota.aggregate；web 同 label「ZCode MCP」）
-            if let mcp = dict["quota"]?.objectValue?["mcpQuota"]?.objectValue?["aggregate"]?.objectValue,
-               var w = makeWindow(String(localized: "ZCode MCP"), mcp) {
-                w.level = "MCP"
-                usage.windows.append(w)
-            }
+            // ZCode MCP 窗口不在此读（§11.2：mcpQuota 只在 entitlement 快照——
+            // 此前从 usage 快照读恒 nil 致该行永不渲染；合并见 mergeMcpQuotaWindow）
             // 套餐档位（quota.level："max" 等）记入 unitText 供卡片角标
             usage.unitText = dict["quota"]?.objectValue?["level"]?.stringValue
             // 主窗口（legacy 字段兼容 SettingsView 用户卡）：5 小时窗优先
@@ -930,6 +988,8 @@ final class AppSession {
                 ?? remaining.intValue.map { String($0) }
                 ?? remaining.doubleValue.map { String(format: "%g", $0) }
         }
+        // mcpQuota 原始形态透出（§11.2：usage 窗口合并阶段消费）
+        info.mcpQuotaAggregate = dict?["mcpQuota"]?.objectValue?["aggregate"]
         return info
     }
 
@@ -1170,7 +1230,7 @@ final class AppSession {
         }
         remoteConversationStore = conversationStore
         remoteTaskStore = RemoteTaskStore(connection: connection, workspace: workspace, conversationStore: conversationStore)
-        remoteFileStore = RemoteFileStore(connection: connection, workspace: workspace)
+        remoteFileStore = RemoteFileStore(connection: connection, workspace: workspace, conversationStore: conversationStore)
         _ = info
         // 世代 +1：触发 .task(id: storeEpoch) 重跑 syncStoresWithSession 完成环境值换绑
         //（P3-10 同 .connected 内换工作区时 mode 不变，靠 epoch 驱动）

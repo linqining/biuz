@@ -558,7 +558,7 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         XCTAssertTrue(revealBySwipeDown(planCard, application: application),
                       "plan_approval 交互应渲染结构化计划审批卡（05-plan-card）")
         waitStaticText(application, containing: "修补会话重连竞态", timeout: 8,
-                       "计划正文应来自 renderContext.plan")
+                       "计划正文应来自 payload.input.plan（上游 ExitPlanMode 形态）")
         XCTAssertTrue(element(application, "05-act-plan-approve").exists
                       && element(application, "05-act-plan-reject").exists,
                       "计划卡应有放行/驳回双动作")
@@ -1045,5 +1045,82 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         XCTAssertTrue(stub.rowsRangeRequests.contains { $0.sessionId == "sess-subagent-e2e" },
                       "转录应按 actor.sessionId 拉取 rowsRange")
         snap(application, "g021-actor-transcript-toolcards")
+    }
+
+    // MARK: - 供应商名/拒因中文化 + 设置页只读行点按提示（2026-10-08 用户报障三联）
+
+    /// provider-settings.getView 展示面：providerName 优先（桌面权威）、缺席走内置
+    /// id 中文映射、拒因四值词表中文化（not-connected 等原词不得上屏）；只读模型行
+    /// 点按出引导提示（上游 model-selection 无写面，切换入口在会话输入区）
+    func test23_providerRowsTranslatedAndModelRowTapHint() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        openSettingsPage(application, rowIdentifier: "12-row-model")
+        // 连接态模型清单来自替身 model-selection.getView
+        XCTAssertTrue(element(application, "12-model-GLM-5.3").waitForExistence(timeout: 12),
+                      "连接态应呈现替身模型清单")
+        // providerName 优先（桌面权威名，即使英文也不被映射覆盖）
+        waitStaticText(application, containing: "Z.ai Account", timeout: 10,
+                       "providerName 在场应优先于内置 id 映射")
+        waitStaticText(application, containing: "Z.ai Starter", timeout: 6,
+                       "providerName 行应原样展示")
+        // providerName 缺席 → 内置 id 中文映射兜底（不再裸露 account:…）
+        waitStaticText(application, containing: "Z.ai 团队套餐", timeout: 6,
+                       "providerName 缺席应走内置 id 中文映射")
+        waitStaticText(application, containing: "BigModel 个人套餐", timeout: 6,
+                       "bigmodel 族应映射 BigModel 前缀中文名")
+        // 拒因四值中文化
+        waitStaticText(application, containing: "未认证", timeout: 6, "not-authenticated 应译出")
+        waitStaticText(application, containing: "未连接", timeout: 6, "not-connected 应译出")
+        waitStaticText(application, containing: "凭据校验失败", timeout: 6, "credential-failed 应译出")
+        waitStaticText(application, containing: "未订阅该套餐", timeout: 6, "not-entitled 应译出")
+        XCTAssertFalse(application.staticTexts["not-connected"].exists,
+                       "拒因原词不得上屏（2026-10-08 用户报障「没有翻译」）")
+        // 只读模型行点按 → 引导提示（不是静默无响应）
+        element(application, "12-model-GLM-5.3").tap()
+        XCTAssertTrue(element(application, "12-model-tap-hint").waitForExistence(timeout: 4),
+                      "只读模型行点按应出现切换引导提示")
+        snap(application, "provider-rows-translated")
+    }
+
+    // MARK: - 会话内模型面板空清单死锁根修（2026-10-08 用户报障「模型和思考强度选不了」）
+
+    /// getView 失败 + state.modelSelection 在场 → overlay 种出「非 nil 但空」的
+    /// modelSelection：修复后点模型胶囊应重拉（失败行上提示、不弹零行空面板）；
+    /// 解除失败后重拉成功面板出清单，选中真实下发 switchModelConfig
+    func test24_modelChipRetriesWhenSelectionEmpty() throws {
+        stub.modelSelectionViewFails = true
+        stub.setSnapshotModelSelection(sessionId: "sess-e2e-1", selection: [
+            "providerId": "zai",
+            "modelId": "GLM-5.3",
+            "options": ["reasoningLevel": "high"],
+        ])
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        relaunchKeepState(application, extra: ["-ZCodeOpenConversationId", "sess-e2e-1"])
+        let chip = element(application, "05-chip-model")
+        XCTAssertTrue(chip.waitForExistence(timeout: 15),
+                      "getView 失败时模型胶囊应仍在（state 叠加显示 activeModel）")
+        // 点按 → 重拉仍失败 → 行上提示，不弹空面板（修复前 = 零行空白 sheet）
+        chip.tap()
+        XCTAssertTrue(element(application, "05-composer-switch-hint").waitForExistence(timeout: 8),
+                      "重拉失败应行上提示（模型列表获取失败）")
+        XCTAssertFalse(element(application, "05-composer-option-cancel").exists,
+                       "清单为空不得弹出模型面板（空面板即「选不了」本体）")
+        // 解除失败 → 再点 → 重拉成功面板出清单
+        stub.modelSelectionViewFails = false
+        chip.tap()
+        XCTAssertTrue(element(application, "05-composer-option-cancel").waitForExistence(timeout: 8),
+                      "重拉成功后面板应打开")
+        // 面板行与被遮挡的 chips 胶囊同 label（"GLM-5.3"）——以 hittable 过滤取 sheet 内行
+        let rowQuery = application.buttons.matching(NSPredicate(format: "label == 'GLM-5.3'"))
+        XCTAssertTrue(rowQuery.firstMatch.waitForExistence(timeout: 6), "面板应呈现替身模型行")
+        let hittableRow = rowQuery.allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertNotNil(hittableRow, "面板模型行应可点（背后胶囊被遮挡不可点）")
+        hittableRow?.tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "switchModelConfig 应到达替身（stale-once 自动重试收敛）") {
+            stub.switchModelConfigCallCount >= 1
+        }, "选中模型应真实下发 switchModelConfig")
+        snap(application, "model-panel-recovered")
     }
 }

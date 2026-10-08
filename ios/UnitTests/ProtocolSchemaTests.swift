@@ -228,4 +228,47 @@ final class ProtocolSchemaTests: XCTestCase {
         XCTAssertTrue(err.isHandshakeRequired)
         XCTAssertFalse(RPCError(message: "RPC 超时", name: "TimeoutError").isHandshakeRequired)
     }
+
+    // MARK: 2026-10-08 报障修复回归
+
+    func testParseInteractionUpstreamExitPlanModeIsPlanApproval() {
+        // 上游 ExitPlanMode 挂起交互：kind="userInput"，plan_approval 只在
+        // payload.schema.interaction，计划正文在 payload.input.plan
+        // 【实证·上游仓 product-projection.ts:3117-3134 + interaction-broker.ts:286
+        // + zcodeTaskServiceAdapter.ts:4944-4947】——此前按 kind 直判，审批卡永不渲染。
+        // AskUserQuestion（同为 userInput、schema 无 interaction 键）不得误判。
+        let json = JSONValue.object([
+            "interactionId": .string("i-1"),
+            "kind": .string("userInput"),
+            "payload": .object([
+                "kind": .string("userInput"),
+                "prompt": .string("Review this implementation plan."),
+                "toolName": .string("ExitPlanMode"),
+                "schema": .object(["interaction": .string("plan_approval"), "toolName": .string("ExitPlanMode")]),
+                "input": .object(["plan": .string("1. do x\n2. do y")]),
+            ]),
+        ])
+        guard let parsed = RemoteConversationStore.parseInteraction(json) else {
+            return XCTFail("解析不应失败")
+        }
+        XCTAssertEqual(parsed.kind, "plan_approval")
+        XCTAssertTrue(parsed.isPlanApproval)
+        XCTAssertEqual(parsed.planText, "1. do x\n2. do y")
+        XCTAssertEqual(parsed.title, "Review this implementation plan.")
+
+        let question = JSONValue.object([
+            "interactionId": .string("i-2"),
+            "kind": .string("userInput"),
+            "payload": .object([
+                "kind": .string("userInput"),
+                "toolName": .string("AskUserQuestion"),
+                "schema": .object(["toolName": .string("AskUserQuestion")]),
+            ]),
+        ])
+        guard let parsedQuestion = RemoteConversationStore.parseInteraction(question) else {
+            return XCTFail("提问解析不应失败")
+        }
+        XCTAssertEqual(parsedQuestion.kind, "userInput")
+        XCTAssertFalse(parsedQuestion.isPlanApproval)
+    }
 }

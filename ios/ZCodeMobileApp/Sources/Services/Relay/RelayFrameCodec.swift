@@ -13,7 +13,9 @@ import Foundation
 enum RelayFrameCodec {
 
     /// 常量（bundle Yv @243672：maxPhysicalFrameBytes=Ju.maxFrameBytes=1MB）
-    static let maxPhysicalFrameBytes = 1_000_000      // 整条 data JSON 上限
+    /// 2026-10-08 回归审核轮 §11.2：1e6 → 1048576 对齐上游 core.ts maxFrameBytes
+    /// （1e6 与 1MiB 存在 48576 字节窗口差，落在窗口内的下行信封曾被静默丢弃）
+    static let maxPhysicalFrameBytes = 1_048_576    // 整条 data JSON 上限
     static let maxMessageBytes = 16 * 1024 * 1024
     static let maxFragments = 64
     static let assemblyTimeoutSeconds: TimeInterval = 30

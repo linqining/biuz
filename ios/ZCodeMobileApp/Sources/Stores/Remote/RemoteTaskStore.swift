@@ -296,7 +296,10 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
             ])]))
             builder.set("sortBy", "updated")
             builder.set("limit", 50)
-            builder.set("searchQuery", trimmed)
+            // 键名 = search（ZCodeTaskListQuery.search?，zcodeTaskListTypes.ts:17——
+            // 2026-10-08 回归审核轮 §11.1#7：此前发 searchQuery 被服务端忽略，
+            // 搜索静默返回未过滤的最近 50 条假结果）
+            builder.set("search", trimmed)
         }
         do {
             let result = try await connection.call("zcode-task", "listTaskList", searchQuery)

@@ -152,6 +152,10 @@ actor ChannelClient: RPCChannelTransport {
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         let task = urlSession.webSocketTask(with: request)
+        // 上限放宽到 16MB（=协议逻辑帧上限；2026-10-08 回归审核轮 §11.2）：
+        // URLSessionWebSocketTask 缺省 1MiB，超限单条回执（长列表/大 rowsRange/大 diff）
+        // 直接断连——上游 Channel 协议层无帧大小上限，LAN 直连不受中继分片保护
+        task.maximumMessageSize = RelayFrameCodec.maxMessageBytes
         socket = task
         task.resume()
         receiveNext() // 读循环先行：Initialize 依赖它

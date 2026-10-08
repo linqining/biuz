@@ -139,7 +139,7 @@ final class ReadOnlyGateTests: XCTestCase {
             "setModel", "setThoughtLevel", "setMode",
             "writeWorkspaceFile", "saveFile", "writeFile", "applyEdits",
             "respondSessionRuntimePreferences", "grantWorkspaceHookTrust",
-            "listMcpServerStatuses", "generateWorkspaceText", "testModelConnectivity",
+            "generateWorkspaceText", "testModelConnectivity",
             // P3-11 放行（2026-10-06）：installPlugin/uninstallPlugin 桌面代执行
             //（gate :95 注释裁决，卸载 UI 带确认）；setPluginEnabled 等其余插件写维持拦截
             "setPluginEnabled", "configurePlugin",
@@ -149,6 +149,11 @@ final class ReadOnlyGateTests: XCTestCase {
             let verdict = ReadOnlyGate.inspect(channel: "zcode-agent", command: command, arg: .undefined)
             XCTAssertTrue(verdict.isBlocked, "zcode-agent.\(command)（直写/配置写面）应拦截")
         }
+        // 2026-10-08 回归审核轮 §11.1#3：listMcpServerStatuses 是列表查询
+        //（上游 zcodeAgentService.ts:3820 无拦截），设置页 MCP 页真实调用面——
+        // 曾列入「MCP 真实探测」属误分类，连接态 MCP 页恒失败，已移出黑名单
+        let mcpList = ReadOnlyGate.inspect(channel: "zcode-agent", command: "listMcpServerStatuses", arg: .undefined)
+        XCTAssertFalse(mcpList.isBlocked, "zcode-agent.listMcpServerStatuses（列表查询）应放行")
     }
 
     func testChannelBlacklistBlocked() {

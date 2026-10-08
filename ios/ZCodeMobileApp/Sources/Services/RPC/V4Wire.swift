@@ -58,11 +58,18 @@ struct TopicWireFrameAssembler {
     private final class Pending {
         var fragments: [Int: Data] = [:]
         var count = 0
+        var firstSeen = Date()
     }
 
     private var pending: [String: Pending] = [:]
     private static let maxFragments = 1024
     private static let maxLogicalBytes = 16 * 1024 * 1024
+    /// 半装配驱逐（§11.3 对齐上游 wire-assembler.ts:472-481 expire + core.ts:68-69）：
+    /// ① 30s 装配超时——任一分片丢失后 Pending 永驻（单条最大近 16MB），长会话
+    /// 内存只增不减；过期驱逐并置 dropped（下游 resync 自愈在）。
+    /// ② 并发装配上限 32——超限丢最旧（上游 maxConcurrentAssemblies=32）。
+    private static let assemblyTimeoutSeconds: TimeInterval = 30
+    private static let maxConcurrentAssemblies = 32
 
     /// 自上次取走以来是否丢弃过整条逻辑帧（routeFrame 消费后触发 resync）
     private(set) var droppedSinceLastConsume = false
@@ -72,6 +79,7 @@ struct TopicWireFrameAssembler {
         if let frame = envelope.completeFrame {
             return frame
         }
+        expireStaleAssemblies(now: Date())
         guard let index = envelope.fragmentIndex,
               let count = envelope.fragmentCount,
               let base64 = envelope.dataBase64,
@@ -82,6 +90,12 @@ struct TopicWireFrameAssembler {
         }
         guard let item = pending[envelope.logicalFrameId] ?? {
             let fresh = Pending()
+            // 并发装配预算：超限丢最旧（上游 hardBound 超限产 typed fault 同效果）
+            if pending.count >= Self.maxConcurrentAssemblies,
+               let oldest = pending.min(by: { $0.value.firstSeen < $1.value.firstSeen })?.key {
+                pending.removeValue(forKey: oldest)
+                droppedSinceLastConsume = true
+            }
             pending[envelope.logicalFrameId] = fresh
             return fresh
         }() else {
@@ -133,6 +147,19 @@ struct TopicWireFrameAssembler {
     mutating func dropAll() {
         if !pending.isEmpty { droppedSinceLastConsume = true }
         pending.removeAll()
+    }
+
+    /// 超时驱逐：分片停留超 30s 的半装配条目（上游 expire 同语义——丢分片的自愈
+    /// 信号，不是错误）。每次 fragment 喂入前顺带扫描（低频路径，条目 ≤32）。
+    private mutating func expireStaleAssemblies(now: Date) {
+        let stale = pending.filter {
+            now.timeIntervalSince($0.value.firstSeen) > Self.assemblyTimeoutSeconds
+        }
+        guard !stale.isEmpty else { return }
+        for key in stale.keys {
+            pending.removeValue(forKey: key)
+        }
+        droppedSinceLastConsume = true
     }
 
     /// 取走 dropped 标记（读后清零；每次 routeFrame 轮询调用）。

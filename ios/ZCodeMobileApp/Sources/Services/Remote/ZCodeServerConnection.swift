@@ -387,10 +387,8 @@ final class ZCodeServerConnection {
             return .failure(connectError)
         }
 
-        // 订阅 workspace 级下行帧流（zcode-agent.onDynamicConversationFrame / onDynamicSessionsIndexFrame）
-        frameSubscription = await subscribeFrameStreams(client: client)
-
-        // 步骤 4：v4 握手（hello → clientHello，clientKind=mobileApp；capabilities 单向规则：不携带）
+        // 步骤 4：v4 握手（hello → clientHello，clientKind=mobileApp；capabilities 单向规则：
+        // 只回显 Host 宣告过的键）
         progress.handshake.phase = .running
         state = .connecting(progress)
         do {
@@ -407,14 +405,20 @@ final class ZCodeServerConnection {
             helloMessage = hello
             log(.ok, "helloConversationV4 · protocolVersion=3 · deliveryProfile=\(hello.deliveryProfile)")
 
-            // clientHello capabilities 缺席 = 旧客户端语义，严格满足单向宣告规则
-            //（transport.ts:53-86 .strict()：携带 Host 未宣告的键会整条解析失败）
+            // clientHello capabilities 单向宣告规则（transport.ts:72-83 .strict()）：
+            // 只回显 Host hello 已宣告的键。workflowRunDeltas 为 true 时回显——移动端
+            // 已实现 workflowRun.updated/removed 专属增量消费（RCS applyDelta），
+            // 不声明则服务端把增量折叠回整键 state.updated 且宽 run 裁到 256
+            // （2026-10-08 回归审核轮 §11.2：此前恒不声明=增量消费死代码）
             let clientHello = RPCValue.jsonObject { builder in
                 builder.set("kind", "clientHello")
                 builder.set("protocolVersion", V4HelloMessage.wireProtocolVersion)
                 builder.set("clientId", clientId)
                 builder.set("clientKind", "mobileApp") // transport.ts:73 预留值
                 builder.set("appVersion", appVersion)
+                if hello.capabilities["workflowRunDeltas"] == true {
+                    builder.set("capabilities", .object(["workflowRunDeltas": .bool(true)]))
+                }
             }
             _ = try await client.call("zcode-agent", "initializeConversationV4", clientHello, timeout: 5)
             progress.handshake.phase = .done
@@ -450,6 +454,13 @@ final class ZCodeServerConnection {
         progress.workspace.meta = workspace.label ?? workspace.path
         log(.ok, "workspaces[0] · \(workspace.path)")
         self.workspace = workspace
+        // 订阅 workspace 级下行帧流（zcode-agent.onDynamicConversationFrame /
+        // onDynamicSessionsIndexFrame）。必须在 self.workspace 选定**之后**执行
+        // （2026-10-08 回归审核轮 §11.1#4：曾置于步骤 3 后，三路 eventListen 以
+        // workspacePath="" 注册——上游 emitter 按 resolveWorkspaceKey 硬路由，
+        // 空串键恒收不到帧，LAN 下 sessions-index/chips 实时帧全静默丢失；
+        // 中继路径本就先设 workspace 不受影响；E2E 替身不按键路由故门禁掩盖）
+        frameSubscription = await subscribeFrameStreams(client: client)
         state = .connected(info, workspace: workspace)
         return .success(info)
     }
@@ -628,6 +639,11 @@ final class ZCodeServerConnection {
                 builder.set("clientId", clientId)
                 builder.set("clientKind", "mobileApp")
                 builder.set("appVersion", appVersion)
+                // 单向宣告规则同 LAN 路：Host 宣告 workflowRunDeltas 才回显
+                //（transport.ts:72-83 .strict()，capabilities 键集封闭）
+                if hello.capabilities["workflowRunDeltas"] == true {
+                    builder.set("capabilities", .object(["workflowRunDeltas": .bool(true)]))
+                }
             }
             do {
                 _ = try await client.call("zcode-agent", "initializeConversationV4", clientHello, timeout: 5)
@@ -939,21 +955,26 @@ final class ZCodeServerConnection {
 
     /// 确保指定 workspace 的 conversation 帧流已注册（幂等）。会话订阅前调用——
     /// 订阅按归属 workspace 寻址（v1.17），帧面必须同 workspace（本方法）。
-    func ensureConversationFrameStream(workspacePath: String) async {
+    /// identity 型工作区必须携 identity（emitter 键 = identity || path，§11.2）。
+    func ensureConversationFrameStream(workspacePath: String, workspaceIdentity: String? = nil) async {
         guard let client, isActive, !workspacePath.isEmpty else { return }
-        guard conversationFrameStreams[workspacePath] == nil else { return }
+        let streamKey = workspaceIdentity?.isEmpty == false ? workspaceIdentity! : workspacePath
+        guard conversationFrameStreams[streamKey] == nil else { return }
         let arg = RPCValue.jsonObject { builder in
             builder.set("workspacePath", workspacePath)
+            if let workspaceIdentity, !workspaceIdentity.isEmpty {
+                builder.set("workspaceIdentity", workspaceIdentity)
+            }
         }
         // assemblerKey 按 workspace 分键：两路帧流各自重组（TopicWireFrameAssembler
         // 分片账本不跨流混用）；handler 仍按 frame.topic 精确匹配（routeFrame）
         let subscription = await client.listen(
             "zcode-agent", "onDynamicConversationFrame", arg
         ) { [weak self] payload in
-            self?.routeFrame(payload, assemblerKey: "conversation/\(workspacePath)", handlerKey: nil)
+            self?.routeFrame(payload, assemblerKey: "conversation/\(streamKey)", handlerKey: nil)
         }
-        conversationFrameStreams[workspacePath] = subscription
-        log(.ok, "conversation 帧流已挂 · \(workspacePath)")
+        conversationFrameStreams[streamKey] = subscription
+        log(.ok, "conversation 帧流已挂 · \(streamKey)")
     }
 
     /// workspace 级下行帧流：三个 dynamic 事件共用通知面，按 topic 前缀分流；
@@ -962,9 +983,15 @@ final class ZCodeServerConnection {
     /// conversation 首路（连接 workspace）在此注册；其余 workspace 按
     /// ensureConversationFrameStream 逐路补挂（P0-1）。
     private func subscribeFrameStreams(client: any RPCChannelTransport) async -> EventSubscription {
-        // dynamic 事件带参数：{workspacePath}（zcodeAgent.ts WorkspaceTarget）
+        // dynamic 事件带参数：{workspacePath, workspaceIdentity?}（zcodeAgent.ts
+        // WorkspaceTarget）。emitter 按 resolveWorkspaceKey = identity || path 键控
+        // （zcodeAgentService.ts:1568-1596）——identity 型工作区必须携 identity，
+        // 否则三路帧流挂 path 键收不到（2026-10-08 回归审核轮 §11.2）
         let arg = RPCValue.jsonObject { builder in
             builder.set("workspacePath", workspace?.path ?? "")
+            if let identity = workspace?.workspaceIdentity, !identity.isEmpty {
+                builder.set("workspaceIdentity", identity)
+            }
         }
         let conversationSub = await client.listen("zcode-agent", "onDynamicConversationFrame", arg) { [weak self] payload in
             self?.routeFrame(payload, assemblerKey: "conversation", handlerKey: nil)
@@ -988,11 +1015,19 @@ final class ZCodeServerConnection {
         // workspace-config 订阅（promise 面）：runtimePolicy=existing-only，
         // 被动观察者禁止为订阅拉起 Agent（zcodeAgent.ts:527-529 注释口径）。
         // 服务端为 additive 演进面，旧版本不支持时订阅静默失败（chips 回退演示值）。
-        let configTopic = "workspace-config/\(workspace?.path ?? "")"
+        // topic 键 = identity || path（同 sessions-index 口径，§11.2）
+        let configKey: String = {
+            if let identity = workspace?.workspaceIdentity, !identity.isEmpty { return identity }
+            return workspace?.path ?? ""
+        }()
+        let configTopic = "workspace-config/\(configKey)"
         workspaceConfigTopicPath = configTopic
         var builder = JSONObjectBuilder()
         builder.set("topic", configTopic)
         builder.set("workspacePath", workspace?.path ?? "")
+        if let identity = workspace?.workspaceIdentity, !identity.isEmpty {
+            builder.set("workspaceIdentity", identity)
+        }
         builder.set("runtimePolicy", "existing-only")
         if let value = try? await client.call(
             "zcode-agent", "subscribeWorkspaceConfigV4",
@@ -1030,6 +1065,15 @@ final class ZCodeServerConnection {
         }
     }
 
+    /// 丢帧自愈 handler 查找：assemblerKey 精确命中；多路帧流的分键
+    /// （"conversation/&lt;path&gt;"）回退到基键 "conversation"——Store 只注册基键，
+    /// 若无回退则跨工作区会话（v1.23 补挂路的全部场景）丢帧自愈永不触发
+    /// （2026-10-08 回归审核轮 §11.1#5）
+    private func dropHandler(for assemblerKey: String) -> (@Sendable () -> Void)? {
+        frameDropHandlers[assemblerKey]
+            ?? (assemblerKey.hasPrefix("conversation/") ? frameDropHandlers["conversation"] : nil)
+    }
+
     nonisolated private func routeFrame(_ payload: RPCValue, assemblerKey: String, handlerKey: String?) {
         guard let json = payload.jsonValue,
               let envelope = TopicWireFrame.parse(json) else { return }
@@ -1040,13 +1084,13 @@ final class ZCodeServerConnection {
                 self.frameAssemblers[assemblerKey] = assembler
                 // 丢帧自愈：assembler 置位 dropped → 通知订阅方 resync（断线/换代/坏分片）
                 if assembler.consumeDroppedFlag() {
-                    self.frameDropHandlers[assemblerKey]?()
+                    self.dropHandler(for: assemblerKey)?()
                 }
                 return
             }
             self.frameAssemblers[assemblerKey] = assembler
             if assembler.consumeDroppedFlag() {
-                self.frameDropHandlers[assemblerKey]?()
+                self.dropHandler(for: assemblerKey)?()
             }
             guard let frame = V4TopicFrame.parse(logical) else { return }
             // 会话索引帧：handlerKey 为事件别名（"sessions-index"），而订阅侧按完整 topic

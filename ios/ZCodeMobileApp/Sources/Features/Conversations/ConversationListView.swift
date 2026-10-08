@@ -254,6 +254,10 @@ struct ConversationListView: View {
         }
         .task { await reload() }
         .refreshable { await reload(showSpinner: true) }
+        // 返场重拉（2026-10-08 报障「新会话标题不回填」第二半因）：列表常驻栈内，
+        // 进出会话不触发 .task——返场即 reload 一次（conversations() 内合并/兜底刷新
+        // 全部 TTL/到期节流，成本一次本地投影；增量丢失时标题在此补齐）
+        .onAppear { Task { await reload() } }
         // id 绑定 store 实例：连接成功后数据源 mock→远端 切换时重订阅（id 为常量会一直挂在旧流上）。
         // 切换时必须主动 reload 一次：远端订阅（subscribeSessionsIndexV4）只在 conversations() 内建立，
         // 而首个 .task { reload() } 仅在首次挂载（当时还是 mock）执行——若只 observe 不拉取，

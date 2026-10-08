@@ -623,6 +623,13 @@ struct ModelSettingsView: View {
     @State private var remoteModels: [String] = []
     @State private var remoteActiveModel: String?
     @State private var usedRemoteList = false
+    /// H12 连接态只读行的点按提示（2026-10-08 用户复报「模型也不能切换」：静默
+    /// 不响应观感即死交互——上游 model-selection 频道只有读面（providerFacadeServices.ts
+    /// :95-98 getView+onDidChange），桌面默认绑定走本地配置文件（NodeModelSelectionConfig
+    /// Repository）无远程写接口；会话输入区模型胶囊（switchModelConfig 会话级）才是
+    /// 真实切换面，点按一行提示引导）
+    @State private var modelTapHint: String?
+    @State private var modelTapHintClear: Task<Void, Never>?
 
     /// P3-11B 供应商连接态行（provider-settings.getView 只读投影）：全部 provider 的
     /// accountState.availability（available|unavailable|unknown）+ unavailableReason
@@ -630,6 +637,10 @@ struct ModelSettingsView: View {
     /// 逆向 N8/JHt 映射模型）。只读展示，写面（personal provider 增删改）维持拦截。
     struct ProviderConnection: Identifiable {
         let providerId: String
+        /// 桌面回执展示名（【实证·上游仓 provider/facades.ts:149-151】
+        /// ProviderSettingsProviderView extends Pick<ProviderConfigRule, "providerName"|"templateId">；
+        /// 缺席 = 走内置 id 中文映射，再缺席原样 id——2026-10-08 用户报障「供应商没翻译」）
+        let providerName: String?
         let availability: String?
         let unavailableReason: String?
         var id: String { providerId }
@@ -649,22 +660,26 @@ struct ModelSettingsView: View {
                 section("模型") {
                     ForEach(models, id: \.self) { item in
                         if usedRemoteList {
-                            // H12（U-8）：连接态列表只读展示——模型绑定由桌面端决定，
-                            // 点选不下发（会话内 modelMenu 已接 switchModelConfig 真下发）；
-                            // 原点选是「视觉不动、不生效」的死交互
-                            HStack {
-                                Text(item)
-                                    .font(T.font(14.5, .medium))
-                                    .foregroundColor(isActiveModel(item) ? T.text : T.text2)
-                                Spacer()
-                                if isActiveModel(item) {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundColor(T.accent)
+                            // H12（U-8）：连接态列表只读展示——模型绑定由桌面端决定；
+                            // 上游无远程写接口（见 modelTapHint 注释），点按一行提示
+                            // 引导到会话输入区（原「视觉不动、不响应」改显式反馈）
+                            Button {
+                                showModelTapHint()
+                            } label: {
+                                HStack {
+                                    Text(item)
+                                        .font(T.font(14.5, .medium))
+                                        .foregroundColor(isActiveModel(item) ? T.text : T.text2)
+                                    Spacer()
+                                    if isActiveModel(item) {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 13, weight: .bold))
+                                            .foregroundColor(T.accent)
+                                    }
                                 }
+                                .padding(.horizontal, T.sp3)
+                                .frame(minHeight: 48)
                             }
-                            .padding(.horizontal, T.sp3)
-                            .frame(minHeight: 48)
                             .accessibilityIdentifier("12-model-\(item)")
                         } else {
                             Button {
@@ -694,6 +709,14 @@ struct ModelSettingsView: View {
                      : String(localized: "离线偏好，连接后以桌面清单为准"))
                     .font(T.font(12))
                     .foregroundColor(T.text3)
+                // H12 点按提示（3s 自动清除，ChatView switchHint 同款口径）
+                if let modelTapHint {
+                    Text(modelTapHint)
+                        .font(T.font(11.5))
+                        .foregroundColor(T.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("12-model-tap-hint")
+                }
                 // P3-11B 供应商连接状态（provider-settings.getView 只读；连接态呈现）
                 if session.isConnected {
                     providerConnectionSection
@@ -727,6 +750,17 @@ struct ModelSettingsView: View {
         .task(id: session.isConnected) { await loadProviderConnections() }
     }
 
+    /// 只读模型行点按提示（3s 自动清除；ChatView showSwitchHint 同款口径）
+    private func showModelTapHint() {
+        modelTapHintClear?.cancel()
+        modelTapHint = String(localized: "连接态由桌面端绑定 · 请在会话输入区点模型胶囊切换")
+        modelTapHintClear = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { modelTapHint = nil }
+        }
+    }
+
     // MARK: P3-11B 供应商连接状态（provider-settings.getView 只读面）
 
     /// provider-settings 频道 getView 无参调用（web providerSettingsService.getView()
@@ -750,6 +784,7 @@ struct ModelSettingsView: View {
                 let state = d["accountState"]?.objectValue
                 return ProviderConnection(
                     providerId: providerId,
+                    providerName: d["providerName"]?.stringValue,
                     availability: state?["availability"]?.stringValue,
                     unavailableReason: state?["unavailableReason"]?.stringValue)
             }
@@ -775,6 +810,53 @@ struct ModelSettingsView: View {
         }
     }
 
+    /// 供应商行展示名回退序：providerName（桌面权威）→ 内置 id 中文映射 → 原样 id。
+    /// 内置六 id【实证·上游仓 shared/src/model-provider-types.ts:7-14 BUILTIN_MODEL_
+    /// PROVIDER_IDS】；品牌词逐字取自 id（zai→Z.ai、bigmodel→BigModel），档位词与
+    /// 模型面板套餐分组（parseModelSelectionView planName）同口径
+    static func providerDisplayName(_ provider: ProviderConnection) -> String {
+        // trim 判空与上游同语义（config-service.ts:204 providerName?.trim() || null——
+        // 空白串视同缺席，防止旧数据残留空白名）
+        if let name = provider.providerName?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
+            return name
+        }
+        switch provider.providerId {
+        case "account:zai-individual-coding-plan":
+            return String(localized: "Z.ai 个人套餐")
+        case "account:zai-team-coding-plan":
+            return String(localized: "Z.ai 团队套餐")
+        case "account:zai-start-plan":
+            return String(localized: "Z.ai 体验套餐")
+        case "account:bigmodel-individual-coding-plan":
+            return String(localized: "BigModel 个人套餐")
+        case "account:bigmodel-team-coding-plan":
+            return String(localized: "BigModel 团队套餐")
+        case "account:bigmodel-start-plan":
+            return String(localized: "BigModel 体验套餐")
+        default:
+            return provider.providerId
+        }
+    }
+
+    /// 拒因中文化（【实证·上游仓 shared/src/account-provider-state.ts:7-11】
+    /// accountProviderUnavailableReasonSchema 四值；credential-failed 语义=凭据获取/
+    /// 校验失败，不能据此断言 OAuth 已失效——注释逐字）；未知值原样透出（宽容解析
+    /// ≠协议事实，§4.3）
+    static func unavailableReasonText(_ reason: String?) -> String? {
+        switch reason {
+        case "not-authenticated":
+            return String(localized: "未认证")
+        case "not-connected":
+            return String(localized: "未连接")
+        case "credential-failed":
+            return String(localized: "凭据校验失败")
+        case "not-entitled":
+            return String(localized: "未订阅该套餐")
+        default:
+            return reason
+        }
+    }
+
     @ViewBuilder
     private var providerConnectionSection: some View {
         section("供应商连接状态") {
@@ -786,11 +868,12 @@ struct ModelSettingsView: View {
                             .foregroundColor(T.accentText)
                             .frame(width: 30)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(provider.providerId)
+                            Text(Self.providerDisplayName(provider))
                                 .font(T.font(14.5))
                                 .foregroundColor(T.text)
                                 .lineLimit(1)
-                            if let reason = provider.unavailableReason, !reason.isEmpty {
+                            if let reason = Self.unavailableReasonText(provider.unavailableReason),
+                               !reason.isEmpty {
                                 Text(reason)
                                     .font(T.font(11.5))
                                     .foregroundColor(T.text3)

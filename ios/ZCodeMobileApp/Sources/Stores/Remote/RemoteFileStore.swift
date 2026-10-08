@@ -14,6 +14,8 @@ actor RemoteFileStore: @preconcurrency FileStore {
 
     private weak var connection: ZCodeServerConnection?
     private let workspace: ServerWorkspaceInfo
+    /// 会话归属寻址/水位解析（§11.3：会话域方法按会话归属 workspace 寻址）
+    private weak var conversationStore: RemoteConversationStore?
 
     private var localApprovals: Set<String> = []
     private var localRejections: Set<String> = []
@@ -44,9 +46,11 @@ actor RemoteFileStore: @preconcurrency FileStore {
 
     nonisolated var isRemote: Bool { true }
 
-    init(connection: ZCodeServerConnection, workspace: ServerWorkspaceInfo) {
+    init(connection: ZCodeServerConnection, workspace: ServerWorkspaceInfo,
+         conversationStore: RemoteConversationStore? = nil) {
         self.connection = connection
         self.workspace = workspace
+        self.conversationStore = conversationStore
     }
 
     /// Store 释放/断线 teardown：unwatch 当前 watcher + disposeAll 兜底，
@@ -431,7 +435,11 @@ actor RemoteFileStore: @preconcurrency FileStore {
 
     // MARK: 会话维度文件变更（conversationFileChangesV4）
 
-    /// 本次会话变更：target={sessionId}，base* 取会话 state 快照（缺省 0/空 epoch）。
+    /// 本次会话变更：target={sessionId} + **会话归属 workspace 信封**（§11.3——
+    /// 此前缺信封，跨工作区会话在服务端按 undefined workspaceKey 不命中任何活跃
+    /// CLI；web 实调用恒 ...workspace，agentConversationTransport.ts:393-403）；
+    /// base* 取会话当前水位（web 同口径——web SessionPane.tsx:1631-1632 用当前
+    /// revision/logEpoch，非恒 0；解析不出回退 0/"0"）。
     /// 回执 items[].patches 为 hunk 结构（oldStart/lines），非 unified 文本，单独转换。
     /// 签名对齐协议 requirement `sessionDiffFiles(sessionId:)`（带默认参的多参实现
     /// 不满足 witness 匹配，会被存在类型分派到协议默认实现而静默失效）。
@@ -440,8 +448,16 @@ actor RemoteFileStore: @preconcurrency FileStore {
         var builder = JSONObjectBuilder()
         builder.set("sessionId", sessionId)
         builder.set("target", .object(["sessionId": .string(sessionId)]))
-        builder.set("baseRevision", 0)
-        builder.set("baseLogEpoch", "0")
+        let base = await conversationStore?.conversationBaseWatermark(for: sessionId)
+            ?? (revision: 0, logEpoch: "0")
+        builder.set("baseRevision", base.revision)
+        builder.set("baseLogEpoch", base.logEpoch)
+        if let target = await conversationStore?.conversationWorkspaceTarget(for: sessionId) {
+            builder.set("workspacePath", target.path)
+            if let identity = target.identity {
+                builder.set("workspaceIdentity", identity)
+            }
+        }
         for attempt in 0..<2 {
             do {
                 let result = try await connection.call(

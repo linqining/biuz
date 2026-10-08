@@ -42,6 +42,7 @@ final class PendingAttachment: Identifiable {
     var progress: Double { totalBytes > 0 ? Double(uploadedBytes) / Double(totalBytes) : 0 }
     var percentText: String { "\(Int((progress * 100).rounded()))%" }
     var isImage: Bool { mediaType.hasPrefix("image/") }
+    var isVideo: Bool { mediaType.hasPrefix("video/") }
 }
 
 // MARK: - 附件上传服务（A-4 对齐 web：attachmentBeginV4 → ChunkV4×N → CommitV4）
@@ -63,6 +64,10 @@ final class AttachmentUploadService {
     /// PROTOCOL_V4_LIMITS】——旧 4MB 系 bundle 外保守口径（C-16），相机原图普遍
     /// 4-6MB 全被误拦（用户报障「附件不能上传」表象之一）；64 块上限（24MB）不先绑定
     nonisolated static let maxBytes = 20 * 1024 * 1024
+    /// 待发条数上限（上游 MAX_CHAT_ATTACHMENTS=8，chatAttachments.ts:35——
+    /// 2026-10-08 回归审核轮 §11.2：无上限时一次多选大文件可击穿服务端 staged
+    /// 64MB 预算〔fault.attachment.stagingCapacityExceeded〕且全量 Data 常驻内存）
+    nonisolated static let maxItems = 8
 
     private let store: ConversationStore
     private let sessionID: String
@@ -100,6 +105,10 @@ final class AttachmentUploadService {
         }
         guard data.count <= Self.maxBytes else {
             setHint(String(localized: "桌面端通道单附件上限 20MB，已跳过《\(trimmedName)》"))
+            return false
+        }
+        guard items.count < Self.maxItems else {
+            setHint(String(localized: "最多同时携带 \(Self.maxItems) 个附件，已跳过《\(trimmedName)》"))
             return false
         }
         items.append(PendingAttachment(name: trimmedName, mediaType: mediaType, data: data))
@@ -141,7 +150,8 @@ final class AttachmentUploadService {
 
     // MARK: 发送联动（设计稿 1.3③：全部 committed 后随下一次发送携带）
 
-    /// 发送前收口：未完成项顺序补传。返回 false = 仍有失败项（本次不发送，
+    /// 发送前收口：未完成项顺序补传（顺序上传=并发 1，上游 COMPOSER_ATTACHMENT_
+    /// UPLOAD_CONCURRENCY=2 内——§11.2）。返回 false = 仍有失败项（本次不发送，
     /// 保留失败态由用户重试/移除——直发文本会丢附件）。
     func ensureAllCommitted() async -> Bool {
         guard !items.isEmpty else { return true }
@@ -151,12 +161,29 @@ final class AttachmentUploadService {
         return items.allSatisfy { $0.state == .committed }
     }
 
-    /// 发送受理后取全部 committed 引用并清空待发条（附件随消息已下发，不再重传）。
-    func takeCommitted() -> [OutgoingAttachment] {
-        let refs = items
+    /// 已 committed 引用快照（**不移除**——发送失败保留重发的数据源）。
+    /// §11.1#6（2026-10-08 回归审核轮）：上游语义「成功才清空、失败保留为可重试
+    /// 草稿」（ConversationComposer.tsx:1399-1423 adoptSentAttachments→clear）；
+    /// 此前 takeCommitted 在投递结果前 removeAll，中继断线/拒收时用户已上传的
+    /// 附件静默消失且桌面侧 artifact 不可复用。
+    func committedAttachments() -> [OutgoingAttachment] {
+        items
             .filter { $0.state == .committed }
             .map { OutgoingAttachment(
                 ref: $0.ref ?? "", fileName: $0.name, mime: $0.mediaType, bytes: $0.data.count) }
+    }
+
+    /// 发送成功后移除已随消息下发的 committed 附件（与 peek 配对；失败路径不调用）
+    func clearCommitted(_ attachments: [OutgoingAttachment]) {
+        let sentRefs = Set(attachments.map(\.ref))
+        items.removeAll { $0.state == .committed && ($0.ref.map { sentRefs.contains($0) } ?? false) }
+        if items.isEmpty { hint = nil }
+    }
+
+    /// 发送受理后取全部 committed 引用并清空待发条（附件随消息已下发，不再重传）。
+    @available(*, deprecated, message: "改用 committedAttachments() + 成功后 clearCommitted(_:)——失败保留语义")
+    func takeCommitted() -> [OutgoingAttachment] {
+        let refs = committedAttachments()
         items.removeAll()
         hint = nil
         return refs

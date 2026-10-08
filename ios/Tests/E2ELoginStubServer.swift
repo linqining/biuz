@@ -507,6 +507,23 @@ final class E2ELoginStubServer {
         set { lock.lock(); _rowsRangePageSize = newValue; lock.unlock() }
     }
 
+    /// model-selection.getView 失败注入开关（会话内模型面板空清单死锁的构造前置态：
+    /// 失败 → overlay 种出「非 nil 但空」的 modelSelection，chips 可显示、面板零行）
+    private var _modelSelectionViewFail = false
+    var modelSelectionViewFails: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _modelSelectionViewFail }
+        set { lock.lock(); _modelSelectionViewFail = newValue; lock.unlock() }
+    }
+
+    /// 测试钩子：会话快照 state 携带 modelSelection（chips 显示源；配合 getView 失败
+    /// 开关构造「state 在场 + 词表缺席」的死锁前置态）
+    private var _snapshotModelSelections: [String: [String: Any]] = [:]
+    func setSnapshotModelSelection(sessionId: String, selection: [String: Any]) {
+        lock.lock()
+        _snapshotModelSelections[sessionId] = selection
+        lock.unlock()
+    }
+
     /// 测试钩子：向全部活跃 channel 重放 workflowRuns state.updated（整键翻转断言）
     func fireWorkflowRunsStateForTest(sessionId: String, runs: [[String: Any]], delay: TimeInterval = 0.3) {
         lock.lock()
@@ -613,15 +630,22 @@ final class E2ELoginStubServer {
                 "path": "/Users/e2e/zcode-workspace",
                 "impact": "删除构建产物目录 build/（约 40MB，可重新生成）",
             ]],
-            // G-017：计划审批（plan_approval）挂起交互——计划文本经 renderContext.plan 下发，
-            // 客户端 PlanApprovalCard 结构化渲染 + 放行/驳回（resolveInteraction 桌面代执行）
+            // G-017：计划审批挂起交互——2026-10-08 起按上游真实形态下发（旧直发
+            // kind="plan_approval" 的形态保留会漏掉新解析路径的门禁）：上游 ExitPlanMode
+            // kind="userInput"，plan_approval 在 payload.schema.interaction、计划正文在
+            // payload.input.plan【实证·上游仓 product-projection.ts:3117-3134】。
+            // 客户端须归位 kind 并结构化渲染 PlanApprovalCard + 放行/驳回
             "sess-e2e-plan": [[
                 "id": "int-e2e-plan-1",
-                "kind": "plan_approval",
-                "title": "登录超时修复计划",
-                "renderContext": [
-                    "kind": "plan_approval",
-                    "plan": "第一步：梳理登录超时复现路径\n第二步：修补会话重连竞态\n第三步：补回归测试并归档",
+                "kind": "userInput",
+                "payload": [
+                    "kind": "userInput",
+                    "prompt": "Review this implementation plan.",
+                    "toolName": "ExitPlanMode",
+                    "schema": ["interaction": "plan_approval", "toolName": "ExitPlanMode"],
+                    "input": [
+                        "plan": "第一步：梳理登录超时复现路径\n第二步：修补会话重连竞态\n第三步：补回归测试并归档",
+                    ],
                 ],
             ]],
         ]
@@ -941,11 +965,13 @@ final class E2ELoginStubServer {
         ]
         let blockedAgent: Set<String> = [
             "setModel", "setThoughtLevel", "setMode", "respondSessionRuntimePreferences",
-            "grantWorkspaceHookTrust", "listMcpServerStatuses", "generateWorkspaceText",
+            "grantWorkspaceHookTrust", "generateWorkspaceText",
             "testModelConnectivity", "createAutomation", "updateAutomation", "deleteAutomation",
             "setAutomationEnabled", "restartAutomation", "runAutomationNow", "deleteAutomationRun",
             // P3-11：installPlugin/uninstallPlugin 已过 gate 放行（桌面代执行），同步移出
             "updatePlugin", "setPluginEnabled",
+            // 2026-10-08 回归审核轮 §11.1#3：listMcpServerStatuses 是列表查询，与
+            // ReadOnlyGate 同步移出黑名单（test20 断言 capabilityReads 应真实收到它）
             "writeWorkspaceFile", "saveFile", "writeFile", "applyEdits",
         ]
         let blockedTerminal: Set<String> = ["create", "write", "resize", "dispose"]
@@ -1257,8 +1283,20 @@ final class E2ELoginStubServer {
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
                                          body: StubRPC.object(Self.stubSessionFileChanges)))
         case "getView" where channelName == "model-selection":
-            // model-selection.getView：providers/models + preferredSelection（chips 只读数据源）
-            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(Self.stubModelSelectionView)))
+            // model-selection.getView：providers/models + preferredSelection（chips 只读数据源）。
+            // 失败注入开关：回 fault（死锁用例构造「state 在场 + 词表缺席」前置态）
+            if modelSelectionViewFails {
+                channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
+                                             body: StubRPC.object(["fault": ["name": "StubFailure",
+                                                                             "message": "model-selection getView injected failure"]])))
+            } else {
+                channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(Self.stubModelSelectionView)))
+            }
+        case "getView" where channelName == "provider-settings":
+            // provider-settings.getView：providers[]（providerName/accountState 只读面；
+            // zai 行带 providerName=桌面权威名优先、bigmodel 行缺 providerName=中文映射
+            // 兜底、new-provider=personal 行两样都缺原样 id；拒因四值全覆盖）
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(Self.stubProviderSettingsView)))
         case "getProviders" where channelName == "oauth":
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["providers": ["zai", "bigmodel"]])))
         case "getActiveProvider" where channelName == "oauth":
@@ -2001,6 +2039,33 @@ final class E2ELoginStubServer {
         ],
     ]
 
+    /// provider-settings.getView 应答（【实证·上游仓 provider/facades.ts:149-163】
+    /// ProviderSettingsProviderView：providerName?/enabled/executable/accountState?/
+    /// effectiveConfig/models…；拒因四值【shared/src/account-provider-state.ts:7-11】）
+    private static let stubProviderSettingsView: [String: Any] = [
+        "revision": 1,
+        "providers": [
+            ["providerId": "account:zai-individual-coding-plan", "providerName": "Z.ai Account",
+             "accountState": ["availability": "available"]],
+            ["providerId": "account:zai-team-coding-plan",
+             "accountState": ["availability": "unknown"]],
+            ["providerId": "account:zai-start-plan", "providerName": "Z.ai Starter",
+             "accountState": ["availability": "unavailable",
+                              "unavailableReason": "not-authenticated"]],
+            ["providerId": "account:bigmodel-individual-coding-plan",
+             "accountState": ["availability": "unavailable",
+                              "unavailableReason": "not-connected"]],
+            ["providerId": "account:bigmodel-team-coding-plan",
+             "accountState": ["availability": "unavailable",
+                              "unavailableReason": "credential-failed"]],
+            ["providerId": "account:bigmodel-start-plan",
+             "accountState": ["availability": "unavailable",
+                              "unavailableReason": "not-entitled"]],
+            ["providerId": "new-provider",
+             "accountState": ["availability": "unknown"]],
+        ],
+    ]
+
     /// file.searchWorkspaceFiles 固定候选（name/path/relativePath/type）
     private static let stubSearchCandidates: [[String: Any]] = [
         ["name": "SessionStore.swift", "path": "/Users/e2e/zcode-workspace/SessionStore.swift",
@@ -2172,6 +2237,12 @@ final class E2ELoginStubServer {
         lock.unlock()
         guard !suppressed else { return }
         let sid = sessionId(ofTopic: topic)
+        // 快照 state：pendingInteractions 基线 + 会话级 modelSelection（chips 显示源；
+        // setSnapshotModelSelection 注入——死锁用例的「state 在场」半边）
+        var snapshotState: [String: Any] = ["revision": 42, "pendingInteractions": []]
+        lock.lock()
+        if let ms = _snapshotModelSelections[sid] { snapshotState["modelSelection"] = ms }
+        lock.unlock()
         let snapshotFrame: [String: Any] = [
             "wireVersion": 1,
             "kind": "complete",
@@ -2191,7 +2262,7 @@ final class E2ELoginStubServer {
                     "seq": 0,
                     "revision": 42,
                     "rows": [],
-                    "state": ["revision": 42, "pendingInteractions": []],
+                    "state": snapshotState,
                 ]],
             ],
         ]

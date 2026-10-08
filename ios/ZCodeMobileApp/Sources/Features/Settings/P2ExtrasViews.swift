@@ -660,11 +660,18 @@ struct UsageStatsView: View {
         guard isConnected else { return }
         isLoading = true
         errorText = nil
-        defer { isLoading = false }
-        // ① Coding Plan 额度（既有真实链路重拉）
-        await session.refreshDesktopReadonlyInfo()
-        // ② 重置机会（getCodingPlanResetStatus.availableFiveHourResets）
-
+        // ① Coding Plan 额度（主数据源，先到先渲染——2026-10-08 报障「用量要等很久」
+        // 根修：原实现 await 全串行只读链（oauth 两读+额度+App 用量+权益，各带超时/
+        // 退避重试，桌面繁忙/中继高延迟最坏数分钟）才撤 loading，全程只有转圈。现
+        // 主卡单独拉，到达即出页面；失败如实落错误态（last-good 在场则仍出列表）
+        await session.refreshCodingPlanUsage()
+        if session.codingPlanUsage == nil, session.appUsageSnapshot == nil {
+            errorText = String(localized: "桌面端未提供用量数据")
+        }
+        isLoading = false
+        // ② 其余只读链（oauth/App 用量/权益/枚举探测）+ 重置机会后台补全，区块到数
+        // 即填充（AppSession 在途合并——usage-stats 拒并发快照请求）
+        session.refreshDesktopReadonlyInfoInBackground()
         await loadResetOpportunity()
     }
 
@@ -1515,7 +1522,7 @@ struct RemoteCapabilityListPage: View {
             return String(localized: "命令未送达（连接中断或不在连接态）")
         }
         let ack = await store.startSavedWorkflow(
-            nil, workflowId: row.workflowID ?? row.title, args: args)
+            nil, name: row.workflowID ?? row.title, args: args)
         let (error, sessionId) = Self.interpretStartAck(ack)
         guard error == nil else { return error }
         UINotificationFeedbackGenerator().notificationOccurred(.success)

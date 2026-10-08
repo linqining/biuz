@@ -82,346 +82,6 @@
         }
       }
     },
-    "-    TextField(\"发送消息\", text: $draft)" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "-    TextField(\\\"Send a message\\\", text: $draft)"
-          }
-        }
-      }
-    },
-    "- 主色 #21c17a" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "- primary #21c17a"
-          }
-        }
-      }
-    },
-    "- 主色 #32f08c（对比度 12.7:1）" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "- primary #32f08c (contrast 12.7:1)"
-          }
-        }
-      }
-    },
-    "- 深字 #04120a 用于绿底前景" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "- deep text #04120a for on-green foreground"
-          }
-        }
-      }
-    },
-    "- 状态三色：Running / Waiting / Completed" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "- status triad: Running / Waiting / Completed"
-          }
-        }
-      }
-    },
-    "--no-token · authRequired=false · 不校验令牌" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "--no-token · authRequired=false · token not verified"
-          }
-        }
-      }
-    },
-    "-%lld" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "-%lld"
-          }
-        }
-      }
-    },
-    ", delay))s 后" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : ", delay))s later"
-          }
-        }
-      }
-    },
-    "，%lld 条未处理" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : ", %lld pending items"
-          }
-        }
-      }
-    },
-    "，请开始。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : ", please start."
-          }
-        }
-      }
-    },
-    "；且清理新组失败（%@）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "; and failed to clean up the new group (%@)"
-          }
-        }
-      }
-    },
-    "…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "…"
-          }
-        }
-      }
-    },
-    "…%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "…%@"
-          }
-        }
-      }
-    },
-    "· %@" : {
-
-    },
-    "（回滚原工作区亦失败：%@，可断开重连恢复）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(rolling back to the original workspace also failed: %@; disconnect and reconnect to recover)"
-          }
-        }
-      }
-    },
-    "（思考）%@" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(thinking) %@"
-          }
-        }
-      }
-    },
-    "（无提交说明）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(no commit message)"
-          }
-        }
-      }
-    },
-    "（空）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(empty)"
-          }
-        }
-      }
-    },
-    ") · 后续请求 401 → 引导重登" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : ") · subsequent 401 → re-login prompt"
-          }
-        }
-      }
-    },
-    ") 失败" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : ") failed"
-          }
-        }
-      }
-    },
-    "[ok] LAN → http://192.168.1.24:3030/?token=****" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "[ok] LAN → http://192.168.1.24:3030/?token=****"
-          }
-        }
-      }
-    },
-    "{origin}/login · BigModel 智能体平台" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "{origin}/login · BigModel agent platform"
-          }
-        }
-      }
-    },
-    "《%@》内容为空，已跳过" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "\"%@\" is empty and was skipped"
-          }
-        }
-      }
-    },
-    "《%@》读取失败，已跳过" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn't read %@, skipped"
-          }
-        }
-      }
-    },
-    "《用户协议》" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terms of Service"
-          }
-        }
-      }
-    },
-    "《隐私政策》" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privacy Policy"
-          }
-        }
-      }
-    },
-    "「%@」需要数字" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "\"%@\" requires a number"
-          }
-        }
-      }
-    },
-    "「%@」需要整数" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "\"%@\" requires an integer"
-          }
-        }
-      }
-    },
-    "@@ -4,6 +4,8 @@ # ZCode 设计规范" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "@@ -4,6 +4,8 @@ # ZCode design spec"
-          }
-        }
-      }
-    },
-    "@%@ · %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "@%1$@ · %2$@"
-          }
-        }
-      }
-    },
-    "@%@ · Coding Plan · 剩余额度（演示）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · Coding Plan · Remaining quota (demo)"
-          }
-        }
-      }
-    },
-    "*" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "*"
-          }
-        }
-      }
-    },
-    "/%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "/%@"
-          }
-        }
-      }
-    },
     "## 设计令牌" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -429,6 +89,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "## Design tokens"
+          }
+        }
+      }
+    },
+    "$ " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "$ "
+          }
+        }
+      }
+    },
+    "$ zcode --web --host 0.0.0.0" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "$ zcode --web --host 0.0.0.0"
           }
         }
       }
@@ -463,22 +143,6 @@
         }
       }
     },
-    "%@ · @%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · @%@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ · @%2$@"
-          }
-        }
-      }
-    },
     "%@ · %@" : {
       "localizations" : {
         "en" : {
@@ -507,6 +171,22 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ · %2$@ · workspaces[%3$lld]"
+          }
+        }
+      }
+    },
+    "%@ · @%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · @%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · @%2$@"
           }
         }
       }
@@ -637,6 +317,72 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ error frame"
+          }
+        }
+      }
+    },
+    "%@%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@%2$@"
+          }
+        }
+      }
+    },
+    "%@.%@ 为直写/配置写面" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@.%2$@ is a direct-write/config surface"
+          }
+        }
+      }
+    },
+    "%@.%@: 不接受 null" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@.%2$@: null not accepted"
+          }
+        }
+      }
+    },
+    "%@.%@: 服务端注入字段，客户端不得构造" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@.%2$@: server-injected field; clients must not construct it"
+          }
+        }
+      }
+    },
+    "%@.%@: 未知键（strict）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@.%2$@: unknown key (strict)"
+          }
+        }
+      }
+    },
+    "%@.%@: 缺失必填键" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@.%2$@: missing required key"
           }
         }
       }
@@ -804,78 +550,12 @@
         }
       }
     },
-    "%@.%@ 为直写/配置写面" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@.%2$@ is a direct-write/config surface"
-          }
-        }
-      }
-    },
-    "%@.%@: 不接受 null" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@.%2$@: null not accepted"
-          }
-        }
-      }
-    },
-    "%@.%@: 服务端注入字段，客户端不得构造" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@.%2$@: server-injected field; clients must not construct it"
-          }
-        }
-      }
-    },
-    "%@.%@: 未知键（strict）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@.%2$@: unknown key (strict)"
-          }
-        }
-      }
-    },
-    "%@.%@: 缺失必填键" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@.%2$@: missing required key"
-          }
-        }
-      }
-    },
     "%@。可检查桌面端是否在线后重试，或重新复制配对链接粘贴。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@. Check that the desktop is online and retry, or copy the pairing link again."
-          }
-        }
-      }
-    },
-    "%@%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@%@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@%2$@"
           }
         }
       }
@@ -1230,18 +910,34 @@
         }
       }
     },
-    "↑%lld ↓%lld" : {
+    ") · 后续请求 401 → 引导重登" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "↑%lld ↓%lld"
+            "value" : ") · subsequent 401 → re-login prompt"
           }
-        },
-        "zh-Hans" : {
+        }
+      }
+    },
+    ") 失败" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
-            "state" : "new",
-            "value" : "↑%1$lld ↓%2$lld"
+            "state" : "translated",
+            "value" : ") failed"
+          }
+        }
+      }
+    },
+    "*" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "*"
           }
         }
       }
@@ -1304,42 +1000,98 @@
         }
       }
     },
-    "×%lld" : {
+    ", delay))s 后" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "×%lld"
+            "value" : ", delay))s later"
           }
         }
       }
     },
-    "✕ / 下拉 / 页内取消 → 未产生 code → 重新登录" : {
+    "-    TextField(\"发送消息\", text: $draft)" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "✕ / swipe down / in-page cancel → no code produced → sign in again"
+            "value" : "-    TextField(\\\"Send a message\\\", text: $draft)"
           }
         }
       }
     },
-    "$ " : {
+    "- 主色 #21c17a" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "$ "
+            "value" : "- primary #21c17a"
           }
         }
       }
     },
-    "$ zcode --web --host 0.0.0.0" : {
+    "- 主色 #32f08c（对比度 12.7:1）" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "$ zcode --web --host 0.0.0.0"
+            "value" : "- primary #32f08c (contrast 12.7:1)"
+          }
+        }
+      }
+    },
+    "- 深字 #04120a 用于绿底前景" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "- deep text #04120a for on-green foreground"
+          }
+        }
+      }
+    },
+    "- 状态三色：Running / Waiting / Completed" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "- status triad: Running / Waiting / Completed"
+          }
+        }
+      }
+    },
+    "-%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "-%lld"
+          }
+        }
+      }
+    },
+    "--no-token · authRequired=false · 不校验令牌" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--no-token · authRequired=false · token not verified"
+          }
+        }
+      }
+    },
+    "/%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/%@"
           }
         }
       }
@@ -1350,6 +1102,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 agent working"
+          }
+        }
+      }
+    },
+    "12 项已启用" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "12 enabled"
+          }
+        }
+      }
+    },
+    "12.4M（日均 413K）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "12.4M (413K daily avg)"
+          }
+        }
+      }
+    },
+    "128 条" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "128 entries"
           }
         }
       }
@@ -1365,6 +1150,50 @@
         }
       }
     },
+    "2026-09-20 更新" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updated 2026-09-20"
+          }
+        }
+      }
+    },
+    "2026-09-25 更新" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updated 2026-09-25"
+          }
+        }
+      }
+    },
+    "2026-09-28 更新" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updated 2026-09-28"
+          }
+        }
+      }
+    },
+    "30s 无 pair_status_ack · 判定 stale → 重连" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No pair_status_ack in 30s · stale → reconnect"
+          }
+        }
+      }
+    },
     "4 个服务器已连接" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1372,6 +1201,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "4 servers connected"
+          }
+        }
+      }
+    },
+    "401 · 令牌不匹配" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "401 · token mismatch"
+          }
+        }
+      }
+    },
+    "45s 未收到 rpc-frame-ack · 通道 degraded" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No rpc-frame-ack in 45s · channel degraded"
           }
         }
       }
@@ -1423,100 +1273,91 @@
         }
       }
     },
-    "12 项已启用" : {
+    "@%@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "@%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "@%@ · Coding Plan · 剩余额度（演示）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Coding Plan · Remaining quota (demo)"
+          }
+        }
+      }
+    },
+    "@@ -4,6 +4,8 @@ # ZCode 设计规范" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "12 enabled"
+            "value" : "@@ -4,6 +4,8 @@ # ZCode design spec"
           }
         }
       }
     },
-    "12.4M（日均 413K）" : {
+    "AI 生成中…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI generating…"
+          }
+        }
+      }
+    },
+    "AI 生成提交信息" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generate commit message with AI"
+          }
+        }
+      }
+    },
+    "AI 编程智能体 · 移动工作台" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI coding agent · mobile workbench"
+          }
+        }
+      }
+    },
+    "API v3 迁移评估" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "12.4M (413K daily avg)"
+            "value" : "API v3 migration review"
           }
         }
       }
     },
-    "30s 无 pair_status_ack · 判定 stale → 重连" : {
+    "API 翻译" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No pair_status_ack in 30s · stale → reconnect"
-          }
-        }
-      }
-    },
-    "45s 未收到 rpc-frame-ack · 通道 degraded" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No rpc-frame-ack in 45s · channel degraded"
-          }
-        }
-      }
-    },
-    "128 条" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "128 entries"
-          }
-        }
-      }
-    },
-    "401 · 令牌不匹配" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "401 · token mismatch"
-          }
-        }
-      }
-    },
-    "2026-09-20 更新" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Updated 2026-09-20"
-          }
-        }
-      }
-    },
-    "2026-09-25 更新" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Updated 2026-09-25"
-          }
-        }
-      }
-    },
-    "2026-09-28 更新" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Updated 2026-09-28"
+            "value" : "API translation"
           }
         }
       }
@@ -1576,65 +1417,12 @@
         }
       }
     },
-    "AI 生成中…" : {
+    "App 用量分布：桌面端未提供（getAppUsageStats 不可用）" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "AI generating…"
-          }
-        }
-      }
-    },
-    "AI 生成提交信息" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Generate commit message with AI"
-          }
-        }
-      }
-    },
-    "AI 编程智能体 · 移动工作台" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "AI coding agent · mobile workbench"
-          }
-        }
-      }
-    },
-    "API v3 迁移评估" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "API v3 migration review"
-          }
-        }
-      }
-    },
-    "API 翻译" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "API translation"
-          }
-        }
-      }
-    },
-    "app 响应无匹配 requestId（忽略）" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "app response without matching requestId (ignored)"
+            "value" : "App usage breakdown: not provided by desktop (getAppUsageStats unavailable)"
           }
         }
       }
@@ -1650,43 +1438,12 @@
         }
       }
     },
-    "App 用量分布：桌面端未提供（getAppUsageStats 不可用）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "App usage breakdown: not provided by desktop (getAppUsageStats unavailable)"
-          }
-        }
-      }
-    },
-    "authRequired=false · --no-token（免鉴权）" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "authRequired=false · --no-token (no auth)"
-          }
-        }
-      }
-    },
     "BASH" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "BASH"
-          }
-        }
-      }
-    },
-    "bash — %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "bash — %@"
           }
         }
       }
@@ -1717,16 +1474,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "BiuZ"
-          }
-        }
-      }
-    },
-    "BiuZ · 为 ZCode 社区版桌面端打造的移动遥控台" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "BiuZ · mobile remote console for the ZCode community desktop"
           }
         }
       }
@@ -1762,6 +1509,16 @@
         }
       }
     },
+    "BiuZ · 为 ZCode 社区版桌面端打造的移动遥控台" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BiuZ · mobile remote console for the ZCode community desktop"
+          }
+        }
+      }
+    },
     "BiuZ 不提供应用内语言切换：界面语言随 iOS 系统语言自动切换（简体中文 / English）。需要更换语言时，请在系统「设置 → BiuZ → 语言」中选择（iOS 13+ 每应用语言设置），修改后重启应用生效。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1769,6 +1526,399 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "BiuZ has no in-app language switch: the UI follows the iOS system language (Simplified Chinese / English). To change it, pick a language in Settings → BiuZ → Language (per-app language, iOS 13+), then relaunch."
+          }
+        }
+      }
+    },
+    "Coding Plan" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coding Plan"
+          }
+        }
+      }
+    },
+    "Coding Plan 额度" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coding Plan quota"
+          }
+        }
+      }
+    },
+    "DEVICE-OFFLINE · 宽限重连" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DEVICE-OFFLINE · grace reconnect"
+          }
+        }
+      }
+    },
+    "GET /api/server-info · 1.5s 超时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GET /api/server-info · 1.5s timeout"
+          }
+        }
+      }
+    },
+    "HTTP 代理" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTTP proxy"
+          }
+        }
+      }
+    },
+    "IM Bot" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IM Bot"
+          }
+        }
+      }
+    },
+    "IM Bot 由桌面端托管，连接后此处同步通道列表与运行状态" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IM bots are managed by the desktop; connect to sync channels and runtime status"
+          }
+        }
+      }
+    },
+    "JSONFileStore 注入实现" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inject JSONFileStore implementation"
+          }
+        }
+      }
+    },
+    "K8s 助手" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "K8s assistant"
+          }
+        }
+      }
+    },
+    "KEYCHAIN 写入失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KEYCHAIN write failed"
+          }
+        }
+      }
+    },
+    "Keychain · %@ · 401 时重扫" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keychain · %@ · rescan on 401"
+          }
+        }
+      }
+    },
+    "Keychain 写入失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keychain write failed"
+          }
+        }
+      }
+    },
+    "M 月 d 日 HH:mm" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MMM d, HH:mm"
+          }
+        }
+      }
+    },
+    "MCP 服务器" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MCP server"
+          }
+        }
+      }
+    },
+    "OAuth · tokenSet 仅存 Keychain" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OAuth · tokenSet stored in Keychain only"
+          }
+        }
+      }
+    },
+    "PDF" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDF"
+          }
+        }
+      }
+    },
+    "POST /api/v1/oauth/token 失败（%@）。请检查网络后重试；code/token 不回显。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "POST /api/v1/oauth/token failed (%@). Check the network and retry; code/token are never echoed."
+          }
+        }
+      }
+    },
+    "POST /api/v1/oauth/token 超时或响应 code≠0 → 检查网络后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "POST /api/v1/oauth/token timed out or returned code≠0 → check network and retry"
+          }
+        }
+      }
+    },
+    "PROTOCOL %@ · 期望 remote v1 · v4 v3" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PROTOCOL %@ · expected remote v1 · v4 v3"
+          }
+        }
+      }
+    },
+    "RPC 超时：%@.%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RPC timeout: %@.%@"
+          }
+        }
+      }
+    },
+    "RPC 载荷超限（maxMessageBytes=16MB）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RPC payload too large (maxMessageBytes=16MB)"
+          }
+        }
+      }
+    },
+    "RPC 错误对象" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RPC error object"
+          }
+        }
+      }
+    },
+    "SQL 优化" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SQL optimization"
+          }
+        }
+      }
+    },
+    "TRAJECTORY" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TRAJECTORY"
+          }
+        }
+      }
+    },
+    "Token 用量" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token usage"
+          }
+        }
+      }
+    },
+    "URL 键盘" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "URL keyboard"
+          }
+        }
+      }
+    },
+    "WEEK-40.md 已生成并同步。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WEEK-40.md generated and synced."
+          }
+        }
+      }
+    },
+    "WS 已建立 · clientMode=web-remote-replayable" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WS established · clientMode=web-remote-replayable"
+          }
+        }
+      }
+    },
+    "Z" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Z"
+          }
+        }
+      }
+    },
+    "Z.ai 账号" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Z.ai account"
+          }
+        }
+      }
+    },
+    "Z.ai 账号登录在应用内授权 Sheet 中完成，凭据仅存本机 Keychain" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Z.ai sign-in completes in the in-app authorization sheet; credentials stay in the local Keychain"
+          }
+        }
+      }
+    },
+    "Z.ai（全球）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Z.ai (Global)"
+          }
+        }
+      }
+    },
+    "ZCode MCP" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ZCode MCP"
+          }
+        }
+      }
+    },
+    "Zai 开发者" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zai Developer"
+          }
+        }
+      }
+    },
+    "[ok] LAN → http://192.168.1.24:3030/?token=****" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "[ok] LAN → http://192.168.1.24:3030/?token=****"
+          }
+        }
+      }
+    },
+    "app 响应无匹配 requestId（忽略）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "app response without matching requestId (ignored)"
+          }
+        }
+      }
+    },
+    "authRequired=false · --no-token（免鉴权）" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "authRequired=false · --no-token (no auth)"
+          }
+        }
+      }
+    },
+    "bash — %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bash — %@"
           }
         }
       }
@@ -1824,26 +1974,6 @@
         }
       }
     },
-    "Coding Plan" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Coding Plan"
-          }
-        }
-      }
-    },
-    "Coding Plan 额度" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Coding Plan quota"
-          }
-        }
-      }
-    },
     "connect.log" : {
       "localizations" : {
         "en" : {
@@ -1874,16 +2004,6 @@
         }
       }
     },
-    "DEVICE-OFFLINE · 宽限重连" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "DEVICE-OFFLINE · grace reconnect"
-          }
-        }
-      }
-    },
     "expiresAt=%@ · 后续请求 401 → 引导重登" : {
       "localizations" : {
         "en" : {
@@ -1900,16 +2020,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "file.%@ is not on the mobile read whitelist (direct file writes are not supported)"
-          }
-        }
-      }
-    },
-    "GET /api/server-info · 1.5s 超时" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "GET /api/server-info · 1.5s timeout"
           }
         }
       }
@@ -1944,26 +2054,6 @@
         }
       }
     },
-    "HTTP 代理" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "HTTP proxy"
-          }
-        }
-      }
-    },
-    "http://<LAN-IP>:3030/?token=… · 令牌随进程存活" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "http://<LAN-IP>:3030/?token=… · token lives with the process"
-          }
-        }
-      }
-    },
     "http://192.168.1.24:3030" : {
       "localizations" : {
         "en" : {
@@ -1974,23 +2064,12 @@
         }
       }
     },
-    "IM Bot" : {
+    "http://<LAN-IP>:3030/?token=… · 令牌随进程存活" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IM Bot"
-          }
-        }
-      }
-    },
-    "IM Bot 由桌面端托管，连接后此处同步通道列表与运行状态" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "IM bots are managed by the desktop; connect to sync channels and runtime status"
+            "value" : "http://<LAN-IP>:3030/?token=… · token lives with the process"
           }
         }
       }
@@ -2006,95 +2085,12 @@
         }
       }
     },
-    "JSONFileStore 注入实现" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Inject JSONFileStore implementation"
-          }
-        }
-      }
-    },
-    "K8s 助手" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "K8s assistant"
-          }
-        }
-      }
-    },
-    "Keychain · %@ · 401 时重扫" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keychain · %@ · rescan on 401"
-          }
-        }
-      }
-    },
-    "Keychain 写入失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keychain write failed"
-          }
-        }
-      }
-    },
-    "KEYCHAIN 写入失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "KEYCHAIN write failed"
-          }
-        }
-      }
-    },
     "listBots 失败 · %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "listBots failed · %@"
-          }
-        }
-      }
-    },
-    "M 月 d 日 HH:mm" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "MMM d, HH:mm"
-          }
-        }
-      }
-    },
-    "MCP 服务器" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "MCP server"
-          }
-        }
-      }
-    },
-    "OAuth · tokenSet 仅存 Keychain" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OAuth · tokenSet stored in Keychain only"
           }
         }
       }
@@ -2125,47 +2121,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "payload validation failed: "
-          }
-        }
-      }
-    },
-    "PDF" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDF"
-          }
-        }
-      }
-    },
-    "POST /api/v1/oauth/token 失败（%@）。请检查网络后重试；code/token 不回显。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "POST /api/v1/oauth/token failed (%@). Check the network and retry; code/token are never echoed."
-          }
-        }
-      }
-    },
-    "POST /api/v1/oauth/token 超时或响应 code≠0 → 检查网络后重试" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "POST /api/v1/oauth/token timed out or returned code≠0 → check network and retry"
-          }
-        }
-      }
-    },
-    "PROTOCOL %@ · 期望 remote v1 · v4 v3" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PROTOCOL %@ · expected remote v1 · v4 v3"
           }
         }
       }
@@ -2229,36 +2184,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "resyncWorkspaceConfigV4 · frame-drop self-heal triggered"
-          }
-        }
-      }
-    },
-    "RPC 超时：%@.%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RPC timeout: %@.%@"
-          }
-        }
-      }
-    },
-    "RPC 载荷超限（maxMessageBytes=16MB）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RPC payload too large (maxMessageBytes=16MB)"
-          }
-        }
-      }
-    },
-    "RPC 错误对象" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RPC error object"
           }
         }
       }
@@ -2350,17 +2275,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "server-info returned an empty workspace list. Check --workspace / ZCODE_SERVER_WORKSPACE on the desktop and retry."
-          }
-        }
-      }
-    },
-    "SQL 优化" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SQL optimization"
           }
         }
       }
@@ -2497,16 +2411,6 @@
         }
       }
     },
-    "Token 用量" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Token usage"
-          }
-        }
-      }
-    },
     "token=%@" : {
       "localizations" : {
         "en" : {
@@ -2523,27 +2427,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "tokenSet + userInfo · stored on device only"
-          }
-        }
-      }
-    },
-    "TRAJECTORY" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "TRAJECTORY"
-          }
-        }
-      }
-    },
-    "URL 键盘" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "URL keyboard"
           }
         }
       }
@@ -2580,34 +2463,12 @@
         }
       }
     },
-    "WEEK-40.md 已生成并同步。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "WEEK-40.md generated and synced."
-          }
-        }
-      }
-    },
     "workspace-bridge-ready 缺 bridge 字段" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "workspace-bridge-ready missing bridge field"
-          }
-        }
-      }
-    },
-    "WS 已建立 · clientMode=web-remote-replayable" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "WS established · clientMode=web-remote-replayable"
           }
         }
       }
@@ -2622,74 +2483,12 @@
         }
       }
     },
-    "Z" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Z"
-          }
-        }
-      }
-    },
-    "Z.ai 账号" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Z.ai account"
-          }
-        }
-      }
-    },
-    "Z.ai 账号登录在应用内授权 Sheet 中完成，凭据仅存本机 Keychain" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Z.ai sign-in completes in the in-app authorization sheet; credentials stay in the local Keychain"
-          }
-        }
-      }
-    },
-    "Z.ai（全球）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Z.ai (Global)"
-          }
-        }
-      }
-    },
-    "Zai 开发者" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zai Developer"
-          }
-        }
-      }
-    },
     "zcode --web --host 0.0.0.0 · Core 版仅 loopback，须走 --web 分发" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "zcode --web --host 0.0.0.0 · Core build binds loopback only, use --web"
-          }
-        }
-      }
-    },
-    "ZCode MCP" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ZCode MCP"
           }
         }
       }
@@ -2720,6 +2519,133 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "zcode://oauth/callback?"
+          }
+        }
+      }
+    },
+    "{origin}/login · BigModel 智能体平台" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{origin}/login · BigModel agent platform"
+          }
+        }
+      }
+    },
+    "· %@" : {},
+    "×%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "×%lld"
+          }
+        }
+      }
+    },
+    "…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "…"
+          }
+        }
+      }
+    },
+    "…%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "…%@"
+          }
+        }
+      }
+    },
+    "↑%lld ↓%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "↑%lld ↓%lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "↑%1$lld ↓%2$lld"
+          }
+        }
+      }
+    },
+    "✕ / 下拉 / 页内取消 → 未产生 code → 重新登录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "✕ / swipe down / in-page cancel → no code produced → sign in again"
+          }
+        }
+      }
+    },
+    "《%@》内容为空，已跳过" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\"%@\" is empty and was skipped"
+          }
+        }
+      }
+    },
+    "《%@》读取失败，已跳过" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't read %@, skipped"
+          }
+        }
+      }
+    },
+    "《用户协议》" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terms of Service"
+          }
+        }
+      }
+    },
+    "《隐私政策》" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy"
+          }
+        }
+      }
+    },
+    "「%@」需要数字" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\"%@\" requires a number"
+          }
+        }
+      }
+    },
+    "「%@」需要整数" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\"%@\" requires an integer"
           }
         }
       }
@@ -3335,22 +3261,22 @@
         }
       }
     },
-    "仅显示最近 50 条提交，更早的请在桌面端查看" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only the latest 50 commits are shown; view earlier ones on the desktop"
-          }
-        }
-      }
-    },
     "仅显示前 20 个文件，更多变更请在桌面端查看" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Showing first 20 files; view the rest on the desktop"
+          }
+        }
+      }
+    },
+    "仅显示最近 50 条提交，更早的请在桌面端查看" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only the latest 50 commits are shown; view earlier ones on the desktop"
           }
         }
       }
@@ -3439,17 +3365,6 @@
         }
       }
     },
-    "从最后快照续跑中…" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Resuming from last snapshot…"
-          }
-        }
-      }
-    },
     "从图库选择图片" : {
       "localizations" : {
         "en" : {
@@ -3487,6 +3402,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Start with a new task; the agent runs it on the connected desktop"
+          }
+        }
+      }
+    },
+    "从最后快照续跑中…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resuming from last snapshot…"
           }
         }
       }
@@ -3929,6 +3855,23 @@
         }
       }
     },
+    "保留队列并发送" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep queue and send"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留队列并发送"
+          }
+        }
+      }
+    },
     "信任" : {
       "localizations" : {
         "en" : {
@@ -4350,67 +4293,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tap again to cancel feedback"
-          }
-        }
-      }
-    },
-    "最近使用" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recents"
-          }
-        }
-      }
-    },
-    "最近投递错误：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Last delivery error: %@"
-          }
-        }
-      }
-    },
-    "最近运行" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recent run"
-          }
-        }
-      }
-    },
-    "最近运行 · %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recent run · %@"
-          }
-        }
-      }
-    },
-    "最长聊天时长" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Max chat duration"
-          }
-        }
-      }
-    },
-    "最长连续天数" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Max consecutive days"
           }
         }
       }
@@ -4889,26 +4771,6 @@
         }
       }
     },
-    "剪贴板中没有云中继配对链接（桌面端 Web 远程控制 → 复制链接）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No relay pairing link in the clipboard (desktop Web Remote Control → copy link)"
-          }
-        }
-      }
-    },
-    "剪贴板配对链接" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clipboard pairing link"
-          }
-        }
-      }
-    },
     "剩 %@" : {
       "localizations" : {
         "en" : {
@@ -4946,6 +4808,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remaining quota"
+          }
+        }
+      }
+    },
+    "剪贴板中没有云中继配对链接（桌面端 Web 远程控制 → 复制链接）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No relay pairing link in the clipboard (desktop Web Remote Control → copy link)"
+          }
+        }
+      }
+    },
+    "剪贴板配对链接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clipboard pairing link"
           }
         }
       }
@@ -5340,6 +5222,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Send the first message to start the conversation with the desktop"
+          }
+        }
+      }
+    },
+    "发送被暂停的队列拦下" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send blocked by the paused queue"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送被暂停的队列拦下"
           }
         }
       }
@@ -6597,6 +6496,36 @@
         }
       }
     },
+    "工作区 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace %@"
+          }
+        }
+      }
+    },
+    "工作区 Hook 待信任" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace hooks awaiting trust"
+          }
+        }
+      }
+    },
+    "工作区 ~/work/zcode" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace ~/work/zcode"
+          }
+        }
+      }
+    },
     "工作区 · %@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6614,36 +6543,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Workspace · %lld"
-          }
-        }
-      }
-    },
-    "工作区 %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workspace %@"
-          }
-        }
-      }
-    },
-    "工作区 ~/work/zcode" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workspace ~/work/zcode"
-          }
-        }
-      }
-    },
-    "工作区 Hook 待信任" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workspace hooks awaiting trust"
           }
         }
       }
@@ -6669,22 +6568,22 @@
         }
       }
     },
-    "工作区切换，请求已中断" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workspace switch: request interrupted"
-          }
-        }
-      }
-    },
     "工作区切换仅支持云中继连接" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Workspace switching requires a cloud relay connection"
+          }
+        }
+      }
+    },
+    "工作区切换，请求已中断" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace switch: request interrupted"
           }
         }
       }
@@ -7074,9 +6973,7 @@
         }
       }
     },
-    "已取消" : {
-
-    },
+    "已取消" : {},
     "已取消重连" : {
       "localizations" : {
         "en" : {
@@ -7338,17 +7235,6 @@
         }
       }
     },
-    "已拒绝，Agent 正在调整方案" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rejected; the agent is adjusting the plan"
-          }
-        }
-      }
-    },
     "已拒绝执行命令，Agent 正在调整方案。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7356,6 +7242,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Command rejected; the agent is adjusting the plan."
+          }
+        }
+      }
+    },
+    "已拒绝，Agent 正在调整方案" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejected; the agent is adjusting the plan"
           }
         }
       }
@@ -9800,6 +9697,84 @@
         }
       }
     },
+    "最多同时携带 %lld 个附件，已跳过《%@》" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Up to %lld attachments at a time — skipped \"%@\""
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最多同时携带 %lld 个附件，已跳过《%@》"
+          }
+        }
+      }
+    },
+    "最近使用" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recents"
+          }
+        }
+      }
+    },
+    "最近投递错误：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last delivery error: %@"
+          }
+        }
+      }
+    },
+    "最近运行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent run"
+          }
+        }
+      }
+    },
+    "最近运行 · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent run · %@"
+          }
+        }
+      }
+    },
+    "最长聊天时长" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max chat duration"
+          }
+        }
+      }
+    },
+    "最长连续天数" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max consecutive days"
+          }
+        }
+      }
+    },
     "有可使用的额度重置机会" : {
       "localizations" : {
         "en" : {
@@ -9954,9 +9929,7 @@
         }
       }
     },
-    "服务返回 HTTP %lld。请确认桌面端 zcode --web 进程存活后重试。" : {
-
-    },
+    "服务返回 HTTP %lld。请确认桌面端 zcode --web 进程存活后重试。" : {},
     "服务返回错误" : {
       "localizations" : {
         "en" : {
@@ -10439,9 +10412,7 @@
         }
       }
     },
-    "桌面 v%@" : {
-
-    },
+    "桌面 v%@" : {},
     "桌面 v%lld" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10599,22 +10570,22 @@
         }
       }
     },
-    "桌面端拒绝（%@）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Desktop rejected (%@)"
-          }
-        }
-      }
-    },
     "桌面端拒绝或连接异常" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Desktop rejected or connection error"
+          }
+        }
+      }
+    },
+    "桌面端拒绝（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop rejected (%@)"
           }
         }
       }
@@ -11615,6 +11586,23 @@
         }
       }
     },
+    "消息未送达 · 连接中断或超时（超时时桌面可能仍在处理，重发前建议先确认会话列表，避免重复发送）" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message not delivered · connection lost or timed out (the desktop may still be processing on timeout — check the conversation list before resending to avoid duplicates)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "消息未送达 · 连接中断或超时（超时时桌面可能仍在处理，重发前建议先确认会话列表，避免重复发送）"
+          }
+        }
+      }
+    },
     "消息未送达 · 连接已断开，草稿已保留" : {
       "localizations" : {
         "en" : {
@@ -11671,6 +11659,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clean up failed task"
+          }
+        }
+      }
+    },
+    "清空队列并发送" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear queue and send"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清空队列并发送"
           }
         }
       }
@@ -11871,17 +11876,6 @@
         }
       }
     },
-    "用户：%@" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "User: %@"
-          }
-        }
-      }
-    },
     "用户协议" : {
       "localizations" : {
         "en" : {
@@ -11902,6 +11896,16 @@
         }
       }
     },
+    "用户取消 / Sheet 关闭" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "User cancelled / sheet closed"
+          }
+        }
+      }
+    },
     "用户取消 · 清除暂存 state" : {
       "localizations" : {
         "en" : {
@@ -11912,12 +11916,13 @@
         }
       }
     },
-    "用户取消 / Sheet 关闭" : {
+    "用户：%@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "User cancelled / sheet closed"
+            "value" : "User: %@"
           }
         }
       }
@@ -12383,22 +12388,22 @@
         }
       }
     },
-    "移除密钥（回未配置凭据态）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove secret (back to unconfigured)"
-          }
-        }
-      }
-    },
     "移除密钥失败 · %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Failed to remove secret · %@"
+          }
+        }
+      }
+    },
+    "移除密钥（回未配置凭据态）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove secret (back to unconfigured)"
           }
         }
       }
@@ -12892,6 +12897,16 @@
         }
       }
     },
+    "自动化列表获取失败 · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to load automations · %@"
+          }
+        }
+      }
+    },
     "自动化（Beta）" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -12899,16 +12914,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Automation (Beta)"
-          }
-        }
-      }
-    },
-    "自动化列表获取失败 · %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to load automations · %@"
           }
         }
       }
@@ -13087,17 +13092,6 @@
         }
       }
     },
-    "覆盖率 61% → 78%，剩余模块明日继续。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Coverage 61% → 78%; remaining modules tomorrow."
-          }
-        }
-      }
-    },
     "覆盖率 61% → 78%。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -13105,6 +13099,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Coverage 61% → 78%."
+          }
+        }
+      }
+    },
+    "覆盖率 61% → 78%，剩余模块明日继续。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coverage 61% → 78%; remaining modules tomorrow."
           }
         }
       }
@@ -14601,6 +14606,23 @@
         }
       }
     },
+    "队列已暂停。发送前需确认如何处理挂起的排队消息（确认后按当前队列快照执行）。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The queue is paused. Confirm how to handle the queued messages before sending (confirmed against the current queue snapshot)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "队列已暂停。发送前需确认如何处理挂起的排队消息（确认后按当前队列快照执行）。"
+          }
+        }
+      }
+    },
     "防伪校验失败（state 必填，缺失即报错）→ 重新发起，不接受降级" : {
       "localizations" : {
         "en" : {
@@ -14920,6 +14942,78 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Follows the iOS system language by default (Simplified Chinese / English). After choosing a fixed language, BiuZ always displays in it (effective on relaunch); see release notes for coverage."
+          }
+        }
+      }
+    },
+    "（回滚原工作区亦失败：%@，可断开重连恢复）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(rolling back to the original workspace also failed: %@; disconnect and reconnect to recover)"
+          }
+        }
+      }
+    },
+    "（思考）%@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(thinking) %@"
+          }
+        }
+      }
+    },
+    "（无提交说明）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(no commit message)"
+          }
+        }
+      }
+    },
+    "（空）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(empty)"
+          }
+        }
+      }
+    },
+    "，%lld 条未处理" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ", %lld pending items"
+          }
+        }
+      }
+    },
+    "，请开始。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ", please start."
+          }
+        }
+      }
+    },
+    "；且清理新组失败（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "; and failed to clean up the new group (%@)"
           }
         }
       }

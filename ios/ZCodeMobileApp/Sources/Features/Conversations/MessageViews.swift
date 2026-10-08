@@ -1,3 +1,5 @@
+import AVFoundation
+import AVKit
 import SwiftUI
 
 /// 消息视图路由：用户气泡 / Agent 正文 / 工具卡 / todo 卡 / 提问卡
@@ -1067,11 +1069,26 @@ struct AttachmentThumbView: View {
     @State private var preview: AttachmentPreview?
     @State private var failed = false
     @State private var fullscreen: AttachmentPreview?
+    @State private var fullscreenVideo: VideoAttachmentIdentity?
     @State private var savedNotice: String?
+    /// 视频封面帧（2026-10-08 报障「视频附件一直转圈」根因：video/* 无渲染分支，
+    /// 预览到达后 image==nil、failed==false → 恒落 SpinnerView）
+    @State private var videoPoster: UIImage?
+    @State private var videoFileURL: URL?
+
+    /// fullScreenCover(item:) 要求 Identifiable——URL 的最小包装
+    struct VideoAttachmentIdentity: Identifiable {
+        let id = UUID()
+        let url: URL
+    }
 
     private var image: UIImage? {
         guard let preview, preview.mediaType.hasPrefix("image/") else { return nil }
         return UIImage(data: preview.data)
+    }
+
+    private var isVideo: Bool {
+        preview?.mediaType.hasPrefix("video/") == true
     }
 
     var body: some View {
@@ -1080,15 +1097,12 @@ struct AttachmentThumbView: View {
                 Button {
                     fullscreen = preview
                 } label: {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 132, height: 96)
-                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
-                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+                    thumbFrame(Image(uiImage: image).resizable().scaledToFill())
                 }
                 .buttonStyle(PressableButtonStyle())
                 .accessibilityIdentifier("05-attachment-thumb")
+            } else if isVideo {
+                videoThumb
             } else if failed {
                 // 读失败：给轻量失败态（不占死块——仅一行提示）
                 HStack(spacing: T.sp1) {
@@ -1108,12 +1122,96 @@ struct AttachmentThumbView: View {
         .task {
             preview = await store.attachmentPreview(sessionID: sessionID, ref: ref)
             failed = (preview == nil)
+            if isVideo {
+                await prepareVideo()
+            }
         }
         .fullScreenCover(item: $fullscreen) { item in
             AttachmentFullscreenView(preview: item) {
                 fullscreen = nil
             } onSave: {
                 saveToPhotos(item)
+            }
+        }
+        .fullScreenCover(item: $fullscreenVideo) { item in
+            AttachmentVideoFullscreenView(videoURL: item.url) {
+                fullscreenVideo = nil
+            }
+        }
+    }
+
+    /// 视频缩略格：封面帧（生成失败落 video 图标兜底格，不转圈不空块）+ 播放角标；
+    /// 点按进全屏播放器
+    @ViewBuilder private var videoThumb: some View {
+        Button {
+            if let videoFileURL {
+                fullscreenVideo = VideoAttachmentIdentity(url: videoFileURL)
+            }
+        } label: {
+            thumbFrame(
+                Group {
+                    if let videoPoster {
+                        Image(uiImage: videoPoster).resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            T.bgInput
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 22))
+                                .foregroundColor(T.text3)
+                        }
+                    }
+                }
+                .overlay(
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(.white, T.text.opacity(0.55))
+                        .shadow(radius: 3))
+            )
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityIdentifier("05-attachment-thumb")
+    }
+
+    private func thumbFrame<Content: View>(_ content: Content) -> some View {
+        content
+            .frame(width: 132, height: 96)
+            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+            .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+    }
+
+    /// 视频数据落临时文件（扩展名随 mime：mp4/quicktime/webm 常规三态）→
+    /// AVAssetImageGenerator 抽 0s 帧（背景线程回调，单帧即收）。失败静默走兜底格。
+    private func prepareVideo() async {
+        guard let preview, videoFileURL == nil else { return }
+        let ext: String
+        switch preview.mediaType {
+        case "video/quicktime": ext = "mov"
+        case "video/webm": ext = "webm"
+        default: ext = "mp4"
+        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("biuz-att-\(UUID().uuidString).\(ext)")
+        do {
+            try preview.data.write(to: url, options: .atomic)
+        } catch {
+            return
+        }
+        videoFileURL = url
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 528, height: 384)
+        videoPoster = await withCheckedContinuation { continuation in
+            var resumed = false
+            generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: .zero)]) { _, cgImage, _, result, _ in
+                // 单帧请求通常单回调；防重复 resume 只认第一次
+                guard !resumed else { return }
+                resumed = true
+                if result == .succeeded, let cgImage {
+                    continuation.resume(returning: UIImage(cgImage: cgImage))
+                } else {
+                    continuation.resume(returning: nil)
+                }
             }
         }
     }
@@ -1192,6 +1290,48 @@ struct AttachmentFullscreenView: View {
                     .padding(.top, T.sp2)
                     .transition(.opacity)
             }
+        }
+    }
+}
+
+/// 视频附件全屏播放（2026-10-08 报障「视频在手机端没有显示」配套：缩略格点按进入；
+/// 自动开播，关闭即停并释放 player）。无保存入口——相册写入仅图片族（saveToPhotos 同口径）
+struct AttachmentVideoFullscreenView: View {
+    let videoURL: URL
+    let onClose: () -> Void
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let player {
+                VideoPlayer(player: player)
+                    .accessibilityIdentifier("05-attachment-video-full")
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                onClose()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Circle())
+            }
+            .padding(.top, T.sp2)
+            .padding(.trailing, T.sp3)
+            .accessibilityIdentifier("05-attachment-close")
+        }
+        .onAppear {
+            let p = AVPlayer(url: videoURL)
+            player = p
+            p.play()
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
         }
     }
 }

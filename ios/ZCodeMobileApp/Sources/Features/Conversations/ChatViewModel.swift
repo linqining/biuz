@@ -44,6 +44,15 @@ final class ChatViewModel {
     /// 连接态数据源标记（mock 演示恒为 false）：chips / 向上分页 / 待审批卡数据仅连接态提供
     var isReadOnly: Bool { store.isReadOnly }
 
+    /// 会话关闭释放订阅（2026-10-08 回归审核轮 §11.1#2）：@StateObject 随导航栈弹出
+    /// 销毁时机触发真退订（远程实现携 subscriptionId + 回收帧 handler/水位/revision）；
+    /// 重进由 ensureConversationSubscribed 幂等重订。演示/Mock 实现为空操作。
+    deinit {
+        let closingID = conversationID
+        let closingStore = store
+        Task { await closingStore.closeConversation(closingID) }
+    }
+
     /// 待处理交互投影（连接态 conversation state.pendingInteractions；
     /// permission 类渲染审批卡，其余类型暂以折叠卡呈现）
     var pendingInteractions: [RemotePendingInteraction] = []
@@ -842,10 +851,13 @@ final class ChatViewModel {
 
     /// getView 首击失败的手动重试（连接态只读兜底 pills 点按触发；用户多次报障
     /// 「模型/思考等级不能选是 bug」——getView 失败不得终态化为只读）。成功即回填
-    /// chips（store 成功路径亦 yield 进 observeModelSelection 流，两路幂等）
+    /// chips（store 成功路径亦 yield 进 observeModelSelection 流，两路幂等）。
+    /// 判据是 hasSelectableModels 而非 != nil：overlay 在 getView 失败时会种出
+    /// 「非 nil 但空」的实例（chips 可显示、面板零行）——按非 nil 短路会死锁到重连
+    /// （2026-10-08 报障「对话框模型选不了」根因）
     func retryModelSelection() async -> Bool {
-        guard isReadOnly else { return modelSelection != nil }
-        if modelSelection != nil { return true }
+        guard isReadOnly else { return modelSelection?.hasSelectableModels == true }
+        if modelSelection?.hasSelectableModels == true { return true }
         guard let info = await store.modelSelectionView(), !info.models.isEmpty else { return false }
         modelSelection = info
         await refreshThoughtLevels()
@@ -1017,18 +1029,22 @@ final class ChatViewModel {
                 return true
             }
             // 待发附件随任务（修复 2026-10-07「/plan + 附件发送后附件静默丢失」：
-            // 此分支此前 attachments 恒 []，composer 附件滞留不发）
+            // 此分支此前 attachments 恒 []，composer 附件滞留不发）。
+            // §11.1#6：peek 不移除，成功才 clear——失败附件保留重发（此前
+            // takeCommitted 在结果前消费，断线/拒收即永久丢已上传附件）
             guard await uploads.ensureAllCommitted() else {
                 showSlashHint(uploads.firstFailureText ?? String(localized: "附件未就绪，未发送"))
                 draft = text
                 return true
             }
+            let planAttachments = uploads.committedAttachments()
             let delivered = await store.sendWithAttachments(
-                task, attachments: uploads.takeCommitted(),
+                task, attachments: planAttachments,
                 requestedDelivery: requestedDeliveryKey,
                 modelSelection: pendingNewSessionSelection,
                 in: conversationID)
             if delivered {
+                uploads.clearCommitted(planAttachments)
                 lastSendUndeliveredText = nil
                 pendingNewSessionSelection = nil
                 if let modeFailure {
@@ -1051,10 +1067,18 @@ final class ChatViewModel {
         }
     }
 
+    /// sendText 投影 watchdog 相关：held 确认态（§11.2）——发送被暂停队列拦下时
+    /// 暂存文本与 committed 附件，确认弹层可见；clear/keep 确认后携
+    /// heldQueueDisposition 重发（取消则文本回草稿、附件留在待发条）
+    var heldConfirmVisible = false
+    var pendingHeldText: String?
+    var pendingHeldAttachments: [OutgoingAttachment] = []
+
     @discardableResult
     func send() async -> Bool {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return false }
+        heldConfirmVisible = false
         // 斜杠命令拦截（仅连接态；演示态无命令面）。未命中意图的 /xxx 原文直发
         if isReadOnly, let intent = Self.parseSlashIntent(text) {
             return await dispatchSlashIntent(intent, original: text)
@@ -1062,25 +1086,61 @@ final class ChatViewModel {
         // P1-1 发送联动：未完成附件先顺序补传（按钮禁用为主闸，此处为 onSubmit
         // 等旁路兜底）；仍有失败项则本次不发送（直发文本会丢附件），保留失败态
         guard await uploads.ensureAllCommitted() else { return false }
-        let attachments = uploads.takeCommitted()
+        // §11.1#6（2026-10-08 回归审核轮）：peek 不移除——失败保留附件重发（上游
+        // 「成功才清空」语义；此前 takeCommitted 在投递结果前消费，中继断线/拒收
+        // 时已上传附件静默消失，桌面侧 artifact 落盘但 ref 不可复用）
+        let attachments = uploads.committedAttachments()
         draft = ""
         let delivered = await store.sendWithAttachments(
             text, attachments: attachments, requestedDelivery: requestedDeliveryKey,
             modelSelection: pendingNewSessionSelection,
             in: conversationID)
         if delivered {
+            uploads.clearCommitted(attachments)
             lastSendUndeliveredText = nil
             // 会话前选择已随首条消息下发（一次性；失败保留供重试）
             pendingNewSessionSelection = nil
         } else {
-            // 消息未送达：文本回填保稿（附件已随事务消费，不回填——重试为文本路径，
-            // 设计稿 §5.1 连带说明）
+            // 消息未送达：文本回填保稿；附件保留在待发条（committed 引用可复用，
+            // 重试只发文本+引用不重传——设计稿 §5.1 语义随 §11.1#6 修正）
             if draft.isEmpty {
                 draft = text
             }
             lastSendUndeliveredText = text
+            // held 态（§11.2）：拒因为 heldQueueDispositionRequired / 确认过期
+            // → 弹「清空/保留队列并发送」确认层（store 侧已置位标记）
+            if await store.heldQueueConfirmationPending(in: conversationID) {
+                pendingHeldText = text
+                pendingHeldAttachments = attachments
+                heldConfirmVisible = true
+            }
         }
         return delivered
+    }
+
+    /// held 确认动作（§11.2）：clear=清空队列并发送 / keep=保留队列并发送；
+    /// expectedHeldQueueItemIds 取确认时刻的快照队列（再 stale 则重新弹层）
+    func confirmHeldSend(clearQueue: Bool) async {
+        guard let text = pendingHeldText else { return }
+        heldConfirmVisible = false
+        let expectedIds = await store.queueHeldItemIds(in: conversationID)
+        let delivered = await store.sendHeldConfirmed(
+            text, attachments: pendingHeldAttachments,
+            disposition: clearQueue ? "clearQueueAndSend" : "keepQueueAndSend",
+            expectedHeldQueueItemIds: expectedIds,
+            requestedDelivery: requestedDeliveryKey,
+            modelSelection: pendingNewSessionSelection,
+            in: conversationID)
+        if delivered {
+            uploads.clearCommitted(pendingHeldAttachments)
+            pendingNewSessionSelection = nil
+            pendingHeldText = nil
+            pendingHeldAttachments = []
+            lastSendUndeliveredText = nil
+            draft = ""
+        } else if await store.heldQueueConfirmationPending(in: conversationID) {
+            heldConfirmVisible = true
+        }
     }
 
     /// G-021：子代理只读转录加载（actor.sessionId → store 只读拉一页；页大小对齐

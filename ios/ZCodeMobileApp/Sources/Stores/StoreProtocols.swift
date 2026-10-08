@@ -46,6 +46,13 @@ protocol ConversationStore: AnyObject, Sendable {
     /// 最近一次归档/取消归档写失败原文（空串 = 无；列表页归档动作如实反馈，
     /// requirement 声明理由同上）
     func lastArchiveFailureText() async -> String
+    /// 最近一次任务元数据写（置顶/改名/未读）失败原文（空串 = 无；§11.2 写面
+    /// 禁静默——同 lastArchiveFailureText 口径）
+    func lastTaskWriteFailureText() async -> String
+    /// 会话关闭释放订阅（2026-10-08 回归审核轮 §11.1#2；ChatViewModel deinit 调用，
+    /// 远程实现携 subscriptionId 真退订 + 回收水位/revision；requirement 声明理由
+    /// 同上——any 存在类型下动态分派）
+    func closeConversation(_ conversationID: String) async
     /// 会话最近一次加载失败文本（连接态订阅/历史行拉取失败的 UI 透出面；nil = 无失败
     /// ——空会话与失败由此区分。真机报障「消息区空白且无提示」修复的 read 面：
     /// 订阅失败/rowsRange 失败此前只落 diag 键，UI 完全不可见）
@@ -254,6 +261,23 @@ protocol ConversationStore: AnyObject, Sendable {
         modelSelection: NewSessionModelSelection?,
         in conversationID: String) async -> Bool
 
+    /// held 态确认重发（2026-10-08 回归审核轮 §11.2，上游 command.ts:78-95：
+    /// 暂停队列〔setAutoDrain(false)〕下 sendText 被拒 heldQueueDispositionRequired
+    /// / guard.heldQueueConfirmationStale 后，携 disposition
+    /// （clearQueueAndSend|keepQueueAndSend）+ expectedHeldQueueItemIds 重发）
+    @discardableResult
+    func sendHeldConfirmed(
+        _ text: String, attachments: [OutgoingAttachment],
+        disposition: String, expectedHeldQueueItemIds: [String],
+        requestedDelivery: String?, modelSelection: NewSessionModelSelection?,
+        in conversationID: String) async -> Bool
+
+    /// 最近一次发送是否卡在 held 确认（确认弹层数据源；成功重发/新发送即清）
+    func heldQueueConfirmationPending(in conversationID: String) async -> Bool
+
+    /// 当前挂起队列条目 id 集（确认重发 expectedHeldQueueItemIds 数据源）
+    func queueHeldItemIds(in conversationID: String) async -> [String]
+
     /// 最近一次 sendText 的桌面拒因（nil = 无在案拒因；sendWithAttachments 拒绝
     /// 时写入、成功时清除——UI 错误行据实呈现「桌面端拒绝（…）」而非泛化未送达）
     func sendRejectionText(in conversationID: String) async -> String?
@@ -304,6 +328,12 @@ extension ConversationStore {
     /// 写面禁止静默：曾因失败只回滚 override 不回滚缓存也不提示，归档行「本会话在、
     /// 重启蒸发」，用户报障 2026-10-07「归档的会话又丢了」）
     func lastArchiveFailureText() async -> String { "" }
+
+    /// 任务元数据写失败默认空（远程实现返回真实拒因）
+    func lastTaskWriteFailureText() async -> String { "" }
+
+    /// 会话关闭释放默认空操作（远程实现真退订；演示/Mock/Empty 无订阅面）
+    func closeConversation(_ conversationID: String) async {}
 
     /// 向上分页：取更早历史行（拼接去重由实现负责）；返回是否还有更早数据。
     func loadOlder(conversationID: String) async -> Bool { false }
@@ -449,6 +479,17 @@ extension ConversationStore {
         await send(text, in: conversationID)
     }
 
+    /// held 确认面默认实现（演示/Mock 无暂停队列概念；如实失败不假成功）
+    func sendHeldConfirmed(
+        _ text: String, attachments: [OutgoingAttachment],
+        disposition: String, expectedHeldQueueItemIds: [String],
+        requestedDelivery: String?, modelSelection: NewSessionModelSelection?,
+        in conversationID: String) async -> Bool { false }
+
+    func heldQueueConfirmationPending(in conversationID: String) async -> Bool { false }
+
+    func queueHeldItemIds(in conversationID: String) async -> [String] { [] }
+
     /// 拒因读面默认实现（演示态无桌面拒收面，恒 nil；Remote 实现覆写）
     func sendRejectionText(in conversationID: String) async -> String? { nil }
 }
@@ -492,6 +533,14 @@ struct ModelSelectionInfo: Equatable {
     /// 当前绑定的 providerId（getView preferredSelection/effective.selection；
     /// 裸名查询时跨套餐消歧的权威源）
     var activeProviderId: String?
+
+    /// 是否携带可选模型清单（2026-10-08 报障「对话框模型选不了」根修）：getView
+    /// 失败/空回执时 overlay 会种出「非 nil 但空」的实例——chips 靠 state 叠加仍可
+    /// 显示 activeModel，面板却是零行。以此区分「可开门」与「需重拉」，替代
+    /// `!= nil` 判据（retryModelSelection 短路死锁根因）
+    var hasSelectableModels: Bool {
+        !models.isEmpty || !planGroups.isEmpty
+    }
 
     /// 行键中的纯模型名（「套餐|模型」→ 模型；裸名原样）——switchModelConfig /
     /// firstInput.modelSelection 的 modelId 恒携纯模型名，套餐前缀只用于本地解析

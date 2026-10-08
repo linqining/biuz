@@ -196,6 +196,8 @@ actor RelayTransport {
         }
         socketGeneration += 1
         let task = urlSession.webSocketTask(with: url)
+        // 同 ChannelClient：16MB 逻辑帧上限对齐（缺省 1MiB 超限即断连）
+        task.maximumMessageSize = RelayFrameCodec.maxMessageBytes
         socket = task
         task.resume()
         log(.working, "WS 升级 \(url.host ?? "")\(url.path)?mid=…")

@@ -88,7 +88,7 @@ xcrun simctl launch booted cn.biuz.mobile \
 ### 4.5 术语与命名约定
 
 - 频道/命令/clientId 等协议标识一律**原文逐字**（`zcode-agent`、`sendConversationCommandV4`、`web-remote-replayable`），禁止翻译或改写。
-- 「信封」= sendConversationCommandV4 的 `envelope` 对象；「workspace 信封」= 扁平 `workspacePath` + `workspaceIdentity` 字段；「水位」= `(logEpoch, seq)`；「CAS 类命令」= 需携 `baseRevision` + `baseLogEpoch` 双字段的命令（缺一被拒；实证 2026-10-05）。
+- 「信封」= sendConversationCommandV4 的 `envelope` 对象；「workspace 信封」= 扁平 `workspacePath` + `workspaceIdentity` 字段；「水位」= `(logEpoch, seq)`；「CAS 类命令」= 需携 `baseRevision` 的命令。**字段口径两代并存**：现行桌面（2026-10-05 实证）对 CAS 15 命令缺 `baseLogEpoch` 即拒（"CAS commands require baseRevision and baseLogEpoch"）；上游 main 已收敛为仅 **row-target 5 命令**（editUserQuery/retryTurn/forkAssistant/队列三件——command.ts:314-320 ROW_TARGETING_COMMANDS）被 schema/decide() 强制 `baseLogEpoch`，其余 10 条服务端只看 `baseRevision`（command-inbox.ts:337-346）。移动端维持双字段同发（对两代桌面都合法）。
 - 中文文档、英文协议标识；代码注释风格与现有文件保持一致（协议注释带上游 file:line）。
 
 ### 4.6 诊断与临时代码的清理纪律

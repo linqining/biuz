@@ -22,22 +22,28 @@ import Foundation
 // MARK: 值域 pattern（附件四方法 strict 参数；手写校验避免正则依赖）
 
 enum PPattern: Sendable {
-    case uploadId      // ^[A-Za-z0-9][A-Za-z0-9._:-]*$
-    case fileName      // ^[^\0\r\n]+$（非空、无 NUL/CR/LF）
-    case mime          // ^type/subtype$（RFC token 字符集）
+    case uploadId      // ^[A-Za-z0-9][A-Za-z0-9._:-]*$（ASCII；≤128）
+    case fileName      // ^[^\0\r\n]+$（非空、无 NUL/CR/LF；≤255）
+    case mime          // ^type/subtype$（RFC token 字符集，ASCII；3..255）
     case sha256Checksum // ^sha256:[0-9a-f]{64}$
 
     func matches(_ s: String) -> Bool {
         switch self {
         case .uploadId:
+            // ASCII 判定（§11.3：Swift isLetter/isNumber 接受 Unicode 字母数字，
+            // 上游 regex 纯 ASCII——非 ASCII 值本地放行、服务端 zod 拒，错误从
+            // 构造期退化到桌面端拒收）+ ≤128 上限（transport.ts:826 .max(128)）
             guard let first = s.first else { return false }
-            guard first.isLetter || first.isNumber else { return false }
-            return s.allSatisfy { $0.isLetter || $0.isNumber || "._:-".contains($0) }
+            guard first.isASCII, first.isLetter || first.isNumber else { return false }
+            return s.count <= 128
+                && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._:-".contains($0)) }
         case .fileName:
-            return !s.isEmpty && !s.contains("\0") && !s.contains("\r") && !s.contains("\n")
+            return !s.isEmpty && s.count <= 255
+                && !s.contains("\0") && !s.contains("\r") && !s.contains("\n")
         case .mime:
             guard let slash = s.firstIndex(of: "/"), slash != s.startIndex,
-                  s[..<slash].count >= 1, s[s.index(after: slash)...].count >= 1 else { return false }
+                  s[..<slash].count >= 1, s[s.index(after: slash)...].count >= 1,
+                  s.count >= 3, s.count <= 255 else { return false }
             let type = String(s[..<slash])
             let subtype = String(s[s.index(after: slash)...])
             return tokenValid(type) && tokenValid(subtype)
@@ -48,8 +54,8 @@ enum PPattern: Sendable {
     }
 
     private func tokenValid(_ token: String) -> Bool {
-        guard let first = token.first, first.isLetter || first.isNumber else { return false }
-        return token.allSatisfy { $0.isLetter || $0.isNumber || "!#$&^_.+-".contains($0) }
+        guard let first = token.first, first.isASCII, first.isLetter || first.isNumber else { return false }
+        return token.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "!#$&^_.+-".contains($0)) }
     }
 }
 

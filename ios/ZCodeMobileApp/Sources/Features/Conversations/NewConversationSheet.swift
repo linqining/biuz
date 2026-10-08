@@ -306,12 +306,29 @@ struct NewConversationSheet: View {
 
     // MARK: 附件暂存（与会话页同源转换；上传在会话内建事务）
 
+    /// 暂存失败提示（§11.3：三通道读取失败此前静默 continue——受限文件/坏视频
+    /// 悄无声息少一个；与会话页 setHint 同口径，短暂展示自动清除）
+    @State private var stagingHint: String?
+    @State private var stagingHintTask: Task<Void, Never>?
+    private func setStagingHint(_ text: String) {
+        stagingHintTask?.cancel()
+        stagingHint = text
+        stagingHintTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            stagingHint = nil
+        }
+    }
+
     private func addPhotoPickerItems(_ items: [PhotosPickerItem]) async {
         for item in items {
             let contentType = item.supportedContentTypes.first
             let ext = contentType?.preferredFilenameExtension ?? "jpg"
             let mediaType = contentType?.preferredMIMEType ?? "image/jpeg"
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            guard let data = try? await item.loadTransferable(type: Data.self) else {
+                setStagingHint(String(localized: "《\(mediaType.hasPrefix("video/") ? "视频" : "照片")》读取失败，已跳过"))
+                continue
+            }
             stagedFiles.append(StagedNewAttachment(
                 name: "\(mediaType.hasPrefix("video/") ? "VID" : "IMG")_\(Int(Date().timeIntervalSince1970 * 1000)).\(ext)",
                 mediaType: mediaType, data: data))
@@ -319,7 +336,10 @@ struct NewConversationSheet: View {
     }
 
     private func addCameraImage(_ image: UIImage) {
-        guard let data = image.jpegData(compressionQuality: 0.9) else { return }
+        guard let data = image.jpegData(compressionQuality: 0.9) else {
+            setStagingHint(String(localized: "照片编码失败，已跳过"))
+            return
+        }
         stagedFiles.append(StagedNewAttachment(
             name: "IMG_\(Int(Date().timeIntervalSince1970 * 1000)).jpg",
             mediaType: "image/jpeg", data: data))
@@ -330,7 +350,10 @@ struct NewConversationSheet: View {
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else { continue }
+            guard let data = try? Data(contentsOf: url) else {
+                setStagingHint(String(localized: "《\(url.lastPathComponent)》读取失败，已跳过"))
+                continue
+            }
             stagedFiles.append(StagedNewAttachment(
                 name: url.lastPathComponent,
                 mediaType: AttachmentUploadService.mediaType(forFileExtension: url.pathExtension),
@@ -715,12 +738,20 @@ struct NewConversationSheet: View {
     /// 暂存附件条（输入区与 chips 之间；✕ 移除，上传进度在会话页缩略卡呈现）
     @ViewBuilder
     private var stagedFilesRow: some View {
+        if let stagingHint {
+            Text(stagingHint)
+                .font(T.font(11))
+                .foregroundColor(T.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("03-staging-hint")
+        }
         if !stagedFiles.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: T.sp2) {
                     ForEach(stagedFiles) { file in
                         HStack(spacing: T.sp1) {
-                            Image(systemName: file.mediaType.hasPrefix("image/") ? "photo" : "doc")
+                            Image(systemName: file.mediaType.hasPrefix("image/") ? "photo"
+                                : (file.mediaType.hasPrefix("video/") ? "video" : "doc"))
                                 .font(.system(size: 11))
                                 .foregroundColor(T.accentText)
                             Text(file.name)
