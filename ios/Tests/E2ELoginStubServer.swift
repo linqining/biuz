@@ -435,6 +435,13 @@ final class E2ELoginStubServer {
     /// switchModelConfig 收到次数（stale-once-then-accepted：第 1 次回 stale，第 ≥2 次
     /// accepted——验证客户端 stale 原样重发一次即命中，用户报障「胶囊切换都不行」）
     private var _switchModelConfigCallCount = 0
+    /// 最近一次 switchModelConfig 载荷（provider/model/thought——会话级 provider 兜底
+    /// 门禁断言面：getView 失败时 provider 应来自 state.modelSelection.providerId，
+    /// 空串必被桌面拒【实证·上游仓 command.ts:211 provider 必填】）
+    private var _lastSwitchModelConfigPayload: [String: String]?
+    var lastSwitchModelConfigPayload: [String: String]? {
+        lock.lock(); defer { lock.unlock() }; return _lastSwitchModelConfigPayload
+    }
     private var _pinnedTasksRequestCount = 0
     private var _archivedTasksRequestCount = 0
     // MARK: 重置卡替身状态（test13 验收——重置卡为扣费接口，替身只在本地内存
@@ -657,9 +664,21 @@ final class E2ELoginStubServer {
 """],
                 ["rowId": 2, "kind": "assistantText", "text": "替身助手：引用上下文已收到", "state": "complete"],
             ],
+            // sess-e2e-exitplan：ExitPlanMode 计划预览卡（2026-10-09 点单②）——toolCall 行
+            // inputText 为官方 input schema JSON（allowedPrompts + plan；planFilePath 缺省），
+            // 渲染层形状门命中 → 计划卡整卡替换（裸 JSON 不得上屏；门禁 test20）
+            "sess-e2e-exitplan": [
+                ["rowId": 1, "kind": "userInput", "text": "把登录超时修复拆成计划执行"],
+                ["rowId": 2, "kind": "toolCall", "toolCallId": "tool-exitplan-0",
+                 "toolName": "ExitPlanMode",
+                 "inputText": ##"{"allowedPrompts":[{"prompt":"run swift build","tool":"Bash"}],"plan":"# E2E 计划标题\n\n## 背景\n\n替身注入的计划正文，验证计划预览卡与全文 sheet。"}"##,
+                 "status": "success", "output": ["text": "plan approved"]],
+                ["rowId": 3, "kind": "assistantText", "text": "替身助手：计划已按步推进", "state": "complete"],
+            ],
         ]
         nextRowId = ["sess-e2e-1": 7, "sess-e2e-2": 3, "task-e2e-1": 4, "sess-e2e-3": 7,
-                     "sess-e2e-plan": 4, "sess-e2e-think": 4, "sess-e2e-usel": 3]
+                     "sess-e2e-plan": 4, "sess-e2e-think": 4, "sess-e2e-usel": 3,
+                     "sess-e2e-exitplan": 4]
         // sess-e2e-1 预置一条 permission 挂起交互（pendingInteractionSummary.permissionCount=1
         // 的具体对象）：conversation 订阅后经 state.updated 下发 → ChatView 审批卡渲染，
         // resolveInteraction 应答后清空
@@ -1937,10 +1956,18 @@ final class E2ELoginStubServer {
         case "switchModelConfig":
             // 胶囊切换 stale-once-then-accepted（真机 diag.wf.control.ui 实证形态：
             // 活跃会话首击 stale proto.staleRevision → 客户端应原样重发一次即命中；
-            // 计数 ≥2 即 CAS 重试链在位——test12 门禁断言）
+            // 计数 ≥2 即 CAS 重试链在位——test12 门禁断言）。载荷记账供 provider
+            // 兜底门禁（test19）断言
             lock.lock()
             _switchModelConfigCallCount += 1
             let nthCall = _switchModelConfigCallCount
+            if let payload = effective?["payload"]?.objectValue {
+                var mapped: [String: String] = [:]
+                for (key, value) in payload {
+                    if let s = value.stringValue { mapped[key] = s }
+                }
+                _lastSwitchModelConfigPayload = mapped
+            }
             lock.unlock()
             if nthCall == 1 {
                 reply([
@@ -2359,6 +2386,16 @@ final class E2ELoginStubServer {
                 "phase": "completedSuccess",
                 "lastActivityAt": Self.iso8601.string(from: Date().addingTimeInterval(-3_600)),
                 "lastAssistantPreview": "引用上下文已收到。",
+                "workspacePath": "/Users/e2e/zcode_mobile",
+                "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
+            ],
+            // ExitPlanMode 计划预览卡专用会话（计划卡 + 全文 sheet；门禁 test20 断言面）
+            [
+                "sessionId": "sess-e2e-exitplan",
+                "title": "替身会话 · 计划预览卡",
+                "phase": "completedSuccess",
+                "lastActivityAt": Self.iso8601.string(from: Date().addingTimeInterval(-2_700)),
+                "lastAssistantPreview": "计划已按步推进。",
                 "workspacePath": "/Users/e2e/zcode_mobile",
                 "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
             ],

@@ -135,30 +135,38 @@ struct ChatView: View {
                 // kind 分派应答命令——permission/plan 走 resolveInteraction，
                 // workspaceHookReview 走 respondWorkspaceHookReview）
                 ForEach(viewModel.pendingInteractions) { interaction in
-                    if interaction.isPlanApproval {
-                        PlanApprovalCard(viewModel: viewModel, interaction: interaction)
-                            .padding(.horizontal, T.sp4)
-                            .padding(.top, T.sp2)
-                    } else if interaction.isWorkspaceHookReview {
-                        WorkspaceHookReviewCard(
-                            interaction: interaction,
-                            onTrust: { ids in
-                                await viewModel.trustWorkspaceHooks(interaction, reviewItemIds: ids)
-                            },
-                            onRequest: {
-                                await viewModel.requestWorkspaceHookReview()
-                            },
-                            onRevoke: { ids in
-                                await viewModel.revokeWorkspaceHookTrust(reviewItemIds: ids)
-                            })
-                            .padding(.horizontal, T.sp4)
-                            .padding(.top, T.sp2)
-                    } else if interaction.isPermission
-                                || interaction.kind.lowercased().contains("escalation") {
-                        ApprovalInteractionCard(viewModel: viewModel, interaction: interaction)
-                            .padding(.horizontal, T.sp4)
-                            .padding(.top, T.sp2)
+                    Group {
+                        if interaction.isPlanApproval {
+                            PlanApprovalCard(viewModel: viewModel, interaction: interaction)
+                        } else if interaction.isWorkspaceHookReview {
+                            WorkspaceHookReviewCard(
+                                interaction: interaction,
+                                onTrust: { ids in
+                                    await viewModel.trustWorkspaceHooks(interaction, reviewItemIds: ids)
+                                },
+                                onRequest: {
+                                    await viewModel.requestWorkspaceHookReview()
+                                },
+                                onRevoke: { ids in
+                                    await viewModel.revokeWorkspaceHookTrust(reviewItemIds: ids)
+                                })
+                        } else if interaction.isPermission
+                                    || interaction.kind.lowercased().contains("escalation") {
+                            ApprovalInteractionCard(viewModel: viewModel, interaction: interaction)
+                        } else {
+                            EmptyView()
+                        }
                     }
+                    // 键盘在场布局保障（2026-10-09 真机+门禁复现根因）：审批卡无界 +
+                    // 软键盘（≈40% 屏）+ composer 全行栈超过屏高时，safeAreaInset 栈
+                    // 溢出到键盘底下——靠近输入框的 remoteChips（模型/思考胶囊）+
+                    // 输入框整段被键盘物理盖住（hittable=false，点击从未发出=真机
+                    // 「模型/思考不可选而计划/排队可选」的物理成因：后者在栈里位置
+                    // 更高未被盖）。审批卡限高 240 + 超限内部滚动，底部栈总能抬到
+                    // 键盘上方（fixedSize：卡片高度自适应内容、不超上限不占死块）
+                    .modifier(ApprovalCardKeyboardBound())
+                    .padding(.horizontal, T.sp4)
+                    .padding(.top, T.sp2)
                 }
                 // P2-7B「稍后处理」反馈行（3s 自动清除）：卡片可能随即被回流撤下，
                 // 提示需在卡片之外存活（switchHint 同款一行橙字口径）
@@ -624,6 +632,18 @@ struct PermissionOptionMatrix: Equatable {
 }
 
 // MARK: - 连接态审批卡（pendingInteractions.permission 投影：命令/路径/影响结构化排版）
+
+/// 审批卡限高包装：内容自适应、超 240 内部滚动（键盘在场时底部栈不再被顶到
+/// 键盘底下；构造背景见 safeAreaInset ForEach 注释）
+private struct ApprovalCardKeyboardBound: ViewModifier {
+    func body(content: Content) -> some View {
+        ScrollView(showsIndicators: false) {
+            content.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxHeight: 240)
+    }
+}
 
 struct ApprovalInteractionCard: View {
     @Bindable var viewModel: ChatViewModel
@@ -1525,6 +1545,9 @@ struct ComposerBar: View {
     // 不符——AttachmentSourceSheet 同款语言、主题令牌自适配系统深浅色）。
     // ComposerSheetKind / ComposerOptionSheet 定义见 ComposerOptionSheet.swift
     @State private var composerSheet: ComposerSheetKind?
+    /// 「重新获取」重开标记：面板 onDismiss（关闭完成态）再呈现——面板在场时直接
+    /// 置 composerSheet 会撞 present-while-dismissing（NewConversationSheet 同款先例）
+    @State private var reopenModelPanelAfterDismiss = false
 
     var body: some View {
         VStack(spacing: T.sp2) {
@@ -1674,7 +1697,12 @@ struct ComposerBar: View {
         // test07 以 app.buttons label 精确匹配「云端沙盒 / E2E-Relay-Mac」、test12 以
         // label == 'low' 匹配思考档，行内不得混入副文案（聚合 label 失配即门禁红）；
         // identifier 保留 05-chip-mode / 05-chip-delivery / 05-act-target 于触发胶囊
-        .sheet(item: $composerSheet) { kind in
+        .sheet(item: $composerSheet, onDismiss: {
+            if reopenModelPanelAfterDismiss {
+                reopenModelPanelAfterDismiss = false
+                composerSheet = .model
+            }
+        }) { kind in
             ComposerOptionSheet(
                 title: kind.title,
                 footer: kind.footer,
@@ -1944,11 +1972,18 @@ struct ComposerBar: View {
 
     /// 模型面板选项（呈现期取 viewModel.modelSelection；分节同 modelMenu 原状）。
     /// 行 id/payload 携「套餐|模型」复合键——同名模型跨套餐按组解析 providerId
-    /// （payload 曾存裸模型名，modelProviders 后到覆盖先到：点个人套餐行发出
-    /// 体验套餐 providerId，2026-10-08 报障）；选中勾按行 provider == 当前绑定
-    /// provider 比对（activeProviderId 缺席退化为裸名比对）
+    /// （payload 曾存裸模型名，modelProviders 后到覆盖先到：点个人套餐行发出体验
+    /// 套餐 providerId，2026-10-08 报障）；选中勾按行 provider == 当前绑定
+    /// provider 比对（activeProviderId 缺席退化为裸名比对）。
+    /// 清单缺席（getView 失败/空回执）：**不拒开面板**——「重新获取」行承载重试
+    /// （2026-10-09 真机报障死胡同：点按只闪 3s 提示、面板永不开）
     private func modelSheetOptions() -> [ComposerOptionItem] {
         let selection = viewModel.modelSelection ?? ModelSelectionInfo()
+        if !selection.hasSelectableModels {
+            return [ComposerOptionItem(
+                id: "reload-model", title: String(localized: "重新获取模型列表"),
+                detail: "", icon: "arrow.clockwise")]
+        }
         if selection.planGroups.isEmpty {
             return selection.models.map { model in
                 ComposerOptionItem(id: model, title: model, detail: "", icon: "cpu",
@@ -2001,6 +2036,18 @@ struct ComposerBar: View {
                 selectTarget(match)
             }
         case .model:
+            // 「重新获取」行：置重开标记（onDismiss 关闭完成态后重开——面板在场直接
+            // 置 item 撞 present-while-dismissing），重拉 getView 成功即以新清单重开；
+            // 仍失败则面板以「重新获取」行重开（状态可见可再试，非死胡同）
+            if option.id == "reload-model" {
+                reopenModelPanelAfterDismiss = true
+                Task {
+                    if !(await viewModel.retryModelSelection()) {
+                        showSwitchHint(String(localized: "模型列表获取失败 · 桌面端未回执，点按重试"))
+                    }
+                }
+                return
+            }
             Task {
                 if let message = await viewModel.switchModel(option.payload ?? option.id) {
                     showSwitchHint(message)
@@ -2116,19 +2163,23 @@ struct ComposerBar: View {
     /// inputFocused 绑定下传本视图——撤焦走 wrappedValue 置 false 同一通道）
     private func openComposerPanel(_ kind: ComposerSheetKind) {
         inputFocused.wrappedValue = false
-        composerSheet = kind
+        // 呈现延迟一拍：撤焦与 sheet 呈现同事务发出时，sheet 会与键盘收起转场相撞
+        // 被吞/卡半程（模拟器门禁复现：焦点在场点胶囊 → 键盘上方灰色半透明残影、
+        // 候选永不出现——真机「点了没反应」同机制）。撤焦先行，待键盘让出呈现位
+        // 后再呈（120ms 用户不可感知；键盘不在场时同样安全，仅统一路径）
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            composerSheet = kind
+        }
     }
 
     /// 模型胶囊触发（面板：套餐分节 + 选中勾；回执失败在 chips 行上方提示）。
-    /// 点按守卫开门（2026-10-08 报障「对话框模型选不了」）：清单在场直开；getView
-    /// 失败/空回执种出的空清单走重拉——成功开面板、失败行上提示，不弹零行空面板
+    /// 恒开面板（2026-10-09 真机报障「模型不可选」死胡同收口）：清单缺席时面板
+    /// 呈「重新获取」行承载重试——拒开+一次性重试+3s 提示的旧路在 getView 持续
+    /// 失败时表现为「点了没反应」
     private func modelMenu(_ selection: ModelSelectionInfo) -> some View {
         Button {
-            if selection.hasSelectableModels {
-                openComposerPanel(.model)
-            } else {
-                Task { await retryThenOpenModelPanel() }
-            }
+            openComposerPanel(.model)
         } label: {
             pill(icon: nil, text: selection.activeModel ?? "--", chevron: true)
         }
@@ -2277,9 +2328,13 @@ struct ComposerBar: View {
             // 演示态无上传面不出入口）
             if viewModel.isReadOnly {
                 Button {
-                    // 附件来源 sheet 同族：键盘在场时先撤焦（openComposerPanel 同根因）
+                    // 附件来源 sheet 同族：键盘在场时先撤焦、延迟一拍呈现（openComposerPanel
+                    // 同根因——同事务发 sheet 会与键盘收起转场相撞被吞）
                     inputFocused.wrappedValue = false
-                    showAttachmentSource = true
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 120_000_000)
+                        showAttachmentSource = true
+                    }
                 } label: {
                     Image(systemName: "plus.circle")
                         .font(T.font(20))

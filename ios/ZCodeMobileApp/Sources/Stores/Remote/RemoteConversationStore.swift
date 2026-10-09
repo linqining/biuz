@@ -1495,13 +1495,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         sessionCollaborationModes[conversationID]
     }
 
-    /// 会话级模型选择（state.modelSelection：{providerId, modelId, options:{reasoningLevel}}）
-    func sessionModelSelection(in conversationID: String) async -> (model: String, thought: String?)? {
+    /// 会话级模型选择（state.modelSelection：{providerId, modelId, options:{reasoningLevel}}）。
+    /// providerId 是 getView 失败时同模型/思考档切换的唯一权威 provider 源（2026-10-09
+    /// 真机报障「模型/思考强度不可选但继承正常」根因：getView 空表 → provider 解析
+    /// 恒空串 → switchModelConfig 被桌面拒——provider 必填【实证·上游仓 command.ts:211】）
+    func sessionModelSelection(in conversationID: String) async -> (model: String, thought: String?, provider: String?)? {
         guard let ms = sessionModelSelections[conversationID]?.objectValue else { return nil }
         guard let model = ms["modelId"]?.stringValue ?? ms["model"]?.stringValue else { return nil }
         let thought = ms["options"]?.objectValue?["reasoningLevel"]?.stringValue
             ?? ms["thought"]?.stringValue
-        return (model, thought)
+        let provider = (ms["providerId"]?.stringValue ?? ms["provider"]?.stringValue)
+            .flatMap { $0.isEmpty ? nil : $0 }
+        return (model, thought, provider)
     }
 
     /// turnHeader 行 → 工作流完成卡（纯函数，单测锁定）。只认四件齐备【实证·上游仓

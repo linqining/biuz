@@ -64,8 +64,9 @@ protocol ConversationStore: AnyObject, Sendable {
     /// workspace 级配置目录只读投影（ChatView chips 数据源；nil = 无数据）
     func workspaceConfig() async -> WorkspaceConfigInfo?
     /// 会话级模型选择（state.modelSelection——桌面 composer 变更随会话 state delta
-    /// 到达；覆盖 workspace 级 getView 作为 chips 权威显示源；nil = 无数据）
-    func sessionModelSelection(in conversationID: String) async -> (model: String, thought: String?)?
+    /// 到达；覆盖 workspace 级 getView 作为 chips 权威显示源；provider 是 getView
+    /// 失败时同模型/思考档切换的权威兜底源；nil = 无数据）
+    func sessionModelSelection(in conversationID: String) async -> (model: String, thought: String?, provider: String?)?
     /// 会话协作模式投影（state.config.mode——上游 onSessionModeChanged 投影，命令面
     /// 与 plan 工具路径共用；chip 权威显示源；nil = 桌面尚未投影）
     func sessionCollaborationMode(in conversationID: String) async -> String?
@@ -354,7 +355,7 @@ extension ConversationStore {
 
     /// 桌面端模型选择只读视图（model-selection.getView；nil = 无数据）
     func modelSelectionView() async -> ModelSelectionInfo? { nil }
-    func sessionModelSelection(in conversationID: String) async -> (model: String, thought: String?)? { nil }
+    func sessionModelSelection(in conversationID: String) async -> (model: String, thought: String?, provider: String?)? { nil }
     func sessionCollaborationMode(in conversationID: String) async -> String? { nil }
     func workflowArtifactContent(
         sessionID: String, runId: String, artifactId: String, version: Int

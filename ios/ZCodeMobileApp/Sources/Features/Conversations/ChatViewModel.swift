@@ -146,6 +146,12 @@ final class ChatViewModel {
             return String(localized: "不在连接态，无法切换桌面端模型")
         }
         let provider = selection.provider(forRowKey: model, model: model) ?? ""
+        // 解析不出 provider（getView 缺席且非当前模型）禁裸发：空串 provider 必被
+        // 桌面 zod/处理器拒（providerId min 1 口径）——裸发只会换回 3s 闪过的拒因，
+        // 用户观感「选了没反应」（真机报障 2026-10-09）
+        guard !provider.isEmpty else {
+            return String(localized: "模型提供商信息未就绪 · 点模型胶囊重新获取列表后再切换")
+        }
         let thought = thoughtLevel ?? selection.activeThoughtLevel ?? ""
         let ack = await store.switchModelConfig(
             conversationID, provider: provider,
@@ -629,7 +635,16 @@ final class ChatViewModel {
         }
         // —— P0 首屏段：消息先行（本连接缓存命中=纯内存，立即渲染），不等跨区
         // 任务索引聚合（26 区 listTaskList 串行）与已读上报 ——
-        messages = await store.messages(in: conversationID)
+        let snapshot = await store.messages(in: conversationID)
+        // 竞态守卫（2026-10-09 用户报障「发出的第一条消息不显示、刷新正常」——v1.32
+        // 修准差分基线后 replaced 变少，暴露本窗）：observe 流与本段并发，await 悬置
+        // 期间行增量可能已把更新的消息刷进本列表——快照只是读那一刻的点值，直接赋值
+        // 会把列表回卷到过去；此后该轮 append 型增量在残缺基线上续接，用户首行永久
+        // 缺失（刷新全量重载才恢复）。快照为空而当前列表非空 = 事件已超前，保留当前
+        // 列表；空会话两空相等、在途回显在 store raw 数组内不丢，其余场景快照照常采纳
+        if !(snapshot.isEmpty && !messages.isEmpty) {
+            messages = snapshot
+        }
         // 服务端反馈态种子（点赞重载丢失修复：行 feedback 字段回读）
         syncFeedbackFromMessages()
         // 失败透出（读面三态纪律补全 2026-10-07）：空列表 → 错误态；有 last-good
@@ -932,6 +947,15 @@ final class ChatViewModel {
               let session = await store.sessionModelSelection(in: conversationID) else { return }
         if modelSelection == nil {
             modelSelection = await store.modelSelectionView() ?? ModelSelectionInfo()
+        }
+        // 会话级权威 provider 灌入 activeProviderId（2026-10-09 真机报障「模型/思考
+        // 强度不可选但继承正常」根因：getView 失败/空回执时 overlay 种出的实例
+        // activeProviderId 恒空 → provider 解析空串 → switchModelConfig 必被桌面拒
+        // （provider 必填【实证·上游仓 command.ts:211】）——思考档切换/重选当前模型
+        // 全灭。state.modelSelection.providerId 是桌面当前绑定的权威事实，置入后
+        // 同模型切换无需 getView；getView 之后成功则以回执值覆盖，无双源冲突）
+        if let provider = session.provider {
+            modelSelection?.activeProviderId = provider
         }
         guard modelSelection?.activeModel != session.model
             || modelSelection?.activeThoughtLevel != session.thought else { return }

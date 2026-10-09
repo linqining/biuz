@@ -311,7 +311,9 @@ final class FeatureCompletionE2ETests: XCTestCase {
     private func scrollToHittable(_ target: XCUIElement, application: XCUIApplication,
                                   scrollElement: XCUIElement? = nil,
                                   maxSwipes: Int = 8) -> Bool {
-        let deadline = Date().addingTimeInterval(20)
+        // 截止时间随预算缩放（下限 20s 保既有调用方行为；v1.35 替身新增 2 会话后
+        // test12 的归档入口行距变深，8 次预算+固定 20s 滚不到物化距离——单跑实证）
+        let deadline = Date().addingTimeInterval(max(20, Double(maxSwipes) * 2.5))
         for _ in 0..<maxSwipes where Date() < deadline {
             if isOnScreen(target, application: application), target.isHittable { return true }
             let upward: Bool
@@ -1311,10 +1313,19 @@ final class FeatureCompletionE2ETests: XCTestCase {
         XCTAssertTrue(thoughtChip.waitForExistence(timeout: 12), "思考胶囊应在场（连接态 chips）")
         // 焦点在场点 chip 探针（2026-10-09 真机报障「会话页模型/思考不可选，新建
         // sheet 可选」根因：composer 持焦点时触摸被输入法层消费、sheet 被键盘转场
-        // 吞——chip 入口统一先撤焦再呈现）。模拟器硬键盘连态下软键盘不出、IME 吞
-        // 触摸不可完全复现（真机中文输入法才是完整形态），此处至少门禁「焦点激活
-        // 时面板仍开」；探针只开面板不选档，不污染后续 stale 计数断言
+        // 吞——chip 入口统一先撤焦再呈现）。模拟器软键盘在场完整复现该形态（首版
+        // 探针实证：撤焦+呈现同事务发出 → sheet 与键盘收起转场相撞卡半程，候选永不
+        // 出现）；点输入框后留 0.8s 键盘升起/布局让位稳定窗（用户节奏）再点胶囊
         element(application, "05-composer-input").tap()
+        Thread.sleep(forTimeInterval: 0.8)
+        // 诊断取证：键盘在场时的胶囊命中态与整屏布局（分诊「被键盘盖住」vs「面板
+        // 呈现被吞」两假设——hittable=false = 物理不可点，点击从未发出）
+        snap(application, "50-probe-keyboard-up")
+        NSLog("probeDiag chip exists=%@ hittable=%@ frame=%@ app=%@",
+              String(describing: thoughtChip.exists),
+              thoughtChip.exists ? String(describing: thoughtChip.isHittable) : "n/a",
+              thoughtChip.exists ? NSCoder.string(for: thoughtChip.frame) : "n/a",
+              NSCoder.string(for: application.frame))
         let lowItems = application.buttons.matching(NSPredicate(format: "label == 'low'"))
         XCTAssertTrue(openTargetMenu(thoughtChip, candidate: lowItems),
                       "焦点在场点思考胶囊仍应弹出菜单（撤焦先行）")
@@ -1338,7 +1349,8 @@ final class FeatureCompletionE2ETests: XCTestCase {
         // ③ 归档分区：返回列表 → 展开 → 替身 listArchivedTasks 预置行应在场（并发拉取）
         app_navigationBack(application)
         waitGoneQuickly(element(application, "05-composer-input"), within: 4)
-        XCTAssertTrue(scrollToHittable(element(application, "04-act-archived"), application: application),
+        XCTAssertTrue(scrollToHittable(element(application, "04-act-archived"), application: application,
+                                       maxSwipes: 16),
                       "归档入口行应可滚动到可见")
         element(application, "04-act-archived").tap()
         XCTAssertTrue(waitUntil(timeout: 20, "替身应收到 listArchivedTasks 拉取") {
@@ -1355,7 +1367,7 @@ final class FeatureCompletionE2ETests: XCTestCase {
         var collapsed = false
         for _ in 0..<3 where !collapsed {
             scrollToHittable(element(application, "04-act-archived"), application: application,
-                             maxSwipes: 4)
+                             maxSwipes: 8)
             element(application, "04-act-archived").tap()
             collapsed = waitGoneQuickly(element(application, "04-archivedrow-sess-e2e-arch-1"), within: 6)
         }
@@ -1892,5 +1904,117 @@ final class FeatureCompletionE2ETests: XCTestCase {
         XCTAssertTrue(waitGoneQuickly(close, within: 4), "关闭钮应收起详情 sheet")
         XCTAssertEqual(stub.blockedWriteCommandCount, 0,
                        "纯读面渲染不应产生任何边界外写命令")
+    }
+
+    // MARK: - 门禁 20：ExitPlanMode 计划预览卡（官方 switch-mode 渲染器同构）
+
+    /// 2026-10-09 用户点单②「这个执行演示也优化一下」（官方 web 把 ExitPlanMode 工具行
+    /// 渲染成计划卡：📋 计划头 + 复制钮 + 渐隐 markdown 预览 + 「查看完整计划 →」胶囊，
+    /// 上游 ToolCallBlocks/renderers/switch-mode.tsx；移动端此前渲染成裸 JSON 工具卡）。
+    /// 移动端 ToolCall 不带 toolName → 载荷形状门（inputText JSON 含非空 plan 字段）
+    /// 命中即整卡替换；点胶囊/整卡 → 全文 sheet。
+    func test20_exitPlanModePlanPreviewCardAndFullSheet() throws {
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+
+        let row = element(application, "04-row-sess-e2e-exitplan")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "计划卡会话应在列表呈现")
+        XCTAssertTrue(openConversation(row, application: application), "应进入会话详情")
+
+        // ① 计划卡在场；inputText 裸 JSON（allowedPrompts…）不得上屏
+        let card = element(application, "05-plan-toolcard")
+        XCTAssertTrue(waitUntil(timeout: 12, "ExitPlanMode 行应渲染计划预览卡") {
+            card.exists
+        }, "形状门命中（inputText JSON 含 plan 字段）→ 整卡替换普通工具卡")
+        let messageScroll = element(application, "05-message-scroll")
+        XCTAssertTrue(scrollToHittable(card, application: application, scrollElement: messageScroll),
+                      "计划卡应可滚动至可命中")
+        let rawJSON = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "allowedPrompts"))
+        XCTAssertFalse(rawJSON.firstMatch.exists, "inputText 裸 JSON 不得上屏（官方整卡替换口径）")
+
+        // ② 全文 sheet：胶囊点开 → H1 标题 + 计划正文在场 → 关闭收回
+        let open = element(application, "05-plan-toolcard-open")
+        XCTAssertTrue(open.waitForExistence(timeout: 6), "「查看完整计划」胶囊应在场")
+        XCTAssertTrue(scrollToHittable(open, application: application, scrollElement: messageScroll),
+                      "胶囊应可命中")
+        open.tap()
+        let close = element(application, "05-plan-sheet-close")
+        XCTAssertTrue(close.waitForExistence(timeout: 8), "点胶囊应弹全文 sheet")
+        let titleText = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "E2E 计划标题"))
+        XCTAssertTrue(titleText.firstMatch.waitForExistence(timeout: 4),
+                      "全文 sheet 应含计划 H1 标题")
+        let bodyText = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "替身注入的计划正文"))
+        XCTAssertTrue(bodyText.firstMatch.exists, "全文 sheet 应含计划正文")
+        snap(application, "60-plan-toolcard-sheet")
+        close.tap()
+        XCTAssertTrue(waitGoneQuickly(close, within: 4), "关闭钮应收起全文 sheet")
+        XCTAssertEqual(stub.blockedWriteCommandCount, 0,
+                       "纯读面渲染不应产生任何边界外写命令")
+    }
+
+    // MARK: - 门禁 21：getView 失败时会话级 provider 兜底（真机「模型/思考强度不可选」根修）
+
+    /// 真机报障形态（2026-10-09「计划模式和排队方式可选，模型和思考强度依然不能选，
+    /// 但是正确继承上次选择」）：getView 失败 → overlay 种「非 nil 但空」modelSelection
+    /// → chips 显示继承值（state.modelSelection）但 activeProviderId 恒空 →
+    /// switchModelConfig 的 provider 解析空串 → 桌面必拒（provider 必填 command.ts:211）
+    /// → 「选了等于没选」；静态词表面板（协作/投递）不受影响——与真机对比观察吻合。
+    /// 根修断言面：① 模型面板不拒开（「重新获取」行在场）；② 思考档经静态梯可选且
+    /// 载荷 provider == state.modelSelection.providerId（非空串）。
+    func test21_sessionStateProviderBacksChipsWhenGetViewFails() throws {
+        // 前置态（须在连接前注入：快照 state 随订阅下发）：getView 恒败 + 会话快照
+        // state.modelSelection 带权威 providerId
+        stub.modelSelectionViewFails = true
+        stub.setSnapshotModelSelection(sessionId: "sess-e2e-1", selection: [
+            "providerId": "zai-individual-coding-plan",
+            "modelId": "GLM-5.3",
+            "options": ["reasoningLevel": "medium"],
+        ])
+        let application = launchFresh()
+        connectAndEnterMain(application)
+        element(application, "04-tab-chat").tap()
+
+        let row1 = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(row1.waitForExistence(timeout: 15), "列表应呈现 sess-e2e-1")
+        XCTAssertTrue(openConversation(row1, application: application), "进入 sess-e2e-1 详情")
+
+        // ① 模型面板恒开：getView 失败 → 面板呈现「重新获取模型列表」行（旧路拒开
+        //    + 一次性重试 + 3s 提示闪过 = 真机「点了没反应」死胡同）
+        let modelChip = element(application, "05-chip-model")
+        XCTAssertTrue(modelChip.waitForExistence(timeout: 12),
+                      "模型胶囊应在场（state 叠加显示继承值）")
+        let reloadItems = application.buttons.matching(
+            NSPredicate(format: "label == '重新获取模型列表'"))
+        XCTAssertTrue(openTargetMenu(modelChip, candidate: reloadItems),
+                      "getView 失败时模型面板应呈现「重新获取」行（不拒开）")
+        // 关面板（sheet 外点击收起）——不点「重新获取」本身（会触发重拉+重开链，
+        // 本用例只断言行在场与开门性）
+        application.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+        _ = waitGoneQuickly(reloadItems.firstMatch, within: 4)
+
+        // ② 思考档面板（ getView 词表缺席 → 静态梯兜底）选 low → 载荷 provider
+        //    必须来自 state.modelSelection.providerId（空串必被桌面拒=根因）
+        let thoughtChip = element(application, "05-chip-thought")
+        XCTAssertTrue(thoughtChip.waitForExistence(timeout: 8), "思考胶囊应在场")
+        let lowItems = application.buttons.matching(NSPredicate(format: "label == 'low'"))
+        XCTAssertTrue(openTargetMenu(thoughtChip, candidate: lowItems),
+                      "思考面板应呈现档位（静态梯兜底，getView 失败不空白）")
+        lowItems.firstMatch.tap()
+        XCTAssertTrue(waitUntil(timeout: 12, "CAS 重试链应送达 switchModelConfig") {
+            stub.switchModelConfigCallCount >= 2
+        }, "stale-once 原样重发应命中；实际=\(stub.switchModelConfigCallCount) 次")
+        let provider = stub.lastSwitchModelConfigPayload?["provider"] ?? ""
+        XCTAssertFalse(provider.isEmpty,
+                       "provider 应来自 state.modelSelection.providerId 兜底（空串必被桌面拒）；实际=\(provider)")
+        XCTAssertEqual(provider, "zai-individual-coding-plan",
+                       "provider 应逐字等于会话快照注入的 providerId")
+        XCTAssertEqual(stub.lastSwitchModelConfigPayload?["model"], "GLM-5.3",
+                       "model 沿用当前绑定（state.modelSelection.modelId）")
+        XCTAssertEqual(stub.lastSwitchModelConfigPayload?["thought"], "low",
+                       "thought 应为所选档位")
+        snap(application, "50-session-provider-fallback")
     }
 }

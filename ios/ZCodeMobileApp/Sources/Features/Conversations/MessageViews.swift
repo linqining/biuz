@@ -91,11 +91,17 @@ struct MessageView: View {
                     AttachmentStripView(sessionID: sessionID, refs: message.attachments)
                 }
                 if let call = message.toolCall {
-                    ToolCallCardView(call: call) { action in
-                        // G-015：失败工具卡重试 → retryTurn（rowId 来自行合成 id，
-                        // entityId 由卡片渲染门槛保证在场）
-                        if action == "retry", let rowId, call.entityId != nil {
-                            onRetryToolCall(call, rowId)
+                    // ExitPlanMode 计划预览卡（官方 switch-mode 渲染器同构）优先——
+                    // 载荷形状门命中即整卡替换（官方 renderer 同为整块替换）
+                    if let plan = PlanToolCallSupport.parse(call.target) {
+                        PlanToolCallCardView(plan: plan)
+                    } else {
+                        ToolCallCardView(call: call) { action in
+                            // G-015：失败工具卡重试 → retryTurn（rowId 来自行合成 id，
+                            // entityId 由卡片渲染门槛保证在场）
+                            if action == "retry", let rowId, call.entityId != nil {
+                                onRetryToolCall(call, rowId)
+                            }
                         }
                     }
                 }
@@ -606,6 +612,226 @@ struct UserSelectionDetailSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+// MARK: - ExitPlanMode 计划预览卡（官方 web switch-mode 渲染器同构，2026-10-09 点单）
+
+/// ExitPlanMode 工具行提取出的计划内容（官方 planToolCall.ts PlanToolCallContent 同构）
+struct PlanToolCallContent: Equatable {
+    var markdown: String
+    var planFilePath: String?
+}
+
+/// 详情 sheet 载荷（呈现期捕获，§5-15：关闭单路径置 nil）
+struct PlanToolCallDetail: Identifiable {
+    let id = UUID().uuidString
+    let markdown: String
+    let title: String?
+}
+
+enum PlanToolCallSupport {
+    /// ExitPlanMode（switch_mode 族）工具行 → 计划内容提取。
+    /// 官方按 tool identity family 分流（toolIdentity.ts ExitPlanMode → switch-mode →
+    /// SwitchModeToolCallBlock），提取链 input对象 → JSON.parse(inputText) → output → raw
+    /// 【实证·上游仓 planToolCall.ts extractPlanToolCallContent】。移动端 ToolCall 不带
+    /// toolName（store 行映射只留 inputText 作 target），收敛为**载荷形状门**：target 解析
+    /// 为 JSON 对象且 `plan` 字段为非空串才成卡【移植·上游仓 + 形状门收敛，防 bash 命令/
+    /// MCP text 字段误判】；planFilePath 可选。
+    static func parse(_ target: String) -> PlanToolCallContent? {
+        let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"), let data = trimmed.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return nil
+        }
+        guard let markdown = object["plan"] as? String,
+              !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let path = object["planFilePath"] as? String
+        return PlanToolCallContent(
+            markdown: markdown,
+            planFilePath: (path?.isEmpty == true) ? nil : path)
+    }
+
+    /// 计划标题：首个 H1，否则首个非空行去行首装饰（#{1,6}/引用/列表符）
+    /// 【实证·上游仓 planToolCall.ts getPlanDirectoryTitle】
+    static func planTitle(_ markdown: String) -> String? {
+        // JS /m 多行锚点 → NSRegularExpression 必须显式 anchorsMatchLines
+        //（缺省时 ^$ 只匹配串首尾，H1 永不命中、恒走首行回退——单测实证）
+        let h1Regex = try? NSRegularExpression(
+            pattern: #"^\s{0,3}#(?!#)\s+(.+?)\s*#*\s*$"#,
+            options: [.anchorsMatchLines])
+        var h1: String?
+        if let h1Regex {
+            h1Regex.enumerateMatches(
+                in: markdown,
+                options: [],
+                range: NSRange(location: 0, length: (markdown as NSString).length)
+            ) { match, _, stop in
+                if let match, match.numberOfRanges > 1 {
+                    h1 = (markdown as NSString).substring(with: match.range(at: 1))
+                    stop.pointee = true
+                }
+            }
+        }
+        if let h1 { return h1 }
+        for line in markdown.split(whereSeparator: \.isNewline) {
+            let title = line.trimmingCharacters(in: .whitespaces)
+            guard !title.isEmpty else { continue }
+            return title.replacingOccurrences(
+                of: #"^(?:#{1,6}\s+|>\s*|[-*+]\s+)"#,
+                with: "",
+                options: .regularExpression)
+        }
+        return nil
+    }
+
+    /// 路径尾段展示名（官方 getPlanFileLabel = getPathLeaf）
+    static func planFileLabel(_ path: String) -> String {
+        let parts = path.split { $0 == "/" || $0 == "\\" }
+        return parts.last.map(String.init) ?? path
+    }
+}
+
+/// 计划预览卡（官方 SwitchModeToolCallBlock 移动端同构：「📋 计划」头 + 复制钮 +
+/// 渐隐 markdown 预览 + 居中「查看完整计划」胶囊 → 全文 sheet；整卡点按同开）
+struct PlanToolCallCardView: View {
+    let plan: PlanToolCallContent
+    @State private var detail: PlanToolCallDetail?
+    @State private var copied = false
+    @State private var copiedReset: Task<Void, Never>?
+
+    /// 预览排版上限（>4k 字计划正文截断防卡顿；全文在 sheet——官方 max-h-64 渐隐同思路）
+    private static let previewLimit = 4_000
+
+    private var title: String? { PlanToolCallSupport.planTitle(plan.markdown) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            previewBody
+        }
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: T.rM))
+        .onTapGesture { openDetail() }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-plan-toolcard")
+        .sheet(item: $detail) { presented in
+            PlanToolCallSheet(detail: presented) { detail = nil }
+        }
+    }
+
+    /// 头：「计划」+ 可选计划文件尾段 + 复制（复制后 2s 打勾，官方 copy→check 同款）
+    private var header: some View {
+        HStack(spacing: T.sp2) {
+            Image(systemName: "list.clipboard")
+                .font(.system(size: 13))
+                .foregroundColor(T.text3)
+            Text(String(localized: "计划"))
+                .font(T.font(13, .medium))
+                .foregroundColor(T.text3)
+            if let path = plan.planFilePath {
+                Text(PlanToolCallSupport.planFileLabel(path))
+                    .font(T.mono(11))
+                    .foregroundColor(T.text3)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .layoutPriority(-1)
+            }
+            Spacer(minLength: 0)
+            Button {
+                UIPasteboard.general.string = plan.markdown
+                copiedReset?.cancel()
+                copied = true
+                copiedReset = Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    copied = false
+                }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(copied ? T.accentText : T.text3)
+                    .frame(minWidth: 32, minHeight: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("05-plan-toolcard-copy")
+        }
+        .padding(.horizontal, T.sp3)
+        .padding(.top, T.sp3)
+    }
+
+    /// 预览体：markdown 渐隐（mask 三段渐变，官方 mask-image 同构）+ 居中胶囊浮钮
+    private var previewBody: some View {
+        let preview = plan.markdown.count > Self.previewLimit
+            ? String(plan.markdown.prefix(Self.previewLimit)) + "…"
+            : plan.markdown
+        return ZStack(alignment: .bottom) {
+            MarkdownMessageBody(text: preview)
+                .frame(maxWidth: .infinity, maxHeight: 216, alignment: .top)
+                .clipped()
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 0.55),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .top, endPoint: .bottom)
+                )
+                .padding(.bottom, 34)
+            Button {
+                openDetail()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(String(localized: "查看完整计划"))
+                        .font(T.font(14, .semibold))
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundColor(T.onAccent)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 11)
+                .background(T.accent)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("05-plan-toolcard-open")
+            .padding(.bottom, T.sp3)
+        }
+    }
+
+    private func openDetail() {
+        detail = PlanToolCallDetail(markdown: plan.markdown, title: title)
+    }
+}
+
+/// 计划全文 sheet（官方 onOpenPlanDetail 侧栏的移动端形态：全量 markdown 可滚动）
+struct PlanToolCallSheet: View {
+    let detail: PlanToolCallDetail
+    let onClose: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                MarkdownMessageBody(text: detail.markdown)
+                    .padding(T.sp3)
+            }
+            .background(T.bg)
+            .navigationTitle(detail.title ?? String(localized: "计划"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "关闭")) { onClose() }
+                        .accessibilityIdentifier("05-plan-sheet-close")
+                }
+            }
+        }
+        .presentationDetents([.large])
     }
 }
 
