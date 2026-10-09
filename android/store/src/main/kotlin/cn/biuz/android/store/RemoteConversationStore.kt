@@ -140,6 +140,11 @@ class RemoteConversationStore(
      * 测试注入小值驱动到期。
      */
     private val keepWarmMs: Long = DEFAULT_KEEP_WARM_MS,
+    /**
+     * 时钟源（仅标题兜底刷新窗等本地窗口计时用；信封 issuedAt 恒走系统墙钟——
+     * 线缆事实不走注入面）。缺省系统墙钟；测试注入虚拟时钟驱动 15s 首试/10min 窗口。
+     */
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) : ConversationStore, RemoteConversationBridge {
 
     /** 会话行记录（iOS RowRecord :236-239）。 */
@@ -2118,7 +2123,7 @@ class RemoteConversationStore(
     private suspend fun registerMetaRefreshIfNeeded(conversationId: String) {
         val currentTitle = sessionsIndex?.sessionSummaries()?.get(conversationId)?.title ?: ""
         if (currentTitle.isNotEmpty() && currentTitle != PLACEHOLDER_TITLE) return
-        val now = System.currentTimeMillis()
+        val now = nowMs()
         mutex.withLock {
             metaRefreshDeadline[conversationId] = now + META_REFRESH_WINDOW_MS
             metaRefreshNextTry[conversationId] = now + META_REFRESH_FIRST_TRY_MS
@@ -2136,7 +2141,7 @@ class RemoteConversationStore(
             if (metaRefreshNextTry.isEmpty()) return
             metaRefreshNextTry.map { it.key to it.value }
         }
-        val now = System.currentTimeMillis()
+        val now = nowMs()
         for ((conversationId, nextTry) in due) {
             if (now < nextTry) continue
             val deadline = mutex.withLock { metaRefreshDeadline[conversationId] }

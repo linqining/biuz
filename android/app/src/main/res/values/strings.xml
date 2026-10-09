@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 会话屏 UI 文案（chat 界面轮）。职责边界：
+     - 本表只收 UI 组装文案（标题/按钮/错误行模板）——经 stringResource 上屏；
+     - 服务层错误原文（sendRejectionText / CommandAck.failureText / loadFailure 等
+       store 返回串）是**数据**不是资源：原样透传上屏，禁在本表复刻（对齐 iOS
+       「String(localized:) 键=串本身」与 AGENTS §5-12 真实拒因原文纪律）。 -->
+<resources>
+    <!-- 顶栏 -->
+    <string name="chat_title">会话</string>
+    <string name="chat_back">返回</string>
+    <string name="chat_running">运行中</string>
+    <string name="chat_load_retry">重新加载</string>
+
+    <!-- 消息流空态/读面失败（last-good 与失败文案共存） -->
+    <string name="chat_empty_hint">还没有消息 · 发送第一条开始</string>
+
+    <!-- 消息行 -->
+    <string name="chat_msg_expand">展开全部（%1$d 字）</string>
+    <string name="chat_msg_collapse">收起</string>
+    <string name="chat_msg_copy">复制文本</string>
+    <string name="chat_msg_copied">已复制</string>
+    <string name="chat_thinking_header">思考中…</string>
+    <string name="chat_thinking_done">已思考</string>
+    <string name="chat_thinking_interrupted">思考已中断</string>
+    <string name="chat_thinking_chars">思考 · %1$d 字</string>
+    <string name="chat_tool_verb_bash">执行</string>
+    <string name="chat_tool_verb_read">读取</string>
+    <string name="chat_tool_verb_edit">编辑</string>
+    <string name="chat_tool_verb_ask">提问</string>
+    <string name="chat_tool_verb_browser">浏览</string>
+
+    <!-- userselect 引用卡（label 三规则【实证·上游仓 ConversationSelectionReferenceChip.tsx:24-38】） -->
+    <string name="chat_userselect_single_ref">%1$s · 引用</string>
+    <string name="chat_userselect_n_refs">%1$d 条引用</string>
+    <string name="chat_userselect_n_dialog_refs">%1$d 条对话引用</string>
+    <string name="chat_userselect_detail_title">引用详情</string>
+    <string name="chat_userselect_source_dialog">对话引用</string>
+    <string name="chat_userselect_close">关闭</string>
+
+    <!-- ExitPlanMode 计划预览卡（官方 switch-mode 渲染器同构） -->
+    <string name="chat_plan_card_title">计划</string>
+    <string name="chat_plan_card_copy">复制计划</string>
+    <string name="chat_plan_card_open">查看完整计划</string>
+
+    <!-- 审批/交互卡（composer 上方常驻 · 限高 240dp 内部滚动，三卡统一） -->
+    <string name="chat_card_permission_title">关键操作待批准</string>
+    <string name="chat_card_scope_once">仅本次</string>
+    <string name="chat_card_scope_always">始终允许（需谨慎）</string>
+    <string name="chat_card_approve">批准执行</string>
+    <string name="chat_card_reject">拒绝</string>
+    <string name="chat_card_plan_title">计划待确认</string>
+    <string name="chat_card_plan_accept">放行计划</string>
+    <string name="chat_card_plan_decline">驳回计划</string>
+    <string name="chat_card_question_title">Agent 提问</string>
+    <string name="chat_card_question_hint">输入回答…</string>
+    <string name="chat_card_question_send">发送</string>
+    <string name="chat_card_hook_title">工作流钩子信任审核</string>
+    <string name="chat_card_hook_trust">信任所选</string>
+    <string name="chat_card_snooze">稍后处理</string>
+    <string name="chat_card_decided">已提交 · 等待桌面端确认</string>
+
+    <!-- 决议失败行（错误路径上屏；服务层拒因原文经 %1$s 透传） -->
+    <string name="chat_decision_rejected">%1$s</string>
+    <string name="chat_decision_undelivered">未送达 · 连接恢复后再试</string>
+    <string name="chat_decision_unknown">桌面回执状态未知 · 以桌面端实际状态为准</string>
+
+    <!-- composer -->
+    <string name="composer_hint">发送消息…</string>
+    <string name="composer_send">发送</string>
+    <string name="composer_sending">发送中…</string>
+    <string name="composer_readonly">桌面端只读 · 发送不可用</string>
+    <!-- 发送失败持久错误行（U-6：草稿已回填 + 重试；拒因原文经 %1$s 透传，无在案拒因用通用行） -->
+    <string name="chat_send_undelivered_generic">消息未送达 · 已恢复草稿</string>
+    <string name="chat_send_undelivered_reason">消息未送达 · %1$s</string>
+    <string name="composer_retry">重试</string>
+
+    <!-- 协作模式 chips 与面板 -->
+    <string name="composer_mode_plan">计划</string>
+    <string name="composer_mode_build">构建</string>
+    <string name="composer_mode_edit">自动编辑</string>
+    <string name="composer_mode_yolo">完全访问</string>
+    <string name="composer_mode_panel_title">协作模式</string>
+    <string name="composer_mode_panel_hint">切换经桌面端代执行 · 当前模式随会话投影同步</string>
+
+    <!-- 协作模式错误行（常驻，非 3s 气泡；UnknownAckState 口径 = iOS v1.33② 同文案） -->
+    <string name="composer_mode_fail_unknown">桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际模式为准</string>
+    <string name="composer_mode_fail_rejected">%1$s</string>
+
+    <!-- 斜杠反馈行（3s 自动清除） -->
+    <string name="slash_plan_blocked">计划模式未切换 · 任务未发送</string>
+    <string name="slash_plan_switched">已切换计划模式</string>
+
+    <!-- 编辑重发（P1-3；rewind 不可撤销 → 说明行 + 确认弹层双重确认；预填与重发恒用原文） -->
+    <string name="chat_edit_resend_title">编辑并重发</string>
+    <string name="chat_edit_resend_warning">重发将把对话回退到这条消息之前（rewind），它之后的所有回复会被替换，不可撤销。</string>
+    <string name="chat_edit_resend_sending">重发中…</string>
+    <string name="chat_edit_resend_confirm_title">确认重发并回退对话？</string>
+    <string name="chat_edit_resend_confirm_message">将回退到这条消息之前，之后的回复会被替换。</string>
+    <string name="chat_edit_resend_confirm">重发</string>
+
+    <!-- 面板/动作通用 -->
+    <string name="action_close">关闭</string>
+    <string name="action_cancel">取消</string>
+</resources>

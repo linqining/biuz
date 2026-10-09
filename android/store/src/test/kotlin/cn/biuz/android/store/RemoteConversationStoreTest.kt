@@ -78,7 +78,7 @@ internal class FakeConversationFrameSurface(private val ops: CopyOnWriteArrayLis
 }
 
 /** 测试替身传输：conversation 订阅面各命令注水 + 操作序账。 */
-internal class FakeConversationTransport(private val ops: CopyOnWriteArrayList<String>) :
+internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<String>) :
     RPCChannelTransport {
 
     // subscribeConversationV4
@@ -233,6 +233,7 @@ internal class Fixture(
     val workspaceIdentity: String? = "conn-ident",
     val keepWarmMs: Long = 5_000L,
     withIndex: Boolean = false,
+    nowMs: (() -> Long)? = null,
 ) {
     val ops = CopyOnWriteArrayList<String>()
     val transport = FakeConversationTransport(ops)
@@ -258,6 +259,7 @@ internal class Fixture(
         clientId = "test-client-1",
         backgroundDispatcher = StandardTestDispatcher(scope.testScheduler),
         keepWarmMs = keepWarmMs,
+        nowMs = nowMs ?: ({ System.currentTimeMillis() }),
     )
     val diag = ConcurrentHashMap<String, String>()
 
@@ -979,6 +981,109 @@ class RemoteConversationStoreTest {
         val resolved = f.store.currentPendingInteraction("sess-1", listOf("permission"))
         assertEquals("it-2", resolved?.id)
         assertNull(f.store.currentPendingInteraction("sess-1", listOf("workspaceHookReview")))
+    }
+
+    /**
+     * 挂起交互的 delta 刷新通道（v1.31③ 面）：state.updated patch 键级整替
+     * pendingInteractions——下发/撤下都走同一投影（快照携带之外的刷新路径）。
+     */
+    @Test
+    fun pendingInteractions_refreshViaStateUpdatedPatch_andWithdraw() = runTest {
+        val f = Fixture(this)
+        f.store.messages("sess-1")
+        advanceTimeBy(1_000)
+        runCurrent()
+        // 下发：state.updated patch 携挂起交互（替身 pushPendingInteraction 同形状）
+        f.frameSurface.emit(
+            "conversation/sess-1",
+            frame(
+                topic = "conversation/sess-1", subscriptionId = "sub-c-1",
+                fromSeq = 1, toSeq = 1,
+                deltas = listOf(
+                    testObj(
+                        "op" to JSONValue.Str("state.updated"),
+                        "patch" to testObj(
+                            "pendingInteractions" to JSONValue.Arr(
+                                listOf(
+                                    testObj(
+                                        "id" to JSONValue.Str("it-perm-1"),
+                                        "kind" to JSONValue.Str("permission"),
+                                        "command" to JSONValue.Str("rm -rf /tmp/x"),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        val list = f.store.pendingInteractionList("sess-1")
+        assertEquals(1, list.size)
+        assertEquals("permission", list.single().kind)
+        assertEquals("it-perm-1", f.store.currentPendingInteraction("sess-1", listOf("permission"))?.id)
+        // 撤下：空数组键级整替清空投影（審批卡随之消失）
+        f.frameSurface.emit(
+            "conversation/sess-1",
+            frame(
+                topic = "conversation/sess-1", subscriptionId = "sub-c-1",
+                fromSeq = 2, toSeq = 2,
+                deltas = listOf(
+                    testObj(
+                        "op" to JSONValue.Str("state.updated"),
+                        "patch" to testObj(
+                            "pendingInteractions" to JSONValue.Arr(emptyList()),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(0, f.store.pendingInteractionList("sess-1").size, "撤下 = 空数组整替")
+        assertNull(f.store.currentPendingInteraction("sess-1", listOf("permission")))
+    }
+
+    /**
+     * 原文通道（v1.34/v1.35 红线）：userselect 尾块与计划卡 inputText JSON 均**原文透传**，
+     * 解析归渲染层——下沉 store 会破坏乐观回显按原文匹配去重。
+     */
+    @Test
+    fun rawPassThrough_userselectTailAndPlanInputTextStayVerbatim() = runTest {
+        val f = Fixture(this)
+        f.store.messages("sess-1")
+        advanceTimeBy(1_000)
+        runCurrent()
+        val userselectRaw = "请参考这段实现\n# userselect:\n```userselect\n" +
+            "[{\"path\":\"/repo/Sources/Foo.swift\",\"quote\":\"let x = 1\"}]\n```"
+        val planJson = "{\"plan\":\"# 计划正文\\n- 步骤一\",\"toolName\":\"ExitPlanMode\"}"
+        f.frameSurface.emit(
+            "conversation/sess-1",
+            frame(
+                topic = "conversation/sess-1", subscriptionId = "sub-c-1",
+                fromSeq = 1, toSeq = 1,
+                snapshot = testObj(
+                    "logEpoch" to JSONValue.Str("epoch-1"),
+                    "rows" to JSONValue.Arr(
+                        listOf(
+                            row(1, "userInput", "text" to JSONValue.Str(userselectRaw)),
+                            row(
+                                2, "toolCall",
+                                "toolName" to JSONValue.Str("ExitPlanMode"),
+                                "inputText" to JSONValue.Str(planJson),
+                                "status" to JSONValue.Str("pendingApproval"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        val messages = f.store.currentMessages("sess-1")
+        assertEquals(2, messages.size)
+        // ① userselect 尾块：store 不剥不滤，ChatMessage.text = 行原文（渲染层剥离 + 引用卡）
+        assertEquals(userselectRaw, messages[0].text)
+        // ② 计划卡原文通道：toolCall 行 inputText JSON 原样进 ToolCall.target（形状门=含非空 plan 字段，解析归渲染层）
+        assertEquals(planJson, messages[1].toolCall!!.target)
     }
 
     // MARK: resync 带 workspace 信封（resyncOwned ownership 匹配）

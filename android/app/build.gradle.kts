@@ -75,7 +75,9 @@ dependencies {
 
     // JVM 单测：QR 识别链（zxing QRCodeWriter 编码回灌）+ 会话列表分组纯函数
     // + 替身服务器活体（StubLiveServerTest：真机/模拟器链路验证时在宿主机起替身）
+    // + 聊天 VM/渲染层解析（kotlinx-coroutines-test 虚拟时钟驱动投影/重绑/延迟面板）
     testImplementation(kotlin("test-junit5"))
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation(project(":teststub"))
 }
 

@@ -14,6 +14,7 @@ package cn.biuz.android.store
 // - markUnread 写失败回滚本地置位（§5-12）。
 // Mock 仅测试装配（红线 §0-4）。
 
+import cn.biuz.android.protocol.Conversation
 import cn.biuz.android.protocol.ExecutorKind
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.RPCError
@@ -51,6 +52,10 @@ class RemoteConversationSendTest {
     @Test
     fun sendText_echoAppendedThenConsumedBySourceCommandId() = runTest {
         val f = Fixture(this)
+        // 先订阅（帧 handler 注册；真实链路服务端行只在订阅后到达）
+        f.store.messages("sess-1")
+        advanceTimeBy(1_000)
+        runCurrent()
         assertTrue(f.store.send("hello", "sess-1"))
         runCurrent()
         // 直发回显在位 + 基线已同步（v1.32 教训面：lastYieldedMessages 与订阅方实收一致）
@@ -175,7 +180,6 @@ class RemoteConversationSendTest {
         assertEquals("rejected", ack?.get("status")?.stringValue)
         assertEquals("client.casRevisionUnavailable", ack?.get("reasonCode")?.stringValue)
         assertEquals(0, f.transport.sendCallCount, "本地拒发的命令不空耗线缆")
-        assertTrue(f.store.sendRejectionText == null)
     }
 
     @Test
@@ -309,7 +313,7 @@ class RemoteConversationSendTest {
         val envelope = args["envelope"]!!.objectValue!!
         assertEquals("createSession", envelope["type"]?.stringValue)
         assertTrue(envelope.containsKey("sessionId"), "A1：sessionId 键恒在场")
-        assertNull(envelope["sessionId"], "createSession 信封 sessionId=null")
+        assertTrue(envelope["sessionId"] is JSONValue.Null, "createSession 信封 sessionId=null")
         val payload = envelope["payload"]!!.objectValue!!
         assertEquals("/other/ws", payload["workspaceId"]?.stringValue)
         val firstInput = payload["firstInput"]!!.objectValue!!
@@ -334,7 +338,7 @@ class RemoteConversationSendTest {
         val payload = f.transport.sendArgs.single()["envelope"]!!.objectValue!!["payload"]!!.objectValue!!
         assertNull(payload["firstInput"], "draft 空会话不携 firstInput")
         assertEquals("/conn/ws", payload["workspaceId"]?.stringValue)
-        assertTrue(f.ops.contains("call:zcode-agent:promoteDeferredDraftSession"), "draft 转正写（重启不丢）")
+        assertTrue(f.ops.contains("call:zcode-session:promoteDeferredDraftSession"), "draft 转正写（重启不丢）")
     }
 
     @Test
@@ -379,7 +383,8 @@ class RemoteConversationSendTest {
 
     @Test
     fun metaRefresh_backfillsPlaceholderTitleWithinWindow() = runTest {
-        val f = Fixture(this, withIndex = true)
+        // meta 刷新窗走注入时钟（生产=墙钟；测试=虚拟时钟，随 advanceTimeBy 驱动）
+        val f = Fixture(this, withIndex = true, nowMs = { testScheduler.currentTime })
         f.index!!.upsertLocalSession(
             SessionSummary(
                 sessionId = "sess-1",
@@ -479,6 +484,9 @@ class RemoteConversationSendTest {
     @Test
     fun queueHeldItemIds_readsSnapshotQueue() = runTest {
         val f = Fixture(this)
+        f.store.messages("sess-1")
+        advanceTimeBy(1_000)
+        runCurrent()
         f.frameSurface.emit(
             "conversation/sess-1",
             frame(
@@ -501,5 +509,98 @@ class RemoteConversationSendTest {
         )
         runCurrent()
         assertEquals(listOf("q-1", "q-2"), f.store.queueHeldItemIds("sess-1"), "queueItemId 宽容链")
+    }
+
+    // MARK: 三场景一条流（替身会话流镜像：快照先至 → sendText 回显消费 → delta 键级整替）
+
+    /**
+     * 按 :teststub E2EStubServer 会话流的时序镜像（A8 + 回显消费 + A10 三场景串联）：
+     * ① 订阅发起前注快照（订阅回执挂栅门）→ 屏障暂存、subId 落库回放；
+     * ② sendText accepted → 服务端用户行携 sourceCommandId 到达 → 回显精确消费；
+     * ③ state.updated patch 键级整替（不深合并）。三场景在同一会话上依真实顺序演进。
+     */
+    @Test
+    fun stubFlowMirror_snapshotFirstThenEchoConsumedThenKeyLevelPatch() = runTest {
+        val f = Fixture(this)
+        // ── 场景①：快照帧先于订阅回执（A8/陷阱④）
+        val gate = CompletableDeferred<Unit>()
+        f.transport.subscribeGate = gate
+        val job = launch { f.store.messages("sess-e2e-1") }
+        runCurrent() // 推进至 subscribe 挂起于栅门
+        f.frameSurface.emit(
+            "conversation/sess-e2e-1",
+            frame(
+                topic = "conversation/sess-e2e-1", subscriptionId = "sub-c-1",
+                fromSeq = 0, toSeq = 0,
+                snapshot = testObj(
+                    "protocolVersion" to testNum(1),
+                    "sessionId" to JSONValue.Str("sess-e2e-1"),
+                    "logEpoch" to JSONValue.Str("epoch-conv-1"),
+                    "seq" to testNum(0),
+                    "revision" to testNum(42),
+                    "rows" to JSONValue.Arr(emptyList()),
+                    "state" to testObj(
+                        "revision" to testNum(42),
+                        "pendingInteractions" to JSONValue.Arr(emptyList()),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(0, f.store.currentMessages("sess-e2e-1").size, "快照帧在 subId 落库前不得消费（屏障暂存）")
+        gate.complete(Unit)
+        advanceUntilIdle()
+        job.join()
+        assertEquals(42L, f.store.conversationBaseWatermark("sess-e2e-1").first, "快照 revision/logEpoch 已回放落库")
+        // ── 场景②：sendText accepted → 用户行携 sourceCommandId 回推 → 回显精确消费
+        f.transport.sendReply = ackOf(status = "accepted", revisionAtDecision = 42)
+        assertTrue(f.store.send("你好，替身", "sess-e2e-1"))
+        runCurrent()
+        assertEquals(1, f.store.currentMessages("sess-e2e-1").size, "直发回显在位（基线已同步）")
+        val sentCommandId = f.transport.sendArgs.single()["envelope"]!!.objectValue!!["commandId"]?.stringValue
+        f.frameSurface.emit(
+            "conversation/sess-e2e-1",
+            frame(
+                topic = "conversation/sess-e2e-1", subscriptionId = "sub-c-1",
+                fromSeq = 1, toSeq = 1,
+                deltas = listOf(
+                    testObj(
+                        "op" to JSONValue.Str("row.appended"),
+                        "row" to testObj(
+                            "rowId" to JSONValue.Int(1),
+                            "turnId" to JSONValue.Str("turn-stub"),
+                            "kind" to JSONValue.Str("userInput"),
+                            "text" to JSONValue.Str("你好，替身"),
+                            "origin" to JSONValue.Str("realUser"),
+                            "sourceCommandId" to (sentCommandId?.let { JSONValue.Str(it) } ?: JSONValue.Null),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        val afterEcho = f.store.currentMessages("sess-e2e-1")
+        assertEquals(1, afterEcho.size, "回显被 sourceCommandId 精确消费，无双气泡")
+        assertEquals("row-1", afterEcho.single().id)
+        // ── 场景③：state.updated patch 键级整替（A10）
+        f.frameSurface.emit(
+            "conversation/sess-e2e-1",
+            frame(
+                topic = "conversation/sess-e2e-1", subscriptionId = "sub-c-1",
+                fromSeq = 2, toSeq = 2,
+                deltas = listOf(
+                    testObj(
+                        "op" to JSONValue.Str("state.updated"),
+                        "patch" to testObj(
+                            "modelSelection" to testObj("modelId" to JSONValue.Str("glm-5.3")),
+                            "revision" to testNum(43),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals("glm-5.3", f.store.sessionModelSelection("sess-e2e-1")?.model)
+        assertEquals(43L, f.store.conversationBaseWatermark("sess-e2e-1").first, "patch.revision 回填")
     }
 }

@@ -889,6 +889,22 @@ class E2EStubServer(
         }
     }
 
+    /**
+     * 挂起交互下发/撤下便捷注水（挂起交互面 E2E 数据源）：patch 键级整替
+     * `pendingInteractions`——[interaction] null = 撤下（空数组整替）。
+     * 交互形状按上游真实形态注水（v1.31③：ExitPlanMode 挂起交互 kind="userInput"、
+     * plan_approval 在 payload.schema.interaction、计划正文在 payload.input.plan——
+     * 美化成顶层 kind=plan_approval 会掩盖客户端 schema 归位缺陷）。
+     */
+    fun pushPendingInteraction(sessionId: String, interaction: JSONValue?, delayMs: Long = ROW_DELTA_DELAY_MS) {
+        val items = if (interaction != null) listOf(interaction) else emptyList()
+        pushConversationStatePatch(
+            sessionId = sessionId,
+            patch = mapOf("pendingInteractions" to JSONValue.Arr(items)),
+            delayMs = delayMs,
+        )
+    }
+
     private suspend fun sendConversationRowDelta(session: SessionContext, topic: String, row: JSONValue) {
         val (from, to) = seqLedger.next(topic)
         val logical = StubV4Frames.deltasFrame(topic, SUB_ID_CONVERSATION, from, to, listOf(StubV4Frames.rowAppended(row)))
