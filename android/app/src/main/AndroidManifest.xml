@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- BiuZ Android 应用壳。权限面：INTERNET（局域网直连 + 云中继 WS）、CAMERA（扫码配对取景器）。
-     应用名 BiuZ（branding/naming.md 商标裁决：资源与界面不以 ZCode/Z.ai 作品牌呈现）。 -->
+     应用名 BiuZ（branding/naming.md 商标裁决：资源与界面不以 ZCode/Z.ai 作品牌呈现）。
+     usesCleartextTraffic=true（2026-10-09 模拟器替身链路实测发现）：局域网直连主路径就是
+     明文 http://局域网IP:端口 加 ws:// 同形态（桌面 zcode 的 web 服务打印的链接原形态；
+     https/wss 走反代为可选路径）。targetSdk 28+ 默认禁明文会把它整条静默掐死
+     （表象 = 探针「连接超时」），与 iOS 同路径 parity，必须显式放行。 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -11,11 +15,13 @@
         android:required="false" />
 
     <application
+        android:name=".BiuzApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="BiuZ"
         android:supportsRtl="true"
-        android:theme="@style/Theme.BiuZ">
+        android:theme="@style/Theme.BiuZ"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"

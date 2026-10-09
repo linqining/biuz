@@ -310,6 +310,16 @@ class RemoteSessionsIndexStore(
     suspend fun mergeTaskIndexRows(items: List<JSONValue>): Pair<Int, Int> =
         table.mergeTaskIndexRows(items, titleOverriddenIds = titleOverrides.keys)
 
+    /** 本地新建会话即刻入表（RemoteConversationStore.performCreateConversation 回写口；iOS :2548-2558）。 */
+    suspend fun upsertLocalSession(summary: SessionSummary) = table.upsertLocalSession(summary)
+
+    /**
+     * 字段级回填（RemoteConversationStore.refreshDueSessionMeta 的表侧；只改既有行
+     * 不新增行，标题让位本地 override）。返回标题发生变化的 sessionId 集。
+     */
+    suspend fun backfillSessionFields(items: List<JSONValue>): Set<String> =
+        table.backfillSessionFields(items, titleOverriddenIds = titleOverrides.keys)
+
     /** 合并表直读（测试/诊断面）。 */
     suspend fun sessionSummaries(): Map<String, SessionSummary> = table.snapshot()
 

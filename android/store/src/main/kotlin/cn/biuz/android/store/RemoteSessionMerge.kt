@@ -392,6 +392,65 @@ class SessionMergeTable {
         return true
     }
 
+    /**
+     * 本地新建会话即刻入表（iOS performCreateConversation :2548-2558 直译）：标题/
+     * 归属/时间与创建参数同源，否则列表一重载（conversations() 走本表投影）新建行
+     * 就消失，直到桌面 sessions-index 推送才回来（真机报障「新建会话后找不到」）。
+     * 行值语义 = iOS 整行覆写（sessions[sessionId] = created）。
+     */
+    suspend fun upsertLocalSession(summary: SessionSummary) {
+        mutex.withLock { sessions[summary.sessionId] = summary }
+    }
+
+    /**
+     * 字段级回填（iOS refreshDueSessionMeta :2364-2391 的表侧承载）：只改既有行、
+     * **不新增行**（新增行归 sessions-index/bootstrap 通道）——标题仅当该行无本地
+     * override、非空且不同；preview 非空且不同；lastActivityAt 取更新者；taskStatus
+     * 行携带即回填（task-index 是 status 字段的权威源，iOS :420-424 同口径）。
+     * 返回标题发生变化的 sessionId 集（调用方据此注销兜底刷新窗口）。
+     */
+    suspend fun backfillSessionFields(
+        items: List<JSONValue>,
+        titleOverriddenIds: Set<String>,
+    ): Set<String> {
+        val candidates = ArrayList<Pair<SessionSummary, SessionSummary>>() // (existing, parsed)
+        for (item in items) {
+            val summary = SessionSummaryParser.parse(item) ?: continue
+            mutex.withLock { sessions[summary.sessionId] }?.let { candidates.add(it to summary) }
+        }
+        if (candidates.isEmpty()) return emptySet()
+        val titleChanged = HashSet<String>()
+        mutex.withLock {
+            for ((existing, parsed) in candidates) {
+                var updated = existing
+                if (!titleOverriddenIds.contains(parsed.sessionId) &&
+                    parsed.title.isNotEmpty() && parsed.title != existing.title
+                ) {
+                    updated = updated.copy(title = parsed.title)
+                    titleChanged.add(parsed.sessionId)
+                }
+                if (!parsed.lastAssistantPreview.isNullOrEmpty() &&
+                    parsed.lastAssistantPreview != existing.lastAssistantPreview
+                ) {
+                    updated = updated.copy(lastAssistantPreview = parsed.lastAssistantPreview)
+                }
+                val existingAt = existing.lastActivityAt
+                if (parsed.lastActivityAt != null &&
+                    (existingAt == null || parsed.lastActivityAt > existingAt)
+                ) {
+                    updated = updated.copy(lastActivityAt = parsed.lastActivityAt)
+                }
+                if (parsed.taskStatus != null) {
+                    updated = updated.copy(taskStatus = parsed.taskStatus)
+                }
+                if (updated != existing) {
+                    sessions[existing.sessionId] = updated
+                }
+            }
+        }
+        return titleChanged
+    }
+
     // MARK: 投影（iOS sortedConversations :616-677 直译）
 
     /**

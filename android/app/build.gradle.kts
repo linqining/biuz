@@ -35,6 +35,13 @@ android {
 
     buildFeatures {
         compose = true
+        // BuildConfig.DEBUG 承接开发者模式调试开关（交接 §5-17：手动输入/指引/令牌说明收进
+        // 开发者模式；正式包默认关闭，连点手势预留见 ConnectScreen 品牌行）
+        buildConfig = true
+    }
+
+    testOptions {
+        // 占位：JVM 单测平台切换统一走文件尾 tasks.withType<Test>（与 store/connection 模块同口径）
     }
 }
 
@@ -55,6 +62,21 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.navigation:navigation-compose:2.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.3")
+
+    // 扫码链路（M2 界面轮）：CameraX 分析帧取景（PreviewView 互操作 + ImageAnalysis Y 平面）
+    // + zxing core 纯解码（无 javase/Android 扩展；分析与解码全在分析线程，主线程零阻塞）。
+    // CameraX 选 1.4.2 稳定线（compileSdk 36 兼容；bind/unbind 契约要求主线程，禁同步等待见 ScanScreen）。
+    val cameraxVersion = "1.4.2"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+    implementation("com.google.zxing:core:3.5.3")
+
+    // JVM 单测：QR 识别链（zxing QRCodeWriter 编码回灌）+ 会话列表分组纯函数
+    // + 替身服务器活体（StubLiveServerTest：真机/模拟器链路验证时在宿主机起替身）
+    testImplementation(kotlin("test-junit5"))
+    testImplementation(project(":teststub"))
 }
 
 // 与 protocol 等纯 JVM 模块的工具链（jvmToolchain(17)）保持同一字节码层级。
@@ -62,4 +84,9 @@ tasks.withType<KotlinCompile>().configureEach {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
     }
+}
+
+// JVM 单测平台（testDebugUnitTest/testReleaseUnitTest）：与 store/connection 模块同口径。
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }
