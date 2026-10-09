@@ -192,6 +192,54 @@ class ChatMessageParsingTest {
     fun planFileLabelTakesPathLeaf() {
         assertEquals("plan.md", PlanToolCallSupport.planFileLabel("/tmp/zcode/plans/plan.md"))
         assertEquals("plan.md", PlanToolCallSupport.planFileLabel("C:\\tmp\\plan.md"))
+        assertEquals("plan.md", PlanToolCallSupport.planFileLabel("plan.md"))
+    }
+
+    // MARK: 挂账回收（android/app/.../ui/screen/PlanToolCallParsingTests.kt 配方 1-10；
+    // 生产代码 PlanToolCallSupport 已随本渲染轮落地 ui/chat/ChatMessageParsing.kt，
+    // 回收条件达成——配方逐例补齐后删除该挂账文件）
+
+    @Test
+    fun planRecipe1OfficialInputWithUnknownKeysIgnored() {
+        // 配方 1（iOS :11-17）：allowedPrompts 等未知键忽略；无 planFilePath → null
+        val content = PlanToolCallSupport.parse(
+            """{"allowedPrompts":[{"prompt":"run tests","tool":"Bash"}],"plan":"# 计划标题\n\n正文"}""",
+        )
+        assertTrue(content != null)
+        assertEquals("# 计划标题\n\n正文", content!!.markdown)
+        assertNull(content.planFilePath)
+    }
+
+    @Test
+    fun planRecipe3EmptyPlanStringReturnsNull() {
+        assertNull(PlanToolCallSupport.parse("{\"plan\":\"\"}"))
+        assertNull(PlanToolCallSupport.parse("{\"plan\":\"   \"}"))
+    }
+
+    @Test
+    fun planRecipe4ContentKeyDoesNotTriggerEither() {
+        // 形状门只认 plan 键；content 与 text 同属上游族内兜底，移动端均不认
+        assertNull(PlanToolCallSupport.parse("{\"content\":\"x\"}"))
+    }
+
+    @Test
+    fun planRecipe5EmptyTargetReturnsNull() {
+        assertNull(PlanToolCallSupport.parse(""))
+    }
+
+    @Test
+    fun planRecipe7FirstH1WinsAndExcludesH2PlusAndLaterH1s() {
+        assertEquals("真标题", PlanToolCallSupport.planTitle("前言\n\n# 真标题\n## 二级\n# 第二个H1"))
+    }
+
+    @Test
+    fun planRecipe8HeadingLevelDecorationStripped() {
+        assertEquals("三级标题开头", PlanToolCallSupport.planTitle("### 三级标题开头\n正文"))
+    }
+
+    @Test
+    fun planRecipe9EmptyMarkdownTitleReturnsNull() {
+        assertNull(PlanToolCallSupport.planTitle(""))
     }
 
     // MARK: 6000 字截断（UserBubble :370 / MarkdownMessageBody :843 同口径）

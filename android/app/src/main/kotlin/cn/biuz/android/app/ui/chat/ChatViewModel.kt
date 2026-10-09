@@ -30,9 +30,13 @@ import cn.biuz.android.protocol.CommandAck
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.RemotePendingInteraction
 import cn.biuz.android.store.ConversationEvent
+import cn.biuz.android.store.ConversationQueueInfo
 import cn.biuz.android.store.ConversationStore
+import cn.biuz.android.store.ModelSelectionInfo
+import cn.biuz.android.store.NewSessionModelSelection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +71,46 @@ class ChatViewModel(
          */
         val COLLABORATION_MODES = listOf("build", "edit", "plan", "yolo")
         const val DEFAULT_COLLABORATION_MODE = "build"
+
+        /** 模型切换本地收敛护栏：与协作模式同窗 3s（iOS ChatViewModel lastLocalModelSwitch 同值）。 */
+        const val MODEL_SWITCH_GUARD_MS = 3_000L
+
+        /**
+         * 思考档静态梯（iOS ChatView.fallbackThoughtLevels :2217 同值直译）：getView 不携带
+         * 词表、workspace-config 为空的远端环境兜底——不支持的档位由桌面端校验拒绝并提示。
+         */
+        val FALLBACK_THOUGHT_LEVELS = listOf("off", "minimal", "low", "medium", "high", "max")
+
+        /**
+         * 新建会话提交门判定（iOS NewConversationSheet.submitGateBlocked :279-282 直译；
+         * 可测静态）：「明确做过选择但解析不出完整选择」= 拦截弹「用默认模型继续」确认
+         * （禁静默裸发——此前「选了等于没选」：桌面按默认开跑、用户侧零反馈）；
+         * 纯未选择（无行键无思考档）= 直通桌面默认，不拦。
+         */
+        fun submitGateBlocked(
+            rowKey: String?,
+            thought: String?,
+            resolved: NewSessionModelSelection?,
+        ): Boolean = resolved == null && (rowKey != null || thought != null)
+
+        /**
+         * 会话前选择组装（iOS pendingModelSelection :1063-1072 直译）：上游
+         * modelSelectionSchema strict 且 providerId/modelId trim min(1)——provider 映射缺失
+         * 时整条 createSession 被拒。未选模型或 provider 缺失一律返回 null；返回 null 不等于
+         * 静默裸发：[submitGateBlocked] 对「明确做过选择但解析不出」弹确认。
+         */
+        fun resolveNewSessionSelection(
+            info: ModelSelectionInfo?,
+            selection: NewSessionDraftSelection,
+        ): NewSessionModelSelection? {
+            val model = selection.selectedModel?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val provider = info?.providerForRowKey(selection.selectedModelRowKey, model)
+                ?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val thought = selection.selectedThought?.trim()?.takeIf { it.isNotEmpty() }
+                ?: info?.activeThoughtLevel?.trim()?.takeIf { it.isNotEmpty() }
+                ?: ""
+            return NewSessionModelSelection(providerId = provider, modelId = model, reasoningLevel = thought)
+        }
     }
 
     // MARK: 斜杠意图（iOS parseSlashIntent :1127-1159 直译；web sX 解析器同构的客户端拦截子集）
@@ -199,8 +243,66 @@ class ChatViewModel(
         data object UnknownState : InteractionFailure()
     }
 
-    /** composer 面板种类（模型/思考选择器随 M3+ 接线扩枚举；本批仅协作模式面板）。 */
-    enum class ComposerPanelKind { Collaboration }
+    /** composer 面板种类（协作模式 / 模型 / 思考档；呈现统一走撤焦先行 + 延迟）。 */
+    enum class ComposerPanelKind { Collaboration, Model, Thought }
+
+    // MARK: 模型面板（chips + getView 词表 + 乐观落 chip 护栏；iOS ChatViewModel v1.36/37 直译）
+
+    /**
+     * 桌面端模型选择视图（getView 投影 + 会话级 overlay 合成后的单显示源；null = 尚未
+     * 拉到。chips/面板同读此流：activeModel/activeThoughtLevel/activeProviderId 由
+     * 权威成功回执乐观改写，桌面投影在护栏窗后接管）。
+     */
+    private val _modelSelection = MutableStateFlow<ModelSelectionInfo?>(null)
+    val modelSelection: StateFlow<ModelSelectionInfo?> get() = _modelSelection
+
+    /** 当前 chip 模型的思考档词表（store.thoughtLevels；空 = 退化静态梯，UI 层拼接）。 */
+    private val _thoughtLevels = MutableStateFlow<List<String>>(emptyList())
+    val thoughtLevels: StateFlow<List<String>> get() = _thoughtLevels
+
+    /** 模型切换失败/未知态常驻错误行（nil = 无在案；权威成功即清）。 */
+    sealed class ModelSwitchFailure {
+        /** provider 解析不出（getView 缺席且非当前模型）——本地拦截禁空串裸发。 */
+        data object ProviderUnavailable : ModelSwitchFailure()
+
+        /** ack null：未送达（断线/未连接）。 */
+        data object Undelivered : ModelSwitchFailure()
+
+        /** status 缺席/词表外：未知态不乐观落 chip，登记待定交投影定案。 */
+        data object UnknownAckState : ModelSwitchFailure()
+
+        /** 六态词表内失败：CommandAck.failureText（reasonCode + message 原文）。 */
+        data class Rejected(val text: String) : ModelSwitchFailure()
+    }
+
+    private val _modelSwitchFailure = MutableStateFlow<ModelSwitchFailure?>(null)
+    val modelSwitchFailure: StateFlow<ModelSwitchFailure?> get() = _modelSwitchFailure
+
+    /** 模型切换护栏记录（乐观值 + 时刻；3s 内旧投影不回闪，iOS :966-977 同口径）。 */
+    private data class ModelSwitchRecord(val model: String, val thought: String?, val at: Long)
+
+    private var lastLocalModelSwitchRecord: ModelSwitchRecord? = null
+
+    /** 未知态回执待定标记：会话级 state.modelSelection 投影首个到达即定案并清失败行。 */
+    private var pendingUnknownModelSelection = false
+
+    // MARK: 排队队列（state.queue 投影 + 五件命令面；iOS ChatViewModel queueAction 同构）
+
+    /** 排队队列只读投影（null = 无排队）。 */
+    private val _queueInfo = MutableStateFlow<ConversationQueueInfo?>(null)
+    val queueInfo: StateFlow<ConversationQueueInfo?> get() = _queueInfo
+
+    /** 队列操作失败面（常驻错误行；成功即清——失败 3s 气泡一律改常驻的任务口径）。 */
+    sealed class QueueActionFailure {
+        data object Undelivered : QueueActionFailure()
+
+        data object UnknownState : QueueActionFailure()
+
+        data class Rejected(val text: String) : QueueActionFailure()
+    }
+
+    private val _queueActionFailure = MutableStateFlow<QueueActionFailure?>(null)
+    val queueActionFailure: StateFlow<QueueActionFailure?> get() = _queueActionFailure
 
     // MARK: 换源重绑（store 按实例重绑；epoch 换源即新实例）
 
@@ -219,6 +321,13 @@ class ChatViewModel(
         _loadFailure.value = null
         _pendingInteractions.value = emptyList()
         _decidedInteractionIds.value = emptySet()
+        _modelSelection.value = null
+        _thoughtLevels.value = emptyList()
+        _modelSwitchFailure.value = null
+        _queueInfo.value = null
+        _queueActionFailure.value = null
+        pendingUnknownModelSelection = false
+        lastLocalModelSwitchRecord = null
         collectJob = scope.launch { observe(store) }
     }
 
@@ -231,20 +340,32 @@ class ChatViewModel(
         _slashHint.value = null
     }
 
-    private suspend fun observe(store: ConversationStore) {
+    private suspend fun observe(store: ConversationStore) = coroutineScope {
+        // 桌面 getView 变化流（model-selection.onDidChange 驱动）：清单/词表换新，护栏窗内
+        // 乐观选择三元组保留（iOS observeModelSelection :960-982 直译）
+        launch {
+            store.observeModelSelection().collect { info ->
+                if (info != null) applyModelSelectionInfo(info)
+            }
+        }
         // 初载：订阅/历史拉取的帧序（handler 先注册）由 Store 内部保证；这里只吃投影
         _messages.value = store.messages(conversationId)
         _loadFailure.value = store.conversationLoadFailure(conversationId)
         refreshInteractionProjection(store)
         refreshCollaborationModeProjection(store)
+        refreshSessionModelOverlay(store)
+        refreshQueueProjection(store)
         store.observeConversations().collect { event ->
             val current = _messages.value
             val reduced = reduceMessages(current, event, conversationId)
             if (reduced !== current) _messages.value = reduced
-            // 面板/模式投影逐事件覆盖（iOS refreshPendingInteractions /
-            // refreshCollaborationModeProjection 同挂点——快照与每条增量都重读）
+            // 面板/模式/模型 chip/队列投影逐事件覆盖（iOS refreshPendingInteractions /
+            // refreshCollaborationModeProjection / refreshSessionModelOverlay 同挂点——
+            // 快照与每条增量都重读，多为内存读）
             refreshInteractionProjection(store)
             refreshCollaborationModeProjection(store)
+            refreshSessionModelOverlay(store)
+            refreshQueueProjection(store)
         }
     }
 
@@ -296,8 +417,15 @@ class ChatViewModel(
     fun updateDraft(text: String) {
         _draft.value = text
         // 清除时机（§5.1）：发送成功 / 用户手动编辑 draft / 离开会话——不随 3s 消失
-        if (text.isNotEmpty() && _sendFailureReason.value != null) {
-            _sendFailureReason.value = null
+        if (text.isNotEmpty()) {
+            if (_sendFailureReason.value != null) {
+                _sendFailureReason.value = null
+            }
+            // 常驻失败反馈行（/plan 阻断等）：用户重新输入 = 重试意图，反馈行让位
+            val hint = _slashHint.value
+            if (hint != null && hint !is SlashHint.PlanSwitched) {
+                _slashHint.value = null
+            }
         }
     }
 
@@ -356,6 +484,10 @@ class ChatViewModel(
         }
         if (delivered) {
             _sendFailureReason.value = null
+            // 发送成功：常驻失败反馈行一并出账（阻断已解除）
+            if (_slashHint.value is SlashHint.Raw || _slashHint.value is SlashHint.PlanBlocked) {
+                _slashHint.value = null
+            }
             return true
         }
         // U-6：回填仅当用户尚未重新输入（防覆盖新输入）；错误行持久不自动消失
@@ -421,6 +553,232 @@ class ChatViewModel(
             _collaborationMode.value = projected
         }
     }
+
+    // MARK: 模型/思考档切换（chips 面板；iOS ChatViewModel.switchModel :158-202 直译）
+
+    /**
+     * 主模型/思考档切换（switchModelConfig 三元组）。`rowKey` 接受面板行键「套餐|模型」
+     * （复合表权威解析 providerId）或裸模型名（当前绑定走 activeProviderId 消歧）。
+     * 权威成功回执：乐观落 chip + 3s 护栏（忙 turn 期间桌面增量可滞后分钟级——
+     * 真机 14:08 实证 accepted 后 chip 恒旧值「选了没有变化」）；失败/未知态：chip 不动，
+     * 失败面落常驻错误行。
+     */
+    suspend fun switchModel(rowKey: String, thoughtLevel: String? = null): ModelSwitchFailure? {
+        val store = attachedStore
+        val info = _modelSelection.value
+        val label = info?.modelLabelForRowKey(rowKey)?.takeIf { it.isNotEmpty() } ?: rowKey
+        var provider = info?.providerForRowKey(rowKey, label)
+        if (provider.isNullOrEmpty()) {
+            // getView 失败/空表兜底：会话级 state.modelSelection.providerId（同模型场景，
+            // v1.36①：provider 必填【实证·上游仓 command.ts:211】，空串裸发必被桌面拒）
+            val session = store?.sessionModelSelection(conversationId)
+            if (session?.model == label && !session.provider.isNullOrEmpty()) {
+                provider = session.provider
+            }
+        }
+        if (provider.isNullOrEmpty()) {
+            val failure = ModelSwitchFailure.ProviderUnavailable
+            _modelSwitchFailure.value = failure
+            return failure
+        }
+        val thought = thoughtLevel ?: info?.activeThoughtLevel ?: ""
+        val ack = store?.switchModelConfig(
+            conversationId = conversationId,
+            provider = provider,
+            model = label,
+            thought = thought,
+        )
+        val commandAck = CommandAck(ack)
+        val failure = when {
+            ack == null -> ModelSwitchFailure.Undelivered
+            commandAck.isFailure -> ModelSwitchFailure.Rejected(commandAck.failureText ?: "桌面端拒绝")
+            // 未知态不乐观落 chip：登记待定标记交 state.modelSelection 投影首帧定案
+            !commandAck.isAuthoritativeSuccess -> ModelSwitchFailure.UnknownAckState.also {
+                pendingUnknownModelSelection = true
+            }
+            else -> null
+        }
+        if (failure != null) {
+            _modelSwitchFailure.value = failure
+            return failure
+        }
+        // 权威成功（accepted/duplicate/noop）即乐观落 chip，不等桌面投影回流
+        _modelSelection.value = (info ?: ModelSelectionInfo()).copy(
+            activeModel = label,
+            activeThoughtLevel = thought.ifEmpty { null },
+            activeProviderId = provider,
+        )
+        lastLocalModelSwitchRecord = ModelSwitchRecord(
+            model = label,
+            thought = thought.ifEmpty { null },
+            at = nowMs(),
+        )
+        _modelSwitchFailure.value = null
+        refreshThoughtLevelsInternal(store)
+        return null
+    }
+
+    /** 思考档切换（iOS switchThoughtLevel :347-356 直译：model 沿用当前绑定裸名——provider 经 activeModel==activeProviderId 消歧）。 */
+    suspend fun switchThought(level: String): ModelSwitchFailure? {
+        val model = _modelSelection.value?.activeModel
+            ?: return ModelSwitchFailure.ProviderUnavailable.also {
+                _modelSwitchFailure.value = it
+            }
+        return switchModel(model, thoughtLevel = level)
+    }
+
+    /**
+     * getView 手动重试（面板「重新获取」行/chips 兜底）。判据是 hasSelectableModels 而非
+     * 非 null：getView 失败会种出「非 nil 但空」的实例，按非 null 短路会死锁到重连
+     * （iOS retryModelSelection :990-997 同教训）。
+     */
+    suspend fun refetchModelSelection(): Boolean {
+        val store = attachedStore ?: return false
+        if (_modelSelection.value?.hasSelectableModels == true) return true
+        val info = store.modelSelectionView() ?: return false
+        if (!info.hasSelectableModels) return false
+        applyModelSelectionInfo(info)
+        return true
+    }
+
+    /** 桌面 getView 变化流应用：清单/词表换新，护栏窗内乐观三元组保留（iOS :963-977）。 */
+    private suspend fun applyModelSelectionInfo(info: ModelSelectionInfo) {
+        var merged = info
+        val guard = lastLocalModelSwitchRecord
+        if (guard != null && nowMs() - guard.at < MODEL_SWITCH_GUARD_MS &&
+            !(info.activeModel == guard.model && info.activeThoughtLevel == guard.thought)
+        ) {
+            val current = _modelSelection.value
+            if (current != null) {
+                merged = info.copy(
+                    activeModel = current.activeModel,
+                    activeThoughtLevel = current.activeThoughtLevel,
+                    activeProviderId = current.activeProviderId,
+                )
+            }
+        }
+        _modelSelection.value = merged
+        refreshThoughtLevelsInternal(attachedStore)
+    }
+
+    /**
+     * 会话级模型选择覆盖（state.modelSelection 权威源；iOS refreshSessionModelOverlay
+     * :1002-1034 直译）：provider 权威灌入 + 未知态定案 + 3s 乐观护栏 + 显示值覆盖。
+     */
+    private suspend fun refreshSessionModelOverlay(store: ConversationStore?) {
+        if (store == null) return
+        val session = store.sessionModelSelection(conversationId) ?: return
+        var info = _modelSelection.value
+        if (info == null) {
+            info = store.modelSelectionView() ?: ModelSelectionInfo()
+        }
+        // 会话级权威 provider 灌入（getView 失败时同模型/思考档切换免 getView 的唯一权威源）
+        var merged = if (!session.provider.isNullOrEmpty() && session.provider != info.activeProviderId) {
+            info.copy(activeProviderId = session.provider)
+        } else {
+            info
+        }
+        if (pendingUnknownModelSelection) {
+            // 未知态待定期：首个投影即定案（桌面真态说话），清失败行
+            pendingUnknownModelSelection = false
+            _modelSwitchFailure.value = null
+        }
+        val guard = lastLocalModelSwitchRecord
+        val inGuardWindow = guard != null && nowMs() - guard.at < MODEL_SWITCH_GUARD_MS
+        if (inGuardWindow && guard != null &&
+            !(session.model == guard.model && session.thought == guard.thought)
+        ) {
+            // 护栏窗内旧投影：不回闪乐观值（provider 灌入仍落表）
+            if (merged != _modelSelection.value) _modelSelection.value = merged
+            return
+        }
+        if (merged.activeModel != session.model || merged.activeThoughtLevel != session.thought) {
+            merged = merged.copy(activeModel = session.model, activeThoughtLevel = session.thought)
+            _modelSelection.value = merged
+            refreshThoughtLevelsInternal(store)
+        } else if (merged != info) {
+            _modelSelection.value = merged
+        }
+    }
+
+    /** 思考档词表重查（当前 chip 模型；getView per-model 优先，空 = UI 层退化静态梯）。 */
+    private suspend fun refreshThoughtLevelsInternal(store: ConversationStore?) {
+        val model = _modelSelection.value?.activeModel
+        _thoughtLevels.value = if (model == null) {
+            emptyList()
+        } else {
+            store?.thoughtLevels(model) ?: emptyList()
+        }
+    }
+
+    // MARK: 排队队列操作（五件；iOS queueAction/sendQueuedNow 族 :497-534 直译）
+
+    private suspend fun refreshQueueProjection(store: ConversationStore) {
+        _queueInfo.value = store.queueInfo(conversationId)
+    }
+
+    /**
+     * 队列命令统一收口：ack 三态映射（null=未送达 / isFailure=拒因原文 / 未知态），
+     * 失败落常驻错误行（不 3s 闪过）；权威成功刷新队列投影（含 queue 键的增量亦会
+     * 自动回流，此处先读一步免等帧）。
+     */
+    private suspend fun queueAction(
+        action: suspend (ConversationStore) -> JSONValue?,
+    ): QueueActionFailure? {
+        val store = attachedStore
+        val ack = store?.let { action(it) }
+        val commandAck = CommandAck(ack)
+        val failure = when {
+            ack == null -> QueueActionFailure.Undelivered
+            commandAck.isFailure -> QueueActionFailure.Rejected(commandAck.failureText ?: "桌面端拒绝")
+            commandAck.isAuthoritativeSuccess -> null
+            else -> QueueActionFailure.UnknownState
+        }
+        _queueActionFailure.value = failure
+        if (failure == null && store != null) {
+            refreshQueueProjection(store)
+        }
+        return failure
+    }
+
+    /** 队列条目立即发送（CAS）。 */
+    suspend fun sendQueuedNow(queueItemId: String): QueueActionFailure? =
+        queueAction { it.sendQueuedNow(conversationId, queueItemId) }
+
+    /** 队列条目删除（CAS）。 */
+    suspend fun deleteQueueItem(queueItemId: String): QueueActionFailure? =
+        queueAction { it.deleteQueueItem(conversationId, queueItemId) }
+
+    /** 队列条目文本编辑（CAS；空文本由 UI 禁用保存钮拦截，不下发）。 */
+    suspend fun editQueueItem(queueItemId: String, newText: String): QueueActionFailure? =
+        queueAction { it.editQueueItem(conversationId, queueItemId, newText) }
+
+    /**
+     * 队列条目上移（与前一位置交换 = reorder 到前一项之前；iOS moveQueueItemUp :522-530
+     * 直译。首行无上移语义：静默不下发）。beforeQueueItemId=null = 移到队尾。
+     */
+    suspend fun moveQueueItemUp(queueItemId: String): QueueActionFailure? {
+        val items = _queueInfo.value?.items ?: return null
+        val index = items.indexOfFirst { it.id == queueItemId }
+        if (index <= 0) return null
+        val before = items[index - 1].id
+        return queueAction { it.reorderQueueItem(conversationId, queueItemId, before) }
+    }
+
+    /** 自动排空开关（CAS）。 */
+    suspend fun setAutoDrain(enabled: Boolean): QueueActionFailure? =
+        queueAction { it.setAutoDrain(conversationId, enabled) }
+
+    // MARK: 新建会话提交门（iOS NewConversationSheet :263-282 直译；纯函数供 sheet 直用）
+
+    /**
+     * 新建会话草稿选择（sheet 侧状态快照；行键「套餐|模型」+ 纯模型名 + 思考档）。
+     */
+    data class NewSessionDraftSelection(
+        val selectedModelRowKey: String? = null,
+        val selectedModel: String? = null,
+        val selectedThought: String? = null,
+    )
 
     // MARK: 编辑重发（P1-3：CAS+row-target；rewind 语义——确认走 UI 双重确认，本方法只下发）
 
@@ -533,9 +891,16 @@ class ChatViewModel(
 
     // MARK: 反馈行
 
+    /**
+     * 反馈行呈现：**失败反馈一律常驻**（任务口径「失败 3s 气泡一律改常驻」；自动消失的
+     * 失败用户根本看不到——「点了没反应」报障同根因），仅成功提示保留 3s 自动清除。
+     * 常驻失败清除路径：发送成功 / 用户重新输入草稿 / 离开会话（detach）。
+     */
     private fun showSlashHint(hint: SlashHint) {
         slashHintClearJob?.cancel()
+        slashHintClearJob = null
         _slashHint.value = hint
+        if (hint !is SlashHint.PlanSwitched) return
         slashHintClearJob = scope.launch {
             delay(hintClearMs)
             if (!_sending.value) _slashHint.value = null

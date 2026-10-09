@@ -73,10 +73,15 @@ import cn.biuz.android.app.ui.chat.ChatViewModel
 import cn.biuz.android.app.ui.chat.InteractionActions
 import cn.biuz.android.app.ui.chat.InteractionCard
 import cn.biuz.android.app.ui.chat.MessageRow
+import cn.biuz.android.app.ui.chat.ModelOptionSection
+import cn.biuz.android.app.ui.chat.ModelRefetchRow
+import cn.biuz.android.app.ui.chat.QueueBar
+import cn.biuz.android.app.ui.chat.ThoughtOptionSection
 import cn.biuz.android.app.ui.chat.freeTextAnswer
 import cn.biuz.android.app.ui.chat.optionAnswer
 import cn.biuz.android.app.ui.chat.permissionAnswer
 import cn.biuz.android.app.ui.chat.planAnswer
+import cn.biuz.android.store.ModelSelectionInfo
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.ToolCall
 import cn.biuz.android.app.ui.theme.BiuZAccent
@@ -127,6 +132,11 @@ fun ChatScreen(
     val collabMode by viewModel.collaborationMode.collectAsStateWithLifecycle()
     val collabModeFailure by viewModel.collaborationModeFailure.collectAsStateWithLifecycle()
     val composerPanel by viewModel.composerPanel.collectAsStateWithLifecycle()
+    val modelSelection by viewModel.modelSelection.collectAsStateWithLifecycle()
+    val thoughtLevels by viewModel.thoughtLevels.collectAsStateWithLifecycle()
+    val modelSwitchFailure by viewModel.modelSwitchFailure.collectAsStateWithLifecycle()
+    val queueInfoState by viewModel.queueInfo.collectAsStateWithLifecycle()
+    val queueActionFailure by viewModel.queueActionFailure.collectAsStateWithLifecycle()
     val readOnly = viewModel.isReadOnly
 
     val listState = rememberLazyListState()
@@ -228,6 +238,11 @@ fun ChatScreen(
                             )
                         }
                     },
+                    // P1-3 编辑重发（null 回调 = 未接线不渲染入口；未连接态 store 返回
+                    // null → VM 判 Undelivered 如实提示，禁假成功）
+                    onEditResend = { origin: ChatMessage, newText: String ->
+                        viewModel.editUserQuery(origin, newText)
+                    },
                 )
             }
         }
@@ -284,6 +299,27 @@ fun ChatScreen(
             }
         }
 
+        // MARK: 排队消息条（桌面同构：紧贴 composer 上方，无排队不渲染）
+        queueInfoState?.let { queue ->
+            QueueBar(
+                queue = queue,
+                failureText = queueActionFailure?.let { failure ->
+                    when (failure) {
+                        is ChatViewModel.QueueActionFailure.Rejected -> failure.text
+                        ChatViewModel.QueueActionFailure.Undelivered ->
+                            stringResource(R.string.queue_fail_undelivered)
+                        ChatViewModel.QueueActionFailure.UnknownState ->
+                            stringResource(R.string.queue_fail_unknown)
+                    }
+                },
+                onSendNow = { id -> scope.launch { viewModel.sendQueuedNow(id) } },
+                onEditSave = { id, text -> scope.launch { viewModel.editQueueItem(id, text) } },
+                onMoveUp = { id -> scope.launch { viewModel.moveQueueItemUp(id) } },
+                onDelete = { id -> scope.launch { viewModel.deleteQueueItem(id) } },
+                onToggleAutoDrain = { enabled -> scope.launch { viewModel.setAutoDrain(enabled) } },
+            )
+        }
+
         // MARK: composer
         Column(
             modifier = Modifier
@@ -317,6 +353,22 @@ fun ChatScreen(
                     },
                 )
             }
+            // 模型/思考切换失败/未知态常驻错误行（05-composer-model-fail 同位；
+            // v1.37 口径：失败/未知态常驻，权威成功即清）
+            modelSwitchFailure?.let { failure ->
+                ComposerErrorRow(
+                    text = when (failure) {
+                        is ChatViewModel.ModelSwitchFailure.Rejected ->
+                            stringResource(R.string.composer_model_fail_rejected, failure.text)
+                        ChatViewModel.ModelSwitchFailure.ProviderUnavailable ->
+                            stringResource(R.string.composer_model_fail_provider_unavailable)
+                        ChatViewModel.ModelSwitchFailure.Undelivered ->
+                            stringResource(R.string.composer_model_fail_undelivered)
+                        ChatViewModel.ModelSwitchFailure.UnknownAckState ->
+                            stringResource(R.string.composer_model_fail_unknown)
+                    },
+                )
+            }
             // 斜杠反馈行（3s 自动清除；Raw = 服务层原文直出）
             slashHint?.let { hint ->
                 Text(
@@ -331,7 +383,8 @@ fun ChatScreen(
                     color = BiuZText2,
                 )
             }
-            // 协作模式 chip（面板：撤焦先行 + 120ms 延迟呈现）
+            // 协作模式 chip + 模型/思考胶囊（remoteChips 同构：面板统一撤焦先行 +
+            // 120ms 延迟呈现；模型胶囊恒开面板——空清单呈「重新获取」行不死路）
             Row {
                 ModeChip(
                     label = collaborationModeLabel(collabMode),
@@ -341,6 +394,27 @@ fun ChatScreen(
                         ) {
                             // 撤焦先行：FocusState 通道唯一稳定撤焦（iOS :2177-2179）；
                             // 面板延迟 120ms 呈现由 VM 承担
+                            focusManager.clearFocus(force = true)
+                        }
+                    },
+                )
+                Spacer(Modifier.size(BiuZSpacing.sm))
+                ModelChip(
+                    label = modelSelection?.activeModel ?: "--",
+                    onClick = {
+                        viewModel.openComposerPanel(ChatViewModel.ComposerPanelKind.Model) {
+                            focusManager.clearFocus(force = true)
+                        }
+                    },
+                )
+                Spacer(Modifier.size(BiuZSpacing.sm))
+                ThoughtChip(
+                    label = stringResource(
+                        R.string.composer_thought_prefix,
+                        modelSelection?.activeThoughtLevel ?: "--",
+                    ),
+                    onClick = {
+                        viewModel.openComposerPanel(ChatViewModel.ComposerPanelKind.Thought) {
                             focusManager.clearFocus(force = true)
                         }
                     },
@@ -401,58 +475,206 @@ fun ChatScreen(
         }
     }
 
-    // MARK: 协作模式面板（单路径关闭 §5-15：onDismiss / 选中成功均走 closeComposerPanel）
-    if (composerPanel != null) {
+    // MARK: composer 面板（协作模式/模型/思考三态分派；单路径关闭 §5-15：
+    // onDismiss / 选中成功均走 closeComposerPanel）
+    val panel = composerPanel
+    if (panel != null) {
         ModalBottomSheet(
             onDismissRequest = { viewModel.closeComposerPanel() },
             containerColor = cn.biuz.android.app.ui.theme.BiuZBgElevated,
         ) {
-            Column(
+            when (panel) {
+                ChatViewModel.ComposerPanelKind.Collaboration -> CollaborationPanel(
+                    viewModel = viewModel,
+                    collabMode = collabMode,
+                    onSwitched = { scope.launch { viewModel.closeComposerPanel() } },
+                )
+                ChatViewModel.ComposerPanelKind.Model -> ModelPanel(
+                    viewModel = viewModel,
+                    info = modelSelection,
+                )
+                ChatViewModel.ComposerPanelKind.Thought -> ThoughtPanel(
+                    viewModel = viewModel,
+                    info = modelSelection,
+                    storeLevels = thoughtLevels,
+                )
+            }
+        }
+    }
+}
+
+/** 协作模式面板（原面板体抽出；选中成功由宿主单路径关闭）。 */
+@Composable
+private fun CollaborationPanel(
+    viewModel: ChatViewModel,
+    collabMode: String,
+    onSwitched: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = BiuZSpacing.lg)
+            .padding(bottom = BiuZSpacing.xl),
+        verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+    ) {
+        Text(
+            text = stringResource(R.string.composer_mode_panel_title),
+            style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold),
+            color = BiuZText,
+        )
+        Text(
+            text = stringResource(R.string.composer_mode_panel_hint),
+            style = TextStyle(fontSize = 12.sp),
+            color = BiuZText3,
+        )
+        ChatViewModel.COLLABORATION_MODES.forEach { mode ->
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = BiuZSpacing.lg)
-                    .padding(bottom = BiuZSpacing.xl),
-                verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
-            ) {
-                Text(
-                    text = stringResource(R.string.composer_mode_panel_title),
-                    style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold),
-                    color = BiuZText,
-                )
-                Text(
-                    text = stringResource(R.string.composer_mode_panel_hint),
-                    style = TextStyle(fontSize = 12.sp),
-                    color = BiuZText3,
-                )
-                ChatViewModel.COLLABORATION_MODES.forEach { mode ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 44.dp)
-                            .clip(BiuZRadius.medium)
-                            .background(BiuZBgInput)
-                            .clickable {
-                                scope.launch {
-                                    val failure = viewModel.switchCollaborationMode(mode)
-                                    if (failure == null) viewModel.closeComposerPanel()
-                                }
-                            }
-                            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = collaborationModeLabel(mode),
-                            style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
-                            color = BiuZText,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (mode == collabMode) {
-                            Text(text = "✓", color = BiuZAccent, fontSize = 14.sp)
+                    .heightIn(min = 44.dp)
+                    .clip(BiuZRadius.medium)
+                    .background(BiuZBgInput)
+                    .clickable {
+                        scope.launch {
+                            val failure = viewModel.switchCollaborationMode(mode)
+                            if (failure == null) onSwitched()
                         }
                     }
+                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = collaborationModeLabel(mode),
+                    style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                    color = BiuZText,
+                    modifier = Modifier.weight(1f),
+                )
+                if (mode == collabMode) {
+                    Text(text = "✓", color = BiuZAccent, fontSize = 14.sp)
                 }
             }
         }
+        // 协作模式失败/未知态常驻错误行（面板内在场呈现，不撤面板）
+        viewModel.collaborationModeFailure.collectAsStateWithLifecycle().value?.let { failure ->
+            Text(
+                text = when (failure) {
+                    is ChatViewModel.CollabModeFailure.Rejected -> failure.text
+                    ChatViewModel.CollabModeFailure.UnknownAckState ->
+                        stringResource(R.string.composer_mode_fail_unknown)
+                },
+                style = TextStyle(fontSize = 11.sp, lineHeight = 15.sp),
+                color = cn.biuz.android.app.ui.theme.BiuZOrange,
+            )
+        }
+    }
+}
+
+/**
+ * 模型面板（套餐分节 + 复合键勾选；恒开面板——空清单呈「重新获取」行承载重试，
+ * 拒开+一次性重试+3s 提示的旧路在 getView 持续失败时表现为「点了没反应」死胡同）。
+ * 【平台偏差】iOS「重新获取」经 onDismiss 单路径重开（present-while-dismissing 竞态）；
+ * Compose 面板不随重取关闭，行点击后就地刷新内容，竞态不存在。
+ */
+@Composable
+private fun ModelPanel(
+    viewModel: ChatViewModel,
+    info: ModelSelectionInfo?,
+) {
+    val scope = rememberCoroutineScope()
+    val failure by viewModel.modelSwitchFailure.collectAsStateWithLifecycle()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()) // 模型清单可超一屏（iOS detent medium/large 同需求）
+            .padding(horizontal = BiuZSpacing.lg)
+            .padding(bottom = BiuZSpacing.xl),
+        verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+    ) {
+        Text(
+            text = stringResource(R.string.composer_model_panel_title),
+            style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold),
+            color = BiuZText,
+        )
+        if (info == null || !info.hasSelectableModels) {
+            ModelRefetchRow(
+                onRefetch = { scope.launch { viewModel.refetchModelSelection() } },
+            )
+        } else {
+            // 会话侧勾跟随桌面绑定（乐观落 chip 后 activeModel/activeProviderId 即新值；
+            // 无独立 pickedRowKey——点选成功即关面板，失败勾不动）
+            ModelOptionSection(
+                info = info,
+                pickedRowKey = null,
+                onPickModel = { rowKey ->
+                    scope.launch {
+                        val switchFailure = viewModel.switchModel(rowKey)
+                        if (switchFailure == null) viewModel.closeComposerPanel()
+                    }
+                },
+            )
+        }
+        PanelFailureLine(failure)
+    }
+}
+
+/** 思考档面板（词表按当前模型查询，缺席退化静态梯；switchThought 沿用当前绑定模型）。 */
+@Composable
+private fun ThoughtPanel(
+    viewModel: ChatViewModel,
+    info: ModelSelectionInfo?,
+    storeLevels: List<String>,
+) {
+    val scope = rememberCoroutineScope()
+    val failure by viewModel.modelSwitchFailure.collectAsStateWithLifecycle()
+    val levels = storeLevels.takeIf { it.isNotEmpty() }
+        ?: info?.thoughtLevels?.takeIf { it.isNotEmpty() }
+        ?: ChatViewModel.FALLBACK_THOUGHT_LEVELS
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = BiuZSpacing.lg)
+            .padding(bottom = BiuZSpacing.xl),
+        verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+    ) {
+        Text(
+            text = stringResource(R.string.composer_thought_panel_title),
+            style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold),
+            color = BiuZText,
+        )
+        ThoughtOptionSection(
+            levels = levels,
+            pickedLevel = null,
+            activeLevel = info?.activeThoughtLevel,
+            onPickThought = { level ->
+                scope.launch {
+                    val switchFailure = viewModel.switchThought(level)
+                    if (switchFailure == null) viewModel.closeComposerPanel()
+                }
+            },
+        )
+        PanelFailureLine(failure)
+    }
+}
+
+/** 面板内失败/未知态错误行（常驻：拒因原文/未送达/未知三态如实呈现，不撤面板）。 */
+@Composable
+private fun PanelFailureLine(failure: ChatViewModel.ModelSwitchFailure?) {
+    failure?.let {
+        Text(
+            text = when (it) {
+                is ChatViewModel.ModelSwitchFailure.Rejected -> it.text
+                ChatViewModel.ModelSwitchFailure.ProviderUnavailable ->
+                    stringResource(R.string.composer_model_fail_provider_unavailable)
+                ChatViewModel.ModelSwitchFailure.Undelivered ->
+                    stringResource(R.string.composer_model_fail_undelivered)
+                ChatViewModel.ModelSwitchFailure.UnknownAckState ->
+                    stringResource(R.string.composer_model_fail_unknown)
+            },
+            style = TextStyle(fontSize = 11.sp, lineHeight = 15.sp),
+            color = cn.biuz.android.app.ui.theme.BiuZOrange,
+        )
     }
 }
 
@@ -469,6 +691,24 @@ private fun collaborationModeLabel(mode: String): String = when (mode) {
 /** 协作模式 chip（44pt 最小热区；触发面板经 openComposerPanel 撤焦+延迟）。 */
 @Composable
 private fun ModeChip(label: String, onClick: () -> Unit) {
+    Chip(label = label, onClick = onClick)
+}
+
+/** 模型胶囊（05-chip-model 同位；恒开面板——空清单「重新获取」行承载重试）。 */
+@Composable
+private fun ModelChip(label: String, onClick: () -> Unit) {
+    Chip(label = label, onClick = onClick)
+}
+
+/** 思考档胶囊（05-chip-thought 同位；「思考·档位」标签与 iOS 同构）。 */
+@Composable
+private fun ThoughtChip(label: String, onClick: () -> Unit) {
+    Chip(label = label, onClick = onClick)
+}
+
+/** 胶囊基形（44pt 最小热区；弱底 + 描边 + 下拉箭头）。 */
+@Composable
+private fun Chip(label: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))

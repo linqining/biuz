@@ -1,0 +1,448 @@
+package cn.biuz.android.app.ui.chat
+
+// composer 共享选行/队列条（模型面板 + 新建会话 sheet 两个宿主同构语言；iOS
+// ComposerOptionSheet 模型分节 :417-473 / QueueBarView :1326-1495 直译）。
+//
+// 三条裁决落点：
+// - **复合键勾选跟随点选**（iOS :437-452 注释逐字语义）：选中勾跟随用户点选行
+//   （pickedRowKey）；未点选过才按桌面当前绑定预勾（activeProviderId 消歧同名跨套餐）
+//   ——此前勾恒按「provider == 桌面绑定」比对，点同名他套餐行勾纹丝不动，观感「选不中」；
+// - 行键携「套餐|模型」复合键（同名模型跨套餐按组解析 providerId——裸名表后到覆盖先到，
+//   点个人套餐行曾带出体验套餐 providerId，2026-10-08 报障）；
+// - 队列条操作失败走常驻错误行（任务口径「失败 3s 气泡一律改常驻」；iOS 3s feedback
+//   不复制）。
+//
+// 纯展示层：回调面全部由宿主注入（零 VM/Store 依赖），JVM 单测不涉及。
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import cn.biuz.android.app.R
+import cn.biuz.android.app.ui.theme.BiuZAccent
+import cn.biuz.android.app.ui.theme.BiuZBgCard
+import cn.biuz.android.app.ui.theme.BiuZBgInput
+import cn.biuz.android.app.ui.theme.BiuZBorderStrong
+import cn.biuz.android.app.ui.theme.BiuZOnAccent
+import cn.biuz.android.app.ui.theme.BiuZRadius
+import cn.biuz.android.app.ui.theme.BiuZRed
+import cn.biuz.android.app.ui.theme.BiuZRedDim
+import cn.biuz.android.app.ui.theme.BiuZSpacing
+import cn.biuz.android.app.ui.theme.BiuZText
+import cn.biuz.android.app.ui.theme.BiuZText2
+import cn.biuz.android.app.ui.theme.BiuZText3
+import cn.biuz.android.app.ui.theme.BiuZViolet
+import cn.biuz.android.store.ConversationQueueInfo
+import cn.biuz.android.store.ModelPlanGroup
+import cn.biuz.android.store.ModelSelectionInfo
+
+/** 队列条限高（条目多时内部滚动；与审批卡限高同族——键盘在场防顶出屏）。 */
+private val QUEUE_BAR_MAX_HEIGHT = 200.dp
+
+/**
+ * 模型选行组（getView planGroups 分节 + 复合键勾选；[onPickModel] 收「套餐|模型」
+ * 复合键或裸名——分组缺席时裸名直出行键）。
+ *
+ * 勾选条件（iOS NewConversationSheet :441-452 逐字直译）：
+ * - 用户点选过（pickedRowKey != null）：勾跟随点选行；
+ * - 未点选过：按桌面当前绑定预勾（model == activeModel 且 provider 复合表与
+ *   activeProviderId 一致——同名跨套餐不误勾他组）。
+ */
+@Composable
+fun ModelOptionSection(
+    info: ModelSelectionInfo,
+    pickedRowKey: String?,
+    onPickModel: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
+        if (info.planGroups.isEmpty()) {
+            // 无分组（getView 未带 planGroups）：裸名行直出（iOS :425-432 同构）
+            info.models.forEach { model ->
+                OptionRow(
+                    title = model,
+                    checked = pickedRowKey == model ||
+                        (pickedRowKey == null && model == info.activeModel),
+                    onClick = { onPickModel(model) },
+                )
+            }
+        } else {
+            info.planGroups.forEach { group ->
+                ModelPlanRows(
+                    info = info,
+                    group = group,
+                    pickedRowKey = pickedRowKey,
+                    onPickModel = onPickModel,
+                )
+            }
+        }
+    }
+}
+
+/** 单套餐分节（节标题 = 套餐名；行键 =「套餐|模型」复合键）。 */
+@Composable
+private fun ModelPlanRows(
+    info: ModelSelectionInfo,
+    group: ModelPlanGroup,
+    pickedRowKey: String?,
+    onPickModel: (String) -> Unit,
+) {
+    Text(
+        text = group.plan,
+        style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+        color = BiuZText3,
+        modifier = Modifier.padding(top = BiuZSpacing.xs),
+    )
+    group.models.forEach { model ->
+        val rowKey = "${group.plan}|$model"
+        val checked = if (pickedRowKey != null) {
+            pickedRowKey == rowKey
+        } else {
+            val providerMatches = !info.activeProviderId.isNullOrEmpty() &&
+                info.modelProvidersByPlan[rowKey] == info.activeProviderId
+            model == info.activeModel &&
+                (info.activeProviderId.isNullOrEmpty() || providerMatches)
+        }
+        OptionRow(title = model, checked = checked, onClick = { onPickModel(rowKey) })
+    }
+}
+
+/** 思考档选行组（词表按当前模型查询，缺席退化静态梯——宿主拼好传入）。 */
+@Composable
+fun ThoughtOptionSection(
+    levels: List<String>,
+    pickedLevel: String?,
+    activeLevel: String?,
+    onPickThought: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
+        levels.forEach { level ->
+            OptionRow(
+                title = level,
+                checked = level == pickedLevel || (pickedLevel == null && level == activeLevel),
+                onClick = { onPickThought(level) },
+            )
+        }
+    }
+}
+
+/** 面板行（44pt 热区；选中 = 勾标 + accent 描边，iOS ComposerOptionItem 选中语言同构）。 */
+@Composable
+private fun OptionRow(title: String, checked: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clip(BiuZRadius.medium)
+            .background(BiuZBgInput)
+            .border(
+                1.dp,
+                if (checked) BiuZAccent else BiuZBorderStrong,
+                BiuZRadius.medium,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+            color = BiuZText,
+            modifier = Modifier.weight(1f),
+        )
+        if (checked) {
+            Text(text = "✓", color = BiuZAccent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** 空清单「重新获取」行（面板不空白死路；iOS reload-model 项 :420-423 同位）。 */
+@Composable
+fun ModelRefetchRow(onRefetch: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clip(BiuZRadius.medium)
+            .background(BiuZBgInput)
+            .border(1.dp, BiuZAccent, BiuZRadius.medium)
+            .clickable(onClick = onRefetch)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "↻",
+            fontSize = 15.sp,
+            color = BiuZAccent,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.size(BiuZSpacing.sm))
+        Text(
+            text = stringResource(R.string.composer_model_refetch),
+            style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+            color = BiuZAccent,
+        )
+    }
+}
+
+/**
+ * 排队消息条（桌面 composer pending 队列同构：立即 / 编辑 / 删除 / 上移 / 自动排空；
+ * iOS QueueBarView :1326-1495 直译，紧贴 composer 上方，无排队不渲染）。
+ *
+ * [failureText] 非空 = 最近一次队列操作失败/未知态（**常驻**错误行，成功操作即清；
+ * 不复制 iOS 3s 自动清除——任务口径「失败 3s 气泡一律改常驻」）。
+ */
+@Composable
+fun QueueBar(
+    queue: ConversationQueueInfo,
+    failureText: String?,
+    onSendNow: (String) -> Unit,
+    onEditSave: (String, String) -> Unit,
+    onMoveUp: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onToggleAutoDrain: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var editingItemId by remember { mutableStateOf<String?>(null) }
+    var editingText by remember { mutableStateOf("") }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = BiuZSpacing.lg)
+            .clip(BiuZRadius.medium)
+            .background(BiuZBgCard)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
+    ) {
+        // 头行：计数 + 自动排空开关（05-queue-act-autodrain 同位）
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "▤",
+                fontSize = 12.sp,
+                color = BiuZViolet,
+            )
+            Spacer(Modifier.size(BiuZSpacing.xs))
+            Text(
+                text = stringResource(R.string.queue_title, queue.items.size),
+                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                color = BiuZText,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = if (queue.autoDrain) {
+                    stringResource(R.string.queue_autodrain_on)
+                } else {
+                    stringResource(R.string.queue_autodrain_off)
+                },
+                style = TextStyle(fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold),
+                color = if (queue.autoDrain) BiuZAccent else BiuZText3,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (queue.autoDrain) BiuZAccent.copy(alpha = 0.14f) else BiuZBgInput)
+                    .clickable { onToggleAutoDrain(!queue.autoDrain) }
+                    .padding(horizontal = BiuZSpacing.sm, vertical = 4.dp),
+            )
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = QUEUE_BAR_MAX_HEIGHT),
+            verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
+        ) {
+            queue.items.forEach { item ->
+                QueueRow(
+                    item = item,
+                    canMoveUp = queue.items.firstOrNull()?.id != item.id,
+                    editing = editingItemId == item.id,
+                    editingText = editingText,
+                    onEditingTextChange = { editingText = it },
+                    onEditStart = {
+                        editingText = item.text
+                        editingItemId = item.id
+                    },
+                    onEditCancel = { editingItemId = null },
+                    onEditSave = {
+                        // 空文本禁发（iOS「内容不能为空」同口径的 UI 拦截面——按钮禁用）
+                        if (editingText.isNotBlank()) {
+                            onEditSave(item.id, editingText)
+                            editingItemId = null
+                        }
+                    },
+                    onSendNow = { onSendNow(item.id) },
+                    onMoveUp = { onMoveUp(item.id) },
+                    onDelete = { onDelete(item.id) },
+                )
+            }
+        }
+        failureText?.let { text ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(BiuZRadius.small)
+                    .background(BiuZRedDim)
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(text = "⚠", fontSize = 11.sp, color = BiuZRed)
+                Spacer(Modifier.size(BiuZSpacing.xs))
+                Text(
+                    text = text,
+                    style = TextStyle(fontSize = 11.sp, lineHeight = 15.sp),
+                    color = BiuZRed,
+                )
+            }
+        }
+    }
+}
+
+/** 单条排队消息（立即 / 编辑 / 删除 / 上移；guide 模式条目标注）。 */
+@Composable
+private fun QueueRow(
+    item: cn.biuz.android.store.RemoteQueueItem,
+    canMoveUp: Boolean,
+    editing: Boolean,
+    editingText: String,
+    onEditingTextChange: (String) -> Unit,
+    onEditStart: () -> Unit,
+    onEditCancel: () -> Unit,
+    onEditSave: () -> Unit,
+    onSendNow: () -> Unit,
+    onMoveUp: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    if (editing) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BasicTextField(
+                value = editingText,
+                onValueChange = onEditingTextChange,
+                textStyle = TextStyle(fontSize = 12.5.sp, color = BiuZText),
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(BiuZRadius.medium)
+                    .background(BiuZBgInput)
+                    .border(1.dp, BiuZBorderStrong, BiuZRadius.medium)
+                    .padding(horizontal = BiuZSpacing.sm, vertical = 6.dp),
+                maxLines = 4,
+            )
+            Spacer(Modifier.size(BiuZSpacing.sm))
+            QueueActionText(
+                label = stringResource(R.string.queue_act_save),
+                color = BiuZOnAccent,
+                container = BiuZAccent,
+                enabled = editingText.isNotBlank(),
+                onClick = onEditSave,
+            )
+            Spacer(Modifier.size(BiuZSpacing.xs))
+            QueueActionText(
+                label = stringResource(R.string.action_cancel),
+                color = BiuZText2,
+                container = BiuZBgInput,
+                enabled = true,
+                onClick = onEditCancel,
+            )
+        }
+    } else {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.text,
+                    style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
+                    color = BiuZText,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (item.isGuide) {
+                    Text(
+                        text = stringResource(R.string.queue_guide_badge),
+                        style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                        color = BiuZViolet,
+                    )
+                }
+            }
+            Spacer(Modifier.width(BiuZSpacing.sm))
+            QueueActionText(
+                label = stringResource(R.string.queue_act_send_now),
+                color = BiuZAccent,
+                container = BiuZBgInput,
+                enabled = true,
+                onClick = onSendNow,
+            )
+            QueueActionText(
+                label = stringResource(R.string.queue_act_edit),
+                color = BiuZText2,
+                container = BiuZBgInput,
+                enabled = true,
+                onClick = onEditStart,
+            )
+            if (canMoveUp) {
+                QueueActionText(
+                    label = stringResource(R.string.queue_act_move_up),
+                    color = BiuZText2,
+                    container = BiuZBgInput,
+                    enabled = true,
+                    onClick = onMoveUp,
+                )
+            }
+            QueueActionText(
+                label = stringResource(R.string.queue_act_delete),
+                color = BiuZRed,
+                container = BiuZBgInput,
+                enabled = true,
+                onClick = onDelete,
+            )
+        }
+    }
+}
+
+/** 队列行小动作钮（文字胶囊；44dp 触达以 padding 撑足）。 */
+@Composable
+private fun QueueActionText(
+    label: String,
+    color: androidx.compose.ui.graphics.Color,
+    container: androidx.compose.ui.graphics.Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .padding(start = BiuZSpacing.xs)
+            .clip(RoundedCornerShape(999.dp))
+            .background(container)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = BiuZSpacing.sm, vertical = 6.dp),
+    ) {
+        Text(
+            text = label,
+            style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+            color = if (enabled) color else BiuZText3,
+        )
+    }
+}

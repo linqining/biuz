@@ -86,9 +86,54 @@
     <string name="composer_mode_fail_unknown">桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际模式为准</string>
     <string name="composer_mode_fail_rejected">%1$s</string>
 
-    <!-- 斜杠反馈行（3s 自动清除） -->
+    <!-- 斜杠反馈行（PlanSwitched 成功提示 3s 自动清除；PlanBlocked 失败常驻——
+         「失败 3s 气泡一律改常驻」任务口径，资源模板不变只改呈现语义） -->
     <string name="slash_plan_blocked">计划模式未切换 · 任务未发送</string>
     <string name="slash_plan_switched">已切换计划模式</string>
+
+    <!-- 模型/思考 chips 与面板（05-chip-model/05-chip-thought 同位） -->
+    <string name="composer_thought_prefix">思考·%1$s</string>
+    <string name="composer_model_panel_title">模型</string>
+    <string name="composer_thought_panel_title">思考等级</string>
+    <string name="composer_model_refetch">重新获取模型列表</string>
+    <!-- 模型切换错误行（常驻；拒因原文经 %1$s 透传） -->
+    <string name="composer_model_fail_rejected">%1$s</string>
+    <string name="composer_model_fail_provider_unavailable">模型提供商信息未就绪 · 点模型胶囊重新获取列表后再切换</string>
+    <string name="composer_model_fail_undelivered">模型切换未送达 · 连接恢复后再试</string>
+    <string name="composer_model_fail_unknown">桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际选择为准</string>
+
+    <!-- 排队消息条（桌面 composer pending 队列同构：立即/编辑/删除/上移/自动排空） -->
+    <string name="queue_title">排队中 %1$d</string>
+    <string name="queue_autodrain_on">自动排空 · 开</string>
+    <string name="queue_autodrain_off">自动排空 · 关</string>
+    <string name="queue_act_send_now">立即</string>
+    <string name="queue_act_edit">编辑</string>
+    <string name="queue_act_delete">删除</string>
+    <string name="queue_act_move_up">上移</string>
+    <string name="queue_act_save">保存</string>
+    <string name="queue_guide_badge">引导模式</string>
+    <!-- 队列操作失败行（常驻；拒因原文经 %1$s 透传） -->
+    <string name="queue_fail_undelivered">队列操作未送达 · 连接恢复后再试</string>
+    <string name="queue_fail_unknown">桌面回执状态未知 · 以桌面端实际队列为准</string>
+
+    <!-- 新建会话 sheet（模型/思考会话前选择 + 提交门 + 创建失败如实上屏） -->
+    <string name="new_session_entry">＋ 新建会话</string>
+    <string name="new_session_title">新建会话</string>
+    <string name="new_session_input_hint">任务描述（可留空，创建后可在会话中发送）</string>
+    <string name="new_session_model_label">模型</string>
+    <string name="new_session_thought_label">思考等级</string>
+    <string name="new_session_model_load_failed">模型列表获取失败 · 桌面端未回执，点按重试</string>
+    <string name="new_session_thought_footer">模型列表未就绪 · 所选档位以桌面端当前默认为准</string>
+    <string name="new_session_submit">开始任务</string>
+    <string name="new_session_submitting">创建中…</string>
+    <!-- 提交门确认弹层（明确做过选择但解析不出 provider 映射——「用默认模型继续」是
+         显式选择不是静默丢弃；iOS NewConversationSheet confirmationDialog 同文案） -->
+    <string name="new_session_gate_title">模型选择未能下发</string>
+    <string name="new_session_gate_message">桌面端模型列表未回执，所选模型/思考等级无法随会话携带。可在行上重试获取后再开始，或用桌面端默认配置继续。</string>
+    <string name="new_session_gate_confirm">用默认模型继续</string>
+    <!-- 创建失败行（拒因原文经 %1$s 透传；空串用泛因行） -->
+    <string name="new_session_create_fail_generic">未连接桌面端 · 连接后再新建会话</string>
+    <string name="new_session_create_fail">创建失败 · %1$s</string>
 
     <!-- 编辑重发（P1-3；rewind 不可撤销 → 说明行 + 确认弹层双重确认；预填与重发恒用原文） -->
     <string name="chat_edit_resend_title">编辑并重发</string>

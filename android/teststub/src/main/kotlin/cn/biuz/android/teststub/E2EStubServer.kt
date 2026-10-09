@@ -194,6 +194,47 @@ class E2EStubServer(
         synchronized(lock) { bootstrapTasksOverride = JSONValue.Arr(tasks.toList()) }
     }
 
+    // MARK: 双桌面代 CAS 语义（【实证·上游仓】command-inbox.ts:308-363 decide() 镜像）
+
+    /**
+     * CAS 裁决代际（两代桌面并存口径，AGENTS §4.5）：
+     * - [CasGeneration.LEGACY_3_14_4]（缺省，2026-10-05 真机实证桌面）：CAS 15 命令缺
+     *   baseRevision 或 row-target 5 命令缺 baseLogEpoch → rejected + message
+     *   "CAS commands require baseRevision and baseLogEpoch"（不判 stale——旧代
+     *   revision 账本面未取证）；
+     * - [CasGeneration.UPSTREAM_MAIN]（上游 main）：权威 revision/logEpoch 账本裁决——
+     *   缺 baseRevision → rejected `proto.missingBaseRevision`（command-inbox.ts:326-333）；
+     *   row-target baseLogEpoch ≠ 权威 → **stale** `proto.staleLogEpoch`（:340-351）；
+     *   baseRevision ≠ 权威 → **stale** `proto.staleRevision` + revisionAtDecision=权威
+     *   revision（:352-363）——stale 回执自带最新 revisionAtDecision，客户端 sendCommand
+     *   回填后原样重发一次即命中（sendCASWithRetry 三段自愈的活体靶场）。
+     */
+    enum class CasGeneration { LEGACY_3_14_4, UPSTREAM_MAIN }
+
+    @Volatile
+    var casGeneration: CasGeneration = CasGeneration.LEGACY_3_14_4
+
+    /** 会话权威 revision 账本（UPSTREAM_MAIN 代裁决源；缺省 [StubV4Frames.DEFAULT_REVISION]）。 */
+    private val revisionLedger = HashMap<String, Int>()
+
+    /** 会话权威 logEpoch 账本（缺省 [StubV4Frames.DEFAULT_LOG_EPOCH]；快照/裁决同源）。 */
+    private val logEpochLedger = HashMap<String, String>()
+
+    /** 推进会话权威 revision（模拟队列准入/排空在两条命令间推进 revision——stale-once 真实成因）。 */
+    fun bumpRevision(sessionId: String, by: Int = 1) {
+        synchronized(lock) {
+            revisionLedger[sessionId] = (revisionLedger[sessionId] ?: StubV4Frames.DEFAULT_REVISION) + by
+        }
+    }
+
+    /** 会话权威 revision（账本缺省基线）。 */
+    fun authoritativeRevision(sessionId: String?): Int =
+        if (sessionId == null) 0 else synchronized(lock) { revisionLedger[sessionId] ?: StubV4Frames.DEFAULT_REVISION }
+
+    /** 会话权威 logEpoch（账本缺省基线）。 */
+    fun authoritativeLogEpoch(sessionId: String): String =
+        synchronized(lock) { logEpochLedger[sessionId] ?: StubV4Frames.DEFAULT_LOG_EPOCH }
+
     /** 当前注水的 bootstrap.tasks（测试断言面；未注水 = 空清单）。 */
     fun bootstrapTasks(): List<JSONValue> =
         (synchronized(lock) { bootstrapTasksOverride })?.arrayValue ?: emptyList()
@@ -654,6 +695,8 @@ class E2EStubServer(
         val warnings = ArrayList<String>()
         var casGateError: String? = null
         var clientIdMatchesHandshake: Boolean? = null
+        // UPSTREAM_MAIN 代 CAS 裁决产物（非空 = 信封校验通过后直接回该 ACK，stale/rejected）
+        var casVerdict: JSONValue? = null
 
         if (envelopeValue == null) {
             errors.add("envelope: 缺失嵌套信封（必须 {envelope:{…}, workspacePath} 嵌套形态，协议文档 §7.1）")
@@ -678,12 +721,63 @@ class E2EStubServer(
                 // A2：clientId 与握手注册值逐字相等，违反即上游 fault.command.clientMismatch
                 errors.add("envelope.clientId: 与握手注册 clientId 不一致（A2，上游 fault.command.clientMismatch）")
             }
-            // CAS 门（A3）：15 命令必带 baseRevision；row-target 5 命令另必带 baseLogEpoch
-            if (CommandSchemas.commandsRequiringBaseRevision.contains(type) && envelope?.containsKey("baseRevision") != true) {
+            // CAS 门（双代语义）：
+            // - parse 层（command.ts:340-367 parseCommandEnvelope 镜像，两代同文）：CAS 15
+            //   命令缺 baseRevision 或 row-target 5 命令缺 baseLogEpoch → rejected +
+            //   message "CAS commands require baseRevision and baseLogEpoch"；
+            // - decide 层（UPSTREAM_MAIN 代，command-inbox.ts:323-363 镜像）：信封键全后
+            //   账本裁决——row-target baseLogEpoch ≠ 权威 → **stale** proto.staleLogEpoch；
+            //   baseRevision ≠ 权威 → **stale** proto.staleRevision + revisionAtDecision=
+            //   权威 revision（客户端 sendCommand 回填后原样重发一次即命中——sendCASWithRetry
+            //   三段自愈的活体靶场）。
+            val missingBaseRevision =
+                CommandSchemas.commandsRequiringBaseRevision.contains(type) &&
+                    envelope?.containsKey("baseRevision") != true
+            val missingBaseLogEpoch =
+                CommandSchemas.rowTargetingCommands.contains(type) &&
+                    envelope?.get("baseLogEpoch")?.stringValue == null
+            if (missingBaseRevision || missingBaseLogEpoch) {
                 casGateError = "CAS commands require baseRevision and baseLogEpoch"
             }
-            if (CommandSchemas.rowTargetingCommands.contains(type) && envelope?.get("baseLogEpoch")?.stringValue == null) {
-                casGateError = casGateError ?: "CAS commands require baseRevision and baseLogEpoch"
+            val baseRevisionValue = envelope?.get("baseRevision")?.let { value ->
+                when (value) {
+                    is JSONValue.Int -> value.value.toLong()
+                    is JSONValue.Double ->
+                        if (value.value == kotlin.math.floor(value.value)) value.value.toLong() else null
+                    else -> null
+                }
+            }
+            if (casGateError == null &&
+                synchronized(lock) { casGeneration } == CasGeneration.UPSTREAM_MAIN &&
+                CommandSchemas.commandsRequiringBaseRevision.contains(type)
+            ) {
+                val casSessionId = envelope?.get("sessionId")?.stringValue
+                val casCommandId = envelope?.get("commandId")?.stringValue ?: ""
+                if (!casSessionId.isNullOrEmpty()) {
+                    val revision = authoritativeRevision(casSessionId)
+                    if (baseRevisionValue == null) {
+                        // decide() :326-333 防御分支（正常不可达——parse 层已拒键缺/值畸形信封）
+                        casVerdict = casAckLocked(
+                            casCommandId, "rejected", "proto.missingBaseRevision",
+                            message = null, revisionAtDecision = revision,
+                        )
+                    } else if (CommandSchemas.rowTargetingCommands.contains(type) &&
+                        envelope?.get("baseLogEpoch")?.stringValue != authoritativeLogEpoch(casSessionId)
+                    ) {
+                        // decide() :340-351：row-target epoch 不符 → stale proto.staleLogEpoch
+                        casVerdict = casAckLocked(
+                            casCommandId, "stale", "proto.staleLogEpoch",
+                            message = null, revisionAtDecision = revision,
+                        )
+                    } else if (baseRevisionValue != revision.toLong()) {
+                        // decide() :352-363：revision 不符 → stale proto.staleRevision +
+                        // revisionAtDecision=权威 revision（stale-once 自愈的正确 revision 回执）
+                        casVerdict = casAckLocked(
+                            casCommandId, "stale", "proto.staleRevision",
+                            message = null, revisionAtDecision = revision,
+                        )
+                    }
+                }
             }
         }
 
@@ -727,6 +821,13 @@ class E2EStubServer(
                 "message" to JSONValue.Str((errors + listOfNotNull(casGateError)).joinToString("; ")),
                 "revisionAtDecision" to JSONValue.Int(revisionAtDecisionFor(sessionId)),
             )
+        }
+        // decide 层裁决（UPSTREAM_MAIN 代 stale/rejected；A13 六态 + revisionAtDecision=权威）
+        val verdict = casVerdict
+        if (verdict != null) {
+            record.ackStatus = StubAck.statusOf(verdict)
+            synchronized(lock) { acksSentRecord.add(verdict) }
+            return verdict
         }
 
         val nthCall = synchronized(lock) {
@@ -847,8 +948,25 @@ class E2EStubServer(
         return next
     }
 
-    /** 会话 revision（iOS 替身基线 42；回填 revisionAtDecision 用）。 */
-    private fun revisionAtDecisionFor(sessionId: String?): Int = StubV4Frames.DEFAULT_REVISION
+    /** 会话 revision（账本缺省基线 [StubV4Frames.DEFAULT_REVISION]；UPSTREAM_MAIN 裁决/回填同源）。 */
+    private fun revisionAtDecisionFor(sessionId: String?): Int = authoritativeRevision(sessionId)
+
+    /** decide 层 CAS 裁决回执构造（commandAckSchema 键集：commandId/status/reasonCode/revisionAtDecision）。 */
+    private fun casAckLocked(
+        commandId: String,
+        status: String,
+        reasonCode: String,
+        message: String?,
+        revisionAtDecision: Int,
+    ): JSONValue {
+        val fields = LinkedHashMap<String, JSONValue>()
+        fields["commandId"] = nullableStr(commandId) ?: JSONValue.Str("")
+        fields["status"] = JSONValue.Str(status)
+        fields["reasonCode"] = JSONValue.Str(reasonCode)
+        if (message != null) fields["message"] = JSONValue.Str(message)
+        fields["revisionAtDecision"] = JSONValue.Int(revisionAtDecision)
+        return JSONValue.Obj(fields)
+    }
 
     // MARK: 下行帧发射
 
@@ -922,7 +1040,8 @@ class E2EStubServer(
             snapshot = override ?: StubV4Frames.defaultConversationSnapshot(
                 sessionId = sessionId,
                 rows = sessionRows[sessionId]?.toList() ?: emptyList(),
-                revision = StubV4Frames.DEFAULT_REVISION,
+                // 快照 revision 与 CAS 账本同源（bumpRevision 后 resync 即携新权威值）
+                revision = revisionLedger[sessionId] ?: StubV4Frames.DEFAULT_REVISION,
             )
         }
         val logical = StubV4Frames.snapshotFrame(topic, SUB_ID_CONVERSATION, snapshot)

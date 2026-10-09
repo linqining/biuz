@@ -1,12 +1,14 @@
 package cn.biuz.android.store
 
 // 直译自 ios/ZCodeMobileApp/Sources/Stores/Remote/RemoteConversationStore.swift（5646 行）的
-// **订阅/快照/行投影面 + 发送面**（:860-1908 消息 + 帧路由 + 行模型映射、:2023-2034
-// workspaceTarget、:2889-3016 交互读投影、:3286-3450 resync 族 + workflowRuns 表应用；
-// 发送面 :2036-2592 sendCommand/sendText/乐观回显/watchdog/标题兜底回填/createSession 族、
-// :2744-2782 markUnread/markRead）。会话列表读面（iOS :274-858，:store 已由
-// RemoteSessionsIndexStore 承载）与 v4 命令扩容族（switchModelConfig/队列五件等 CAS
-// 命令，iOS :3848-4238）不在本批——挂步骤 3。
+// **订阅/快照/行投影面 + 发送面 + 写命令族**（:860-1908 消息 + 帧路由 + 行模型映射、
+// :2023-2034 workspaceTarget、:2889-3016 交互读投影、:3286-3450 resync 族 + workflowRuns
+// 表应用、发送面 :2036-2592、:2744-2782 markUnread/markRead、组织态 :2596-2739、
+// v4 命令扩容族 :3848-4238/:4453-4501（队列五件/pauseGoal/resumeGoal/retryTurn/
+// setAssistantFeedback/editUserQuery/switchModelConfig/switchCollaborationMode/
+// setFollowupMode——sendCASWithRetry 三段自愈 + ensureStateRevision 内建）+ 模型面板
+// getView 解析 :5261-5578）。会话列表读面（iOS :274-858，:store 已由
+// RemoteSessionsIndexStore 承载）不在本文件。
 //
 // 并发模型适配（docs/Android开发交接.md §2.2，与 RemoteTaskStore.kt 同口径）：
 // - Swift actor → Mutex 临界区；挂起点（RPC/屏障操作）一律在锁外，锁内只做纯内存读写；
@@ -78,7 +80,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -249,9 +253,49 @@ class RemoteConversationStore(
     @Volatile
     private var lastCommandError = ""
 
-    /** 任务元数据写（标记未读）最近一次失败原文（空串 = 无；§5-12 写面禁静默）（iOS :221-222）。 */
+    /** 任务元数据写（标记未读/置顶/改名）最近一次失败原文（空串 = 无；§5-12 写面禁静默）（iOS :221-222/:2626）。 */
     @Volatile
     private var lastTaskWriteFailure = ""
+
+    // MARK: v4 命令扩容族状态（iOS :3848-4238/:4453-4501 + ChatViewModel v1.33 护栏的 :store 承载）
+
+    /**
+     * 协作模式切换失败/未知态常驻错误行（nil = 无在案；区别于 3s 闪过的提示——
+     * 「选了没有变化/点了没反应」报障直接根因。清除 = 下次权威成功切换 /
+     * state.config.mode 投影对未知态定案）（iOS ChatViewModel.collaborationModeFailureText）。
+     */
+    private val collaborationModeFailures = HashMap<String, String>()
+
+    /**
+     * 协作模式本地切换收敛护栏（value + 时刻）：ack 权威成功后、state.config.mode
+     * 增量到达的间隙内旧投影不回闪（真机实证忙 turn 期间增量可滞后分钟级）
+     * （iOS ChatViewModel.lastLocalModeSwitch 同款口径）。
+     */
+    private val lastLocalModeSwitches = HashMap<String, Pair<String, Long>>()
+
+    /**
+     * 协作模式未知态回执（status 缺席/词表外）的切换目标值：state.config.mode 投影
+     * 命中即定案并清失败行——落盘即与桌面真态脱钩且无读面时永不自愈
+     * （2026-10-09「计划模式丢失」根因之一）（iOS ChatViewModel.pendingUnknownModeValue）。
+     */
+    private val pendingUnknownModeValues = HashMap<String, String>()
+
+    /**
+     * model-selection.getView 缓存（workspace 级；**空清单不入缓存**——缓存命中即
+     * 短路重拉，空清单锁死会让重试面永远命中空缓存）。onDidChange 到达即失效重拉。
+     */
+    @Volatile
+    private var modelSelectionCache: ModelSelectionInfo? = null
+
+    /** 模型选择观察流（getView 成功非空才发布；onDidChange 失效后重拉发布）。 */
+    private val modelSelectionState = MutableStateFlow<ModelSelectionInfo?>(null)
+
+    /** model-selection.onDidChange 订阅句柄（事件常驻；Store 与连接同生命周期重建）。 */
+    private var modelSelectionSubscription: EventSubscription? = null
+
+    /** 归档/取消归档最近一次写失败原文（空串 = 无；失败完整回滚 + 原文上屏 §5-12）（iOS _lastArchiveFailureText）。 */
+    @Volatile
+    private var lastArchiveFailure = ""
 
     /** 帧路由单消费者队列（handler 非 suspend lambda → 经此串行化，帧序保序）。 */
     private data class FrameRoute(val conversationId: String, val frame: V4TopicFrame)
@@ -962,10 +1006,27 @@ class RemoteConversationStore(
         if (ms != null && !ms.isNull) {
             sessionModelSelections[conversationId] = ms
         }
-        // 会话协作模式（state.config.mode 权威源；nil/空 = 桌面尚未投影，不落）
+        // 会话协作模式（state.config.mode 权威源；nil/空 = 桌面尚未投影，不落）。
+        // v1.33 三态（上游 product-projection.ts:3785 投影 + ChatViewModel 护栏的 :store 承载）：
+        // ① 本地切换护栏窗（3s）内旧投影不回闪（ack 已权威成功、config.mode 增量未达——
+        //    忙 turn 期间增量可滞后分钟级，真机 14:08 实证）；
+        // ② 未知态待定期（switchCollaborationMode 收到 status 缺席/词表外回执）首个投影
+        //    即定案（桌面真态说话）并清失败行；
+        // ③ 常规覆盖：投影值落表（桌面改回/工具路径 enterPlanMode/exitPlanMode 双路共用投影）。
         val mode = state.objectValue?.get("config")?.objectValue?.get("mode")?.stringValue
         if (!mode.isNullOrEmpty()) {
-            sessionCollaborationModes[conversationId] = mode
+            val guard = lastLocalModeSwitches[conversationId]
+            val inGuardWindow = guard != null && (nowMs() - guard.second) < MODE_SWITCH_GUARD_MS
+            when {
+                pendingUnknownModeValues.containsKey(conversationId) -> {
+                    // 未知态定案：不管与请求值是否一致——桌面实际已受理与否由投影说话
+                    pendingUnknownModeValues.remove(conversationId)
+                    sessionCollaborationModes[conversationId] = mode
+                    collaborationModeFailures.remove(conversationId)
+                }
+                inGuardWindow && guard!!.first != mode -> Unit // 护栏窗内旧投影：不回闪乐观值
+                else -> sessionCollaborationModes[conversationId] = mode
+            }
         }
     }
 
@@ -2326,17 +2387,36 @@ class RemoteConversationStore(
         // 项 2：directory 参数承载项目层选择 → createSession workspaceId；空回退连接 workspace
         payload["workspaceId"] = JSONValue.Str(trimmedDirectory.ifEmpty { workspace.path })
         if (trimmed.isNotEmpty()) {
-            val firstInput = LinkedHashMap<String, JSONValue>()
-            firstInput["text"] = JSONValue.Str(trimmed)
+            var selectionPayload: LinkedHashMap<String, JSONValue>? = null
             if (modelSelection != null) {
-                val selectionPayload = LinkedHashMap<String, JSONValue>()
-                selectionPayload["providerId"] = JSONValue.Str(modelSelection.providerId)
-                selectionPayload["modelId"] = JSONValue.Str(modelSelection.modelId)
-                if (modelSelection.reasoningLevel.isNotEmpty()) {
-                    selectionPayload["options"] = JSONValue.Obj(
-                        mapOf("reasoningLevel" to JSONValue.Str(modelSelection.reasoningLevel)),
+                // providerId/modelId trim 非空（上游 providerId min(1)【实证·上游仓 command.ts:211
+                // + createSession strict schema】——空串/空白必被桌面拒，本地拦截禁裸发 §5-12）
+                val providerId = modelSelection.providerId.trim()
+                val modelId = modelSelection.modelId.trim()
+                if (providerId.isEmpty() || modelId.isEmpty()) {
+                    lastCreateFailure = "模型选择不完整（provider/model 为空）· 请重新选择模型后再创建"
+                    return Conversation(
+                        id = "",
+                        title = displayTitle,
+                        summary = "",
+                        directory = directory,
+                        updatedAt = System.currentTimeMillis(),
                     )
                 }
+                selectionPayload = LinkedHashMap<String, JSONValue>()
+                selectionPayload["providerId"] = JSONValue.Str(providerId)
+                selectionPayload["modelId"] = JSONValue.Str(modelId)
+                val reasoningLevel = modelSelection.reasoningLevel.trim()
+                if (reasoningLevel.isNotEmpty()) {
+                    selectionPayload["options"] = JSONValue.Obj(
+                        mapOf("reasoningLevel" to JSONValue.Str(reasoningLevel)),
+                    )
+                }
+            }
+            val firstInput = LinkedHashMap<String, JSONValue>()
+            firstInput["text"] = JSONValue.Str(trimmed)
+            if (selectionPayload != null) {
+                // 形同 web U7e：{providerId, modelId, options:{reasoningLevel}}，档位缺席略去 options
                 firstInput["modelSelection"] = JSONValue.Obj(selectionPayload)
             }
             payload["firstInput"] = JSONValue.Obj(firstInput)
@@ -2486,6 +2566,782 @@ class RemoteConversationStore(
         }
     }
 
+    // MARK: v4 命令扩容族（iOS :3848-4238/:4453-4501 直译；写命令唯一出口 = sendCommand）
+    //
+    // 边界口径：全部「客户端发命令、桌面代执行」。CAS 词表成员（CommandSchemas.
+    // commandsRequiringBaseRevision【实证·上游仓 command.ts:296-311】）统一走
+    // [sendCASWithRetry]（三段 stale 自愈内建，调用点漏接成为不可能）；非 CAS 成员
+    // 普通信封直发。payload 形状除注明【实证】外沿用 iOS 同键构造（宽容面）。
+
+    /**
+     * CAS 命令发送 + stale 三段收敛自愈（官方 sendHostCasCommandV4 探测-收敛循环镜像；
+     * iOS :3879-3901 直译）。**前置公共步已内建**（2026-10-07 重构下沉）：revision 缺失
+     * 先 resync+轮询——pauseGoal/retryTurn 曾漏接导致冷启动首击必撞本地拒发门（P1③）。
+     * commandId 全程不变（A12 幂等：上游同 (sessionId, commandId) 重试回放 duplicate，
+     * 不构成双写）。
+     *
+     * 三段（探针实证 + 用户报障「胶囊切换都不行」活跃会话兜底）：
+     * ① 首发必撞 stale（活跃会话 revision 持续前进，diag.wf.control.ui 实证
+     *    revisionAtDecision=12119）→ stale 回执自带最新 revisionAtDecision（sendCommand
+     *    已回填）→ ② 原样重发一次即命中 → ③ 重发仍 stale（重发窗口内 revision 又前进）
+     *    → 清 revision 缓存 + 全量 resync 取权威 revision + 轮询等待后末次重发。
+     */
+    private suspend fun sendCASWithRetry(
+        type: String,
+        sessionId: String,
+        payload: JSONValue,
+    ): JSONValue? {
+        ensureStateRevision(sessionId)
+        val commandId = java.util.UUID.randomUUID().toString()
+        var ack = sendCommand(type, sessionId, payload, casRevision = true, commandId = commandId)
+        if (CommandAck(ack).status != "stale") return ack
+        // ② 原样重发（同 commandId，A12；第一段 stale 的 revisionAtDecision 已回填 baseRevision）
+        ack = sendCommand(type, sessionId, payload, casRevision = true, commandId = commandId)
+        if (CommandAck(ack).status != "stale") return ack
+        // ③ 末段自愈：清缓存 → resync 取权威 revision → 轮询就绪 → 末次重发（同 commandId）。
+        // 直发 forceFullResyncForPending（本 store triggerResync 无 iOS 5s 节流——节流会把
+        // 连续 CAS 场景的 ensureStateRevision 吞成纯等待，revision 永远等不到；iOS 原文
+        // ensureStateRevision 注释同口径，Android 版无节流、行为强于 iOS）
+        mutex.withLock { conversationStateRevisions.remove(sessionId) }
+        triggerResync(sessionId)
+        ensureStateRevision(sessionId)
+        return sendCommand(type, sessionId, payload, casRevision = true, commandId = commandId)
+    }
+
+    /**
+     * CAS 前置公共步（iOS :3910-3923 直译）：revision 缺失（冷启动刚进会话/快照未带
+     * state）先 resync 拉带 state 的快照并轮询等待（帧异步，固定 0.9s 曾不够）。
+     * 探针实证：队列命令缺此步时冷启动首击必被拒（"CAS commands require
+     * baseRevision and baseLogEpoch"）。等待中段（第 5 轮）再补发一次 resync
+     * （首包快照与 resync 帧竞态的双保险）。
+     */
+    private suspend fun ensureStateRevision(conversationId: String) {
+        if (mutex.withLock { conversationStateRevisions[conversationId] != null }) return
+        mutex.withLock { conversationSubscriptionIds[conversationId] }?.let { subId ->
+            forceFullResync(conversationId, subId)
+        }
+        for (round in 0 until 10) {
+            if (mutex.withLock { conversationStateRevisions[conversationId] != null }) break
+            delay(STATE_REVISION_POLL_MS)
+            if (round == 4 && mutex.withLock { conversationStateRevisions[conversationId] == null }) {
+                mutex.withLock { conversationSubscriptionIds[conversationId] }?.let { subId ->
+                    forceFullResync(conversationId, subId)
+                }
+            }
+        }
+    }
+
+    // MARK: 排队消息（桌面 composer pending 队列；state.queue 投影 + 队列命令面）
+
+    /**
+     * 排队队列只读投影（state.queue：{items:[{queueItemId, text, delivery{admitted}}],
+     * autoDrain}；nil = 无排队）（iOS :3851-3869 直译；条目 id/text 宽容键组同序）。
+     */
+    override suspend fun queueInfo(conversationId: String): ConversationQueueInfo? {
+        val queue = mutex.withLock { snapshotState[conversationId]?.objectValue?.get("queue") }
+            ?: return null
+        if (queue.isNull) return null
+        val d = queue.objectValue ?: return null
+        val items = (d["items"]?.arrayValue ?: emptyList()).mapNotNull { item ->
+            val o = item.objectValue ?: return@mapNotNull null
+            val id = o["queueItemId"]?.stringValue
+                ?: o["itemId"]?.stringValue
+                ?: o["id"]?.stringValue
+                ?: return@mapNotNull null
+            val text = o["text"]?.stringValue
+                ?: o["inputText"]?.stringValue
+                ?: o["newText"]?.stringValue
+                ?: ""
+            val admitted = o["delivery"]?.objectValue?.get("admitted")?.stringValue
+            RemoteQueueItem(id = id, text = text, admitted = admitted)
+        }
+        if (items.isEmpty()) return null
+        return ConversationQueueInfo(items = items, autoDrain = d["autoDrain"]?.boolValue ?: true)
+    }
+
+    /** 队列条目立即发送（CAS 类，携 state revision）（iOS :3927-3932 直译）。 */
+    override suspend fun sendQueuedNow(conversationId: String, queueItemId: String): JSONValue? =
+        sendCASWithRetry(
+            "sendQueuedNow",
+            sessionId = conversationId,
+            payload = JSONValue.Obj(mapOf("queueItemId" to JSONValue.Str(queueItemId))),
+        )
+
+    /** 队列条目文本编辑（CAS 类——桌面四件队列命令全部携 revision，缺一被拒）（iOS :3936-3941）。 */
+    override suspend fun editQueueItem(
+        conversationId: String,
+        queueItemId: String,
+        newText: String,
+    ): JSONValue? = sendCASWithRetry(
+        "editQueueItem",
+        sessionId = conversationId,
+        payload = JSONValue.Obj(
+            mapOf(
+                "queueItemId" to JSONValue.Str(queueItemId),
+                "newText" to JSONValue.Str(newText),
+            ),
+        ),
+    )
+
+    /** 队列条目删除（CAS 类）（iOS :3945-3950）。 */
+    override suspend fun deleteQueueItem(conversationId: String, queueItemId: String): JSONValue? =
+        sendCASWithRetry(
+            "deleteQueueItem",
+            sessionId = conversationId,
+            payload = JSONValue.Obj(mapOf("queueItemId" to JSONValue.Str(queueItemId))),
+        )
+
+    /**
+     * 队列条目重排（beforeQueueItemId=null = 移到队尾；CAS 类——置顶报
+     * "CAS commands require baseRevision" 的根因就是漏携）（iOS :3955-3963；
+     * null 恒以 JSON null 键在场——上游 strip 语义下两形态等价，与 iOS wire 同形）。
+     */
+    override suspend fun reorderQueueItem(
+        conversationId: String,
+        queueItemId: String,
+        beforeQueueItemId: String?,
+    ): JSONValue? = sendCASWithRetry(
+        "reorderQueueItem",
+        sessionId = conversationId,
+        payload = JSONValue.Obj(
+            mapOf(
+                "queueItemId" to JSONValue.Str(queueItemId),
+                "beforeQueueItemId" to (beforeQueueItemId?.let { JSONValue.Str(it) } ?: JSONValue.Null),
+            ),
+        ),
+    )
+
+    /** 自动排空开关（CAS 类）（iOS :3967-3972）。 */
+    override suspend fun setAutoDrain(conversationId: String, enabled: Boolean): JSONValue? =
+        sendCASWithRetry(
+            "setAutoDrain",
+            sessionId = conversationId,
+            payload = JSONValue.Obj(mapOf("autoDrain" to JSONValue.Bool(enabled))),
+        )
+
+    /** 目标暂停/继续（pauseGoal/resumeGoal；CAS 类，payload {}）（iOS :3811-3815 直译）。 */
+    override suspend fun setGoalPaused(paused: Boolean, conversationId: String): JSONValue? =
+        sendCASWithRetry(
+            if (paused) "pauseGoal" else "resumeGoal",
+            sessionId = conversationId,
+            payload = JSONValue.Obj(emptyMap()),
+        )
+
+    /**
+     * G-015：失败 turn 重试——携行元数据精确游标 {rowId, entityId} 下发 retryTurn
+     * （CAS + row-target 双类成员）。entityId 缺失不下发：合成 rejected 回执走调用方
+     * 失败呈现链（iOS 原文返回 nil 静默——Android 按 §5-12 写面禁静默改为合成拒收，
+     * 不虚构「已重试」也不无声丢弃）。
+     */
+    override suspend fun retryTurn(conversationId: String, rowId: Int, entityId: String?): JSONValue? {
+        val cursor = entityId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return ConversationCommandFactory.Rejection(
+                reasonCode = "client.rowCursorUnavailable",
+                message = "该消息缺少重试游标（entityId），无法精确重试",
+            ).syntheticAck
+        return sendCASWithRetry(
+            "retryTurn",
+            sessionId = conversationId,
+            payload = JSONValue.Obj(
+                mapOf(
+                    "target" to JSONValue.Obj(
+                        mapOf(
+                            "rowId" to JSONValue.Int(rowId),
+                            "entityId" to JSONValue.Str(cursor),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    }
+
+    /**
+     * 助手消息轻反馈（§3 设计稿点赞/点踩反馈行）。row-target + CAS 双类成员（§7.2:414）。
+     * 游标照 retryTurn 先例 {target:{rowId, entityId}}；value 三态：true=赞 / false=踩 /
+     * null=取消（置 null）。A-1 修正（web 实证 bundle）：feedback 值域 `like|dislike`
+     * （可 null）——原 positive/negative 是「未取证」候选被当事实实现，zod
+     * invalid_enum_value 全拒。entityId 缺失合成拒收（retryTurn 同纪律）。
+     */
+    override suspend fun setAssistantFeedback(
+        conversationId: String,
+        rowId: Int,
+        entityId: String?,
+        value: Boolean?,
+    ): JSONValue? {
+        val cursor = entityId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return ConversationCommandFactory.Rejection(
+                reasonCode = "client.rowCursorUnavailable",
+                message = "该消息缺少反馈游标（entityId），无法下发反馈",
+            ).syntheticAck
+        val payload = LinkedHashMap<String, JSONValue>()
+        payload["target"] = JSONValue.Obj(
+            mapOf(
+                "rowId" to JSONValue.Int(rowId),
+                "entityId" to JSONValue.Str(cursor),
+            ),
+        )
+        payload["feedback"] = value?.let { JSONValue.Str(if (it) "like" else "dislike") } ?: JSONValue.Null
+        return sendCASWithRetry("setAssistantFeedback", sessionId = conversationId, payload = JSONValue.Obj(payload))
+    }
+
+    /**
+     * 编辑用户消息并重发（§3 设计稿「编辑重发」sheet；§7.2:404「rewind 后以新文本
+     * 重发，与 retryTurn 同族」——CAS + row-target 双类）。新文本键名取同族实证先例
+     * editQueueItem 的 newText。C-2 修正：显式携 workspaceMode:"preserve"（web 实证
+     * bundle——preserve|rewind 枚举、默认 preserve，web 调用点恒带该键）。
+     * entityId 缺失合成拒收（retryTurn 同纪律）。
+     */
+    override suspend fun editUserQuery(
+        conversationId: String,
+        rowId: Int,
+        entityId: String?,
+        newText: String,
+    ): JSONValue? {
+        val cursor = entityId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return ConversationCommandFactory.Rejection(
+                reasonCode = "client.rowCursorUnavailable",
+                message = "该消息缺少编辑游标（entityId），无法编辑重发",
+            ).syntheticAck
+        return sendCASWithRetry(
+            "editUserQuery",
+            sessionId = conversationId,
+            payload = JSONValue.Obj(
+                mapOf(
+                    "target" to JSONValue.Obj(
+                        mapOf(
+                            "rowId" to JSONValue.Int(rowId),
+                            "entityId" to JSONValue.Str(cursor),
+                        ),
+                    ),
+                    "newText" to JSONValue.Str(newText),
+                    "workspaceMode" to JSONValue.Str("preserve"),
+                ),
+            ),
+        )
+    }
+
+    // MARK: 主模型/思考强度切换（iOS :4453-4468 + :5396-5578 直译；v1.27/36 复合键纪律）
+
+    /**
+     * 主模型/思考强度切换（switchModelConfig {provider, model, thought}；web 端模型
+     * 选择器同构造，CAS 类命令携当前 state revision）。thought 缺席传空串（schema 必填
+     * 字符串）。**provider 空/空白本地拦截**（上游 provider 必填【实证·上游仓
+     * command.ts:211】——空串裸发必被桌面拒，换回 3s 闪过的拒因、用户观感「选了没反应」，
+     * 真机报障 2026-10-09）：合成 rejected 回执走调用方失败呈现链，不空耗注定被拒的写。
+     * model 恒携纯模型名（复合键解析由 [switchModelForRowKey] 承担后传入）。
+     */
+    override suspend fun switchModelConfig(
+        conversationId: String,
+        provider: String,
+        model: String,
+        thought: String?,
+    ): JSONValue? {
+        val trimmedProvider = provider.trim()
+        if (trimmedProvider.isEmpty()) {
+            return ConversationCommandFactory.Rejection(
+                reasonCode = "client.providerUnavailable",
+                message = "模型提供商信息未就绪 · 重新获取模型列表后再切换",
+            ).syntheticAck
+        }
+        return sendCASWithRetry(
+            "switchModelConfig",
+            sessionId = conversationId,
+            payload = JSONValue.Obj(
+                mapOf(
+                    "provider" to JSONValue.Str(trimmedProvider),
+                    "model" to JSONValue.Str(model),
+                    "thought" to JSONValue.Str(thought ?: ""),
+                ),
+            ),
+        )
+    }
+
+    /**
+     * 模型面板行键切换门（v1.36 全纪律组合；iOS ChatViewModel.switchModel 的 :store 承载）：
+     * ① 行键「套餐|模型」复合解析（[ModelSelectionInfo.providerForRowKey]——复合表权威、
+     *    裸名回退 activeProviderId/modelProviders）；
+     * ② getView 失败/空表时同模型切换以会话级 state.modelSelection.providerId 兜底
+     *    （v1.36①：provider 解析空串裸发必被桌面拒；state.providerId 是权威源）；
+     * ③ 仍解析不出 → 本地拦截（合成 rejected client.providerUnavailable，禁空串裸发）；
+     * ④ 下发 model 恒纯名（[ModelSelectionInfo.modelLabelForRowKey]，套餐前缀只用于本地解析）。
+     */
+    suspend fun switchModelForRowKey(
+        conversationId: String,
+        rowKey: String,
+        thoughtLevel: String? = null,
+    ): JSONValue? {
+        val selection = modelSelectionView()
+        val label = selection?.modelLabelForRowKey(rowKey)?.takeIf { it.isNotEmpty() } ?: rowKey
+        var provider = selection?.providerForRowKey(rowKey, label)
+        if (provider.isNullOrEmpty()) {
+            // getView 失败/空表兜底：会话级 state.modelSelection.providerId（同模型场景）
+            val sessionSelection = sessionModelSelection(conversationId)
+            if (sessionSelection?.model == label && !sessionSelection.provider.isNullOrEmpty()) {
+                provider = sessionSelection.provider
+            }
+        }
+        if (provider.isNullOrEmpty()) {
+            return ConversationCommandFactory.Rejection(
+                reasonCode = "client.providerUnavailable",
+                message = "模型提供商信息未就绪 · 点模型胶囊重新获取列表后再切换",
+            ).syntheticAck
+        }
+        val thought = thoughtLevel ?: selection?.activeThoughtLevel ?: ""
+        return switchModelConfig(
+            conversationId = conversationId,
+            provider = provider,
+            model = label,
+            thought = thought,
+        )
+    }
+
+    /**
+     * 桌面端模型选择只读视图（model-selection.getView {selection:null}；iOS :5396-5437
+     * 直译）。内存缓存命中即短路；**空清单不入缓存**（缓存命中即短路重拉，空清单锁死
+     * 会让重试面永远命中空缓存——模型/思考可选性修复的兜底面）；失败返回 null。
+     */
+    override suspend fun modelSelectionView(): ModelSelectionInfo? {
+        modelSelectionCache?.let { return it }
+        // getView 入参 {selection: null}（不带当前选择 → 返回缺省视图 + preferredSelection）
+        val fields = LinkedHashMap<String, JSONValue>()
+        fields["selection"] = JSONValue.Null
+        val result = try {
+            transport.call("model-selection", "getView", RPCValue.json(JSONValue.Obj(fields)))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        }
+        val view = result.jsonValue?.objectValue ?: return null
+        val info = parseModelSelectionView(view)
+        if (info.hasSelectableModels) {
+            modelSelectionCache = info
+            modelSelectionState.value = info
+        }
+        ensureModelSelectionSubscribed()
+        return info
+    }
+
+    /** 模型选择变化流（getView 成功非空发布；onDidChange 失效重拉后发布新值）。 */
+    override fun observeModelSelection(): Flow<ModelSelectionInfo?> = modelSelectionState.asStateFlow()
+
+    /**
+     * onDidChange 订阅（固定事件无参；收到即失效缓存重拉——桌面套餐/模型清单变更回流）。
+     * handler 注册先于事件帧（ChannelClient.listen 先落表后发帧，§5-3 同源）。
+     * 并发去重：subscription 落表前并发进入只发一次 eventListen 帧（ RemoteTaskStore
+     * ensureTaskEventsSubscribed 同款双重检查）。
+     */
+    private suspend fun ensureModelSelectionSubscribed() {
+        if (modelSelectionSubscription != null) return
+        val subscription = transport.listen(
+            "model-selection", "onDidChange", RPCValue.Undefined,
+        ) { _ ->
+            scope.launch {
+                modelSelectionCache = null
+                modelSelectionView()
+            }
+        }
+        // 双重检查（并发订阅竞态：后来者让位并立即释放重复句柄）
+        if (modelSelectionSubscription != null) {
+            subscription.cancel()
+        } else {
+            modelSelectionSubscription = subscription
+        }
+    }
+
+    /** 模型可用思考档：getView per-model 词表优先（thoughtByModel），未就绪时现拉一次（iOS :5267-5273 同构）。 */
+    override suspend fun thoughtLevels(model: String): List<String> {
+        modelSelectionCache?.thoughtByModel?.get(model)?.takeIf { it.isNotEmpty() }?.let { return it }
+        modelSelectionView()
+        return modelSelectionCache?.thoughtByModel?.get(model) ?: emptyList()
+    }
+
+    /**
+     * getView 回执 → ModelSelectionInfo（iOS :5480-5578 纯函数直译；单测锁定）。
+     * - 思考档词表权威 = per-model `config.optionSpecs.reasoningLevel.values`
+     *   【实证·上游仓 provider/facades.ts ModelSelectionModelView + web v4 工具栏 yB】；
+     *   `modelThoughtLevels` 键兜底；provider 级 optionSpecs 是旧猜测形态，仅并入并集兜底；
+     * - 套餐分组（providerId 含 individual-coding-plan→个人/start-plan→体验/
+     *   team-coding-plan→团队）；同名模型跨套餐各组各计；
+     * - modelProviders 裸名表（后到覆盖）+ modelProvidersByPlan「套餐|模型」复合表
+     *   （同名跨套餐消歧权威，v1.27）；
+     * - 当前绑定 preferredSelection → effectiveSelection → effective.selection 宽容链。
+     */
+    fun parseModelSelectionView(view: Map<String, JSONValue>): ModelSelectionInfo {
+        val models = ArrayList<String>()
+        val thoughtLevels = ArrayList<String>()
+        val thoughtByModel = HashMap<String, List<String>>()
+        val modelProviders = LinkedHashMap<String, String>()
+        val modelProvidersByPlan = LinkedHashMap<String, String>()
+        val groupsByPlan = LinkedHashMap<String, MutableList<String>>()
+
+        fun planNameFor(providerId: String): String? = when {
+            providerId.contains("individual-coding-plan") -> "个人套餐"
+            providerId.contains("start-plan") -> "体验套餐"
+            providerId.contains("team-coding-plan") -> "团队套餐"
+            else -> null
+        }
+
+        for (provider in view["providers"]?.arrayValue ?: emptyList()) {
+            val providerDict = provider.objectValue ?: continue
+            val providerId = providerDict["providerId"]?.stringValue ?: ""
+            val plan = planNameFor(providerId)
+            // 思考档兜底源：provider config.optionSpecs.reasoningLevel.values
+            val config = providerDict["config"]?.objectValue
+                ?: providerDict["effectiveConfig"]?.objectValue
+            for (level in config?.get("optionSpecs")?.objectValue?.get("reasoningLevel")
+                ?.objectValue?.get("values")?.arrayValue ?: emptyList()) {
+                val levelName = level.stringValue
+                if (!levelName.isNullOrEmpty() && !thoughtLevels.contains(levelName)) {
+                    thoughtLevels.add(levelName)
+                }
+            }
+            for (model in providerDict["models"]?.arrayValue ?: emptyList()) {
+                var label: String? = null
+                val stringModel = model.stringValue
+                if (!stringModel.isNullOrEmpty()) {
+                    label = stringModel
+                } else {
+                    val modelDict = model.objectValue
+                    if (modelDict != null) {
+                        label = modelDict["label"]?.stringValue
+                            ?: modelDict["name"]?.stringValue
+                            ?: modelDict["modelId"]?.stringValue
+                            ?: modelDict["id"]?.stringValue
+                        // per-model 思考档词表（权威 modelId 键；label 相异时双键）
+                        val modelId = modelDict["modelId"]?.stringValue
+                        if (!modelId.isNullOrEmpty()) {
+                            var perModel = (modelDict["config"]?.objectValue?.get("optionSpecs")
+                                ?.objectValue?.get("reasoningLevel")?.objectValue?.get("values")
+                                ?.arrayValue ?: emptyList()).mapNotNull { it.stringValue }
+                            if (perModel.isEmpty()) {
+                                perModel = (modelDict["modelThoughtLevels"]?.arrayValue ?: emptyList())
+                                    .mapNotNull { it.stringValue }
+                            }
+                            if (perModel.isNotEmpty()) {
+                                thoughtByModel[modelId] = perModel
+                                if (!label.isNullOrEmpty() && label != modelId) {
+                                    thoughtByModel[label] = perModel
+                                }
+                            }
+                        }
+                        for (level in modelDict["modelThoughtLevels"]?.arrayValue ?: emptyList()) {
+                            val levelName = level.stringValue
+                            if (!levelName.isNullOrEmpty() && !thoughtLevels.contains(levelName)) {
+                                thoughtLevels.add(levelName)
+                            }
+                        }
+                    }
+                }
+                if (label.isNullOrEmpty()) continue
+                if (!models.contains(label)) models.add(label)
+                if (providerId.isNotEmpty()) modelProviders[label] = providerId
+                if (plan != null) {
+                    val group = groupsByPlan.getOrPut(plan) { ArrayList() }
+                    if (!group.contains(label)) group.add(label)
+                    // 复合键表：同名模型跨套餐各组各计（裸名表后到覆盖先到——
+                    // 点个人套餐行发出体验套餐 providerId，2026-10-08 报障根因）
+                    if (providerId.isNotEmpty()) {
+                        modelProvidersByPlan["$plan|$label"] = providerId
+                    }
+                }
+            }
+        }
+        // 当前绑定优先 preferredSelection；退化 effectiveSelection → effective.selection
+        val selection = view["preferredSelection"]?.objectValue
+            ?: view["effectiveSelection"]?.objectValue
+            ?: view["effective"]?.objectValue?.get("selection")?.objectValue
+        return ModelSelectionInfo(
+            models = models,
+            activeModel = selection?.get("modelId")?.stringValue,
+            thoughtLevels = thoughtLevels,
+            activeThoughtLevel = selection?.get("options")?.objectValue?.get("reasoningLevel")?.stringValue,
+            thoughtByModel = thoughtByModel,
+            planGroups = groupsByPlan.map { (plan, list) -> ModelPlanGroup(plan = plan, models = list) },
+            modelProviders = modelProviders,
+            modelProvidersByPlan = modelProvidersByPlan,
+            activeProviderId = selection?.get("providerId")?.stringValue,
+        )
+    }
+
+    // MARK: 协作模式与投递模式（iOS :3989-4009 + ChatViewModel v1.33 直译）
+
+    /**
+     * 协作模式切换（Plan/Build 胶囊；switchCollaborationMode CAS【实证 web bundle：
+     * mode 枚举 build|edit|plan|yolo】）。ACK 三态（v1.33）：
+     * - 失败态（rejected/stale 终局/failed）：chip 不动，failureText 原文落常驻错误行
+     *   （[collaborationModeFailureText]）；
+     * - 未知态（status 缺席/词表外，含未送达 null）：**不落盘**——落盘即与桌面真态脱钩
+     *   且无读面时永不自愈（2026-10-09「计划模式丢失」根因之一）；登记待定值交
+     *   state.config.mode 投影首帧定案（refreshPendingInteractionsLocked）；
+     * - 权威成功（accepted/duplicate/noop）：乐观落投影 + 3s 收敛护栏（旧投影不回闪）。
+     */
+    override suspend fun switchCollaborationMode(conversationId: String, mode: String): JSONValue? {
+        val ack = sendCASWithRetry(
+            "switchCollaborationMode",
+            sessionId = conversationId,
+            payload = JSONValue.Obj(mapOf("mode" to JSONValue.Str(mode))),
+        )
+        val commandAck = CommandAck(ack)
+        val failure = commandAck.failureText
+        mutex.withLock {
+            when {
+                failure != null -> collaborationModeFailures[conversationId] = failure
+                !commandAck.isAuthoritativeSuccess -> {
+                    pendingUnknownModeValues[conversationId] = mode
+                    collaborationModeFailures[conversationId] =
+                        "桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际模式为准"
+                }
+                else -> {
+                    // 权威成功：乐观落投影 + 护栏（不等桌面投影回流——忙 turn 期间增量可滞后分钟级）；
+                    // 更新的权威 ack 同时作废此前登记的未知态待定标记
+                    sessionCollaborationModes[conversationId] = mode
+                    lastLocalModeSwitches[conversationId] = mode to nowMs()
+                    pendingUnknownModeValues.remove(conversationId)
+                    collaborationModeFailures.remove(conversationId)
+                }
+            }
+        }
+        return ack
+    }
+
+    /** 协作模式切换失败/未知态常驻错误行（null = 无在案；权威成功/投影定案即清）。 */
+    suspend fun collaborationModeFailureText(conversationId: String): String? =
+        mutex.withLock { collaborationModeFailures[conversationId] }
+
+    /**
+     * 投递/跟随模式（CAS 类）。A-2 词表门：mode 枚举仅 `queue|guide`——「立即」不是
+     * followupMode 值（web 默认 queue，立即语义由 sendText 逐消息
+     * requestedDelivery:"startNow" 承载）：now 档调用方拦截不下发，本方法再兜一层
+     * 词表外值本地拒发（合成 rejected，不上线缆）。
+     */
+    override suspend fun setFollowupMode(conversationId: String, mode: String): JSONValue? {
+        if (mode != "queue" && mode != "guide") {
+            return ConversationCommandFactory.Rejection(
+                reasonCode = "client.invalidFollowupMode",
+                message = "投递模式 $mode 不在词表（queue|guide）；「立即」为本机档，发送时以 requestedDelivery:startNow 承载",
+            ).syntheticAck
+        }
+        return sendCASWithRetry(
+            "setFollowupMode",
+            sessionId = conversationId,
+            payload = JSONValue.Obj(mapOf("mode" to JSONValue.Str(mode))),
+        )
+    }
+
+    // MARK: resolveInteraction 三族形状门（A-3/甲-3：answer 恒对象，禁平铺裸串）
+
+    /**
+     * 交互应答三族（answer 对象形状的唯一合法构造点；web 实证 bundle answer schema：
+     * 裸字符串被 zod expected object 拒——2026-10-06 甲-3「审批卡点击确认全部没反应」根因）。
+     */
+    sealed class InteractionAnswer {
+        /** 权限族 `{optionId}`（allowOnce/allowAlways/rejectOnce/rejectAlways 由 UI 按服务端 options 传入）。 */
+        data class Permission(val optionId: String) : InteractionAnswer()
+
+        /** 计划族 `{action}`——词表 accept|decline|cancel。 */
+        data class Plan(val action: String) : InteractionAnswer()
+
+        /** 提问族 `{freeText}`。 */
+        data class Question(val freeText: String) : InteractionAnswer()
+    }
+
+    /**
+     * 交互应答（三族形状门）：payload 恒 `{interactionId, answer}` 两键、answer 恒对象
+     * （无顶层平铺——approved/scope/text 是 wire 不存在的键）。词表外/空值本地拒发
+     * （合成 rejected，不上线缆）。（iOS :3026-3033 resolveInteractionRaw + VM decide/
+     * decidePlan/answerQuestion 三调用点形状的 :store 收口）
+     */
+    suspend fun resolveInteraction(
+        conversationId: String,
+        interactionId: String,
+        answer: InteractionAnswer,
+    ): JSONValue? {
+        val answerObj: JSONValue = when (answer) {
+            is InteractionAnswer.Permission -> {
+                val optionId = answer.optionId.trim()
+                if (optionId.isEmpty()) {
+                    return ConversationCommandFactory.Rejection(
+                        reasonCode = "client.invalidInteractionAnswer",
+                        message = "权限应答缺少 optionId，未下发",
+                    ).syntheticAck
+                }
+                JSONValue.Obj(mapOf("optionId" to JSONValue.Str(optionId)))
+            }
+            is InteractionAnswer.Plan -> {
+                if (answer.action !in PLAN_ACTIONS) {
+                    return ConversationCommandFactory.Rejection(
+                        reasonCode = "client.invalidInteractionAnswer",
+                        message = "计划决议 action=${answer.action} 不在词表（accept|decline|cancel），未下发",
+                    ).syntheticAck
+                }
+                JSONValue.Obj(mapOf("action" to JSONValue.Str(answer.action)))
+            }
+            is InteractionAnswer.Question -> {
+                val freeText = answer.freeText.trim()
+                if (freeText.isEmpty()) {
+                    return ConversationCommandFactory.Rejection(
+                        reasonCode = "client.invalidInteractionAnswer",
+                        message = "提问应答内容为空，未下发",
+                    ).syntheticAck
+                }
+                JSONValue.Obj(mapOf("freeText" to JSONValue.Str(freeText)))
+            }
+        }
+        return resolveInteractionRaw(conversationId, interactionId, answerObj)
+    }
+
+    // MARK: 列表组织态写（iOS :2596-2739 直译；本地 override 即时反馈 + zcode-task 双写，
+    // 失败完整回滚 + fault 原文上屏 §5-12；跨区行按归属 workspace 寻址 workspaceTarget）
+
+    /**
+     * 置顶：本地 override 即时反馈 + setTaskPinned 远端写（修复重启后置顶丢失）。
+     * 远端失败回滚本地态；membership 集（pinnedTaskIds/archivedTaskIds）写成功即同步
+     * 维护（sessions-index 行不含 pinned 字段——schema 冻结【实证·上游仓
+     * sessionSummarySchema】，写后不等全量刷新；桌面 tasks-index.sqlite 为权威，
+     * 下次 membership 刷新对账）。
+     */
+    override suspend fun setPinned(pinned: Boolean, conversationId: String) {
+        val index = sessionsIndex
+        val previous = index?.pinnedOverrides?.get(conversationId) ?: false
+        if (index != null) {
+            index.pinnedOverrides = index.pinnedOverrides + (conversationId to pinned)
+            yieldConversationsReplaced()
+        }
+        val target = workspaceTarget(conversationId, null)
+        val fields = LinkedHashMap<String, JSONValue>()
+        fields["taskId"] = JSONValue.Str(conversationId)
+        fields["workspacePath"] = JSONValue.Str(target.first)
+        val identity = target.second
+        if (!identity.isNullOrEmpty()) {
+            fields["workspaceIdentity"] = JSONValue.Str(identity)
+        }
+        fields["pinned"] = JSONValue.Bool(pinned)
+        try {
+            transport.call("zcode-task", "setTaskPinned", RPCValue.json(JSONValue.Obj(fields)))
+            if (index != null) {
+                index.pinnedTaskIds =
+                    if (pinned) index.pinnedTaskIds + conversationId else index.pinnedTaskIds - conversationId
+                if (pinned) {
+                    index.archivedTaskIds = index.archivedTaskIds - conversationId
+                }
+            }
+            lastTaskWriteFailure = ""
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (index != null) {
+                index.pinnedOverrides = index.pinnedOverrides + (conversationId to previous)
+                yieldConversationsReplaced()
+            }
+            lastTaskWriteFailure = loadFailureText("置顶", e)
+        }
+    }
+
+    /**
+     * 归档/取消归档：archiveTask / unarchiveTask（取消归档此前误发 archiveTask，
+     * named gap P1-6 修复）。本地 override 即时反馈 + membership 维护，失败**完整回滚**
+     * （override + membership——此前缓存不回滚：归档区本会话仍显示该行、重启后随缓存
+     * 蒸发，用户报障「归档的会话又丢了」第三次）。写目标修正（⑥）：workspacePath/
+     * workspaceIdentity 取**任务自带归属工作区**（web 同款——跨区任务此前误发当前连接
+     * workspace，归档落错工作区）。归属反查：sessions-index 行 workspacePath → 连接
+     * workspace 兜底（【偏差】iOS 另有 listArchivedTasks 行缓存反查环，该缓存随归档区
+     * 读面挂后续轮，见 deviations）。
+     */
+    override suspend fun setArchived(archived: Boolean, conversationId: String) {
+        val index = sessionsIndex
+        val ownPath = index?.sessionSummaries()?.get(conversationId)?.workspacePath
+        val resolvedPath = ownPath?.takeIf { it.isNotEmpty() } ?: workspace.path
+        val targetIdentity = if (resolvedPath == workspace.path) {
+            workspace.workspaceIdentity
+        } else {
+            allWorkspaces.firstOrNull { it.path == resolvedPath }?.workspaceIdentity
+        }
+        val previous = index?.archivedOverrides?.get(conversationId) ?: false
+        if (index != null) {
+            index.archivedOverrides = index.archivedOverrides + (conversationId to archived)
+            yieldConversationsReplaced()
+        }
+        val fields = LinkedHashMap<String, JSONValue>()
+        fields["taskId"] = JSONValue.Str(conversationId)
+        fields["workspacePath"] = JSONValue.Str(resolvedPath)
+        if (!targetIdentity.isNullOrEmpty()) {
+            fields["workspaceIdentity"] = JSONValue.Str(targetIdentity)
+        }
+        try {
+            transport.call(
+                "zcode-task",
+                if (archived) "archiveTask" else "unarchiveTask",
+                RPCValue.json(JSONValue.Obj(fields)),
+            )
+            if (index != null) {
+                if (archived) {
+                    index.archivedTaskIds = index.archivedTaskIds + conversationId
+                    index.pinnedTaskIds = index.pinnedTaskIds - conversationId
+                } else {
+                    index.archivedTaskIds = index.archivedTaskIds - conversationId
+                }
+            }
+            lastArchiveFailure = ""
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 写失败完整回滚（override + membership）+ 失败原因透出（写面禁止静默 §5-12）
+            if (index != null) {
+                index.archivedOverrides = index.archivedOverrides + (conversationId to previous)
+            }
+            lastArchiveFailure = if (e is RPCError) {
+                "${e.name}: ${e.message}"
+            } else {
+                e.toString().take(240)
+            }
+            yieldConversationsReplaced()
+        }
+    }
+
+    /** 归档/取消归档最近一次写失败原文（空串 = 无；列表页归档动作如实反馈）。 */
+    override suspend fun lastArchiveFailureText(): String = lastArchiveFailure
+
+    /**
+     * 重命名（P1-5）：renameTask 双写 + 本地标题 override 即时反馈，失败回滚 + 拒因
+     * 上屏（§5-12 写面禁静默——iOS 曾只回滚不提示，「点了没反应」无从分诊）。
+     */
+    override suspend fun renameConversation(title: String, conversationId: String) {
+        val trimmed = title.trim()
+        if (trimmed.isEmpty()) return
+        val index = sessionsIndex
+        val previous = index?.titleOverrides?.get(conversationId)
+        if (index != null) {
+            index.titleOverrides = index.titleOverrides + (conversationId to trimmed)
+            yieldConversationsReplaced()
+        }
+        val target = workspaceTarget(conversationId, null)
+        val fields = LinkedHashMap<String, JSONValue>()
+        fields["taskId"] = JSONValue.Str(conversationId)
+        fields["workspacePath"] = JSONValue.Str(target.first)
+        val identity = target.second
+        if (!identity.isNullOrEmpty()) {
+            fields["workspaceIdentity"] = JSONValue.Str(identity)
+        }
+        fields["title"] = JSONValue.Str(trimmed)
+        try {
+            transport.call("zcode-task", "renameTask", RPCValue.json(JSONValue.Obj(fields)))
+            lastTaskWriteFailure = ""
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (index != null) {
+                index.titleOverrides = if (previous != null) {
+                    index.titleOverrides + (conversationId to previous)
+                } else {
+                    index.titleOverrides - conversationId
+                }
+                yieldConversationsReplaced()
+            }
+            lastTaskWriteFailure = loadFailureText("改名", e)
+        }
+    }
+
     companion object {
         /** keep-warm 租约窗缺省（上游 sessionDataLayer.ts:30 SESSION_DATA_LAYER_KEEP_WARM_MS）。 */
         const val DEFAULT_KEEP_WARM_MS = 30_000L
@@ -2516,5 +3372,14 @@ class RemoteConversationStore(
 
         /** createSession 专项预算（iOS :2516-2520：创建为重命令，30s 缺省在繁忙桌面易超时 → 60s）。 */
         private val CREATE_SESSION_TIMEOUT = 60.seconds
+
+        /** 协作模式本地切换收敛护栏窗（v1.33：ack 与 state.config.mode 增量到达间隙内旧投影不回闪）。 */
+        const val MODE_SWITCH_GUARD_MS = 3_000L
+
+        /** CAS 前置 revision 轮询间隔（iOS ensureStateRevision 300ms × 10 直译）。 */
+        private const val STATE_REVISION_POLL_MS = 300L
+
+        /** 计划决议 action 词表（iOS ChatViewModel.decidePlan accept|decline + v1.35 cancel 语义）。 */
+        val PLAN_ACTIONS = setOf("accept", "decline", "cancel")
     }
 }

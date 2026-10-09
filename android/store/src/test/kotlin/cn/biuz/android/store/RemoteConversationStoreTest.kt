@@ -127,6 +127,12 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
         "commandId" to JSONValue.Str("cmd-stub"),
     )
 
+    /**
+     * send 回执脚本（逐次出队；空则回退 [sendReply]）：CAS 三段自愈注水
+     * （stale→stale→accepted 序列，revisionAtDecision 注水权威值）。
+     */
+    val sendReplyScript = ArrayDeque<JSONValue>()
+
     /** 非空 = send 挂起至此栅门（在途创建去重复现）。 */
     @Volatile
     var sendGate: CompletableDeferred<Unit>? = null
@@ -135,6 +141,27 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
     var sendError: Throwable? = null
     val sendArgs = CopyOnWriteArrayList<Map<String, JSONValue>>()
     var sendCallCount: Int = 0
+
+    // zcode-task 写族（setTaskPinned/archiveTask/unarchiveTask/renameTask；组织态回滚注水）
+    val taskWrites = CopyOnWriteArrayList<Pair<String, Map<String, JSONValue>>>()
+    /** 非空 = 下一次 zcode-task 写抛该错误（throw 一次后清空——单失败路径注水）。 */
+    @Volatile
+    var nextTaskWriteError: Throwable? = null
+
+    // model-selection.getView（模型面板注水）
+    @Volatile
+    var getViewReply: JSONValue? = null
+    @Volatile
+    var getViewError: Throwable? = null
+    var getViewCallCount: Int = 0
+
+    /**
+     * 非空 = resyncConversationV4 被调时同步回推该会话快照帧（经帧 handler——模拟服务端
+     * resync 重发快照；CAS 第三段 ensureStateRevision 的 revision 就绪数据源）。缺省 null
+     * （不回推——旧测试的 watchdog 断言面不受快照回推干扰）。
+     */
+    @Volatile
+    var resyncSnapshotReplayer: (suspend (sessionId: String) -> Unit)? = null
 
     // zcode-task.setTaskUnread（markUnread 回滚）
     @Volatile
@@ -177,6 +204,7 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
             }
             "resyncConversationV4" -> {
                 resyncArgs.add(args)
+                resyncSnapshotReplayer?.invoke(args["sessionId"]?.stringValue ?: "")
                 RPCValue.json(testObj("ok" to JSONValue.Bool(true)))
             }
             "unsubscribeConversationV4" -> {
@@ -188,12 +216,24 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
                 sendArgs.add(args)
                 sendError?.let { throw it }
                 sendGate?.await()
-                RPCValue.json(sendReply)
+                val scripted = synchronized(sendReplyScript) { sendReplyScript.removeFirstOrNull() }
+                RPCValue.json(scripted ?: sendReply)
             }
             "setTaskUnread" -> {
                 setTaskUnreadCallCount += 1
                 setTaskUnreadError?.let { throw it }
+                nextTaskWriteError?.let { nextTaskWriteError = null; throw it }
                 RPCValue.json(testObj("ok" to JSONValue.Bool(true)))
+            }
+            "setTaskPinned", "archiveTask", "unarchiveTask", "renameTask" -> {
+                taskWrites.add(command to args)
+                nextTaskWriteError?.let { nextTaskWriteError = null; throw it }
+                RPCValue.json(testObj("ok" to JSONValue.Bool(true)))
+            }
+            "getView" -> {
+                getViewCallCount += 1
+                getViewError?.let { throw it }
+                RPCValue.json(getViewReply ?: testObj())
             }
             "promoteDeferredDraftSession" -> RPCValue.json(testObj("ok" to JSONValue.Bool(true)))
             // 会话表注水路径（RemoteSessionsIndexStore）
