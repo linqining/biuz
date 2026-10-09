@@ -69,6 +69,10 @@ protocol ConversationStore: AnyObject, Sendable {
     /// 会话协作模式投影（state.config.mode——上游 onSessionModeChanged 投影，命令面
     /// 与 plan 工具路径共用；chip 权威显示源；nil = 桌面尚未投影）
     func sessionCollaborationMode(in conversationID: String) async -> String?
+    /// 工作流产物内容分块读（conversationWorkflowRunArtifactReadV4；nil = 失败/未连接）
+    func workflowArtifactContent(
+        sessionID: String, runId: String, artifactId: String, version: Int
+    ) async -> (data: Data, mediaType: String)?
     /// 桌面端模型选择只读视图（model-selection.getView；nil = 无数据）
     func modelSelectionView() async -> ModelSelectionInfo?
     /// 模型选择变化流（连接态 model-selection.onDidChange 驱动；演示态不产生事件）
@@ -352,6 +356,9 @@ extension ConversationStore {
     func modelSelectionView() async -> ModelSelectionInfo? { nil }
     func sessionModelSelection(in conversationID: String) async -> (model: String, thought: String?)? { nil }
     func sessionCollaborationMode(in conversationID: String) async -> String? { nil }
+    func workflowArtifactContent(
+        sessionID: String, runId: String, artifactId: String, version: Int
+    ) async -> (data: Data, mediaType: String)? { nil }
 
     /// 模型选择变化流（连接态 model-selection.onDidChange 驱动；演示态不产生事件）
     func observeModelSelection() -> AsyncStream<ModelSelectionInfo?> {

@@ -215,6 +215,17 @@ final class ChatViewModel {
         return nil
     }
 
+    /// 工作流产物内容读取透传（完成卡详情 sheet 数据源；store 私有由此过桥）
+    func workflowArtifactContent(
+        _ request: WorkflowArtifactRequest
+    ) async -> (data: Data, mediaType: String)? {
+        await store.workflowArtifactContent(
+            sessionID: request.sessionID,
+            runId: request.card.runId,
+            artifactId: request.artifact.id,
+            version: request.artifact.version)
+    }
+
     /// 协作模式桌面投影（state.config.mode 权威源，web SessionPane 同读口径）：
     /// 订阅快照/增量每事件覆盖——桌面改回、桌面端操作、工具路径 enterPlanMode/
     /// exitPlanMode 皆回流（上游投影注释明示两路共用），双端脱钩自愈。

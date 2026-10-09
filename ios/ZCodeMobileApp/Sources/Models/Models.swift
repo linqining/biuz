@@ -161,6 +161,14 @@ struct WorkflowActorSummary: Identifiable, Equatable {
 
 /// 会话 workflow run 只读投影（UI 不新增发送命令）。
 /// resumable/truncated 为 CLI 算好透传的字段（桌面基准：UI 绝不自推导），只读展示。
+/// run 产物 brief（仅完成卡 join 所需三键；workflowRunArtifactSummarySchema strict
+/// 的子集宽容读，缺席键 nil）
+struct WorkflowArtifactBrief: Equatable {
+    var id: String
+    var bytes: Int?
+    var itemCount: Int?
+}
+
 struct WorkflowRunSummary: Identifiable, Equatable {
     var id: String
     var name: String
@@ -172,6 +180,15 @@ struct WorkflowRunSummary: Identifiable, Equatable {
     var nodes: [WorkflowNodeSummary]
     var actors: [WorkflowActorSummary]
     var artifactsCount: Int = 0
+    /// run 级用量（usage.spentTokens【实证·上游仓 workflow-runs.ts:147-153 引擎
+    /// usage-updated 已花总量】；完成卡 tokens 格数据源，nil = 格写「—」）
+    var spentTokens: Int? = nil
+    /// 进过的阶段数（phases 表 → phaseNames → nodes 去重 phaseName 三级取一；
+    /// 完成卡阶段格数据源，nil = 格写「—」——无 phase 标记的脚本拿不到）
+    var phaseCount: Int? = nil
+    /// 产物字节/条目 brief（workflowRunArtifactSummarySchema 的 id+bytes+itemCount
+    /// 三键；完成卡按 id join 补「文档 · 11.8 KB」「6 条」展示，缺席 = 只显种类词）
+    var artifactBriefs: [WorkflowArtifactBrief] = []
     var pendingQuestionsCount: Int = 0
     var concurrency: Int?
     var concurrencyCeiling: Int?
@@ -365,6 +382,42 @@ struct RemotePendingInteraction: Identifiable, Equatable {
 }
 
 /// 会话消息：用户气泡 / Agent 正文 / 内嵌思考折叠块、工具卡、todo 卡、提问卡
+/// 工作流完成卡·产物行（turnHeader 行 workflowNotification.artifacts 元素 +
+/// 活投影 run.artifacts 按 id join 补 bytes/itemCount【实证·上游仓 workflow-row-meta.ts:57-71
+/// + workflow-artifacts.ts:125-137 workflowRunArtifactSummarySchema】）
+struct WorkflowCompletionArtifact: Equatable {
+    var id: String
+    /// 桌面六态闭集：file|markdown|chart|table|metrics|board
+    var kind: String
+    var title: String?
+    /// 版本（workflowRunArtifactReadV4 取字节必带；通知载荷恒带，缺省 1）
+    var version: Int = 1
+    /// 交付物旗（至多一件；完成卡交付物行/产物索引行的排位依据）
+    var primary: Bool
+    var description: String?
+    /// 通知载荷不带 bytes/itemCount——join 活投影 run.artifacts 补（缺席 = 不显示大小/条目）
+    var bytes: Int?
+    var itemCount: Int?
+}
+
+/// 工作流完成卡数据（桌面 WorkflowCompletionCard 同款，2026-10-09 用户看桌面截图点单
+/// 「手机端也做个类似的卡片」）。数据源=turnHeader 行（origin=="backgroundResult" 且
+/// originMeta.backgroundSource=="workflow" 且 workflowNotification{kind:"terminal",
+/// status:"completed"}）【实证·上游仓 workflowTurnCompletion.ts:35-49 + rows.ts:58-97】；
+/// 四格数字 join 活投影 workflowRuns 按 runId：usage.spentTokens / actors.count / 阶段数；
+/// 拿不到的格写「—」不写 0（上游 WorkflowCompletionCard.tsx 数字的诚实口径）
+struct WorkflowCompletionCard: Equatable {
+    /// originMeta.workId ≡ runId
+    var runId: String
+    /// originMeta.title（CLI workflowTaskSubject 权威给出，不本地化）
+    var name: String
+    /// 通知里的墙钟时间；缺席 = 时间格「—」
+    var durationMs: Int?
+    var artifacts: [WorkflowCompletionArtifact]
+    /// 发射侧砍过（超 8 或被过滤）
+    var truncated: Bool
+}
+
 struct ChatMessage: Identifiable, Equatable {
     var id: String
     var role: MessageRole
@@ -385,6 +438,9 @@ struct ChatMessage: Identifiable, Equatable {
     /// 助手反馈行仅对 assistantText 渲染——reasoning/subagent/artifact/state-todos
     /// 等合成消息（rowKind 为 nil）天然排除，不做字符串前缀判断的脆弱门槛
     var rowKind: String?
+    /// 工作流完成卡（turnHeader 行合成；nil = 非完成通知行。桌面轮尾落卡同款，
+    /// 四格数字由 ChatView 以 workflowRuns 活投影 join 后经 MessageView 注入）
+    var workflowCompletion: WorkflowCompletionCard?
     /// P1-3 反馈态服务端回读（用户实测 2026-10-06「点赞后重载丢失」：此前仅本地
     /// write-through 字典，重进会话即空白。web 实证 bundle bX(row) 读行上
     /// `feedback: "like"|"dislike"` 渲染——本字段即该回读落点；nil = 无反馈态）
@@ -395,7 +451,8 @@ struct ChatMessage: Identifiable, Equatable {
          status: MessageStatus = .done, timestamp: Date,
          toolCall: ToolCall? = nil, todos: [TodoItem]? = nil, question: AgentQuestion? = nil,
          thinking: ThinkingContent? = nil, attachments: [String] = [],
-         entityId: String? = nil, rowKind: String? = nil, feedback: Bool? = nil) {
+         entityId: String? = nil, rowKind: String? = nil, feedback: Bool? = nil,
+         workflowCompletion: WorkflowCompletionCard? = nil) {
         self.id = id
         self.role = role
         self.text = text
@@ -409,6 +466,7 @@ struct ChatMessage: Identifiable, Equatable {
         self.entityId = entityId
         self.rowKind = rowKind
         self.feedback = feedback
+        self.workflowCompletion = workflowCompletion
     }
 }
 

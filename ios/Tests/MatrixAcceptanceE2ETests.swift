@@ -1238,4 +1238,106 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
                        "发送正文应恰出现一次（实际 \(matches.count)——>1 = 乐观回显未被服务端行消费）")
         snap(application, "matrix-g026-echo-consumed")
     }
+
+    // MARK: - G-027：工作流完成卡（桌面 WorkflowCompletionCard 同款）
+
+    /// 2026-10-09 用户点单「手机端也做个类似的卡片」回归门：替身注入 completed 通知轮
+    /// （turnHeader 行 origin=backgroundResult + workflowNotification terminal completed）
+    /// + 活投影 run（usage.spentTokens/actors/phases/artifacts bytes·itemCount）→
+    /// 会话页轮尾落卡：卡头「工作流已完成」+ run 名、交付物（标题+说明）、产物索引行、
+    /// 四格数字（时间/tokens/子代理/阶段）。冷快照即全链路（行+state 都走订阅重放）。
+    func test27_workflowCompletionCardFromNotificationTurn() throws {
+        // 通知轮 turnHeader 行（runId=workId 对齐活投影）
+        stub.setSessionRows(sessionId: "sess-e2e-1", rows: [[
+            "rowId": 1, "kind": "turnHeader", "origin": "backgroundResult",
+            "state": "completedSuccess",
+            "originMeta": [
+                "backgroundSource": "workflow",
+                "workId": "run-e2e-wf-1",
+                "title": "稳定性审查 + proto 迁移",
+                "workflowNotification": [
+                    "kind": "terminal", "status": "completed",
+                    "summary": "崩溃点迁移到生成类型、线格式验证、稳定性审查修复与挂起项。",
+                    "durationMs": 10_020_000,
+                    "artifacts": [
+                        ["id": "art-1", "kind": "markdown", "version": 3,
+                         "title": "稳定性与 proto 迁移报告", "primary": true,
+                         "description": "崩溃点迁移到生成类型、线格式验证与挂起项。"],
+                        ["id": "art-2", "kind": "table", "version": 1,
+                         "title": "稳定性+proto迁移进度"],
+                    ],
+                ],
+            ],
+        ]] as [[String: Any]])
+        stub.setWorkflowRunsState(sessionId: "sess-e2e-1", runs: [[
+            "runId": "run-e2e-wf-1", "name": "稳定性审查 + proto 迁移",
+            "status": "completed",
+            "usage": ["spentTokens": 37_020_000],
+            "phases": [["name": "准备"], ["name": "执行"], ["name": "校验"], ["name": "收口"],
+                       ["name": "交付"], ["name": "归档"]],
+            "actors": [
+                ["siteId": "a1", "ordinal": 1, "name": "子代理一", "status": "completed"],
+                ["siteId": "a2", "ordinal": 2, "name": "子代理二", "status": "completed"],
+                ["siteId": "a3", "ordinal": 3, "name": "子代理三", "status": "completed"],
+            ],
+            "artifacts": [
+                ["id": "art-1", "kind": "markdown", "version": 3, "bytes": 12_088,
+                 "primary": true],
+                ["id": "art-2", "kind": "table", "version": 1, "itemCount": 6],
+            ],
+        ]] as [[String: Any]])
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        let planRow = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(planRow.waitForExistence(timeout: 15), "重连后应呈现替身会话行")
+        var inDetail = false
+        for _ in 0..<6 where !inDetail {
+            planRow.tap()
+            inDetail = element(application, "05-composer-input").waitForExistence(timeout: 2)
+        }
+        XCTAssertTrue(inDetail, "进入 sess-e2e-1 详情")
+
+        // 卡头：种类词 + run 名 + 已完成。
+        // ⚠ 容器挂 .accessibilityElement(children: .contain)——自身 label 不含子文本
+        // （test17 同款教训），文本断言一律查容器内 staticText
+        let card = element(application, "05-wf-completion")
+        XCTAssertTrue(card.waitForExistence(timeout: 12), "轮尾应落工作流完成卡")
+        func cardContains(_ text: String, timeout: TimeInterval = 8,
+                          _ message: @autoclosure @escaping () -> String) -> Bool {
+            let probe = card.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text))
+            return waitUntil(timeout: timeout, message()) { probe.firstMatch.exists }
+        }
+        XCTAssertTrue(cardContains("已完成", "卡头应有已完成状态词"))
+        XCTAssertTrue(cardContains("稳定性审查 + proto 迁移", "run 名应上卡"))
+
+        // 交付物 + 产物索引（bytes/itemCount 来自活投影 join）
+        XCTAssertTrue(cardContains("稳定性与 proto 迁移报告", "交付物标题应上卡"))
+        XCTAssertTrue(cardContains("崩溃点迁移到生成类型", "交付物说明应上卡"))
+        XCTAssertTrue(cardContains("12.1 KB", "bytes join 应显示文件大小"))
+        XCTAssertTrue(cardContains("6 条", "itemCount join 应显示条目数"))
+
+        // 四格数字（时间 10_020_000ms=2小时47分；tokens 37.02M；子代理 3；阶段 6）
+        XCTAssertTrue(cardContains("37.02M", "tokens 格应显 compact 格式"))
+        XCTAssertTrue(cardContains("2 小时 47 分", "时间格应显墙钟时长"))
+
+        // 产物点按 → 详情 sheet（workflowRunArtifactReadV4 分块拼装 markdown 全文）
+        let artifactRow = element(application, "05-wf-completion-artifact")
+        XCTAssertTrue(artifactRow.waitForExistence(timeout: 6), "交付物行应可点（详情入口）")
+        artifactRow.tap()
+        let reportText = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS '线格式验证已通过'"))
+        XCTAssertTrue(waitUntil(timeout: 12, "点交付物应拉取并渲染报告全文") {
+            reportText.firstMatch.exists
+        }, "详情 sheet 应渲染替身回执的 markdown 内容")
+        XCTAssertTrue(element(application, "07-wf-artifact-close").waitForExistence(timeout: 6),
+                      "详情 sheet 应有关闭钮")
+        element(application, "07-wf-artifact-close").tap()
+        // Matrix 套件无 waitGoneQuickly——手写有界消失等待
+        let closeDeadline = Date().addingTimeInterval(4)
+        while Date() < closeDeadline, reportText.firstMatch.exists {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        XCTAssertFalse(reportText.firstMatch.exists, "关闭后详情 sheet 应收起")
+        snap(application, "matrix-g027-completion-card")
+    }
 }

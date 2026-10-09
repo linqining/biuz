@@ -1309,10 +1309,20 @@ final class FeatureCompletionE2ETests: XCTestCase {
                       "点击会话行应推入详情")
         let thoughtChip = element(application, "05-chip-thought")
         XCTAssertTrue(thoughtChip.waitForExistence(timeout: 12), "思考胶囊应在场（连接态 chips）")
+        // 焦点在场点 chip 探针（2026-10-09 真机报障「会话页模型/思考不可选，新建
+        // sheet 可选」根因：composer 持焦点时触摸被输入法层消费、sheet 被键盘转场
+        // 吞——chip 入口统一先撤焦再呈现）。模拟器硬键盘连态下软键盘不出、IME 吞
+        // 触摸不可完全复现（真机中文输入法才是完整形态），此处至少门禁「焦点激活
+        // 时面板仍开」；探针只开面板不选档，不污染后续 stale 计数断言
+        element(application, "05-composer-input").tap()
+        let lowItems = application.buttons.matching(NSPredicate(format: "label == 'low'"))
+        XCTAssertTrue(openTargetMenu(thoughtChip, candidate: lowItems),
+                      "焦点在场点思考胶囊仍应弹出菜单（撤焦先行）")
+        application.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+        _ = waitGoneQuickly(lowItems.firstMatch, within: 4)
         // Menu 呈现为系统弹层：开弹以菜单项出现为证据。不能用 tapUntil——菜单开着时
         // 胶囊被遮挡不可命中/或仍可命中时再 tap 会把菜单关掉（开合互打，test12 门禁
         // 视频实证）；openTargetMenu tap 一次后短轮询候选、未弹有界重开
-        let lowItems = application.buttons.matching(NSPredicate(format: "label == 'low'"))
         XCTAssertTrue(openTargetMenu(thoughtChip, candidate: lowItems),
                       "点思考胶囊应弹出菜单（low 档项在场）")
         lowItems.firstMatch.tap()
@@ -1824,5 +1834,63 @@ final class FeatureCompletionE2ETests: XCTestCase {
         }, "确认后直通默认创建；实际 createSession=\(stub.createSessionCount) 次")
         XCTAssertEqual(stub.blockedWriteCommandCount, 0,
                        "提交门路径不应产生边界外直写命令")
+    }
+
+    // MARK: - 门禁 19：userselect 尾部块渲染层剥离 + 引用卡点开详情
+
+    /// 2026-10-09 用户点单「user select text 参照官方做成卡片可点开看详情」：
+    /// 官方 web 渲染前剥离 userselect 尾块（上游 conversationSelectionReference.ts:56）
+    /// + 气泡外引用胶囊；移动端同口径——① 围栏/JSON 不裸显、气泡只显可见正文；
+    /// ② 引用卡 label 按官方 mixedCount 规则（含 path 的多条 →「2 条引用」）；
+    /// ③ 点开详情 sheet 逐条全文 + 来源行（path 显示路径、纯对话显示「对话引用」）。
+    /// 解析必须在渲染层（store 乐观回显去重按原始文本匹配——改写 text 会破坏去重）。
+    func test19_userSelectTailBlockCardAndDetailSheet() throws {
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+
+        let row = element(application, "04-row-sess-e2e-usel")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "选区引用会话应在列表呈现")
+        XCTAssertTrue(openConversation(row, application: application), "应进入会话详情")
+
+        let messageScroll = element(application, "05-message-scroll")
+        // ① 引用卡在场；围栏头/JSON 不以裸文本呈现（官方剥离口径）
+        let card = element(application, "05-userselect-card")
+        XCTAssertTrue(waitUntil(timeout: 12, "userselect 消息应渲染引用卡") {
+            card.exists
+        }, "替身注入官方尾部块形态，渲染层应命中解析")
+        XCTAssertTrue(scrollToHittable(card, application: application, scrollElement: messageScroll),
+                      "引用卡应可滚动至可命中")
+        let fenceText = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "userselect"))
+        XCTAssertFalse(fenceText.firstMatch.exists,
+                       "围栏/头行不得以裸文本呈现（官方渲染前剥离口径）")
+        let rawJSON = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "{\"text\""))
+        XCTAssertFalse(rawJSON.firstMatch.exists, "围栏 JSON 载荷不得裸显")
+
+        // ② label 官方 mixedCount 规则：一条纯对话 + 一条带 path →「2 条引用」
+        let mixedLabel = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "2 条引用"))
+        XCTAssertTrue(mixedLabel.firstMatch.exists, "混合引用应按 mixedCount 计数呈现 label")
+
+        // ③ 点开详情 sheet：逐条全文 + 来源行 + 关闭收回
+        card.tap()
+        let close = element(application, "05-userselect-close")
+        XCTAssertTrue(close.waitForExistence(timeout: 8), "点引用卡应弹详情 sheet")
+        let firstQuote = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "挂起 20 项的分类和细分逻辑"))
+        XCTAssertTrue(firstQuote.firstMatch.waitForExistence(timeout: 4),
+                      "详情应含第一条选区全文")
+        let pathSource = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "ChatView.swift"))
+        XCTAssertTrue(pathSource.firstMatch.exists, "文件选段应显示来源路径")
+        let conversationSource = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "对话引用"))
+        XCTAssertTrue(conversationSource.firstMatch.exists, "纯对话选段应显示「对话引用」来源")
+        snap(application, "59-userselect-detail-sheet")
+        close.tap()
+        XCTAssertTrue(waitGoneQuickly(close, within: 4), "关闭钮应收起详情 sheet")
+        XCTAssertEqual(stub.blockedWriteCommandCount, 0,
+                       "纯读面渲染不应产生任何边界外写命令")
     }
 }

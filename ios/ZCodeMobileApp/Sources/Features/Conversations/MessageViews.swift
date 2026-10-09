@@ -19,6 +19,13 @@ struct MessageView: View {
     var onFeedback: ((Bool?) async -> String?)? = nil
     /// P1-3 编辑重发下发（新文本；返回失败文案）。nil 回调 = 长按菜单无「编辑重发」项
     var onEditResend: ((String) async -> String?)? = nil
+    /// 工作流完成卡四格 join（活投影 run 按 runId 对位；nil = 拿不到的格写「—」）
+    var workflowCompletionRun: WorkflowRunSummary? = nil
+    /// 完成卡 ⤢ 打开工作流面板（宿主门控：仅卡对应 run 是面板当前 run 时接线——
+    /// 面板只显 workflowRuns.first，错位打开会读成另一次运行；nil = 不渲染入口）
+    var onOpenWorkflowRun: (() -> Void)? = nil
+    /// 完成卡产物点按 → 内容详情（宿主接线 sheet；nil = 点按无响应不渲染手势力）
+    var onOpenWorkflowArtifact: ((WorkflowCompletionArtifact) -> Void)? = nil
 
     /// 消息行 rowId（id 形如 "row-<n>"，G-015 retryTurn 游标之一）
     private var rowId: Int? {
@@ -45,25 +52,17 @@ struct MessageView: View {
                         sessionID: sessionID, refs: message.attachments,
                         rowAlignment: .trailing)
                 }
-                UserBubble(text: message.text)
-                    // P1-3 长按菜单（全 App contextMenu 先例 ConversationListView）：
-                    // 「编辑重发」仅连接态且行游标在场才出现；「复制文本」恒有
-                    .contextMenu {
-                        if canEditResend {
-                            Button {
-                                showEditResend = true
-                            } label: {
-                                Label(String(localized: "编辑重发"), systemImage: "pencil")
-                            }
-                            .accessibilityIdentifier("05-msg-act-edit-resend")
-                        }
-                        Button {
-                            UIPasteboard.general.string = message.text
-                        } label: {
-                            Label(String(localized: "复制文本"), systemImage: "doc.on.doc")
-                        }
-                        .accessibilityIdentifier("05-msg-act-copy")
+                // userselect 尾部块渲染层剥离 + 引用卡（官方 web 同口径：正文渲染前剥块、
+                // 气泡外呈现引用胶囊）。解析必须在渲染层——store 层乐观回显去重按原始
+                // 文本匹配（rebuildMessages 尾部 serverUserTexts.contains），改写 text 会破坏去重
+                if let selection = UserSelectionSupport.parse(message.text) {
+                    if !selection.visibleText.isEmpty {
+                        userBubble(selection.visibleText)
                     }
+                    UserSelectionCardView(selections: selection.selections)
+                } else {
+                    userBubble(message.text)
+                }
             }
             .sheet(isPresented: $showEditResend) {
                 EditResendSheet(
@@ -106,6 +105,14 @@ struct MessageView: View {
                 if let question = message.question {
                     QuestionCardView(question: question, onReply: onQuickReply)
                 }
+                // 工作流完成卡（桌面 ConversationWorkflowCompletion 同款，2026-10-09 点单）
+                if let completion = message.workflowCompletion {
+                    WorkflowCompletionCardView(
+                        card: completion,
+                        run: workflowCompletionRun,
+                        onOpenRun: onOpenWorkflowRun,
+                        onOpenArtifact: onOpenWorkflowArtifact)
+                }
                 // P1-3 反馈行（设计稿 §3.1 门槛：仅助手正文行——reasoning/subagent/
                 // artifact/state-todos 等合成消息 rowKind ≠ assistantText 天然排除；
                 // 游标缺失/非连接态不渲染；流式首帧行空文本不渲染，文本抵达随重建出现）
@@ -117,6 +124,29 @@ struct MessageView: View {
                 }
             }
         }
+    }
+
+    /// 用户气泡 + P1-3 长按菜单（displayText 为剥离 userselect 尾块后的可见正文；
+    /// 「复制文本」恒复制 message.text 原文——剥离仅影响展示不改数据）
+    @ViewBuilder
+    private func userBubble(_ displayText: String) -> some View {
+        UserBubble(text: displayText)
+            .contextMenu {
+                if canEditResend {
+                    Button {
+                        showEditResend = true
+                    } label: {
+                        Label(String(localized: "编辑重发"), systemImage: "pencil")
+                    }
+                    .accessibilityIdentifier("05-msg-act-edit-resend")
+                }
+                Button {
+                    UIPasteboard.general.string = message.text
+                } label: {
+                    Label(String(localized: "复制文本"), systemImage: "doc.on.doc")
+                }
+                .accessibilityIdentifier("05-msg-act-copy")
+            }
     }
 }
 
@@ -360,6 +390,222 @@ struct UserBubble: View {
             .overlay(RoundedRectangle(cornerRadius: T.rL).stroke(T.border, lineWidth: 1))
         }
         .padding(.leading, T.sp6)
+    }
+}
+
+// MARK: - 用户选区引用（userselect 尾部块；官方 web 渲染前剥离 + 胶囊化，移动端卡片化）
+
+/// 单条选区引用。围栏载荷合同仅 text + 可选 path（文件选段才有）
+/// 【实证·上游仓】conversationSelectionReference.ts:154（发送只序列化 text/path）；
+/// 官方限额：单条 8k 字 / 最多 8 条 / 总计 16k 字（:3-5）
+struct UserSelectionReference: Identifiable, Equatable {
+    let id: String
+    let text: String
+    var path: String?
+
+    init(text: String, path: String? = nil, id: String) {
+        self.id = id
+        self.text = text
+        self.path = path
+    }
+}
+
+/// 详情 sheet 载荷（呈现期捕获 selections，§5-15：关闭单路径置 nil）
+struct UserSelectionDetail: Identifiable {
+    let id = UUID().uuidString
+    let selections: [UserSelectionReference]
+}
+
+enum UserSelectionSupport {
+    /// 解析用户消息尾部的 userselect 块；nil = 不是引用消息，按原样渲染。
+    /// 锚定文本末尾（官方语义），剥离块后剩余为可见正文——空正文合法（纯引用消息）
+    static func parse(_ raw: String) -> (visibleText: String, selections: [UserSelectionReference])? {
+        // 先官方后宽容：官方头必须先试，否则裸围栏分支会把「# userselect:」头行残留进可见正文
+        for variant in Variant.allCases {
+            if let result = match(raw, variant: variant) { return result }
+        }
+        return nil
+    }
+
+    /// 卡片 label（官方三规则，ConversationSelectionReferenceChip.tsx:24-38）：
+    /// 单条有 path → 「文件名 · 引用」；多条含 path → 「n 条引用」；纯对话 → 「n 条对话引用」
+    static func cardLabel(_ selections: [UserSelectionReference]) -> String {
+        if selections.count == 1, let path = selections[0].path {
+            return String(localized: "\(pathFilename(path)) · 引用")
+        }
+        if selections.contains(where: { $0.path != nil }) {
+            return String(localized: "\(selections.count) 条引用")
+        }
+        return String(localized: "\(selections.count) 条对话引用")
+    }
+
+    /// 文件名取路径尾段（官方 path.split(/[\\/]/).pop()）
+    static func pathFilename(_ path: String) -> String {
+        let parts = path.split { $0 == "/" || $0 == "\\" }
+        return parts.last.map(String.init) ?? path
+    }
+
+    private enum Variant: CaseIterable {
+        /// 官方：【实证·上游仓】conversationSelectionReference.ts:56
+        case official
+        /// 旧版拼写：【实证·上游仓】conversationSelectionReference.ts:57-58
+        case legacy
+        /// 裸围栏（无注释头）：【宽容·未取证】防御桌面变体，桌面现行走官方头形态
+        case bare
+
+        var header: String? {
+            switch self {
+            case .official: return "# userselect:"
+            case .legacy: return "# Conversation selections:"
+            case .bare: return nil
+            }
+        }
+
+        var fence: String {
+            switch self {
+            case .official, .bare: return "```userselect"
+            case .legacy: return "```zcode-conversation-selections"
+            }
+        }
+    }
+
+    /// 尾部块正则（镜像上游，锚定 \z；载荷惰性匹配至「满足结尾锚的最早 \n```」——
+    /// 与 JS USER_SELECT_BLOCK_PATTERN 行为一致，载荷含 ``` 字符时仍能对位真闭合围栏）
+    private static func regex(for variant: Variant) -> NSRegularExpression? {
+        // (?:\n\n)?[#头\n]?```lang\n(载荷)\n```[空白]*\z —— 头行仅官方/legacy 形态携带
+        let headerPart = variant.header.map { NSRegularExpression.escapedPattern(for: $0) + "\\n" } ?? ""
+        let fence = NSRegularExpression.escapedPattern(for: variant.fence)
+        let pattern = "(?:\\n\\n)?\(headerPart)\(fence)\\n([\\s\\S]*?)\\n```[ \\t\\r\\n]*\\z"
+        return try? NSRegularExpression(pattern: pattern)
+    }
+
+    private static func match(
+        _ raw: String, variant: Variant
+    ) -> (visibleText: String, selections: [UserSelectionReference])? {
+        guard let regex = regex(for: variant) else { return nil }
+        let ns = raw as NSString
+        guard let m = regex.firstMatch(in: raw, range: NSRange(location: 0, length: ns.length)),
+              m.range.location != NSNotFound,
+              m.numberOfRanges > 1 else { return nil }
+        let json = ns.substring(with: m.range(at: 1))
+        guard let selections = decode(json) else { return nil }
+        // 可见正文 = 整个匹配之前的前缀（匹配已吞掉块前的空行分隔），尾部再收一次空白
+        let visible = ns.substring(to: m.range.location)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (visible, selections)
+    }
+
+    /// 宽容解码：忽略未知键（官方合同仅 text/path）；无有效条目 → nil（回退原样渲染）
+    private static func decode(_ json: String) -> [UserSelectionReference]? {
+        guard let data = json.data(using: .utf8),
+              let array = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else {
+            return nil
+        }
+        var items: [UserSelectionReference] = []
+        for (index, entry) in array.enumerated() {
+            guard let text = entry["text"] as? String, !text.isEmpty else { continue }
+            let path = entry["path"] as? String
+            items.append(UserSelectionReference(
+                text: text, path: (path?.isEmpty == true) ? nil : path,
+                id: "userselect-\(index)"))
+        }
+        return items.isEmpty ? nil : items
+    }
+}
+
+/// 引用卡（官方 web ContextAttachmentPill 胶囊 + hover 详情浮层的移动端形态：
+/// 卡片点开详情 sheet）。sheet 挂卡内行级 @State——宿主行已有 EditResend sheet，
+/// 同视图链双 sheet 后挂遮蔽先挂（fullScreenCover 同坑先例 AttachmentThumbView）
+struct UserSelectionCardView: View {
+    let selections: [UserSelectionReference]
+    @State private var detail: UserSelectionDetail?
+
+    var body: some View {
+        Button {
+            detail = UserSelectionDetail(selections: selections)
+        } label: {
+            HStack(alignment: .top, spacing: T.sp2) {
+                Image(systemName: "text.quote")
+                    .font(.system(size: 14))
+                    .foregroundColor(T.text3)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(UserSelectionSupport.cardLabel(selections))
+                        .font(T.font(13, .semibold))
+                        .foregroundColor(T.text)
+                    Text(selections[0].text)
+                        .font(T.font(12.5))
+                        .foregroundColor(T.text3)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(T.text3)
+                    .padding(.top, 3)
+            }
+            .padding(T.sp3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(T.bgCard)
+            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+            .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: T.rM))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("05-userselect-card")
+        .sheet(item: $detail) { presented in
+            UserSelectionDetailSheet(detail: presented) { detail = nil }
+        }
+    }
+}
+
+/// 引用详情 sheet（官方 AttachmentHoverCardContent 浮层的全屏形态：
+/// 逐条 = 引号图标 + 全文可选中复制 + 来源行）
+struct UserSelectionDetailSheet: View {
+    let detail: UserSelectionDetail
+    let onClose: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: T.sp2) {
+                    ForEach(detail.selections) { selection in
+                        HStack(alignment: .top, spacing: T.sp2) {
+                            Image(systemName: "text.quote")
+                                .font(.system(size: 14))
+                                .foregroundColor(T.text3)
+                                .padding(.top, 2)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(selection.text)
+                                    .font(T.font(13.5))
+                                    .foregroundColor(T.text)
+                                    .textSelection(.enabled)
+                                Text(selection.path ?? String(localized: "对话引用"))
+                                    .font(T.font(11.5))
+                                    .foregroundColor(T.text3)
+                                    .lineLimit(2)
+                            }
+                        }
+                        .padding(T.sp3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(T.bgCard)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+                    }
+                }
+                .padding(T.sp3)
+            }
+            .background(T.bg)
+            .navigationTitle("引用详情")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "关闭")) { onClose() }
+                        .accessibilityIdentifier("05-userselect-close")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
@@ -1407,5 +1653,300 @@ struct AttachmentVideoFullscreenView: View {
             player?.pause()
             player = nil
         }
+    }
+}
+
+/// 工作流完成卡（桌面 WorkflowCompletionCard 同款，2026-10-09 用户看桌面截图点单
+/// 「手机端也做个类似的卡片」）。三段收据式：表头（种类词+run 名+状态灯）→ 交付物行/
+/// 产物索引（通知载荷 artifacts，join 活投影补 bytes/条目）→ 四格数字（时间/tokens/
+/// 子代理/阶段）。数字的诚实：拿不到的格写「—」不写 0【实证·上游仓
+/// WorkflowCompletionCard.tsx:13 注释 + ConversationWorkflowCompletion.tsx:39-48】。
+/// 产物不可点（移动端无产物侧板能力——不渲染死入口，§5 门禁口径）。
+struct WorkflowCompletionCardView: View {
+    let card: WorkflowCompletionCard
+    /// 活投影 run（按 runId 对位；nil = tokens/子代理/阶段三格「—」）
+    let run: WorkflowRunSummary?
+    /// ⤢ 打开工作流面板（宿主门控接线；nil = 不渲染入口）
+    let onOpenRun: (() -> Void)?
+    /// 产物点按 → 内容详情 sheet（markdown/plain 渲染全文；其余类型 sheet 内如实标注）
+    var onOpenArtifact: ((WorkflowCompletionArtifact) -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.sp3) {
+            header
+            deliverables
+            statsRow
+        }
+        .padding(T.sp3)
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-wf-completion")
+    }
+
+    /// 表头：flowchart 图标 + 种类词 + run 名，右侧绿点「已完成」+ [⤢]
+    private var header: some View {
+        HStack(alignment: .top, spacing: T.sp2) {
+            Image(systemName: "flowchart.fill")
+                .font(.system(size: 14))
+                .foregroundColor(T.text3)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "工作流已完成"))
+                    .font(T.font(13, .semibold))
+                    .foregroundColor(T.text)
+                Text(card.name)
+                    .font(T.font(13))
+                    .foregroundColor(T.text2)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: T.sp1) {
+                Circle().fill(T.accentText).frame(width: 7, height: 7)
+                Text(String(localized: "已完成"))
+                    .font(T.font(12, .medium))
+                    .foregroundColor(T.accentText)
+                if let onOpenRun {
+                    Button {
+                        onOpenRun()
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(T.text3)
+                            .frame(minWidth: 32, minHeight: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("05-wf-completion-open")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var deliverables: some View {
+        let primary = card.artifacts.first(where: \.primary)
+        let rest = card.artifacts.filter { !($0.primary == true) }
+        if primary != nil || !rest.isEmpty || card.truncated {
+            VStack(alignment: .leading, spacing: T.sp2) {
+                if let primary {
+                    Button {
+                        onOpenArtifact?(primary)
+                    } label: {
+                        VStack(alignment: .leading, spacing: T.sp1) {
+                            Text(primary.title ?? primary.id)
+                                .font(T.font(13.5, .semibold))
+                                .foregroundColor(T.text)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if let description = primary.description, !description.isEmpty {
+                                Text(description)
+                                    .font(T.font(12.5))
+                                    .foregroundColor(T.text3)
+                                    .lineLimit(4)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            artifactMetaText(primary)
+                                .font(T.font(11.5))
+                                .foregroundColor(T.text3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(T.sp2)
+                        .background(T.bgElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("05-wf-completion-artifact")
+                }
+                ForEach(Array(rest.enumerated()), id: \.element.id) { _, artifact in
+                    Button {
+                        onOpenArtifact?(artifact)
+                    } label: {
+                        HStack(spacing: T.sp2) {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 11))
+                                .foregroundColor(T.text3)
+                            Text(artifact.title ?? artifact.id)
+                                .font(T.font(12.5))
+                                .foregroundColor(T.text2)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            artifactMetaText(artifact)
+                                .font(T.font(11.5))
+                                .foregroundColor(T.text3)
+                        }
+                        .frame(minHeight: 36)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                if card.truncated {
+                    Text(String(localized: "产物清单已截断 · 其余经桌面端查看"))
+                        .font(T.font(11.5))
+                        .foregroundColor(T.text3)
+                }
+            }
+        }
+    }
+
+    /// 种类词 + 大小/条目（bytes/itemCount 来自活投影 join，缺席只显种类词）
+    private func artifactMetaText(_ artifact: WorkflowCompletionArtifact) -> Text {
+        var parts: [String] = [Self.kindLabel(artifact.kind)]
+        if let bytes = joinedArtifact(for: artifact.id)?.bytes ?? artifact.bytes {
+            parts.append(Self.byteText(bytes))
+        }
+        if let count = joinedArtifact(for: artifact.id)?.itemCount ?? artifact.itemCount {
+            parts.append(String(localized: "\(count) 条"))
+        }
+        return Text(parts.joined(separator: " · "))
+    }
+
+    private func joinedArtifact(for id: String) -> WorkflowArtifactBrief? {
+        run?.artifactBriefs.first { $0.id == id }
+    }
+
+    /// 四格数字（桌面 figures 同序：时间/tokens/子代理/阶段）
+    private var statsRow: some View {
+        HStack(alignment: .top, spacing: 0) {
+            figure(label: String(localized: "时间"), value: UsageStatsView.durationText(card.durationMs))
+            figure(label: String(localized: "tokens"), value: run?.spentTokens.map(Self.compactCount))
+            figure(label: String(localized: "子代理"), value: run.map { "\($0.actors.count)" })
+            figure(label: String(localized: "阶段"), value: run?.phaseCount.map(String.init))
+        }
+    }
+
+    private func figure(label: String, value: String?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value ?? "—")
+                .font(T.font(17, .semibold).monospacedDigit())
+                .foregroundColor(T.text)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(label)
+                .font(T.font(11))
+                .foregroundColor(T.text3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// tokens 紧凑写法（上游 formatCompactCount 逐字移植：固定位数让四格等宽数字对齐）
+    static func compactCount(_ count: Int) -> String {
+        if count < 1_000 { return String(count) }
+        if count < 1_000_000 { return String(format: "%.1fk", Double(count) / 1_000) }
+        return String(format: "%.2fM", Double(count) / 1_000_000)
+    }
+
+    static func byteText(_ bytes: Int) -> String {
+        if bytes < 1_000 { return "\(bytes) B" }
+        if bytes < 1_000_000 { return String(format: "%.1f KB", Double(bytes) / 1_000) }
+        return String(format: "%.1f MB", Double(bytes) / 1_000_000)
+    }
+
+    /// 产物种类词（六态闭集【实证·上游仓 workflow-row-meta.ts:60】；文档=markdown 桌面同款）
+    static func kindLabel(_ kind: String) -> String {
+        switch kind {
+        case "markdown": return String(localized: "文档")
+        case "chart": return String(localized: "图表")
+        case "table": return String(localized: "表格")
+        case "metrics": return String(localized: "指标")
+        case "board": return String(localized: "看板")
+        default: return String(localized: "文件")
+        }
+    }
+}
+
+/// 工作流产物详情 sheet（完成卡产物点按落点）：workflowRunArtifactReadV4 分块拼装
+/// markdown/plain 全文渲染；其余 mediaType 如实标注「暂不支持手机端预览」；加载失败
+/// 保留错误行 + 重试（读面失败不折叠成空态，§5-12 口径）。
+struct WorkflowArtifactRequest: Identifiable, Equatable {
+    let id = UUID()
+    let sessionID: String
+    let card: WorkflowCompletionCard
+    let artifact: WorkflowCompletionArtifact
+}
+
+struct WorkflowArtifactSheetView: View {
+    let request: WorkflowArtifactRequest
+    let onClose: () -> Void
+    /// 内容读取（宿主注入 viewModel 透传——store 在 VM 内私有）
+    let load: (WorkflowArtifactRequest) async -> (data: Data, mediaType: String)?
+    @State private var content: String?
+    @State private var mediaType: String?
+    @State private var failureText: String?
+    @State private var isLoading = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    CenterLoadingView(text: "加载产物内容…")
+                } else if let failureText {
+                    VStack(spacing: T.sp2) {
+                        Text(failureText)
+                            .font(T.font(13))
+                            .foregroundColor(T.text3)
+                            .multilineTextAlignment(.center)
+                        Button(String(localized: "重试")) { Task { await load() } }
+                            .font(T.font(14, .semibold))
+                            .foregroundColor(T.accentText)
+                    }
+                } else if let content {
+                    ScrollView {
+                        // markdown/plain 都走正文渲染（>6k 字内置截断护解析）
+                        MarkdownMessageBody(text: content)
+                            .padding(T.sp3)
+                    }
+                } else {
+                    VStack(spacing: T.sp2) {
+                        Text(request.artifact.title ?? request.artifact.id)
+                            .font(T.font(14, .semibold))
+                        Text(String(localized: "该产物类型暂不支持手机端预览 · 请在桌面端查看"))
+                            .font(T.font(12.5))
+                            .foregroundColor(T.text3)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(T.sp4)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(T.bg)
+            .navigationTitle(request.artifact.title ?? request.artifact.id)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "关闭")) { onClose() }
+                        .accessibilityIdentifier("07-wf-artifact-close")
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    /// 可渲染判定：markdown/纯文本族（v1 渲染面；二进制族如实体签名出提示页）
+    private static func isRenderable(_ mediaType: String) -> Bool {
+        let mt = mediaType.lowercased()
+        return mt.hasPrefix("text/")
+            || mt.contains("markdown")
+            || mt == "application/json"
+    }
+
+    private func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        failureText = nil
+        content = nil
+        defer { isLoading = false }
+        guard let (data, mt) = await load(request) else {
+            failureText = String(localized: "产物内容加载失败 · 桌面端未回执")
+            return
+        }
+        mediaType = mt
+        guard Self.isRenderable(mt), let text = String(data: data, encoding: .utf8),
+              !text.isEmpty else {
+            // 非文本族：不出空态，出如实提示（产物元数据仍可见）
+            return
+        }
+        content = text
     }
 }

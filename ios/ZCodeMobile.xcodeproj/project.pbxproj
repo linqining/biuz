@@ -18,6 +18,7 @@
 		BBBB1007000000000000000B /* ProviderDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA1007000000000000000B /* ProviderDisplayTests.swift */; };
 		BBBB10070000000000000006 /* CommandFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA10070000000000000006 /* CommandFactoryTests.swift */; };
 		BBBB10070000000000000007 /* AckActivationBarrierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA10070000000000000007 /* AckActivationBarrierTests.swift */; };
+		BBBB1007000000000000000C /* UserSelectionParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA1007000000000000000C /* UserSelectionParsingTests.swift */; };
 		002950721655AE315013635C /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2D54E8CDE727E93B064055 /* RootView.swift */; };
 		017BAE8773AC3CE5A203FE27 /* TaskNotificationContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ABFC2280688B1F228898495 /* TaskNotificationContentTests.swift */; };
 		02F787931DA9B07F3E639348 /* P2ExtrasViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99765DA82BF8AB5FF5A1A8A5 /* P2ExtrasViews.swift */; };
@@ -121,6 +122,7 @@
 		AAAA1007000000000000000B /* ProviderDisplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderDisplayTests.swift; sourceTree = "<group>"; };
 		AAAA10070000000000000006 /* CommandFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandFactoryTests.swift; sourceTree = "<group>"; };
 		AAAA10070000000000000007 /* AckActivationBarrierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AckActivationBarrierTests.swift; sourceTree = "<group>"; };
+		AAAA1007000000000000000C /* UserSelectionParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSelectionParsingTests.swift; sourceTree = "<group>"; };
 		0266B0BDA4341531C4BB8EAB /* ZCodeMobileLoginE2ETests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZCodeMobileLoginE2ETests.swift; sourceTree = "<group>"; };
 		02BB093265D7B81233803F4F /* SessionPanelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPanelsView.swift; sourceTree = "<group>"; };
 		0A3C7D100000000000000002 /* ComposerOptionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerOptionSheet.swift; sourceTree = "<group>"; };
@@ -293,6 +295,7 @@
 				20251CA9C8E283A5E27EC124 /* CompletenessUnitTests.swift */,
 				0FEDCBA9876543211FFDDEE0 /* DraftHandoffModelSelectionTests.swift */,
 				AAAA10070000000000000007 /* AckActivationBarrierTests.swift */,
+				AAAA1007000000000000000C /* UserSelectionParsingTests.swift */,
 				AAAA10070000000000000006 /* CommandFactoryTests.swift */,
 				AAAA10070000000000000005 /* ProtocolSchemaTests.swift */,
 				AAAA10070000000000000008 /* WorkflowActorBindingTests.swift */,
@@ -718,6 +721,7 @@
 				BBBB1007000000000000000B /* ProviderDisplayTests.swift in Sources */,
 				BBBB10070000000000000006 /* CommandFactoryTests.swift in Sources */,
 				BBBB10070000000000000007 /* AckActivationBarrierTests.swift in Sources */,
+				BBBB1007000000000000000C /* UserSelectionParsingTests.swift in Sources */,
 				79B4C8627E2F9049E3C419A0 /* RelayLinkTests.swift in Sources */,
 				017BAE8773AC3CE5A203FE27 /* TaskNotificationContentTests.swift in Sources */,
 			);

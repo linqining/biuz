@@ -319,4 +319,100 @@ final class WorkspaceConfigThoughtKeyTests: XCTestCase {
                        "account:zai-start-plan",
                        "裸名 + 当前绑定模型 → activeProviderId 权威")
     }
+
+    // MARK: - 工作流完成卡（2026-10-09 用户点单「手机端也做个类似的卡片」）
+
+    /// turnHeader 行 → 完成卡解析：completed 全字段 / errored·stopped·非 workflow·非
+    /// backgroundResult 一律 nil（上游 resolveWorkflowTurnCompletion 同缝判定）
+    func testWorkflowCompletionRowParsing() {
+        let row: [String: JSONValue] = [
+            "kind": .string("turnHeader"),
+            "origin": .string("backgroundResult"),
+            "originMeta": .object([
+                "backgroundSource": .string("workflow"),
+                "workId": .string("run-e2e-1"),
+                "title": .string("稳定性审查 + proto 迁移"),
+                "workflowNotification": .object([
+                    "kind": .string("terminal"),
+                    "status": .string("completed"),
+                    "summary": .string("崩溃点迁移到生成类型、线格式验证与挂起项。"),
+                    "durationMs": .int(10_020_000),
+                    "artifacts": .array([
+                        .object(["id": .string("art-1"), "kind": .string("markdown"),
+                                 "title": .string("稳定性与 proto 迁移报告"), "version": .int(3),
+                                 "primary": .bool(true),
+                                 "description": .string("崩溃点迁移到生成类型、线格式验证。")]),
+                        .object(["id": .string("art-2"), "kind": .string("table"),
+                                 "title": .string("稳定性+proto迁移进度"), "version": .int(1)]),
+                    ]),
+                ]),
+            ]),
+        ]
+        let card = RemoteConversationStore.parseWorkflowCompletionRow(row)
+        XCTAssertNotNil(card)
+        XCTAssertEqual(card?.runId, "run-e2e-1")
+        XCTAssertEqual(card?.name, "稳定性审查 + proto 迁移")
+        XCTAssertEqual(card?.durationMs, 10_020_000)
+        XCTAssertEqual(card?.artifacts.count, 2)
+        XCTAssertEqual(card?.artifacts.first?.primary, true)
+        XCTAssertEqual(card?.artifacts.first?.kind, "markdown")
+        XCTAssertEqual(card?.artifacts.last?.primary, false)
+
+        // errored / stopped 不画卡（通知行已说错误——上游同口径）
+        var errored = row
+        errored["originMeta"] = .object([
+            "backgroundSource": .string("workflow"), "workId": .string("r"), "title": .string("x"),
+            "workflowNotification": .object(["kind": .string("terminal"), "status": .string("errored")])])
+        XCTAssertNil(RemoteConversationStore.parseWorkflowCompletionRow(errored))
+        // 非 workflow 后台通知（bash/subagent）不画卡
+        var bash = row
+        bash["originMeta"] = .object(["backgroundSource": .string("bash"), "workId": .string("r"), "title": .string("x")])
+        XCTAssertNil(RemoteConversationStore.parseWorkflowCompletionRow(bash))
+        // 非 backgroundResult 轮不画卡
+        var userTurn = row
+        userTurn["origin"] = .string("userInput")
+        XCTAssertNil(RemoteConversationStore.parseWorkflowCompletionRow(userTurn))
+        // 空名不画卡
+        var noTitle = row
+        noTitle["originMeta"] = .object([
+            "backgroundSource": .string("workflow"), "workId": .string("r"), "title": .string("  "),
+            "workflowNotification": .object(["kind": .string("terminal"), "status": .string("completed")])])
+        XCTAssertNil(RemoteConversationStore.parseWorkflowCompletionRow(noTitle))
+    }
+
+    /// run 投影三源解析：spentTokens / phaseCount（phases 表 → phaseNames → nodes 去重）
+    /// / artifactBriefs（id+bytes+itemCount）——完成卡四格 join 的数据面
+    func testWorkflowRunSummaryCompletionFields() {
+        let runDict: [String: JSONValue] = [
+            "runId": .string("run-e2e-1"), "name": .string("stub 工作流"),
+            "status": .string("completed"),
+            "usage": .object(["spentTokens": .int(37_020_000)]),
+            "phases": .array([.object(["name": .string("准备")]), .object(["name": .string("执行")])]),
+            "actors": .array([
+                .object(["siteId": .string("a1"), "ordinal": .int(1), "name": .string("子代理一")]),
+                .object(["siteId": .string("a2"), "ordinal": .int(2), "name": .string("子代理二")]),
+            ]),
+            "artifacts": .array([
+                .object(["id": .string("art-1"), "kind": .string("markdown"), "version": .int(3),
+                         "bytes": .int(12_088), "itemCount": .int(6), "primary": .bool(true)]),
+            ]),
+        ]
+        let run = RemoteConversationStore.parseWorkflowRun(.object(runDict))
+        XCTAssertEqual(run?.spentTokens, 37_020_000)
+        XCTAssertEqual(run?.phaseCount, 2, "phases 表在场取表长")
+        XCTAssertEqual(run?.artifactBriefs.first?.bytes, 12_088)
+        XCTAssertEqual(run?.artifactBriefs.first?.itemCount, 6)
+
+        // 退化：无 phases 表时 phaseNames → nodes 去重 phaseName
+        let degenerate = RemoteConversationStore.parseWorkflowRun(.object([
+            "runId": .string("r2"), "name": .string("x"), "status": .string("running"),
+            "phaseNames": .array([.string("a"), .string("b"), .string("a")]),
+        ]))
+        XCTAssertEqual(degenerate?.phaseCount, 2, "phaseNames 首现序去重计数（与 nodes 退化同口径）")
+        // 全缺 = nil（格写「—」）
+        let bare = RemoteConversationStore.parseWorkflowRun(.object([
+            "runId": .string("r3"), "name": .string("x"), "status": .string("running")]))
+        XCTAssertNil(bare?.phaseCount)
+        XCTAssertNil(bare?.spentTokens)
+    }
 }

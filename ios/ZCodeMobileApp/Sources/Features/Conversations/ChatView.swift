@@ -25,6 +25,8 @@ struct ChatView: View {
     /// +composer 总高超屏，VStack 溢出致面板与 composer 层重叠、点按全被吞
     /// （真机反馈 2026-10-07「workflow 打开时键盘收不起、面板也点不收」）
     @State private var expandedPanel: SessionPanelKind?
+    /// 工作流完成卡产物详情 sheet（点交付物/产物索引行；nil = 收起）
+    @State private var workflowArtifactSheet: WorkflowArtifactRequest?
 
     var body: some View {
         Group {
@@ -38,6 +40,15 @@ struct ChatView: View {
         .background(T.bg)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(false)
+        // 工作流完成卡产物详情（点交付物/产物索引行；viewModel 透传 store 私有读面）
+        .sheet(item: $workflowArtifactSheet) { request in
+            WorkflowArtifactSheetView(request: request, onClose: {
+                workflowArtifactSheet = nil
+            }, load: { req in
+                await viewModel?.workflowArtifactContent(req) ?? nil
+            })
+            .presentationDetents([.large])
+        }
         // 键盘弹出即收起面板（单屏保一个焦点：面板+键盘+composer 总高超屏，溢出
         // 后面板与 safeAreaInset 层重叠、点按全被上层吞——真机反馈 2026-10-07；
         // 面板展开→收键盘的反向联动已存在，此处补正向）
@@ -325,7 +336,27 @@ struct ChatView: View {
                             } : nil,
                             onEditResend: viewModel.isReadOnly ? { newText in
                                 await viewModel.editAndResend(message, newText: newText)
-                            } : nil)
+                            } : nil,
+                            // 工作流完成卡四格 join（活投影按 runId 对位；冷恢复 run 被
+                            // 8 条上限淘汰 = 三格「—」桌面同口径）+ ⤢ 门控（仅卡对应 run
+                            // 是面板当前 run 时接线——面板只显 workflowRuns.first）
+                            workflowCompletionRun: message.workflowCompletion.flatMap { card in
+                                viewModel.workflowRuns.first {
+                                    ($0.workId ?? $0.id) == card.runId || $0.id == card.runId
+                                }
+                            },
+                            onOpenWorkflowRun: message.workflowCompletion.flatMap { card in
+                                viewModel.workflowRun.flatMap { current in
+                                    (current.workId ?? current.id) == card.runId
+                                        ? { expandedPanel = .workflow } : nil
+                                }
+                            },
+                            onOpenWorkflowArtifact: message.workflowCompletion.map { card in
+                                { artifact in
+                                    workflowArtifactSheet = WorkflowArtifactRequest(
+                                        sessionID: conversationID, card: card, artifact: artifact)
+                                }
+                            })
                         .id(message.id)
                         .transition(.opacity.animation(.easeIn(duration: 0.12)))
                     }
@@ -1721,7 +1752,7 @@ struct ComposerBar: View {
 
     private var executionTargetMenu: some View {
         Button {
-            composerSheet = .target
+            openComposerPanel(.target)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: executionTarget.kind == .cloudSandbox ? "cloud.fill" : "laptopcomputer")
@@ -1778,7 +1809,7 @@ struct ComposerBar: View {
     /// plan=先出计划 / yolo=完全访问；switchCollaborationMode CAS）
     private var collaborationModeMenu: some View {
         Button {
-            composerSheet = .collaboration
+            openComposerPanel(.collaboration)
         } label: {
             modePill(
                 icon: Self.collaborationIcon(viewModel.collaborationMode),
@@ -1821,7 +1852,7 @@ struct ComposerBar: View {
     /// queue/guide 照常 CAS 下发 + requestedDelivery 联动）
     private var deliveryModeMenu: some View {
         Button {
-            composerSheet = .delivery
+            openComposerPanel(.delivery)
         } label: {
             modePill(
                 icon: Self.deliveryIcon(viewModel.deliveryMode),
@@ -2075,13 +2106,26 @@ struct ComposerBar: View {
         .accessibilityIdentifier("05-composer-remote-chips")
     }
 
+    /// 五选择器面板统一入口：**先撤 composer 焦点再呈现**（2026-10-09 真机报障
+    /// 「会话页模型/思考不可选，新建会话 sheet 可选」根因：发消息后 composer 持
+    /// 焦点，chips 触摸先被输入法层消费在候选/组合态——控制台每触必刷
+    /// 「Received external candidate resultset / containerToPush is nil」即中文候选
+    /// 机制在跑——sheet 呈现又在键盘转场中被吞。新建流程先选模型再打字（无焦点）
+    /// 故可选，对比观察与该根因吻合。FocusState 下传是唯一稳定撤焦通道（本文件
+    /// 头注释同源；resignFirstResponder 对 SwiftUI TextField 不可靠。FocusState 经
+    /// inputFocused 绑定下传本视图——撤焦走 wrappedValue 置 false 同一通道）
+    private func openComposerPanel(_ kind: ComposerSheetKind) {
+        inputFocused.wrappedValue = false
+        composerSheet = kind
+    }
+
     /// 模型胶囊触发（面板：套餐分节 + 选中勾；回执失败在 chips 行上方提示）。
     /// 点按守卫开门（2026-10-08 报障「对话框模型选不了」）：清单在场直开；getView
     /// 失败/空回执种出的空清单走重拉——成功开面板、失败行上提示，不弹零行空面板
     private func modelMenu(_ selection: ModelSelectionInfo) -> some View {
         Button {
             if selection.hasSelectableModels {
-                composerSheet = .model
+                openComposerPanel(.model)
             } else {
                 Task { await retryThenOpenModelPanel() }
             }
@@ -2095,7 +2139,7 @@ struct ComposerBar: View {
     /// web 端别名表归纳词表，不支持的档位由桌面端校验拒绝并提示）
     private func thoughtMenu(_ selection: ModelSelectionInfo) -> some View {
         Button {
-            composerSheet = .thought
+            openComposerPanel(.thought)
         } label: {
             pill(icon: "brain", text: String(localized: "思考·\(selection.activeThoughtLevel ?? "--")"), chevron: true)
         }
@@ -2128,7 +2172,7 @@ struct ComposerBar: View {
                 }
                 .accessibilityIdentifier("05-chip-model")
                 Button {
-                    composerSheet = .thought
+                    openComposerPanel(.thought)
                 } label: {
                     pill(icon: "brain", text: String(localized: "思考·\(settings.value.thoughtLevel.label)"))
                 }
@@ -2150,7 +2194,7 @@ struct ComposerBar: View {
     /// 与 remoteChips 同名——两支互斥渲染，同屏不重复）
     private func retryThenOpenModelPanel() async {
         if await viewModel.retryModelSelection() {
-            composerSheet = .model
+            openComposerPanel(.model)
         } else {
             showSwitchHint(String(localized: "模型列表获取失败 · 桌面端未回执，点按重试"))
         }
@@ -2233,6 +2277,8 @@ struct ComposerBar: View {
             // 演示态无上传面不出入口）
             if viewModel.isReadOnly {
                 Button {
+                    // 附件来源 sheet 同族：键盘在场时先撤焦（openComposerPanel 同根因）
+                    inputFocused.wrappedValue = false
                     showAttachmentSource = true
                 } label: {
                     Image(systemName: "plus.circle")

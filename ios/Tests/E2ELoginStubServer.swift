@@ -642,9 +642,24 @@ final class E2ELoginStubServer {
                  "state": "complete"],
                 ["rowId": 3, "kind": "assistantText", "text": "替身助手：退避为 min(10s, 500ms·2^n)，最多 6 次", "state": "complete"],
             ],
+            // sess-e2e-usel：用户选区引用卡（2026-10-09 点单）——userInput 行携带官方
+            // userselect 尾部块（# userselect: 头 + 围栏 JSON；一条纯对话引用 + 一条文件
+            // 选段带 path）。桌面 composer 生成态逐字（上游 conversationSelectionReference.ts:151-156）；
+            // 渲染层应剥离围栏、气泡只显可见正文 + 引用卡，点开详情 sheet（门禁 test19）
+            "sess-e2e-usel": [
+                ["rowId": 1, "kind": "userInput", "text": """
+看看这些引用的上下文
+
+# userselect:
+```userselect
+[{"text":"挂起 20 项的分类和细分逻辑——纯对话引用"},{"text":"文件内选中的片段","path":"/Users/e2e/zcode_mobile/Sources/ChatView.swift"}]
+```
+"""],
+                ["rowId": 2, "kind": "assistantText", "text": "替身助手：引用上下文已收到", "state": "complete"],
+            ],
         ]
         nextRowId = ["sess-e2e-1": 7, "sess-e2e-2": 3, "task-e2e-1": 4, "sess-e2e-3": 7,
-                     "sess-e2e-plan": 4, "sess-e2e-think": 4]
+                     "sess-e2e-plan": 4, "sess-e2e-think": 4, "sess-e2e-usel": 3]
         // sess-e2e-1 预置一条 permission 挂起交互（pendingInteractionSummary.permissionCount=1
         // 的具体对象）：conversation 订阅后经 state.updated 下发 → ChatView 审批卡渲染，
         // resolveInteraction 应答后清空
@@ -1017,6 +1032,17 @@ final class E2ELoginStubServer {
             lock.unlock()
         }
         switch command {
+        case "conversationWorkflowRunArtifactReadV4":
+            // 工作流产物内容读（G-027 完成卡详情链路）：固定 markdown 单块回执
+            // （base64 自带 padding，nextOffset=null=读到尾）；params 宽容记账不校验
+            let markdown = "# 稳定性与 proto 迁移报告\n\n崩溃点迁移到生成类型，线格式验证已通过，挂起项见清单。"
+            let artifactBody: [String: Any] = [
+                "dataBase64": Data(markdown.utf8).base64EncodedString(),
+                "mediaType": "text/markdown",
+                "totalBytes": markdown.utf8.count,
+                "nextOffset": NSNull(),
+            ]
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(artifactBody)))
         case "helloConversationV4":
             let hello: [String: Any] = [
                 "protocolVersion": 3, // V4_WIRE_PROTOCOL_VERSION
@@ -2323,6 +2349,17 @@ final class E2ELoginStubServer {
                 "phase": "completedSuccess",
                 "lastActivityAt": Self.iso8601.string(from: Date().addingTimeInterval(-9_000)),
                 "lastAssistantPreview": "退避策略说明完成。",
+                "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
+            ],
+            // 用户选区引用卡专用会话（userselect 尾部块 → 渲染层剥离 + 引用卡 + 详情
+            // sheet；门禁 test19 断言面）
+            [
+                "sessionId": "sess-e2e-usel",
+                "title": "替身会话 · 选区引用卡",
+                "phase": "completedSuccess",
+                "lastActivityAt": Self.iso8601.string(from: Date().addingTimeInterval(-3_600)),
+                "lastAssistantPreview": "引用上下文已收到。",
+                "workspacePath": "/Users/e2e/zcode_mobile",
                 "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
             ],
         ]

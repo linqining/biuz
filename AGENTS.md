@@ -120,6 +120,7 @@ xcrun simctl launch booted cn.biuz.mobile \
 
 ## 6. 未决事项速查（接手先看）
 
+- **userselect 引用卡待真机目检（2026-10-09 v1.34）**：用户消息尾部 userselect 块（桌面「选中文本添加到任务」）已卡片化（协议文档 §10.1/v1.34：渲染层剥离 + 05-userselect-card + 详情 sheet；门禁 test19 + 单测 15 用例）。**待真机**：真实桌面生成的引用消息目检卡片/详情呈现。⚠ 同轮发生 **xcstrings 误操作事故**：`git checkout --` 抹掉另一未提交轮 22 键，恢复 14（11 从 DerivedData 编译产物 en.lproj 反解【零损失】+ 3 从源码引用反查【en 重译：加载产物内容…/产物内容加载失败…/该产物类型暂不支持…】），**8 键无痕迹不可恢复**（推测预置未用键）——接手若发现 en 缺译，按 §5-18③ 对账补齐即可；教训：**该文件有并行未提交改动时禁 checkout/reset，恢复优先从编译产物反解**。
 - **MatrixAcceptance 套件存量失败 15/27（2026-10-09 基线归因，待专轮分诊）**：全量跑 Matrix 套件 12 绿/15 败（IM Bot 三四件/自动化 test07/追问 test09/语言 test10/用户卡 test14/@引用 test15/分组与用量两个 test16/工作流面板 test17/test19/test20/test21）；**在 aa9773b（v1.31 五联+dc5b255+v1.33 全部改动之前）独立 worktree 复跑 test03/test16/test17 同败实证——存量债非新回归**（v1.30 轮起全量 Matrix 即「顺延」未再全跑，失败面在 SettingsView/P2ExtrasViews/AppSession/连接层等并行轮改动区）。本轮（v1.33）自身面的门禁全绿：FeatureCompletion 18/18（含新 test17/18）、单测 120/120、Matrix test08/23/24/25/26 绿。接手者：Matrix 全量分诊轮按基线失败清单逐条归因，勿误判为新回归。
 
 - **真机新包已装（2026-10-09 05:1x，lin的 iPhone 00008140-000C6C3A3EE0801C，DerivedData-device Debug-iphoneos）**：用户报「这个会话手机没收到 plan 审批弹窗」（本会话 ExitPlanMode 挂起窗 02:50:44 起，db part_muzw6fy8 实证 input.plan 在场——正是 v1.31③ 覆盖的形状）+「attachmentAbortV4 RPC 超时」（桌面正跑重 turn（三子代理），上传首败后 ✕ 移除触发 abort 一次性 30s 超时，如实提示按设计工作）。判读：手机旧包（具体装包日期不可考，版本恒 1.0.0(1) 无法区分）大概率早于 v1.31③/今日 v1.33——已装含全部修复的新包，**待用户真机复测**：①桌面再触发一次 plan 审批看手机弹卡（v1.31③ 真机首击）；②协作模式 chip 切 plan 看桌面实切+回流（v1.33）；③新建会话选模型/思考强度（v1.33 提交门）。桌面繁忙期附件超时属单管道负载现象，复测请挑桌面空闲窗。

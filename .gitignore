@@ -8,3 +8,4 @@ ios/DerivedData/
 docs/acceptance-relay/
 ios/DerivedData/
 ios/DerivedData-*/
+.zcode/

@@ -1504,6 +1504,80 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         return (model, thought)
     }
 
+    /// turnHeader 行 → 工作流完成卡（纯函数，单测锁定）。只认四件齐备【实证·上游仓
+    /// workflowTurnCompletion.ts:35-49 同缝】：origin=="backgroundResult"、
+    /// originMeta.backgroundSource=="workflow"、载荷 kind=="terminal" 且
+    /// status=="completed"（errored/stopped 不画卡——通知行已说错误；升级/批量/bash/
+    /// subagent 通知一律不是）。name 取 originMeta.title（CLI workflowTaskSubject 权威，
+    /// 不本地化）；artifacts 上界 8 由服务端保证，客户端不再裁。
+    nonisolated static func parseWorkflowCompletionRow(_ row: [String: JSONValue]) -> WorkflowCompletionCard? {
+        guard row["kind"]?.stringValue == "turnHeader",
+              row["origin"]?.stringValue == "backgroundResult" else { return nil }
+        let meta = row["originMeta"]?.objectValue
+        guard meta?["backgroundSource"]?.stringValue == "workflow" else { return nil }
+        let notification = meta?["workflowNotification"]?.objectValue
+        guard notification?["kind"]?.stringValue == "terminal",
+              notification?["status"]?.stringValue == "completed" else { return nil }
+        let name = (meta?["title"]?.stringValue ?? "").trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return nil }
+        let artifacts: [WorkflowCompletionArtifact] = (notification?["artifacts"]?.arrayValue ?? []).compactMap { item in
+            guard let d = item.objectValue,
+                  let id = d["id"]?.stringValue, !id.isEmpty else { return nil }
+            return WorkflowCompletionArtifact(
+                id: id,
+                kind: d["kind"]?.stringValue ?? "file",
+                title: d["title"]?.stringValue,
+                version: d["version"]?.intValue ?? 1,
+                primary: d["primary"]?.boolValue == true,
+                description: d["description"]?.stringValue,
+                bytes: nil,
+                itemCount: nil)
+        }
+        return WorkflowCompletionCard(
+            runId: meta?["workId"]?.stringValue ?? "",
+            name: name,
+            durationMs: notification?["durationMs"]?.intValue,
+            artifacts: artifacts,
+            truncated: notification?["artifactsTruncated"]?.boolValue == true)
+    }
+
+    /// 工作流产物内容分块读（conversationWorkflowRunArtifactReadV4【实证·上游仓
+    /// workflow-artifacts.ts:221-268 + zcodeAgentService.ts:5369-5389】：≤512KiB 一块、
+    /// 授权在 CLI 侧 journal 行、sessionId 必须是 run 的 parentSessionId——寻址沿用
+    /// applySessionTarget 会话归属 workspace 同族）。拼装至 nextOffset==null，总量随
+    /// 上游 ARTIFACT_CAPS.maxFileBytes=20MB 钳制；任一块失败回 nil（UI 层如实上屏）
+    func workflowArtifactContent(
+        sessionID: String, runId: String, artifactId: String, version: Int
+    ) async -> (data: Data, mediaType: String)? {
+        guard let connection else { return nil }
+        var offset = 0
+        var data = Data()
+        var mediaType = "application/octet-stream"
+        for _ in 0..<40 {
+            var builder = JSONObjectBuilder()
+            applySessionTarget(&builder, sessionID: sessionID)
+            builder.set("runId", runId)
+            builder.set("artifactId", artifactId)
+            builder.set("version", version)
+            builder.set("offset", offset)
+            builder.set("limit", 512 * 1024)
+            guard let result = try? await connection.call(
+                "zcode-agent", "conversationWorkflowRunArtifactReadV4",
+                .json(.object(builder.fields))) else { return nil }
+            // 回执宽容：顶层 / {result:{…}} 双形态（store 既有读面同口径）
+            let value = result.jsonValue
+            let dict = value?.objectValue?["dataBase64"] != nil
+                ? value?.objectValue : value?["result"]?.objectValue
+            guard let b64 = dict?["dataBase64"]?.stringValue,
+                  let chunk = Data(base64Encoded: b64) else { return nil }
+            if let mt = dict?["mediaType"]?.stringValue, !mt.isEmpty { mediaType = mt }
+            data.append(chunk)
+            guard let next = dict?["nextOffset"]?.intValue else { break }
+            offset = next
+        }
+        return data.isEmpty ? nil : (data, mediaType)
+    }
+
     /// 行集合 → ChatMessage 序列（mappingToApp 第 2 条）。
     /// 乐观回显去重：服务端同文本 userInput 行抵达后移除在途回显（防快照/重连双气泡）。
     private func rebuildMessages(_ conversationID: String) {
@@ -1511,10 +1585,21 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         var result: [ChatMessage] = []
         var serverUserTexts: Set<String> = []
         var serverSourceCommandIds: Set<String> = []
+        // 工作流完成卡轮尾落卡（桌面 WorkflowCompletionCard 同位形）：通知行是轮的
+        // turnHeader（轮首），卡在轮尾——缓存到下一个轮边界（任一 turnHeader 行）或行
+        // 序列末尾再落，digest 文本在前、卡在后（2026-10-09 用户看桌面截图点单）
+        var pendingWorkflowCompletion: (rowId: Int, card: WorkflowCompletionCard)?
         for rowId in table.keys.sorted() {
             guard let record = table[rowId],
                   let row = record.json.objectValue,
                   let kind = row["kind"]?.stringValue else { continue }
+            if kind == "turnHeader", let pending = pendingWorkflowCompletion {
+                result.append(ChatMessage(
+                    id: "row-\(pending.rowId)-wfdone", role: .agent, text: "",
+                    timestamp: Date(), rowKind: "workflowCompletion",
+                    workflowCompletion: pending.card))
+                pendingWorkflowCompletion = nil
+            }
             switch kind {
             case "userInput":
                 let text = row["text"]?.stringValue ?? ""
@@ -1613,10 +1698,22 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     text: "📦 产物 · \(name)（\(type)）",
                     timestamp: Date(),
                     attachments: Self.extractAttachmentRefs(row)))
+            case "turnHeader":
+                // 工作流完成通知轮（origin=backgroundResult + workflow 通知 terminal
+                // completed）→ 轮尾落完成卡；其余 turnHeader 维持不进消息流
+                if let card = Self.parseWorkflowCompletionRow(row) {
+                    pendingWorkflowCompletion = (rowId, card)
+                }
             default:
-                // turnHeader / hookInvocation / timelineMarker 不进消息流
+                // hookInvocation / timelineMarker 不进消息流
                 break
             }
+        }
+        if let pending = pendingWorkflowCompletion {
+            result.append(ChatMessage(
+                id: "row-\(pending.rowId)-wfdone", role: .agent, text: "",
+                timestamp: Date(), rowKind: "workflowCompletion",
+                workflowCompletion: pending.card))
         }
         // 诊断：行数/消息数/行类型直方图（空列表类问题现场取证）
         let kindHist = Dictionary(
@@ -3536,6 +3633,32 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         // workId：取消/恢复/设置命令的定位键（web 端 resumeWorkflowRun 以 runId 充当
         // workId；run 对象自带 workId 字段时优先）
         let workId = dict["workId"]?.stringValue ?? id
+        // 完成卡 join 面三源（2026-10-09 工作流完成卡轮）：
+        // tokens = usage.spentTokens；阶段数 = phases 表 → phaseNames → nodes 去重
+        // phaseName（与 finalNodes 同序口径，取首源计数）；产物 brief = artifacts 元素的
+        // id+bytes+itemCount（workflowRunArtifactSummarySchema 子集宽容读）
+        let spentTokens = dict["usage"]?.objectValue?["spentTokens"]?.intValue
+        let phasesArray = dict["phases"]?.arrayValue
+        let phaseNamesArray = dict["phaseNames"]?.arrayValue
+        let phaseCount: Int? = {
+            if let phasesArray, !phasesArray.isEmpty { return phasesArray.count }
+            if let phaseNamesArray, !phaseNamesArray.isEmpty {
+                // 首现序去重（与 nodes 退化同口径；正常发射不重复）
+                var seen: Set<String> = []
+                var count = 0
+                for name in phaseNamesArray {
+                    if let n = name.stringValue, !n.isEmpty, seen.insert(n).inserted { count += 1 }
+                }
+                return count == 0 ? nil : count
+            }
+            // 节点即阶段站（label=display 阶段名）——去重计数
+            let distinct = Set(finalNodes.map(\.label))
+            return distinct.isEmpty ? nil : distinct.count
+        }()
+        let artifactBriefs: [WorkflowArtifactBrief] = (dict["artifacts"]?.arrayValue ?? []).compactMap { item in
+            guard let d = item.objectValue, let aid = d["id"]?.stringValue, !aid.isEmpty else { return nil }
+            return WorkflowArtifactBrief(id: aid, bytes: d["bytes"]?.intValue, itemCount: d["itemCount"]?.intValue)
+        }
         return WorkflowRunSummary(
             id: id,
             name: name,
@@ -3546,6 +3669,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             nodes: finalNodes,
             actors: actors,
             artifactsCount: dict["artifacts"]?.arrayValue?.count ?? 0,
+            spentTokens: spentTokens,
+            phaseCount: phaseCount,
+            artifactBriefs: artifactBriefs,
             pendingQuestionsCount: dict["pendingQuestions"]?.arrayValue?.count ?? 0,
             concurrency: dict["concurrency"]?.intValue
                 ?? dict["concurrency"]?.objectValue?["active"]?.intValue,
