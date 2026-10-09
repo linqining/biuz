@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- adaptive 启动图标（API 26+）：近黑底（bg 令牌 #0a0b0d）+ biuz-mark 矢量前景；
+     monochrome 供 API 33+ 主题图标（只取 alpha 通道，渐变前景安全）。
+     API 24/25 兜底见 mipmap-anydpi/ic_launcher.xml。 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

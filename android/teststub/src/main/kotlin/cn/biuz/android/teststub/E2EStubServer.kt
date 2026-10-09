@@ -17,10 +17,13 @@ import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.routing
+import io.ktor.server.routing.get
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.WebSocketServerSession
 import io.ktor.server.websocket.webSocket
+import io.ktor.http.ContentType
 import io.ktor.websocket.Frame
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -178,10 +181,37 @@ class E2EStubServer(
     private var sessionsIndexSnapshotOverride: JSONValue? = null
 
     /**
+     * bootstrap.tasks 注水（跨工作区全量任务索引；行形状 zcodeTaskMetaSchema 子集，
+     * 夹具见 [StubIndexFixtures]，含跨工作区幽灵行对）。经 bootstrap-request 回执
+     * `result.tasks` 下发（iOS RelayChannelClient.swift:156-159 同源：
+     * bootstrap["result"] → result.tasks）。
+     */
+    @Volatile
+    private var bootstrapTasksOverride: JSONValue? = null
+
+    /** 注水 bootstrap.tasks（空清单恢复缺省）。 */
+    fun setBootstrapTasks(tasks: List<JSONValue>) {
+        synchronized(lock) { bootstrapTasksOverride = JSONValue.Arr(tasks.toList()) }
+    }
+
+    /** 当前注水的 bootstrap.tasks（测试断言面；未注水 = 空清单）。 */
+    fun bootstrapTasks(): List<JSONValue> =
+        (synchronized(lock) { bootstrapTasksOverride })?.arrayValue ?: emptyList()
+
+    /**
      * 未内置方法扩展点：method 名 → 回执体。内置 v4 面之外的处理器按里程碑注册
      * （iOS 替身的 3000 行 switch 即此处按需生长），注册后仍记账 rpcCalls。
      */
     val methodHandlers = LinkedHashMap<String, (JSONValue?) -> JSONValue>()
+
+    /** 方法级 promise 故障注水：method 名 → fault message（handshakeRequired 捕获面等用例）。 */
+    private val faultInjectedMethods = HashMap<String, String>()
+
+    /** server-info HTTP 探测记账（连接层五步第一步的断言面）。 */
+    private var serverInfoProbeCount = 0
+
+    /** eventListen 帧记账（帧面挂载/幂等断言面；[102, id, channel, event] 逐次追加）。 */
+    private val eventListenRecord = ArrayList<String>()
 
     // MARK: 内部记账
 
@@ -245,11 +275,43 @@ class E2EStubServer(
     private fun Application.configure() {
         install(WebSockets)
         routing {
+            // 局域网直连服务发现（GET /api/server-info?token=…，协议文档 §3.1）：
+            // serverId/version/protocolVersion=1/authRequired/workspaces[0]=替身工作区；
+            // token 替身不校验（authRequired=false，桌面 --no-token 同口径）
+            get("/api/server-info") {
+                synchronized(lock) { serverInfoProbeCount += 1 }
+                val body = serverInfoBody()
+                call.respondText(
+                    body.data?.toString(Charsets.UTF_8) ?: "{}",
+                    ContentType.Application.Json,
+                )
+            }
             // 局域网直连 WS 升级路径（GET /ws?token=…；token 替身不校验，桌面 --no-token 同口径）
             webSocket("/ws") {
                 serveSession(this)
             }
         }
+    }
+
+    /** server-info 回执体（ServerRemoteInfo 形状，协议文档 §3.1；capabilities = host 能力集）。 */
+    private fun serverInfoBody(): JSONValue {
+        val capabilities = synchronized(lock) { LinkedHashMap(serverCapabilities) }
+        return stubObj(
+            "serverId" to JSONValue.Str("stub-server-e2e"),
+            "name" to JSONValue.Str("E2E 替身桌面"),
+            "version" to JSONValue.Str("3.14.4-stub"),
+            "protocolVersion" to JSONValue.Int(1),
+            "authRequired" to JSONValue.Bool(false),
+            "workspaces" to JSONValue.Arr(
+                listOf(
+                    stubObj(
+                        "path" to JSONValue.Str(workspacePath),
+                        "label" to JSONValue.Str("替身工作区"),
+                    ),
+                ),
+            ),
+            "capabilities" to JSONValue.Obj(capabilities),
+        )
     }
 
     // MARK: 连接会话（channel 层）
@@ -302,6 +364,7 @@ class E2EStubServer(
                 val id = header.getOrNull(1)?.intValue ?: return
                 val eventName = header.getOrNull(3)?.stringValue ?: return
                 synchronized(session.mutex) { session.eventIds[eventName] = id }
+                synchronized(lock) { eventListenRecord.add(eventName) }
             }
             RequestType.eventDispose.rawValue -> {
                 val id = header.getOrNull(1)?.intValue ?: return
@@ -325,8 +388,14 @@ class E2EStubServer(
                 "unsubscribeSessionsIndexV4",
                 "unsubscribeWorkspaceConfigV4",
                 -> PromiseReply(stubObj("ok" to JSONValue.Bool(true)))
+                // bootstrap-request（中继 app 层请求的局域网替身对等面）：回执
+                // {result:{version, desktopAppVersion, tasks}}——tasks 为 [setBootstrapTasks]
+                // 注水的跨工作区清单（iOS RelayChannelClient.swift:155-159 消费同源）
+                "bootstrap-request" -> PromiseReply(bootstrapResponseBody())
                 "sendConversationCommandV4" -> PromiseReply(handleConversationCommand(session, args))
                 else -> {
+                    val injected = synchronized(lock) { faultInjectedMethods[command] }
+                    if (injected != null) throw StubFault(injected)
                     val custom = synchronized(lock) { methodHandlers[command] }
                         ?: throw StubFault("stub.methodNotImplemented:$command")
                     PromiseReply(custom(args))
@@ -531,6 +600,23 @@ class E2EStubServer(
         return PromiseReply(body = stubObj("ok" to JSONValue.Bool(true)), afterReply = {
             if (session.open) sendSessionsIndexSnapshot(session, topic)
         })
+    }
+
+    /**
+     * bootstrap-request 回执体（iOS RelayChannelClient.swift:156-159 消费形态）：
+     * `{result:{version, desktopAppVersion, tasks}}`——tasks = [setBootstrapTasks]
+     * 注水的跨工作区任务索引（缺省空清单；web「所有项目目录」同源数据面）。
+     */
+    private fun bootstrapResponseBody(): JSONValue {
+        val tasks = synchronized(lock) { bootstrapTasksOverride } ?: JSONValue.Arr(emptyList())
+        return stubObj(
+            "result" to stubObj(
+                "version" to JSONValue.Int(1),
+                "desktopAppVersion" to JSONValue.Str(STUB_DESKTOP_APP_VERSION),
+                "initialViewState" to stubObj("kind" to JSONValue.Str("stub")),
+                "tasks" to tasks,
+            ),
+        )
     }
 
     private fun recordSubscribe(topic: String, args: JSONValue?) {
@@ -944,6 +1030,12 @@ class E2EStubServer(
 
     fun hasEventListener(eventName: String): Boolean = connections.any { synchronized(it.mutex) { it.open && it.eventIds.containsKey(eventName) } }
 
+    /** server-info HTTP 探测次数（连接层五步第一步记账）。 */
+    fun serverInfoProbeCount(): Int = synchronized(lock) { serverInfoProbeCount }
+
+    /** eventListen 帧记账副本（帧面挂载/幂等断言面）。 */
+    fun eventListenLog(): List<String> = synchronized(lock) { eventListenRecord.toList() }
+
     // MARK: 注水器（扩展点）
 
     /** 会话快照整体注水（键级整体替换，A10；后续里程碑灌完整 A 区形态）。 */
@@ -957,6 +1049,19 @@ class E2EStubServer(
 
     fun setAckBehavior(type: String, behavior: StubAckBehavior) {
         synchronized(lock) { ackBehaviors[type] = behavior }
+    }
+
+    /**
+     * 方法级 promise 故障注水：指定 method 的 promise 调用回
+     * promiseError{message=[message], name:"ErrorObj"}（客户端解码为 RPCError.message
+     * 原文——连接层 fault.connection.handshakeRequired 捕获分支的用例数据源）。
+     */
+    fun injectMethodFault(method: String, message: String) {
+        synchronized(lock) { faultInjectedMethods[method] = message }
+    }
+
+    fun clearMethodFault(method: String) {
+        synchronized(lock) { faultInjectedMethods.remove(method) }
     }
 
     // MARK: 工具
@@ -984,6 +1089,9 @@ class E2EStubServer(
         const val SUB_ID_WORKSPACE_CONFIG = "sub-wcfg-e2e"
 
         const val SESSIONS_LOG_EPOCH = "epoch-sess-1"
+
+        /** bootstrap-request 回执 desktopAppVersion（配对链接版本对账断言面）。 */
+        const val STUB_DESKTOP_APP_VERSION = "3.14.4-stub"
 
         /** 行增量发射延迟基值（错开保序；iOS 替身 0.3/0.35s 的测试提速版）。 */
         const val ROW_DELTA_DELAY_MS = 30L

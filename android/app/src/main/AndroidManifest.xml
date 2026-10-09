@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BiuZ Android 应用壳。权限面：INTERNET（局域网直连 + 云中继 WS）、CAMERA（扫码配对取景器）。
+     应用名 BiuZ（branding/naming.md 商标裁决：资源与界面不以 ZCode/Z.ai 作品牌呈现）。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 扫码为可降级路径（剪贴板/手动输入兜底），无相机设备不阻断安装 -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="BiuZ"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.BiuZ">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

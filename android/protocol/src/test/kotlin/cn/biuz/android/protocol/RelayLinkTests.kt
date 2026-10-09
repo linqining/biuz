@@ -13,14 +13,16 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
-import org.junit.jupiter.api.Disabled
 
 /**
  * 云中继接入单测：链接解析 / 鉴权 proof / rpc-frame 编解码与分片 / 配置向后兼容。
  * 关键向量全部来自主会话实地探针（/tmp/relay-js/ws_probe.py、ws_bridge_probe.py 实测）。
  *
- * 直译自 ios/UnitTests/RelayLinkTests.swift（18 用例 → 18 个 @Test，其中 2 个因
- * 装配层/连接层类型未移植 @Disabled，原因见各用例 KDoc 与交付 deviations）。
+ * 直译自 ios/UnitTests/RelayLinkTests.swift（18 用例 → 18 个 @Test；其中 2 例
+ * ——relayLinkArgument / ServerConfig 旧 JSON 解码——的连接层类型已随 :connection
+ * 落位，2026-10-09 按 iOS 原文断言迁至 :connection 测试源集
+ * RelayLinkConnectionLayerTests（:protocol 测试不可反向依赖 :connection——工程依赖环），
+ * 原 @Disabled 占位同步删除）。
  * 机械适配（逐处注明）：
  * - XCTest 断言 → kotlin.test；`guard case`/`if case` 模式 → `is` 判型 + 属性读取；
  * - Foundation Data → ByteArray（contentEquals 逐字节比较）；JSONEncoder → JSONValue.data；
@@ -345,49 +347,9 @@ class RelayLinkTests {
         // ——类型未移植（store 模块缺位），构造断言不可平移；毫秒/ISO 落位语义已由上方锚定。
     }
 
-    // MARK: -ZCodeRelayLink 启动参数
-
-    /**
-     * @Disabled：AppSession.relayLinkArgument(from:) 是 iOS 装配层静态函数
-     * （ios/ZCodeMobileApp/Sources/Services/Remote/AppSession.swift），Android 侧装配层
-     * （connection 模块）尚未移植，protocol 模块无对应物。断言不可绕道测试内镜像
-     * （镜像逻辑只能证明自己），待 AppSession 移植后按下方原文断言回补。
-     */
-    @Disabled("AppSession 装配层未移植（connection 模块缺位），见 deviations")
-    @Test
-    fun testRelayLinkArgumentParsing() {
-        // iOS 原文断言（AppSession.relayLinkArgument(from:)）：
-        // XCTAssertNil(AppSession.relayLinkArgument(from: []))
-        // XCTAssertNil(AppSession.relayLinkArgument(from: ["-ZCodeRelayLink"]))
-        // 相邻参数取值；缺参占位（以 - 开头）忽略
-        // XCTAssertNil(AppSession.relayLinkArgument(from: ["-ZCodeRelayLink", "-ZCodeOpenConnectFlow"]))
-        // XCTAssertEqual(
-        //     AppSession.relayLinkArgument(from: ["-ZCodeRelayLink", sampleLink, "-ZCodeOpenConnectFlow"]),
-        //     sampleLink)
-    }
-
-    // MARK: ServerConfig Codable 向后兼容（旧 Keychain 数据无 relay 字段）
-
-    /**
-     * @Disabled：ServerConfig 是 iOS 连接层 Codable 模型（连接配置持久化），Android 侧
-     * 归 connection 模块（未移植）；protocol 模块依赖骨架无 Codable 对应运行时
-     * （Models.kt 文件头已约定持久化面归装配层）。待 connection 层 ServerConfig
-     * 平移后按下方原文断言回补。
-     */
-    @Disabled("ServerConfig 连接层模型未移植（connection 模块缺位），见 deviations")
-    @Test
-    fun testServerConfigDecodesLegacyJSONWithoutRelay() {
-        // iOS 原文断言（JSONDecoder().decode(ServerConfig.self, …)）：
-        // let legacy = """
-        // {"id":"a","name":null,"host":"192.168.1.24","port":3030,"useTLS":false,
-        //  "token":"","lastConnectedAt":null,"preferredWorkspacePath":null}
-        // """
-        // XCTAssertNil(config.relay)
-        // XCTAssertEqual(config.displayAddress, "192.168.1.24:3030")
-        // 中继配置往返：relayed.relay = parseRelayLink(sampleLink) → encode/decode 往返相等
-        // XCTAssertEqual(roundTrip.relay, link)
-        // XCTAssertEqual(roundTrip.displayName, "MacBook-Pro-8.local")
-    }
+    // MARK: -ZCodeRelayLink 启动参数 + ServerConfig JSON 编解码
+    // 两例已随 :connection 落位迁往 connection 模块 RelayLinkConnectionLayerTests
+    // （2026-10-09 回补，原文断言恢复；迁移理由见本文件头注记）。
 }
 
 // MARK: - 测试辅助：强制片长（走生产二分之外的确定性分片路径）

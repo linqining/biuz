@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BiuZ 启动图标前景：branding/logo/biuz-mark.svg（960×960「biu 彗星 Z」）的 VectorDrawable 移植。
+     映射说明：
+     · 彗星主体/速度线 path 数据逐字直译（SVG 与 VD 同用 path 迷你语言，纯 M/L/Z 无弧）；
+     · m-fade 线性渐变 userSpaceOnUse 直译；m-head 径向渐变为 objectBoundingBox 百分比，
+       已按引用圆 (736,690,r104) 的外接方 632..840 × 586..794 折算用户空间：
+       cx=36%→706.88、cy=32%→652.56、r=78%→162.24；
+     · SVG feGaussianBlur 滤镜 VD 不支持：光晕大圆以「径向渐变中心→透明」近似，
+       两枚白色高光小圆同理（blur 2.5 的边缘柔化以渐隐收边近似）；
+     · 外层 group 把 960 画布缩放 0.069 并平移 (19.6,19.7)，使内容实际重心
+       (498,498)（含内层 translate(-11,-29)）落于 108dp 画布圆心、整体在 66dp 安全区内。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="19.6"
+        android:translateY="19.7"
+        android:scaleX="0.069"
+        android:scaleY="0.069">
+        <group
+            android:translateX="-11"
+            android:translateY="-29">
+
+            <!-- 尾迹断点：速度线（SVG stroke-opacity → strokeAlpha） -->
+            <path
+                android:pathData="M150,242 L182,242"
+                android:strokeColor="#32F08C"
+                android:strokeAlpha="0.13"
+                android:strokeWidth="16"
+                android:strokeLineCap="round" />
+            <path
+                android:pathData="M214,242 L262,242"
+                android:strokeColor="#32F08C"
+                android:strokeAlpha="0.22"
+                android:strokeWidth="22"
+                android:strokeLineCap="round" />
+            <path
+                android:pathData="M300,242 L360,242"
+                android:strokeColor="#32F08C"
+                android:strokeAlpha="0.32"
+                android:strokeWidth="28"
+                android:strokeLineCap="round" />
+
+            <!-- 彗星主体：连续锥形轮廓（m-fade 垂直渐变，透明度 .44/.66/.97 → #70/#A8/#F7） -->
+            <path android:pathData="M398,257 L688,259.9 L686.1,259.8 L684.3,259.5 L682.5,259.1 L680.8,258.4 L679.1,257.6 L677.5,256.5 L676.1,255.4 L674.7,254.1 L673.6,252.6 L672.5,251.1 L671.7,249.4 L671,247.7 L670.5,245.9 L670.2,244 L670.1,242.2 L670.2,240.3 L670.4,238.5 L670.9,236.7 L671.5,234.9 L672.4,233.2 L673.4,231.7 L674.5,230.2 L270,667.3 L220.1,721.2 L700,742 L705.4,741.7 L710.8,740.9 L716.1,739.5 L721.2,737.5 L726,735 L730.6,732.1 L734.8,728.6 L738.6,724.8 L742.1,720.6 L745,716 L747.5,711.2 L749.5,706.1 L750.9,700.8 L751.7,695.4 L752,690 L751.7,684.6 L750.9,679.2 L749.5,673.9 L747.5,668.8 L745,664 L742.1,659.4 L738.6,655.2 L734.8,651.4 L730.6,647.9 L726,645 L721.2,642.5 L716.1,640.5 L710.8,639.1 L705.4,638.3 L700,638 L700,638 L296,655.5 L299.6,655.7 L303.1,656.2 L306.6,657.1 L310,658.4 L313.2,660 L316.2,662 L319,664.2 L321.5,666.8 L323.8,669.5 L325.8,672.5 L327.4,675.7 L328.8,679.1 L329.7,682.5 L330.3,686.1 L330.5,689.7 L330.4,693.3 L329.8,696.8 L329,700.3 L327.7,703.7 L326.1,706.9 L324.2,709.9 L322,712.7 L726.4,223.7 L688,224.1 L398,227 L399.6,227.1 L401.1,227.3 L402.6,227.7 L404.1,228.3 L405.5,229 L406.8,229.9 L408,230.9 L409.1,232 L410.1,233.2 L411,234.5 L411.7,235.9 L412.3,237.4 L412.7,238.9 L412.9,240.4 L413,242 L412.9,243.6 L412.7,245.1 L412.3,246.6 L411.7,248.1 L411,249.5 L410.1,250.8 L409.1,252 L408,253.1 L406.8,254.1 L405.5,255 L404.1,255.7 L402.6,256.3 L401.1,256.7 L399.6,256.9 L398,257 Z">
+                <aapt:attr name="android:fillColor">
+                    <gradient
+                        android:endX="0"
+                        android:endY="690"
+                        android:startX="0"
+                        android:startY="242"
+                        android:type="linear">
+                        <item
+                            android:color="#7032F08C"
+                            android:offset="0" />
+                        <item
+                            android:color="#A832F08C"
+                            android:offset="0.45" />
+                        <item
+                            android:color="#F732F08C"
+                            android:offset="1" />
+                    </gradient>
+                </aapt:attr>
+            </path>
+
+            <!-- biu 亮核：外圈光晕（SVG r140 blur34 opacity .38 → 径向渐隐近似） -->
+            <path android:pathData="M596,690 a140,140 0 1,0 280,0 a140,140 0 1,0 -280,0 Z">
+                <aapt:attr name="android:fillColor">
+                    <gradient
+                        android:centerX="736"
+                        android:centerY="690"
+                        android:gradientRadius="140"
+                        android:type="radial">
+                        <item
+                            android:color="#6132F08C"
+                            android:offset="0" />
+                        <item
+                            android:color="#0032F08C"
+                            android:offset="1" />
+                    </gradient>
+                </aapt:attr>
+            </path>
+
+            <!-- biu 亮核：主体（m-head 径向渐变，折算见文件头） -->
+            <path android:pathData="M632,690 a104,104 0 1,0 208,0 a104,104 0 1,0 -208,0 Z">
+                <aapt:attr name="android:fillColor">
+                    <gradient
+                        android:centerX="706.88"
+                        android:centerY="652.56"
+                        android:gradientRadius="162.24"
+                        android:type="radial">
+                        <item
+                            android:color="#EAFFF4"
+                            android:offset="0" />
+                        <item
+                            android:color="#8FF8C0"
+                            android:offset="0.22" />
+                        <item
+                            android:color="#32F08C"
+                            android:offset="0.55" />
+                        <item
+                            android:color="#1BA968"
+                            android:offset="1" />
+                    </gradient>
+                </aapt:attr>
+            </path>
+
+            <!-- 高光大圆（SVG r24 opacity .2 blur12 → 径向渐隐近似） -->
+            <path android:pathData="M676,644 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0 Z">
+                <aapt:attr name="android:fillColor">
+                    <gradient
+                        android:centerX="700"
+                        android:centerY="644"
+                        android:gradientRadius="24"
+                        android:type="radial">
+                        <item
+                            android:color="#33FFFFFF"
+                            android:offset="0" />
+                        <item
+                            android:color="#00FFFFFF"
+                            android:offset="1" />
+                    </gradient>
+                </aapt:attr>
+            </path>
+
+            <!-- 高光小圆（SVG r10 opacity .85 blur2.5 → 中心 .85 渐隐至 .4 近似） -->
+            <path android:pathData="M690,644 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z">
+                <aapt:attr name="android:fillColor">
+                    <gradient
+                        android:centerX="700"
+                        android:centerY="644"
+                        android:gradientRadius="10"
+                        android:type="radial">
+                        <item
+                            android:color="#D9FFFFFF"
+                            android:offset="0" />
+                        <item
+                            android:color="#66FFFFFF"
+                            android:offset="1" />
+                    </gradient>
+                </aapt:attr>
+            </path>
+        </group>
+    </group>
+</vector>
