@@ -1579,6 +1579,22 @@ struct ComposerBar: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("05-composer-mode-fail")
             }
+            // 模型/思考切换失败/未知态持久错误行（2026-10-09「选了没有变化」修复另一面：
+            // 拒因 3s 闪过即「点了没反应」——拒因原文常驻直至下次权威成功切换）
+            if let modelFailure = viewModel.modelSwitchFailureText {
+                HStack(spacing: T.sp2) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(T.red)
+                    Text(modelFailure)
+                        .font(T.font(12))
+                        .foregroundColor(T.red)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("05-composer-model-fail")
+            }
             // U-6 发送失败持久错误行（优先级高于 3s 轻提示——数据安全提示不自动消失）
             if let sendFailure {
                 HStack(spacing: T.sp2) {

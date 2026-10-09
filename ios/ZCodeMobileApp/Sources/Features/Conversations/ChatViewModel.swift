@@ -35,6 +35,17 @@ final class ChatViewModel {
     /// 连接态数据源（chips / 向上分页 / 待审批交互）。演示态全部保持 nil/false，
     /// 工具行沿用本机设置，演示交互完全不变。
     var modelSelection: ModelSelectionInfo?
+    /// 模型/思考切换失败或未知态常驻错误行（nil = 无在案；区别于 3s switchHint——
+    /// 「选了没有变化」报障的另一面：拒因 3s 闪过用户根本看不到）。清除时机 =
+    /// 下次权威成功切换 / state.modelSelection 投影对未知态定案
+    var modelSwitchFailureText: String?
+    /// 乐观切换收敛护栏（防 ack 权威成功后、state.modelSelection 增量到达前，
+    /// 旧投影/旧 workspace getView 把 chip 回闪成旧值——真机 14:08 实证忙 turn
+    /// 期间增量可滞后「分钟」级；协作模式 lastLocalModeSwitch 同款口径）
+    var lastLocalModelSwitch: (model: String, thought: String?, at: Date)?
+    /// 未知态回执（status 缺席/词表外）的待定标记：state.modelSelection 投影命中
+    /// 即定案并清失败行——桌面实际已受理与否由投影说话
+    var pendingUnknownModelSelection = false
     var workspaceConfig: WorkspaceConfigInfo?
     var canLoadOlder = false
     var isLoadingOlder = false
@@ -140,24 +151,54 @@ final class ChatViewModel {
 
     /// 主模型切换（switchModelConfig 三元组；thought 沿用当前档位）。
     /// `model` 接受面板行键「套餐|模型」（复合表权威解析 providerId）或裸模型名
-    /// （当前绑定走 activeProviderId，其余回退裸名表）
+    /// （当前绑定走 activeProviderId，其余回退裸名表）。权威成功回执：乐观落 chip
+    /// （桌面 state.modelSelection 增量在忙 turn 期间可长时间滞后——2026-10-09 真机
+    /// 14:08 实证 accepted 后 chip 恒旧值「选了没有变化」）+ 3s 护栏；失败/未知态：
+    /// chip 不动，文案落常驻错误行（modelSwitchFailureText）。
     func switchModel(_ model: String, thoughtLevel: String? = nil) async -> String? {
         guard let selection = modelSelection else {
-            return String(localized: "不在连接态，无法切换桌面端模型")
+            let text = String(localized: "不在连接态，无法切换桌面端模型")
+            modelSwitchFailureText = text
+            return text
         }
         let provider = selection.provider(forRowKey: model, model: model) ?? ""
         // 解析不出 provider（getView 缺席且非当前模型）禁裸发：空串 provider 必被
         // 桌面 zod/处理器拒（providerId min 1 口径）——裸发只会换回 3s 闪过的拒因，
         // 用户观感「选了没反应」（真机报障 2026-10-09）
         guard !provider.isEmpty else {
-            return String(localized: "模型提供商信息未就绪 · 点模型胶囊重新获取列表后再切换")
+            let text = String(localized: "模型提供商信息未就绪 · 点模型胶囊重新获取列表后再切换")
+            modelSwitchFailureText = text
+            return text
         }
         let thought = thoughtLevel ?? selection.activeThoughtLevel ?? ""
         let ack = await store.switchModelConfig(
             conversationID, provider: provider,
             model: selection.modelLabel(forRowKey: model), thought: thought)
         recordControlDiag("switchModel=\(model) thought=\(thought)", workId: nil, ack: ack)
-        return Self.controlFeedback(ack, verb: "model")
+        if let failure = Self.controlFeedback(ack, verb: "model") {
+            modelSwitchFailureText = failure
+            return failure
+        }
+        guard let ack, CommandAck(ack).isAuthoritativeSuccess else {
+            // 未知态（status 缺席/词表外）不乐观落 chip——桌面可能已受理也可能没有，
+            // 登记待定标记交 state.modelSelection 投影首个到达定案并清失败行
+            pendingUnknownModelSelection = true
+            let text = String(localized: "桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际选择为准")
+            modelSwitchFailureText = text
+            return text
+        }
+        // 权威成功（accepted/duplicate/noop）即乐观落 chip：不等桌面投影回流
+        //（真机实证忙 turn 时增量可滞后到用户以为切换失败）；投影随后到达即确认值
+        let label = selection.modelLabel(forRowKey: model)
+        modelSelection?.activeProviderId = provider
+        modelSelection?.activeModel = label
+        if !thought.isEmpty {
+            modelSelection?.activeThoughtLevel = thought
+        }
+        lastLocalModelSwitch = (model: label, thought: thought.isEmpty ? nil : thought, at: Date())
+        modelSwitchFailureText = nil
+        await refreshThoughtLevels()
+        return nil
     }
 
     // MARK: P1-2 会话模式（plan/build）与投递模式（now/queue/guide）
@@ -307,7 +348,9 @@ final class ChatViewModel {
     /// 思考强度切换（同三元组；model 沿用当前绑定）
     func switchThoughtLevel(_ level: String) async -> String? {
         guard let model = modelSelection?.activeModel else {
-            return String(localized: "不在连接态，无法切换思考强度")
+            let text = String(localized: "不在连接态，无法切换思考强度")
+            modelSwitchFailureText = text
+            return text
         }
         return await switchModel(model, thoughtLevel: level)
     }
@@ -917,7 +960,21 @@ final class ChatViewModel {
     func observeModelSelection() async {
         for await info in store.observeModelSelection() {
             if let info {
-                modelSelection = info
+                // 护栏窗口内 workspace getView 整构替换会把乐观选择回闪成旧值
+                //（getView 与会话级 state 双源，旧快照在途时同坑）：清单/词表取新
+                // info，选择三元组保留本地值，3s 后桌面权威源接管
+                if let last = lastLocalModelSwitch,
+                   Date().timeIntervalSince(last.at) < 3,
+                   !(info.activeModel == last.model && info.activeThoughtLevel == last.thought),
+                   let current = modelSelection {
+                    var merged = info
+                    merged.activeModel = current.activeModel
+                    merged.activeThoughtLevel = current.activeThoughtLevel
+                    merged.activeProviderId = current.activeProviderId
+                    modelSelection = merged
+                } else {
+                    modelSelection = info
+                }
                 await refreshThoughtLevels()
                 await refreshSessionModelOverlay()
             }
@@ -956,6 +1013,18 @@ final class ChatViewModel {
         // 同模型切换无需 getView；getView 之后成功则以回执值覆盖，无双源冲突）
         if let provider = session.provider {
             modelSelection?.activeProviderId = provider
+        }
+        // 未知态待定期：首个投影即定案（桌面真态说话），清失败行后走统一覆盖
+        if pendingUnknownModelSelection {
+            pendingUnknownModelSelection = false
+            modelSwitchFailureText = nil
+        }
+        // 乐观切换护栏（3s）：ack 已权威成功但增量未达（忙 turn 时可滞后到分钟级
+        // ——2026-10-09 真机 14:08 实证），旧值投影不回闪；窗口过后桌面权威源接管
+        if let last = lastLocalModelSwitch,
+           Date().timeIntervalSince(last.at) < 3,
+           !(session.model == last.model && session.thought == last.thought) {
+            return
         }
         guard modelSelection?.activeModel != session.model
             || modelSelection?.activeThoughtLevel != session.thought else { return }

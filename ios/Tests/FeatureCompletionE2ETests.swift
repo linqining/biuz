@@ -2015,6 +2015,14 @@ final class FeatureCompletionE2ETests: XCTestCase {
                        "model 沿用当前绑定（state.modelSelection.modelId）")
         XCTAssertEqual(stub.lastSwitchModelConfigPayload?["thought"], "low",
                        "thought 应为所选档位")
+
+        // ③ 乐观落 chip（2026-10-09 真机「选了没有变化」根修门禁）：替身 accepted 后
+        //    **不推** state.modelSelection 增量（=桌面忙 turn 投影滞后的实证形态）——
+        //    思考胶囊必须立即反映本地乐观值（思考·medium → 思考·low），不等投影回流
+        let lowChip = application.buttons.matching(
+            NSPredicate(format: "identifier == '05-chip-thought' AND label CONTAINS 'low'"))
+        XCTAssertTrue(lowChip.firstMatch.waitForExistence(timeout: 8),
+                      "ack 权威成功后思考胶囊应乐观更新为所选档位（不等桌面投影）；实际 label=\(application.buttons["05-chip-thought"].label)")
         snap(application, "50-session-provider-fallback")
     }
 }

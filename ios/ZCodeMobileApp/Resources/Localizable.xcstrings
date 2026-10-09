@@ -219,9 +219,7 @@
         }
       }
     },
-    "· %@" : {
-
-    },
+    "· %@" : {},
     "（回滚原工作区亦失败：%@，可断开重连恢复）" : {
       "localizations" : {
         "en" : {
@@ -1741,15 +1739,9 @@
         }
       }
     },
-    "BigModel 个人套餐" : {
-
-    },
-    "BigModel 体验套餐" : {
-
-    },
-    "BigModel 团队套餐" : {
-
-    },
+    "BigModel 个人套餐" : {},
+    "BigModel 体验套餐" : {},
+    "BigModel 团队套餐" : {},
     "BigModel（中国）" : {
       "localizations" : {
         "en" : {
@@ -2691,15 +2683,9 @@
         }
       }
     },
-    "Z.ai 个人套餐" : {
-
-    },
-    "Z.ai 体验套餐" : {
-
-    },
-    "Z.ai 团队套餐" : {
-
-    },
+    "Z.ai 个人套餐" : {},
+    "Z.ai 体验套餐" : {},
+    "Z.ai 团队套餐" : {},
     "Z.ai 账号" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4609,9 +4595,7 @@
         }
       }
     },
-    "凭据校验失败" : {
-
-    },
+    "凭据校验失败" : {},
     "凭据经桌面端代存（凭据存储），不落本机；保存后可用「测试连接」验证。" : {
       "localizations" : {
         "en" : {
@@ -7257,9 +7241,7 @@
         }
       }
     },
-    "已取消" : {
-
-    },
+    "已取消" : {},
     "已取消重连" : {
       "localizations" : {
         "en" : {
@@ -10189,9 +10171,7 @@
         }
       }
     },
-    "服务返回 HTTP %lld。请确认桌面端 zcode --web 进程存活后重试。" : {
-
-    },
+    "服务返回 HTTP %lld。请确认桌面端 zcode --web 进程存活后重试。" : {},
     "服务返回错误" : {
       "localizations" : {
         "en" : {
@@ -10364,12 +10344,8 @@
         }
       }
     },
-    "未订阅该套餐" : {
-
-    },
-    "未认证" : {
-
-    },
+    "未订阅该套餐" : {},
+    "未认证" : {},
     "未识别到有效连接链接，请对准二维码后重试" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10391,9 +10367,7 @@
         }
       }
     },
-    "未连接" : {
-
-    },
+    "未连接" : {},
     "未连接桌面端" : {
       "localizations" : {
         "en" : {
@@ -10693,9 +10667,7 @@
         }
       }
     },
-    "桌面 v%@" : {
-
-    },
+    "桌面 v%@" : {},
     "桌面 v%lld" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -14414,9 +14386,7 @@
         }
       }
     },
-    "连接态由桌面端绑定 · 请在会话输入区点模型胶囊切换" : {
-
-    },
+    "连接态由桌面端绑定 · 请在会话输入区点模型胶囊切换" : {},
     "连接未成功，桌面端可能未在线" : {
       "localizations" : {
         "en" : {
@@ -15360,6 +15330,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Follows the iOS system language by default (Simplified Chinese / English). After choosing a fixed language, BiuZ always displays in it (effective on relaunch); see release notes for coverage."
+          }
+        }
+      }
+    },
+    "桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际选择为准" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop acknowledgment status unknown (status missing) · not applied locally; the desktop's actual selection prevails"
           }
         }
       }
