@@ -87,6 +87,7 @@ import cn.biuz.android.protocol.TodoState
 import cn.biuz.android.protocol.ToolCall
 import cn.biuz.android.protocol.ToolCallStatus
 import cn.biuz.android.protocol.ToolKind
+import cn.biuz.android.store.ConversationStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -94,6 +95,16 @@ import kotlinx.coroutines.launch
 private val FOUR_FAMILY_IDS = setOf("allowOnce", "allowAlways", "rejectOnce", "rejectAlways")
 
 // MARK: - 消息行路由（iOS MessageView :44-133 同构）
+
+/**
+ * 附件渲染上下文（消息行附件条数据源；null = 不挂附件条——演示态/未接线调用方）。
+ * G-014：refs 经 attachmentReadV4 分块读（store 面），缩略图/全屏由 AttachmentViews 承载。
+ */
+data class AttachmentStripContext(
+    val store: ConversationStore,
+    val sessionId: String,
+    val fullscreen: AttachmentFullscreenState,
+)
 
 @Composable
 fun MessageRow(
@@ -103,14 +114,16 @@ fun MessageRow(
     onRetryToolCall: (ChatMessage, ToolCall) -> Unit = { _, _ -> },
     /** P1-3 编辑重发下发（editUserQuery；返回失败面，null = 成功）。null 回调 = 长按菜单无该项。 */
     onEditResend: (suspend (ChatMessage, String) -> ChatViewModel.InteractionFailure?)? = null,
+    /** 附件条上下文（null = 不渲染附件位；refs 空的行不渲染占位死块）。 */
+    attachmentContext: AttachmentStripContext? = null,
 ) {
     when (message.role) {
-        MessageRole.user -> UserMessageRow(message, modifier, onEditResend)
-        MessageRole.agent -> AgentMessageRow(message, modifier, onRetryToolCall)
+        MessageRole.user -> UserMessageRow(message, modifier, onEditResend, attachmentContext)
+        MessageRole.agent -> AgentMessageRow(message, modifier, onRetryToolCall, attachmentContext)
     }
 }
 
-// MARK: - 用户行：附件位（本批不接 attachmentReadV4，只占引用条）+ userselect 剥离 + 气泡
+// MARK: - 用户行：附件位（气泡上方右对齐）+ userselect 剥离 + 气泡
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -118,6 +131,7 @@ private fun UserMessageRow(
     message: ChatMessage,
     modifier: Modifier = Modifier,
     onEditResend: (suspend (ChatMessage, String) -> ChatViewModel.InteractionFailure?)?,
+    attachmentContext: AttachmentStripContext?,
 ) {
     var copied by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -135,6 +149,17 @@ private fun UserMessageRow(
     // （协议文档 §10.1 v1.34 逐字）；「复制」恒复制 message.text 原文（含尾块）。
     val selection = remember(message.text) { UserSelectionSupport.parse(message.text) }
     Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+        // 附件位：气泡上方、右对齐（iOS 桌面口径 MessageViews.swift:51-55 同构；
+        // 无 refs 不渲染占位死块）
+        if (attachmentContext != null && message.attachments.isNotEmpty()) {
+            AttachmentStripView(
+                store = attachmentContext.store,
+                sessionId = attachmentContext.sessionId,
+                refs = message.attachments,
+                fullscreen = attachmentContext.fullscreen,
+                rowAlignment = Alignment.End,
+            )
+        }
         val displayText = selection?.visibleText ?: message.text
         if (displayText.isNotEmpty()) {
             Box {
@@ -321,6 +346,7 @@ private fun AgentMessageRow(
     message: ChatMessage,
     modifier: Modifier = Modifier,
     onRetryToolCall: (ChatMessage, ToolCall) -> Unit,
+    attachmentContext: AttachmentStripContext?,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -339,6 +365,15 @@ private fun AgentMessageRow(
             }
         }
         message.thinking?.let { ThinkingBlock(it.text, it.state) }
+        // G-014 附件缩略图行（无附件数据不渲染任何占位块；iOS MessageViews.swift:91 同构）
+        if (attachmentContext != null && message.attachments.isNotEmpty()) {
+            AttachmentStripView(
+                store = attachmentContext.store,
+                sessionId = attachmentContext.sessionId,
+                refs = message.attachments,
+                fullscreen = attachmentContext.fullscreen,
+            )
+        }
         message.toolCall?.let { call ->
             // ExitPlanMode 计划预览卡优先——载荷形状门命中即整卡替换（官方 renderer 同为整块替换）
             val plan = remember(call.target) { PlanToolCallSupport.parse(call.target) }

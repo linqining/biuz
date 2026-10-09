@@ -8,6 +8,7 @@ import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.MessageRole
 import cn.biuz.android.protocol.RemotePendingInteraction
+import cn.biuz.android.store.AttachmentUploadService
 import cn.biuz.android.store.ConversationEvent
 import cn.biuz.android.store.ConversationQueueInfo
 import cn.biuz.android.store.ConversationStore
@@ -53,6 +54,8 @@ private class FakeConversationStore(
     // 队列五件面
     var queue: ConversationQueueInfo? = null,
     var queueAck: JSONValue? = null,
+    // 附件事务面（默认 false = 演示态口径：四方法全 failure——上传失败阻断发送路径）
+    var attachmentUploadSucceeds: Boolean = false,
 ) : ConversationStore {
 
     val events = MutableSharedFlow<ConversationEvent>(
@@ -61,10 +64,12 @@ private class FakeConversationStore(
     )
 
     val sendCalls = CopyOnWriteArrayList<String>()
+    val sendAttachmentCalls = CopyOnWriteArrayList<List<OutgoingAttachment>>()
     val collabModeCalls = CopyOnWriteArrayList<String>()
     val editCalls = CopyOnWriteArrayList<Triple<Int, String?, String>>()
     val switchModelCalls = CopyOnWriteArrayList<Triple<String, String, String>>() // provider|model|thought
     val queueCalls = CopyOnWriteArrayList<Pair<String, String>>() // verb|argument
+    val attachmentCalls = CopyOnWriteArrayList<String>() // begin|chunk:i|commit|abort
 
     override suspend fun conversations(): List<cn.biuz.android.protocol.Conversation> = emptyList()
 
@@ -94,8 +99,56 @@ private class FakeConversationStore(
         conversationId: String,
     ): Boolean {
         sendCalls.add(text)
+        sendAttachmentCalls.add(attachments)
         return sendOutcome
     }
+
+    // MARK: 附件事务面（默认 failure=演示态；attachmentUploadSucceeds=true 走
+    // Staging(0) → nextChunkIndex=index+1 → "ref-<uploadId>" 的最小可续传脚本）
+
+    override suspend fun attachmentBeginV4(
+        sessionId: String,
+        uploadId: String,
+        fileName: String,
+        mime: String,
+        totalBytes: Int,
+        totalChunks: Int,
+        checksum: String,
+    ): Result<cn.biuz.android.store.AttachmentBeginOutcome> {
+        attachmentCalls.add("begin:$uploadId")
+        return if (attachmentUploadSucceeds) {
+            Result.success(cn.biuz.android.store.AttachmentBeginOutcome.Staging(nextChunkIndex = 0))
+        } else {
+            Result.failure(cn.biuz.android.store.AttachmentRPCError("演示态无附件上传面"))
+        }
+    }
+
+    override suspend fun attachmentChunkV4(
+        sessionId: String,
+        uploadId: String,
+        chunkIndex: Int,
+        dataBase64: String,
+    ): Result<Int> {
+        attachmentCalls.add("chunk:$chunkIndex")
+        return if (attachmentUploadSucceeds) Result.success(chunkIndex + 1) else failureInt
+    }
+
+    override suspend fun attachmentCommitV4(sessionId: String, uploadId: String): Result<String> {
+        attachmentCalls.add("commit")
+        return if (attachmentUploadSucceeds) Result.success("ref-$uploadId") else failureString
+    }
+
+    override suspend fun attachmentAbortV4(sessionId: String, uploadId: String): Result<Unit> {
+        attachmentCalls.add("abort")
+        return if (attachmentUploadSucceeds) Result.success(Unit) else failureUnit
+    }
+
+    private val failureInt: Result<Int> =
+        Result.failure(cn.biuz.android.store.AttachmentRPCError("演示态无附件上传面"))
+    private val failureString: Result<String> =
+        Result.failure(cn.biuz.android.store.AttachmentRPCError("演示态无附件上传面"))
+    private val failureUnit: Result<Unit> =
+        Result.failure(cn.biuz.android.store.AttachmentRPCError("演示态无附件上传面"))
 
     override suspend fun sendRejectionText(conversationId: String): String? = sendRejection
 
@@ -685,6 +738,82 @@ class ChatViewModelTest {
         // 用户重新输入 = 重试意图：常驻失败行出账（草稿回填仍在）
         vm.updateDraft("换一种说法")
         assertNull(vm.slashHint.value)
+    }
+
+    // MARK: 待发附件面（P1-1 发送联动：补传门 / peek 不移除成功才清 / 超限提示镜像）
+
+    @Test
+    fun failedUploadBlocksSendAndSurfacesFailureText() = runTest {
+        // fake 默认 attachmentUploadSucceeds=false（演示态口径：begin failure）
+        val store = FakeConversationStore()
+        val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm.attach(store)
+        advanceUntilIdle()
+
+        assertTrue(vm.enqueueAttachment(name = "clip.mp4", mediaType = "video/mp4", data = ByteArray(1024)))
+        advanceUntilIdle()
+
+        // 上传失败：blocksSend 发送闸落下 + 失败原文行可读（errorText 直出，禁笼统文案）
+        assertTrue(vm.uploadsBlocksSend())
+        assertEquals("clip.mp4", vm.uploadsSnapshot().single().name)
+        val failure = vm.uploadFailureText()
+        assertTrue(failure != null && failure.isNotEmpty())
+
+        // 发送门兜底：blocksSend 在场时 send 不下发（直发文本会丢附件）
+        vm.updateDraft("带附件的消息")
+        val delivered = vm.send()
+        advanceUntilIdle()
+        assertFalse(delivered)
+        assertTrue(store.sendCalls.isEmpty(), "上传未就绪时禁止裸发文本（丢附件）")
+    }
+
+    @Test
+    fun committedAttachmentFlowsIntoSendAndClearsOnlyOnSuccess() = runTest {
+        val store = FakeConversationStore(attachmentUploadSucceeds = true)
+        val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm.attach(store)
+        advanceUntilIdle()
+
+        assertTrue(vm.enqueueAttachment(name = "shot.png", mediaType = "image/png", data = ByteArray(512)))
+        advanceUntilIdle()
+        // 事务收口：begin→chunk→commit 全走，committed 态 + 发送闸抬起
+        assertTrue(store.attachmentCalls.any { it.startsWith("begin:") })
+        assertTrue(store.attachmentCalls.contains("commit"))
+        assertFalse(vm.uploadsBlocksSend())
+
+        // 发送成功 → committed 引用随 sendText 下发（B-1 元素面）→ 待发条清空（成功才清）
+        vm.updateDraft("带图消息")
+        assertTrue(vm.send())
+        advanceUntilIdle()
+        val sent = store.sendAttachmentCalls.single()
+        assertEquals(1, sent.size)
+        assertEquals("shot.png", sent.single().fileName)
+        assertEquals("image/png", sent.single().mime)
+        assertTrue(sent.single().ref.startsWith("ref-upload-"))
+        assertTrue(vm.uploadsSnapshot().isEmpty(), "发送成功后 committed 附件出账（成功才清语义）")
+
+        // 发送失败 → 附件保留待发条（committed 引用可复用，重试不重传——§11.1#6）
+        val store2 = FakeConversationStore(attachmentUploadSucceeds = true, sendOutcome = false)
+        val vm2 = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm2.attach(store2)
+        advanceUntilIdle()
+        vm2.enqueueAttachment(name = "keep.mov", mediaType = "video/quicktime", data = ByteArray(512))
+        advanceUntilIdle()
+        assertFalse(vm2.send())
+        advanceUntilIdle()
+        assertEquals(1, vm2.uploadsSnapshot().size)
+        assertEquals("keep.mov", vm2.uploadsSnapshot().single().name)
+    }
+
+    @Test
+    fun oversizeEnqueueIsRefusedWithMirroredHint() {
+        val vm = plainVm()
+        vm.attach(FakeConversationStore())
+        // 20MB 上限（AttachmentUploadService.MAX_BYTES）+1 拒收：add false + hint 镜像可读
+        val oversize = ByteArray(AttachmentUploadService.MAX_BYTES + 1)
+        assertFalse(vm.enqueueAttachment(name = "big.mp4", mediaType = "video/mp4", data = oversize))
+        assertTrue(vm.uploadsSnapshot().isEmpty())
+        assertTrue(vm.uploadHint.value?.contains("20MB") == true)
     }
 }
 

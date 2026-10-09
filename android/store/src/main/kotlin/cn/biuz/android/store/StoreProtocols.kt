@@ -653,9 +653,15 @@ interface ConversationStore {
 
     /**
      * A-4 附件上传事务（web 对齐）：四条 **channel RPC**（zcode-agent 直发，非 v4 会话
-     * 命令、无信封）。全部 strict 键集——Begin 8 键 / Chunk 5 键 / Commit·Abort 3 键，
-     * 多一个键都会被 zod 拒收（不带 workspacePath/workspaceIdentity）。远端实现注入
-     * connectionId（握手注册 clientId）；失败以 Result.failure 携错误文本回传 UI。
+     * 命令、无信封）。键面（2026-10-10 附件链路轮对齐上游实装修正）：会话域 workspace
+     * 信封（workspacePath + workspaceIdentity?）**恒在场**——2026-10-06 真机实证缺
+     * workspacePath 被 Invalid params 拒、上游 facade getClient(params) 按
+     * params.workspacePath 选 CLI（zcodeAgentService.ts:3037）；事务键 Begin 7 键 /
+     * Chunk 4 键 / Commit·Abort 2 键全 strict。**客户端参数绝无 connectionId**——
+     * 由桌面 host facade 注入（withTrustedConnection 先删后写真值，
+     * zcodeAgentConnectionScope.ts:91-110），多发即 Invalid params（甲-2/A11）。
+     * 中继瞬断首败 1.2s 退避重试一次（Abort 例外：尽力收口不重试）；失败以
+     * Result.failure 携错误文本回传 UI（禁静默吞错 §5-12）。
      * 演示态默认实现返回 failure（无上传面）。（:233-241/:470-486）
      */
     suspend fun attachmentBeginV4(

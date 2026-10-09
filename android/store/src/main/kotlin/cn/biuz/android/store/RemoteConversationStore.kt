@@ -42,6 +42,7 @@ import cn.biuz.android.protocol.AckActivationBarrier
 import cn.biuz.android.protocol.CasRevision
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.CommandAck
+import cn.biuz.android.protocol.CommandSchemas
 import cn.biuz.android.protocol.ConversationCommandFactory
 import cn.biuz.android.protocol.ConversationCommandRequest
 import cn.biuz.android.protocol.Conversation
@@ -50,6 +51,8 @@ import cn.biuz.android.protocol.ExecutorKind
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.MessageRole
 import cn.biuz.android.protocol.MessageStatus
+import cn.biuz.android.protocol.PSchema
+import cn.biuz.android.protocol.PValidator
 import cn.biuz.android.protocol.RemoteInteractionOption
 import cn.biuz.android.protocol.RemotePendingInteraction
 import cn.biuz.android.protocol.RPCChannelTransport
@@ -62,14 +65,23 @@ import cn.biuz.android.protocol.TodoState
 import cn.biuz.android.protocol.ToolCall
 import cn.biuz.android.protocol.ToolCallStatus
 import cn.biuz.android.protocol.ToolKind
+import cn.biuz.android.protocol.SessionWorkflowRunSummary
 import cn.biuz.android.protocol.V4TopicFrame
+import cn.biuz.android.protocol.WorkflowActivitySummary
+import cn.biuz.android.protocol.WorkflowActorSummary
+import cn.biuz.android.protocol.WorkflowArtifactBrief
 import cn.biuz.android.protocol.WorkflowCompletionCard
 import cn.biuz.android.protocol.WorkflowCompletionArtifact
+import cn.biuz.android.protocol.WorkflowNodeSummary
+import cn.biuz.android.protocol.WorkflowRunSummary
+import cn.biuz.android.protocol.WorkflowStepStatus
 import cn.biuz.android.protocol.WorkspaceHookReviewItem
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -77,6 +89,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -114,6 +128,18 @@ interface ConversationFrameSurface {
     fun setFrameDropHandler(key: String, handler: () -> Unit)
 }
 
+/**
+ * 工作流状态镜像持久化钩子（iOS persistWorkflowMirror/loadWorkflowMirror :3424-3437 的
+ * 持久化抽象）：快照/增量一到即落盘（截尾 4 条），冷启动表空时水合，面板不再依赖
+ * 投递时序。iOS 以 UserDefaults `wf.runs.mirror.<id>` 承载；Android :store 纯 JVM，
+ * 实现由装配层提供（DataStore/Preferences + JsonCodec 序列化）。
+ */
+interface WorkflowMirrorStore {
+    fun save(conversationId: String, runs: List<JSONValue>)
+
+    fun load(conversationId: String): List<JSONValue>?
+}
+
 // MARK: - 远端会话存储：conversation v4 订阅 + 行模型 → ChatMessage
 
 /**
@@ -149,7 +175,7 @@ class RemoteConversationStore(
      * 线缆事实不走注入面）。缺省系统墙钟；测试注入虚拟时钟驱动 15s 首试/10min 窗口。
      */
     private val nowMs: () -> Long = { System.currentTimeMillis() },
-) : ConversationStore, RemoteConversationBridge {
+) : ConversationStore, RemoteConversationBridge, FileConversationAnchor {
 
     /** 会话行记录（iOS RowRecord :236-239）。 */
     class RowRecord(val rowId: Int, var json: JSONValue)
@@ -197,6 +223,25 @@ class RemoteConversationStore(
     private val workflowRunTables = HashMap<String, WorkflowRunTable>()
     /** 快照/增量 workflowRun 单数键（旧实现兼容；缺席保持既有缓存）（iOS :62-63） */
     private val workflowRunStates = HashMap<String, JSONValue>()
+    /** 触发表缺失全量 resync 去重（快照 state.workflowRuns 间歇缺席的一次性自愈；iOS :3222） */
+    private val workflowResyncTriggered = HashSet<String>()
+    /** conversationWorkflowRunsV4 只读兜底去重（一次，失败不重复；iOS :3250 workflowRunFetched） */
+    private val workflowRunFetched = HashSet<String>()
+    /** membership（pin/archive 组织态权威源）上次刷新时刻（30s 节流；iOS membershipRefreshedAt :302-308） */
+    @Volatile
+    private var membershipRefreshedAt: Long? = null
+    /** bootstrap 派生工作区清单（membership scope 枚举第二源；AppSession 装配后回写，iOS bootstrapWorkspaces） */
+    @Volatile
+    var bootstrapWorkspaces: List<StoreWorkspaceInfo> = emptyList()
+    /**
+     * 工作流状态镜像持久化钩子（iOS persistWorkflowMirror/loadWorkflowMirror 的
+     * `wf.runs.mirror.<id>` UserDefaults 落盘；wf.runs.mirror.* 是 diag.* 键族中唯一承载
+     * 业务逻辑的例外，AGENTS §4.6 已注明）。:store 为纯 JVM 模块——装配层接
+     * DataStore/Preferences 承接；null = 仅内存（冷启动水合缺失仅影响「快照间歇缺席」
+     * 场景的首屏时序）。
+     */
+    @Volatile
+    var workflowMirrorStore: WorkflowMirrorStore? = null
     /** reasoning 行流式计时（消息ID → 流式开始时刻；streaming→done 换算 duration）（iOS :165-166） */
     private val reasoningStartedAt = HashMap<String, Long>()
     private val reasoningDuration = HashMap<String, Double>()
@@ -357,11 +402,11 @@ class RemoteConversationStore(
     }
 
     /** 会话归属 workspace 只读解析（跨 Store 复用面；iOS conversationWorkspaceTarget :1992-1994）。 */
-    suspend fun conversationWorkspaceTarget(sessionId: String): Pair<String, String?> =
+    override suspend fun conversationWorkspaceTarget(sessionId: String): Pair<String, String?> =
         workspaceTarget(sessionId, null)
 
     /** 会话当前 revision/logEpoch 水位（步骤 2 CAS base 数据源；iOS :1998-2001）。 */
-    suspend fun conversationBaseWatermark(sessionId: String): Pair<Long, String> {
+    override suspend fun conversationBaseWatermark(sessionId: String): Pair<Long, String> {
         val (revision, epoch) = mutex.withLock {
             (conversationStateRevisions[sessionId] ?: 0L) to (conversationWatermarks[sessionId]?.logEpoch)
         }
@@ -1038,9 +1083,8 @@ class RemoteConversationStore(
             revision = dict["revision"]?.longValue() ?: 0L,
             runs = runs,
         )
-        // iOS persistWorkflowMirror（wf.runs.mirror.* UserDefaults 落盘）未移植：:store 无
-        // UserDefaults 承载（挂装配轮持久化钩子）；表本体在内存，冷启动水合缺失仅影响
-        // 「快照间歇缺席」场景的首屏时序（deviation 已登记）。
+        // 快照/增量一到即落盘镜像（iOS persistWorkflowMirror :3424 同挂点；截尾 4 条）
+        workflowMirrorStore?.save(conversationId, runs.takeLast(WORKFLOW_MIRROR_CAP))
     }
 
     /**
@@ -1106,6 +1150,8 @@ class RemoteConversationStore(
 
         runs[index] = JSONValue.Obj(entry)
         workflowRunTables[conversationId] = WorkflowRunTable(revision, runs)
+        // 增量应用后同落镜像（iOS applyWorkflowRunUpdated :3414 同挂点）
+        workflowMirrorStore?.save(conversationId, runs.takeLast(WORKFLOW_MIRROR_CAP))
     }
 
     /** 从快照/op 信封提取 run 负载（多键宽容；无 run 形态返回 nil）（iOS :3439-3449 直译）。 */
@@ -1836,11 +1882,436 @@ class RemoteConversationStore(
     suspend fun workflowRunState(conversationId: String): JSONValue? =
         mutex.withLock { workflowRunStates[conversationId] }
 
+    // MARK: 桌面 workflow 运行进度（要求 5 / G-008 · 只读；不新增任何发送命令）
+    //
+    // 数据面（桌面开源 v3.14.3 权威 schema）：
+    // 通路 B 主源——conversation state.workflowRuns（workflowRunsStateSchema {revision, runs[]}）：
+    //   冷快照必带、state.updated 键级替换、专属增量 op 仅 workflowRun.updated/removed 两个
+    //   （header 键整键替换 + actors/nodes 条目按 (siteId, ordinal) 整条替换，绝无字段级深合并）。
+    // 旧兼容——workflowRun 单数键（上轮要求 5 实现）与 conversationWorkflowRunsV4 只读兜底。
+    // resumable/truncated 等 CLI 算好字段只透传展示，绝不自推导（桌面基准纪律）。
+
+    /**
+     * 会话全部 workflow run（多 run 面板数据源；活 run 优先、同名取最新活 run、stale 仲裁降级）。
+     * 数据源合并：通路 B 表（主）+ sessions-index activity 补表外 run（A' 摘要投影/事件重建）。
+     * stale 仲裁（实测案例）：表内 run 可能滞留「运行中」而 sessions-index 已遗忘（被取代/
+     * 清理）——activity 非空且不含该 id → 降级为 stopped，**取消不再打到死 workId**
+     * （background_task_not_found；甲类活 run 仲裁红线）。多 run 场景手机端此前只显示第一个。
+     * 排序（2026-10-06 用户反馈口径）：活优先；分区内 startedAt/updatedAt 降序（缺席回退
+     * 表序倒序）；同名多活仅最新保持活态（supersede 滞留旧 run 不再主导显示）。
+     * （iOS workflowRuns(in:) :3106-3206 直译）
+     */
+    override suspend fun workflowRuns(conversationId: String): List<WorkflowRunSummary> {
+        // ⓪ 镜像水合：快照尚未到/本次缺席时，用上次落盘的 run 状态先渲染（有真数据即被覆盖）
+        mutex.withLock {
+            if (workflowRunTables[conversationId]?.runs.isNullOrEmpty()) {
+                workflowMirrorStore?.load(conversationId)?.takeIf { it.isNotEmpty() }?.let { mirror ->
+                    workflowRunTables[conversationId] = WorkflowRunTable(revision = 0L, runs = mirror)
+                }
+            }
+        }
+        val runs = mutex.withLock { workflowRunTables[conversationId]?.runs ?: emptyList() }
+        val parsed = runs.mapNotNull { parseWorkflowRun(it) }
+        var results: List<WorkflowRunSummary> = parsed
+        val tableIds: Set<String> = parsed.map { it.id }.toSet()
+        val tableSize: Int = runs.size
+        val activity = parseWorkflowActivity(
+            sessionsIndex?.sessionSummaries()?.get(conversationId)?.workflowActivity,
+        )
+        val activityIds = activity?.runs?.map { it.id }?.toSet() ?: emptySet()
+        // 表外 run 补充：activity 有而表没有（新 run 尚未随 state 快照/增量到达）
+        if (activity != null) {
+            val firstLiveIndex = activity.runs.indexOfFirst { it.isLive }
+            for ((index, run) in activity.runs.withIndex()) {
+                if (tableIds.contains(run.id)) continue
+                // 首个活 run 走事件重建（通路 C，完整节点/actors）；其余降级摘要投影
+                if (index == firstLiveIndex && run.isLive && results.all { !it.isLive }) {
+                    val rebuilt = rebuildWorkflowRunFromEvents(conversationId, runId = run.id)
+                    if (rebuilt != null) {
+                        results = results + rebuilt
+                        continue
+                    }
+                }
+                results = results + projectActivityRun(run)
+            }
+        }
+        // stale 仲裁（函数头注）：activity 在场且非空时，表内滞留「运行中」但 activity
+        // 已不含该 id 的 run 降级 stopped（取消命令不再打到死 workId）
+        if (activity != null && activityIds.isNotEmpty()) {
+            results = results.map { run ->
+                if (run.isLive && !activityIds.contains(run.id)) run.copy(rawStatus = "stopped") else run
+            }
+        }
+        // 同一 workflow 取最新活 run（用户真机反馈 2026-10-06：桌面 supersede 换 run 后
+        // 旧 run 的 running 状态可能滞留，移动端面板被旧 run 的计划/进度主导）——
+        // 同名多活时仅最新活 run 保持活态，其余降级 stopped（不再主导显示，取消命令
+        // 也不再打到滞留活态的旧 workId）。「同一 workflow」以 name 相同为宽容近似
+        // （runId 不同、同名；改名 supersede 不识别，仅回落到下方排序兜底）。
+        var demotedIds: Set<String> = emptySet()
+        val liveRuns = results.filter { it.isLive }
+        if (liveRuns.size > 1) {
+            val demoted = HashSet<String>()
+            for ((_, group) in liveRuns.groupBy { it.name }) {
+                if (group.size < 2) continue
+                // 最新活 run：时间戳新者优先；时间戳同/缺席按表序靠后者（桌面追加新 run 在尾，
+                // workflowRun(in:) runs?.last 同先例）
+                val newest = group.maxWithOrNull(
+                    compareBy({ recencyMs(it) }, { results.indexOf(it) }),
+                ) ?: continue
+                for (run in group) {
+                    if (run.id != newest.id) demoted.add(run.id)
+                }
+            }
+            if (demoted.isNotEmpty()) {
+                demotedIds = demoted
+                results = results.map { run ->
+                    if (demotedIds.contains(run.id)) run.copy(rawStatus = "stopped") else run
+                }
+            }
+        }
+        // 活优先；分区内新 run 在前（startedAt/updatedAt 降序，缺席同分按表序倒序）——
+        // 面板首卡即最新活 run，被替换旧 run 沉底为历史（UI 另有「历史」分界标注）
+        return results
+            .sortedWith(
+                compareByDescending<WorkflowRunSummary> { it.isLive }
+                    .thenByDescending { recencyMs(it) }
+                    .thenByDescending { results.indexOf(it) },
+            )
+            .also { sorted ->
+                diag(
+                    "diag.wf.multi",
+                    "multi 表=${tableIds.size}(raw$tableSize) activity=${activityIds.size} → " +
+                        sorted.joinToString(", ") { "${it.id.take(14)}:${it.rawStatus}" },
+                )
+            }
+    }
+
+    /** run 排序新近度（updatedAt ?? startedAt ?? Long.MIN_VALUE；iOS recency :3157）。 */
+    private fun recencyMs(run: WorkflowRunSummary): Long =
+        run.updatedAt ?: run.startedAt ?: Long.MIN_VALUE
+
+    /**
+     * 会话主 workflow run（单 run 面板数据源；iOS workflowRun(in:) :3208-3280 直译）：
+     * ① 多源列表命中 → 首个（活优先）即主 run；
+     * ② 单数键旧兼容；
+     * ②.5 触发表缺失全量 resync（一次性；快照 state.workflowRuns 间歇缺席自愈）+
+     *     2.5s 后 nudge 一次面板事件让 observe 重查——置于 ③ 之前：RPC 抛错/空表/
+     *     解析失败等一切后续路径都能被兜住；
+     * ③ conversationWorkflowRunsV4 只读 RPC 兜底（一次，失败不重复）；回执宽容：
+     *    顶层 {runs:[…]} / {result:{runs|workflowRun}} / 单 run 对象；G-019 历史 run
+     *    （无实时 nodes/actors）→ 走 RunEvents 分页重建（通路 C）。
+     */
+    override suspend fun workflowRun(conversationId: String): WorkflowRunSummary? {
+        // ① 多源列表命中 → 首个（活优先）即主 run
+        workflowRuns(conversationId).firstOrNull()?.let { return it }
+        // ② 单数键旧兼容
+        mutex.withLock { workflowRunStates[conversationId] }?.let { cached ->
+            return parseWorkflowRun(cached)
+        }
+        // ②.5 触发表缺失全量 resync（一次性；订阅在场才可 resync）
+        val subId = mutex.withLock {
+            val shouldTrigger = !workflowResyncTriggered.contains(conversationId) &&
+                conversationSubscriptionIds[conversationId] != null
+            if (shouldTrigger) workflowResyncTriggered.add(conversationId)
+            conversationSubscriptionIds[conversationId]
+        }
+        if (subId != null) {
+            diag("diag.wf.path", "触发表缺失全量 resync")
+            scope.launch {
+                forceFullResync(conversationId, subId)
+                delay(NUDGE_DELAY_MS)
+                // nudge：面板事件驱动 observe 侧重查（iOS nudgeWorkflowRefresh 的
+                // AsyncStream yield 对应物——:store 无 UI 指针，以事件流承载）
+                yieldToAll(ConversationEvent.PanelStateUpdated(conversationId))
+            }
+        }
+        // ③ 只读 RPC 兜底（一次，失败不重复）
+        val alreadyFetched = mutex.withLock {
+            val hit = workflowRunFetched.contains(conversationId)
+            if (!hit) workflowRunFetched.add(conversationId)
+            hit
+        }
+        if (alreadyFetched) return null
+        val fields = LinkedHashMap<String, JSONValue>()
+        applySessionTarget(fields, conversationId)
+        fields["workspacePath"] = JSONValue.Str(workspace.path)
+        val json: JSONValue? = try {
+            transport.call(
+                "zcode-agent", "conversationWorkflowRunsV4", RPCValue.json(JSONValue.Obj(fields)),
+                timeout = HISTORY_FETCH_TIMEOUT,
+            ).jsonValue
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            diag("diag.wf.rpc", "RPC 兜底调用失败")
+            null
+        }
+        // 回执宽容：顶层 {runs:[…]} / {result:{runs|workflowRun}} / 单 run 对象
+        val runs = json?.get("runs")?.arrayValue
+            ?: json?.get("result")?.objectValue?.get("runs")?.arrayValue
+            ?: json?.get("result")?.objectValue?.get("workflowRuns")?.objectValue?.get("runs")?.arrayValue
+        val run = runs?.lastOrNull()
+            ?: json?.get("result")?.objectValue?.get("workflowRun")
+            ?: json?.get("workflowRun")
+        // G-019：历史 run（无实时 nodes/actors）→ 走 RunEvents 分页重建（通路 C）
+        if (run != null) {
+            parseWorkflowRun(run)?.let { parsed ->
+                mutex.withLock { workflowRunStates[conversationId] = run }
+                return parsed
+            }
+            val runId = run.objectValue?.get("runId")?.stringValue
+                ?: run.objectValue?.get("id")?.stringValue
+            if (runId != null) {
+                return rebuildWorkflowRunFromEvents(conversationId, runId)
+            }
+        }
+        return null
+    }
+
+    /**
+     * 通路 C：RunEvents 分页重建（G-019 历史 run；iOS rebuildWorkflowRunFromEvents
+     * :4772-4862 直译）。conversationWorkflowRunEventsV4 分页拉取（≤2 轮、每页 500；
+     * 下一页游标 = 末条事件 sequence——上游无 nextCursor 键），事件流重建阶段链/子代理
+     * 实例/终态；truncated=true（重建投影非全量）、cancellable=false（死 run 不再可取消）。
+     */
+    private suspend fun rebuildWorkflowRunFromEvents(
+        conversationId: String,
+        runId: String,
+    ): WorkflowRunSummary? {
+        val events = ArrayList<JSONValue>()
+        var afterSequence: Int? = null
+        for (page_ in 0 until 2) {
+            val fields = LinkedHashMap<String, JSONValue>()
+            applySessionTarget(fields, conversationId)
+            fields["runId"] = JSONValue.Str(runId)
+            fields["limit"] = JSONValue.Int(500)
+            afterSequence?.let { fields["afterSequence"] = JSONValue.Int(it) }
+            val json: JSONValue? = try {
+                transport.call(
+                    "zcode-agent", "conversationWorkflowRunEventsV4",
+                    RPCValue.json(JSONValue.Obj(fields)),
+                ).jsonValue
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            } ?: break
+            val page = json?.get("events")?.arrayValue
+                ?: json?.get("result")?.objectValue?.get("events")?.arrayValue
+                ?: emptyList()
+            events.addAll(page)
+            // 下一页游标 = 末条事件 sequence（上游无 nextCursor 键）
+            val hasMore = json?.get("hasMore")?.boolValue
+                ?: json?.get("result")?.objectValue?.get("hasMore")?.boolValue
+                ?: false
+            if (!hasMore || page.isEmpty()) break
+            val next = page.lastOrNull()?.objectValue?.get("sequence")?.intValue
+            if (next == null) break
+            afterSequence = next
+        }
+        if (events.isEmpty()) return null
+
+        val stationNames = ArrayList<String>()
+        val actors = ArrayList<WorkflowActorSummary>()
+        var rawStatus: String? = null
+        var stopReason: String? = null
+        for (event in events) {
+            val d = event.objectValue ?: continue
+            val type = d["type"]?.stringValue ?: d["kind"]?.stringValue ?: continue
+            val payload = d["payload"]?.objectValue ?: d["data"]?.objectValue ?: emptyMap()
+            when {
+                type.contains("phase") -> {
+                    val name = payload["phase"]?.stringValue ?: payload["phaseName"]?.stringValue
+                    if (!name.isNullOrEmpty() && !stationNames.contains(name)) {
+                        stationNames.add(name)
+                    }
+                }
+                type.contains("actor") -> {
+                    val siteId = payload["siteId"]?.stringValue ?: continue
+                    val ordinal = payload["ordinal"]?.intValue ?: continue
+                    val actorId = "$siteId#$ordinal"
+                    if (actors.none { it.id == actorId }) {
+                        actors.add(
+                            WorkflowActorSummary(
+                                id = actorId,
+                                name = payload["name"]?.stringValue,
+                                rawStatus = payload["status"]?.stringValue ?: "waiting",
+                                phaseName = payload["phaseName"]?.stringValue
+                                    ?: payload["phase"]?.stringValue,
+                                sessionId = payload["sessionId"]?.stringValue
+                                    ?: payload["childSessionId"]?.stringValue,
+                                tasksTotal = null,
+                                tasksSettled = null,
+                            ),
+                        )
+                    }
+                }
+                type.contains("run-settled") || type.contains("settled") -> {
+                    payload["status"]?.stringValue?.let { rawStatus = it }
+                    payload["stopReason"]?.stringValue?.let { stopReason = it }
+                }
+            }
+        }
+        if (stationNames.isEmpty() && actors.isEmpty()) return null
+        val nodes = stationNames.mapIndexed { index, name ->
+            WorkflowNodeSummary(id = "event-station-$index-$name", label = name, status = WorkflowStepStatus.done)
+        }
+        return WorkflowRunSummary(
+            id = runId,
+            name = "工作流",
+            rawStatus = rawStatus ?: "completed",
+            stopReason = stopReason,
+            resumable = false,
+            truncated = true,
+            nodes = nodes,
+            actors = actors,
+            artifactsCount = 0,
+            pendingQuestionsCount = 0,
+            concurrency = null,
+            concurrencyCeiling = null,
+            subagentModel = null,
+            cancellable = false,
+        )
+    }
+
+    /**
+     * 工作流产物内容分块读（conversationWorkflowRunArtifactReadV4【实证·上游仓
+     * workflow-artifacts.ts:221-268 + zcodeAgentService.ts:5369-5389】：≤512KiB 一块、
+     * 授权在 CLI 侧 journal 行、sessionId 必须是 run 的 parentSessionId——寻址沿用
+     * applySessionTarget 会话归属 workspace 同族）。拼装至 nextOffset==null，总量随
+     * 上游 ARTIFACT_CAPS.maxFileBytes=20MB 钳制（40 × 512KiB）；任一块失败回 null
+     * （UI 层如实上屏）。（iOS workflowArtifactContent :1550-1592 直译）
+     */
+    override suspend fun workflowArtifactContent(
+        sessionId: String,
+        runId: String,
+        artifactId: String,
+        version: Int,
+    ): ArtifactContent? {
+        var offset = 0
+        val data = ByteArrayOutputStream()
+        var mediaType = "application/octet-stream"
+        for (chunk_ in 0 until ARTIFACT_MAX_CHUNKS) {
+            val fields = LinkedHashMap<String, JSONValue>()
+            applySessionTarget(fields, sessionId)
+            fields["runId"] = JSONValue.Str(runId)
+            fields["artifactId"] = JSONValue.Str(artifactId)
+            fields["version"] = JSONValue.Int(version)
+            fields["offset"] = JSONValue.Int(offset)
+            fields["limit"] = JSONValue.Int(ARTIFACT_CHUNK_BYTES)
+            val json: JSONValue? = try {
+                transport.call(
+                    "zcode-agent", "conversationWorkflowRunArtifactReadV4",
+                    RPCValue.json(JSONValue.Obj(fields)),
+                ).jsonValue
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return null
+            }
+            // 回执宽容：顶层 / {result:{…}} 双形态（store 既有读面同口径）
+            val dict = if (json?.objectValue?.containsKey("dataBase64") == true) {
+                json.objectValue
+            } else {
+                json?.get("result")?.objectValue
+            }
+            val b64 = dict?.get("dataBase64")?.stringValue ?: return null
+            val chunk: ByteArray = try {
+                java.util.Base64.getMimeDecoder().decode(b64)
+            } catch (e: Exception) {
+                return null
+            }
+            dict["mediaType"]?.stringValue?.takeIf { it.isNotEmpty() }?.let { mediaType = it }
+            data.write(chunk)
+            val next = dict["nextOffset"]?.intValue ?: break
+            offset = next
+        }
+        return if (data.size() == 0) null else ArtifactContent(data.toByteArray(), mediaType)
+    }
+
+    /**
+     * tasks-index membership（pin/archive 组织态权威源）逐 scope **并发**拉取
+     * 【实证·上游仓 taskListMembershipSets.ts：`e.scopes.map(...)` 并发 + 单区失败跳过】；
+     * 完成后写 sessionsIndex.pinnedTaskIds/archivedTaskIds 供三级合成 join（A15：
+     * sessions-index 行不含 pinned/archived 字段——schema 冻结，组织态只此一源）。
+     * scope 清单与归档拉取同源（连接层采集 ∪ bootstrap 派生 ∪ 当前工作区保底）。
+     * （iOS refreshTaskMembership :322-360 直译）
+     */
+    suspend fun refreshTaskMembership() {
+        val index = sessionsIndex ?: return
+        val scopes = membershipScopes(allWorkspaces, bootstrapWorkspaces, workspace)
+        val pinned = HashSet<String>()
+        val archived = HashSet<String>()
+        coroutineScope {
+            val deferred = scopes.map { scope ->
+                async {
+                    val method = if (scope.third) "listPinnedTasks" else "listArchivedTasks"
+                    val fields = LinkedHashMap<String, JSONValue>()
+                    fields["workspacePath"] = JSONValue.Str(scope.first)
+                    val identity = scope.second
+                    if (!identity.isNullOrEmpty()) {
+                        fields["workspaceIdentity"] = JSONValue.Str(identity)
+                    }
+                    try {
+                        val result = transport.call(
+                            "zcode-task", method, RPCValue.json(JSONValue.Obj(fields)),
+                        )
+                        val json = result.jsonValue
+                        val items = json?.get("items")?.arrayValue
+                            ?: json?.get("tasks")?.arrayValue
+                            ?: json?.arrayValue
+                            ?: emptyList()
+                        val ids = items.mapNotNull {
+                            it.objectValue?.get("taskId")?.stringValue
+                                ?: it.objectValue?.get("sessionId")?.stringValue
+                        }
+                        scope.third to ids
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        scope.third to emptyList<String>() // 单区失败跳过（web 同构）
+                    }
+                }
+            }
+            for ((isPinned, ids) in deferred.awaitAll()) {
+                if (isPinned) pinned.addAll(ids) else archived.addAll(ids)
+            }
+        }
+        index.pinnedTaskIds = pinned
+        index.archivedTaskIds = archived
+    }
+
+    /**
+     * membership 30s 节流后台刷新（iOS sortedConversations :302-308 同挂点）：列表读面
+     * 触发、不阻塞首屏（Task 派发同构——scope.launch），完成后回推 ConversationsReplaced。
+     */
+    private suspend fun maybeRefreshMembership() {
+        if (sessionsIndex == null) return
+        val now = System.currentTimeMillis()
+        val last = membershipRefreshedAt
+        if (last != null && now - last < MEMBERSHIP_REFRESH_INTERVAL_MS) return
+        membershipRefreshedAt = now
+        scope.launch {
+            try {
+                refreshTaskMembership()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@launch // 单区失败/瞬断：membership 保持上次值，下个节流窗再对账
+            }
+            yieldConversationsReplaced()
+        }
+    }
+
+
     // MARK: 会话列表读面（iOS sessions 表在 :store 由 RemoteSessionsIndexStore 承载——委托直读）
 
     override suspend fun conversations(): List<Conversation> {
         // 发送后元数据兜底刷新前置（iOS refreshDueSessionMeta :2339-2341 同挂点）
         refreshDueSessionMeta()
+        // membership 30s 节流后台刷新（iOS sortedConversations :302-308 同挂点：
+        // RPC 突发与刚打开会话的订阅/帧处理抢同一 actor，进详情审批卡晚到——后台化不阻塞首屏）
+        maybeRefreshMembership()
         return sessionsIndex?.conversations() ?: emptyList()
     }
 
@@ -3342,6 +3813,254 @@ class RemoteConversationStore(
         }
     }
 
+    // MARK: 附件上传事务（A-4 对齐 web：Begin/Chunk/Commit/Abort 四条 channel RPC）
+    //
+    // 直译自 ios/ZCodeMobileApp/Sources/Stores/Remote/RemoteConversationStore.swift
+    // :5010-5250。web 事务【实证·上游仓 attachmentUploadTransaction.ts】：客户端参数里
+    // **没有 connectionId**——common = {...workspace, sessionId, uploadId}，connectionId
+    // 由桌面 host facade 注入（zcodeAgentConnectionScope.ts:91-110 withTrustedConnection
+    // 先 delete 客户端伪造的 connectionId/clientMode 再写 host 真值）；多发即被真机桌面
+    // strict 校验以 Invalid params 拒（2026-10-06「附件不能上传」根因之一，甲-2/A11）。
+    // 键面逐键对齐 web 客户端：
+    // ① Begin `{workspacePath, workspaceIdentity?, sessionId, uploadId, fileName, mime,
+    //    totalBytes, totalChunks, checksum:"sha256:"+64hex}` → 回执 state 判别联合
+    //    staging{nextChunkIndex} | committed{nextChunkIndex, ref}；
+    // ② Chunk `{...common, chunkIndex, dataBase64}` → `{uploadId, nextChunkIndex}`——
+    //    chunkIndex 是**块序号非字节 offset**，进度判定 = nextChunkIndex === chunkIndex+1；
+    // ③ Commit `{...common}` → `{ref}`；④ Abort 同 Commit 形（Begin 成功后的失败路径收口）。
+    // 384KiB/块（上游 attachmentUploadTransaction.ts ATTACHMENT_UPLOAD_CHUNK_BYTES=
+    // 384*1024，可被 3 整除——除末片外 base64 无 padding）；限额【实证·上游仓 core.ts:84-96
+    // PROTOCOL_V4_LIMITS】：attachmentMaxBytes=20MB、attachmentUploadMaxChunks=64。
+    // ReadOnlyGate：附件事务为桌面存储写非手机直写，zcode-agent 默认面放行。
+    // 中继瞬断首败 1.2s 退避重试一次（AGENTS §5-9；Abort 不重试——iOS 同口径，
+    // 尽力收口语义，失败不掩盖原始错误）；失败以 Result.failure 搪错误文本回传
+    // 调用方（禁静默吞错 §5-12）。
+
+    /** channel 错误 → UI 可读文本（name+message 保留服务端原词，供失败行如实展示）（iOS :5021-5025）。 */
+    private fun attachmentWireError(error: Throwable): String =
+        (error as? RPCError)?.let { "${it.name}: ${it.message}" } ?: error.toString()
+
+    /**
+     * diag.attach.last：附件事务最近一次往返取证（方法 + 回执/错误原文前缀；iOS :5027-5032
+     * UserDefaults diag.attach.last 的 diagListener 承载；验收后随 diag 清理波次移除）。
+     */
+    private fun attachmentDiag(method: String, detail: String) {
+        diag("diag.attach.last", "$method ${detail.take(400)}")
+    }
+
+    /**
+     * 开启（或幂等续接）上传事务（iOS :5034-5106 直译）。同 uploadId 重发 Begin 时桌面按
+     * 已收块数回报 staging.nextChunkIndex——调用方以此为续传起点（web PCe 循环同款起点语义）。
+     */
+    override suspend fun attachmentBeginV4(
+        sessionId: String,
+        uploadId: String,
+        fileName: String,
+        mime: String,
+        totalBytes: Int,
+        totalChunks: Int,
+        checksum: String,
+    ): Result<AttachmentBeginOutcome> {
+        val fields = LinkedHashMap<String, JSONValue>()
+        // 会话域 workspace 信封（实机实证 2026-10-06：缺 workspacePath 被 "Invalid params"
+        // 拒——web 由 channel 层注入同款信封；上游 facade getClient(params) 按
+        // params.workspacePath 选 CLI 进程，键被 scope 层消费，不入 CLI wire）
+        applySessionTarget(fields, sessionId)
+        fields["uploadId"] = JSONValue.Str(uploadId)
+        fields["sessionId"] = JSONValue.Str(sessionId)
+        fields["fileName"] = JSONValue.Str(fileName)
+        fields["mime"] = JSONValue.Str(mime)
+        fields["totalBytes"] = JSONValue.Int(totalBytes)
+        fields["totalChunks"] = JSONValue.Int(totalChunks)
+        fields["checksum"] = JSONValue.Str(checksum)
+        // 参数层 strict 校验（构造与校验同源：transport.ts:832-952 附件四方法全 .strict()
+        // ——正则/限额在本地构造期即爆，替代「发出后服务端 zod 拒」）
+        val paramCheck = PValidator.validate(
+            JSONValue.Obj(fields),
+            schema = PSchema.Obj(CommandSchemas.attachmentBeginParamsShape()),
+            path = "attachmentBeginV4",
+        )
+        if (!paramCheck.isValid) {
+            return Result.failure(AttachmentRPCError("参数校验失败：" + paramCheck.errors.joinToString("; ")))
+        }
+        try {
+            val ack = transport.call(
+                "zcode-agent", "attachmentBeginV4", RPCValue.json(JSONValue.Obj(fields)),
+            )
+            attachmentDiag("begin", ack.jsonValue.toString())
+            return parseBeginReply(ack.jsonValue)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            attachmentDiag("begin-err", attachmentWireError(e))
+            delay(PAGE_RETRY_BACKOFF_MS)
+            return try {
+                val ack = transport.call(
+                    "zcode-agent", "attachmentBeginV4", RPCValue.json(JSONValue.Obj(fields)),
+                )
+                parseBeginReply(ack.jsonValue)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(AttachmentRPCError(attachmentWireError(e)))
+            }
+        }
+    }
+
+    /**
+     * Begin 回执解析（iOS :5108-5137 直译）：state 判别联合——committed 短路给 ref；
+     * staging 给续传起点；形状不识别如实报错（本方法形状【移植·bundle 逆向】+【实证·上游仓
+     * transport.ts:855-883 v4AttachmentBeginResultSchema】）。
+     */
+    private fun parseBeginReply(json: JSONValue?): Result<AttachmentBeginOutcome> {
+        val dict = json?.objectValue
+            ?: return Result.failure(AttachmentRPCError("回执形状未识别：${json.toString().take(160)}"))
+        return when (dict["state"]?.stringValue) {
+            "committed" -> {
+                val ref = dict["ref"]?.stringValue
+                if (ref.isNullOrEmpty()) {
+                    Result.failure(AttachmentRPCError("committed 回执缺 ref：${dict.toString().take(160)}"))
+                } else {
+                    Result.success(AttachmentBeginOutcome.Committed(ref = ref))
+                }
+            }
+            "staging" -> {
+                val next = dict["nextChunkIndex"]?.intValue
+                if (next == null) {
+                    Result.failure(AttachmentRPCError("staging 回执缺 nextChunkIndex：${dict.toString().take(160)}"))
+                } else {
+                    Result.success(AttachmentBeginOutcome.Staging(nextChunkIndex = next))
+                }
+            }
+            else -> Result.failure(AttachmentRPCError("回执 state 未识别：${dict.toString().take(160)}"))
+        }
+    }
+
+    /** 分块下发（iOS :5139-5182 直译）。成功值 = 回执 nextChunkIndex（调用方校验 == chunkIndex+1）。 */
+    override suspend fun attachmentChunkV4(
+        sessionId: String,
+        uploadId: String,
+        chunkIndex: Int,
+        dataBase64: String,
+    ): Result<Int> {
+        val fields = LinkedHashMap<String, JSONValue>()
+        applySessionTarget(fields, sessionId)
+        fields["uploadId"] = JSONValue.Str(uploadId)
+        fields["sessionId"] = JSONValue.Str(sessionId)
+        fields["chunkIndex"] = JSONValue.Int(chunkIndex)
+        fields["dataBase64"] = JSONValue.Str(dataBase64)
+        // 参数层 strict 校验（含 chunk base64 自带 padding + ≤512KiB 解码上限——
+        // A11 不变量本地前移，CommandSchemas.attachmentChunkParamsShape StrictBase64）
+        val paramCheck = PValidator.validate(
+            JSONValue.Obj(fields),
+            schema = PSchema.Obj(CommandSchemas.attachmentChunkParamsShape()),
+            path = "attachmentChunkV4",
+        )
+        if (!paramCheck.isValid) {
+            return Result.failure(AttachmentRPCError("参数校验失败：" + paramCheck.errors.joinToString("; ")))
+        }
+        try {
+            val ack = transport.call(
+                "zcode-agent", "attachmentChunkV4", RPCValue.json(JSONValue.Obj(fields)),
+            )
+            return parseNextChunkIndex(ack.jsonValue)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            delay(PAGE_RETRY_BACKOFF_MS)
+            return try {
+                val ack = transport.call(
+                    "zcode-agent", "attachmentChunkV4", RPCValue.json(JSONValue.Obj(fields)),
+                )
+                parseNextChunkIndex(ack.jsonValue)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(AttachmentRPCError(attachmentWireError(e)))
+            }
+        }
+    }
+
+    /** Chunk 回执解析（iOS :5169-5176 直译）：`{uploadId, nextChunkIndex}`（strict）——仅取进度游标。 */
+    private fun parseNextChunkIndex(json: JSONValue?): Result<Int> {
+        val next = json?.objectValue?.get("nextChunkIndex")?.intValue
+            ?: return Result.failure(AttachmentRPCError("回执缺 nextChunkIndex：${json.toString().take(160)}"))
+        return Result.success(next)
+    }
+
+    /** 事务收口（iOS :5184-5236 直译）。成功值 = 回执 ref（strict `{ref}`——sendText attachments 携带值）。 */
+    override suspend fun attachmentCommitV4(sessionId: String, uploadId: String): Result<String> {
+        val fields = LinkedHashMap<String, JSONValue>()
+        applySessionTarget(fields, sessionId)
+        fields["uploadId"] = JSONValue.Str(uploadId)
+        fields["sessionId"] = JSONValue.Str(sessionId)
+        val paramCheck = PValidator.validate(
+            JSONValue.Obj(fields),
+            schema = PSchema.Obj(CommandSchemas.attachmentFinishParamsShape()),
+            path = "attachmentCommitV4",
+        )
+        if (!paramCheck.isValid) {
+            return Result.failure(AttachmentRPCError("参数校验失败：" + paramCheck.errors.joinToString("; ")))
+        }
+        fun refOf(json: JSONValue?): Result<String> {
+            val ref = json?.objectValue?.get("ref")?.stringValue
+            if (ref.isNullOrEmpty()) {
+                return Result.failure(AttachmentRPCError("回执缺 ref：${json.toString().take(160)}"))
+            }
+            return Result.success(ref)
+        }
+        try {
+            val ack = transport.call(
+                "zcode-agent", "attachmentCommitV4", RPCValue.json(JSONValue.Obj(fields)),
+            )
+            attachmentDiag("commit", ack.jsonValue.toString())
+            return refOf(ack.jsonValue)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            delay(PAGE_RETRY_BACKOFF_MS)
+            return try {
+                val ack = transport.call(
+                    "zcode-agent", "attachmentCommitV4", RPCValue.json(JSONValue.Obj(fields)),
+                )
+                refOf(ack.jsonValue)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(AttachmentRPCError(attachmentWireError(e)))
+            }
+        }
+    }
+
+    /**
+     * 失败路径中止（iOS :5238-5262 直译；web PCe catch 分支同款：Begin 成功后的事务失败
+     * 尽力收口）。Abort 失败不掩盖原始错误——调用方将「中止未送达」并入失败提示，孤儿
+     * 事务由桌面端超时回收（attachmentUploadTtlMs=5min，core.ts:98）。**不重试**（iOS
+     * 同口径：abort 是尽力收口非关键写，重试会给繁忙桌面再压一次 30s 超时）。
+     */
+    override suspend fun attachmentAbortV4(sessionId: String, uploadId: String): Result<Unit> {
+        val fields = LinkedHashMap<String, JSONValue>()
+        applySessionTarget(fields, sessionId)
+        fields["uploadId"] = JSONValue.Str(uploadId)
+        fields["sessionId"] = JSONValue.Str(sessionId)
+        val paramCheck = PValidator.validate(
+            JSONValue.Obj(fields),
+            schema = PSchema.Obj(CommandSchemas.attachmentFinishParamsShape()),
+            path = "attachmentAbortV4",
+        )
+        if (!paramCheck.isValid) {
+            return Result.failure(AttachmentRPCError("参数校验失败：" + paramCheck.errors.joinToString("; ")))
+        }
+        return try {
+            transport.call("zcode-agent", "attachmentAbortV4", RPCValue.json(JSONValue.Obj(fields)))
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(AttachmentRPCError(attachmentWireError(e)))
+        }
+    }
+
     companion object {
         /** keep-warm 租约窗缺省（上游 sessionDataLayer.ts:30 SESSION_DATA_LAYER_KEEP_WARM_MS）。 */
         const val DEFAULT_KEEP_WARM_MS = 30_000L
@@ -3381,5 +4100,342 @@ class RemoteConversationStore(
 
         /** 计划决议 action 词表（iOS ChatViewModel.decidePlan accept|decline + v1.35 cancel 语义）。 */
         val PLAN_ACTIONS = setOf("accept", "decline", "cancel")
+
+        /** 工作流镜像截尾上界（iOS persistWorkflowMirror `runs.suffix(4)` 同值）。 */
+        private const val WORKFLOW_MIRROR_CAP = 4
+
+        /** 触发表缺失 resync 后的 UI nudge 延时（iOS :3232 `2_500_000_000` ns 同值）。 */
+        private const val NUDGE_DELAY_MS = 2_500L
+
+        /** membership 节流刷新窗（iOS :302 `>= 30` 秒同值）。 */
+        private const val MEMBERSHIP_REFRESH_INTERVAL_MS = 30_000L
+
+        /** 产物分块读单块上限（上游 workflow-artifacts.ts ≤512KiB 一块）。 */
+        private const val ARTIFACT_CHUNK_BYTES = 512 * 1024
+
+        /** 产物分块读轮次上界（40 × 512KiB = 上游 ARTIFACT_CAPS.maxFileBytes=20MB）。 */
+        private const val ARTIFACT_MAX_CHUNKS = 40
+
+        /**
+         * G-007 通路 A：workflowActivity → 会话行迷你轨道投影（sessionWorkflowActivitySchema：
+         * {runs[≤4]}，run 摘要 {runId, name?, status 五态, phases[{name,status 四态,alongside?}],
+         * currentPhase?, agentsWorking}；宽容解析，无有效 run 返回 nil）。
+         * （iOS parseWorkflowActivity :3453-3478 直译）
+         */
+        fun parseWorkflowActivity(json: JSONValue?): WorkflowActivitySummary? {
+            val runs = json?.objectValue?.get("runs")?.arrayValue ?: return null
+            if (runs.isEmpty()) return null
+            val parsed = runs.mapNotNull { run ->
+                val dict = run.objectValue ?: return@mapNotNull null
+                val runId = dict["runId"]?.stringValue ?: dict["id"]?.stringValue ?: return@mapNotNull null
+                val phases = (dict["phases"]?.arrayValue ?: emptyList()).mapNotNull { phase ->
+                    val d = phase.objectValue ?: return@mapNotNull null
+                    val name = d["name"]?.stringValue?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                    cn.biuz.android.protocol.SessionWorkflowPhase(
+                        name = name,
+                        status = WorkflowStepStatus.map(d["status"]?.stringValue),
+                        alongside = d["alongside"]?.arrayValue?.mapNotNull { it.intValue } ?: emptyList(),
+                    )
+                }
+                SessionWorkflowRunSummary(
+                    id = runId,
+                    name = dict["name"]?.stringValue,
+                    rawStatus = dict["status"]?.stringValue ?: "pending",
+                    phases = phases,
+                    currentPhase = dict["currentPhase"]?.stringValue,
+                    agentsWorking = dict["agentsWorking"]?.intValue ?: 0,
+                )
+            }
+            return if (parsed.isEmpty()) null else WorkflowActivitySummary(runs = parsed)
+        }
+
+        /**
+         * 通路 A 摘要投影（阶段链 only；列表内 activity-only run 用）。
+         * （iOS projectActivityRun :3194-3206 直译）
+         */
+        fun projectActivityRun(run: SessionWorkflowRunSummary): WorkflowRunSummary = WorkflowRunSummary(
+            id = run.id,
+            name = run.name ?: "工作流",
+            rawStatus = run.rawStatus,
+            stopReason = null,
+            resumable = false,
+            truncated = false,
+            nodes = run.phases.map { phase ->
+                WorkflowNodeSummary(id = phase.id, label = phase.name, status = phase.status)
+            },
+            actors = emptyList(),
+        )
+
+        /**
+         * run 时间字段双形态宽容解析（lastActivityAt 同口径：毫秒数优先，ISO 字符串兜底；
+         * startedAt/updatedAt 未在桌面 §10 词表取证——缺席返回 null，排序回退表序）。
+         * epoch 毫秒。（iOS workflowRunTimestamp :3480-3495 直译）
+         */
+        fun workflowRunTimestamp(dict: Map<String, JSONValue>, key: String): Long? {
+            // 数值时间戳：>1e11 视为毫秒（含带小数的毫秒），>1e8 视为秒；更小值不认（防脏数据）。
+            // 返回恒 epoch 毫秒（Swift Date → Long 毫秒映射约定）
+            val value = dict[key] ?: return null
+            val numeric = value.doubleValue
+            if (numeric != null && numeric > 0) {
+                if (numeric > 100_000_000_000) return numeric.toLong()
+                if (numeric > 100_000_000) return (numeric * 1000).toLong()
+            }
+            value.stringValue?.let { iso ->
+                try {
+                    return java.time.Instant.parse(iso).toEpochMilli()
+                } catch (e: Exception) {
+                    // fallthrough
+                }
+                try {
+                    return java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli()
+                } catch (e: Exception) {
+                    // fallthrough
+                }
+            }
+            return null
+        }
+
+        /**
+         * run 负载 → 只读投影（G-008 增强：五态原词/actors 子代理实例/阶段链按声明表推导/
+         * 容量计数/concurrency/truncated/resumable 透传；宽容解析，无阶段且无节点返回 nil）。
+         * （iOS parseWorkflowRun :3497-3700 直译；阶段行展开 = 上游 instance-phases.ts
+         * phasesOf 同构——「未分组」承接站与隐式「工作流」单站兜底 2026-10-08 取证）
+         */
+        fun parseWorkflowRun(json: JSONValue): WorkflowRunSummary? {
+            val dict = json.objectValue ?: return null
+            val id = dict["runId"]?.stringValue
+                ?: dict["workflowRunId"]?.stringValue
+                ?: dict["id"]?.stringValue
+                ?: "workflow-run"
+            val name = dict["name"]?.stringValue
+                ?: dict["workflowName"]?.stringValue
+                ?: dict["title"]?.stringValue
+                ?: dict["displayName"]?.stringValue
+                ?: "工作流"
+            val rawStatus = dict["status"]?.stringValue ?: "pending"
+            val currentPhase = dict["currentPhase"]?.stringValue
+
+            // 阶段链（阶段三表取一）：① 声明表 phases[{name,rounds}] → phaseNames[]；
+            // ② 退化 = 已进入站（节点 phaseName 首现序）+ 当前站
+            val stationNames = ArrayList(
+                (dict["phases"]?.arrayValue ?: emptyList()).mapNotNull { it.objectValue?.get("name")?.stringValue },
+            )
+            if (stationNames.isEmpty()) {
+                stationNames.addAll(
+                    (dict["phaseNames"]?.arrayValue ?: emptyList()).mapNotNull { it.stringValue },
+                )
+            }
+            val rawNodes = dict["nodes"]?.arrayValue ?: emptyList()
+            if (stationNames.isEmpty()) {
+                val seen = ArrayList<String>()
+                for (node in rawNodes) {
+                    val phaseName = node.objectValue?.get("phaseName")?.stringValue
+                    if (!phaseName.isNullOrEmpty() && !seen.contains(phaseName)) {
+                        seen.add(phaseName)
+                    }
+                }
+                if (currentPhase != null && !seen.contains(currentPhase)) {
+                    seen.add(currentPhase)
+                }
+                stationNames.addAll(seen)
+            }
+
+            // 每站状态：节点证据优先（outcome failed/cancelled → failed；七相位中
+            // dispatched/executing/waiting/repairing/nudged → running；全部 settled ok → done），
+            // 无节点时控制流已进入（currentPhase）→ running，否则 pending
+            val nodes = ArrayList<WorkflowNodeSummary>()
+            for ((index, station) in stationNames.withIndex()) {
+                val stationNodes = rawNodes.filter { it.objectValue?.get("phaseName")?.stringValue == station }
+                var status = WorkflowStepStatus.pending
+                if (stationNodes.isNotEmpty()) {
+                    val failed = stationNodes.any {
+                        val outcome = it.objectValue?.get("outcome")?.stringValue
+                        outcome == "failed" || outcome == "cancelled"
+                    }
+                    when {
+                        failed -> status = WorkflowStepStatus.failed
+                        stationNodes.any {
+                            val phase = it.objectValue?.get("phase")?.stringValue
+                            phase == "dispatched" || phase == "executing" || phase == "waiting" ||
+                                phase == "repairing" || phase == "nudged"
+                        } -> status = WorkflowStepStatus.running
+                        stationNodes.all {
+                            it.objectValue?.get("phase")?.stringValue == "settled" &&
+                                it.objectValue?.get("outcome")?.stringValue == "ok"
+                        } -> status = WorkflowStepStatus.done
+                    }
+                } else if (currentPhase == station) {
+                    status = WorkflowStepStatus.running
+                }
+                nodes.add(
+                    WorkflowNodeSummary(
+                        id = "station-$index-$station",
+                        label = station,
+                        status = status,
+                        isSubagent = false,
+                        summary = null,
+                    ),
+                )
+            }
+
+            // 子代理实例（actors[]：waiting|running|completed + phaseName）
+            val actors = (dict["actors"]?.arrayValue ?: emptyList()).mapNotNull { actor ->
+                val d = actor.objectValue ?: return@mapNotNull null
+                val siteId = d["siteId"]?.stringValue ?: return@mapNotNull null
+                val ordinal = d["ordinal"]?.intValue ?: return@mapNotNull null
+                val tasksTotal = d["tasksTotal"]?.intValue
+                    ?: d["nodesTotal"]?.intValue
+                    ?: d["stations"]?.intValue
+                val tasksSettled = d["tasksSettled"]?.intValue
+                    ?: d["nodesSettled"]?.intValue
+                WorkflowActorSummary(
+                    id = "$siteId#$ordinal",
+                    name = d["name"]?.stringValue,
+                    rawStatus = d["status"]?.stringValue ?: "waiting",
+                    phaseName = d["phaseName"]?.stringValue,
+                    sessionId = d["sessionId"]?.stringValue ?: d["childSessionId"]?.stringValue,
+                    tasksTotal = tasksTotal,
+                    tasksSettled = tasksSettled,
+                )
+            }
+
+            if (nodes.isEmpty() && actors.isEmpty()) return null
+
+            // 无站/无戳兜底【实证·上游仓 instance-phases.ts phasesOf + workflow-graph
+            // withImplicitPhase 同构，2026-10-08 取证】：
+            // ① 全程无站（旧 CLI 无 phase() 标记）但有实例 → 合成隐式「工作流」单站承接，
+            //    否则实例无处渲染、面板只剩头部；
+            // ② 有站且有词汇（任一节点/实例带 phaseName 出生戳）、存在无戳实例（首个标记
+            //    前出生，或旧 CLI 不带戳）→ 表头合成「未分组」站承接——无戳 ↔ 无名站是
+            //    同一事实的两面。
+            val hasVocabulary = actors.any { it.phaseName != null } ||
+                rawNodes.any { it.objectValue?.get("phaseName")?.stringValue != null }
+            val finalNodes = ArrayList(nodes)
+            if (finalNodes.isEmpty() && actors.isNotEmpty()) {
+                finalNodes.add(
+                    WorkflowNodeSummary(
+                        id = "station-implicit",
+                        label = "工作流",
+                        status = WorkflowStepStatus.mapRunStatus(rawStatus),
+                    ),
+                )
+            } else if (hasVocabulary && finalNodes.isNotEmpty() && actors.any { it.phaseName == null }) {
+                val unphased = actors.filter { it.phaseName == null }
+                val unphasedStatus = when {
+                    unphased.any { it.status == WorkflowStepStatus.running } -> WorkflowStepStatus.running
+                    unphased.any { it.status == WorkflowStepStatus.failed } -> WorkflowStepStatus.failed
+                    unphased.all { it.status == WorkflowStepStatus.done } -> WorkflowStepStatus.done
+                    else -> WorkflowStepStatus.pending
+                }
+                finalNodes.add(
+                    0,
+                    WorkflowNodeSummary(
+                        id = WorkflowRunSummary.unphasedStationID,
+                        label = "未分组",
+                        status = unphasedStatus,
+                    ),
+                )
+            }
+
+            // 子代理模型宽容解析（字符串直传；对象形态取 modelId|name|id）
+            val subagentModel: String? = when (val raw = dict["subagentModel"]) {
+                is JSONValue.Str -> raw.value
+                is JSONValue.Obj ->
+                    raw.fields["modelId"]?.stringValue
+                        ?: raw.fields["name"]?.stringValue
+                        ?: raw.fields["id"]?.stringValue
+                else -> null
+            }
+            // workId：取消/恢复/设置命令的定位键（web 端 resumeWorkflowRun 以 runId 充当
+            // workId；run 对象自带 workId 字段时优先）
+            val workId = dict["workId"]?.stringValue ?: id
+            // 完成卡 join 面三源（2026-10-09 工作流完成卡轮）：
+            // tokens = usage.spentTokens；阶段数 = phases 表 → phaseNames → nodes 去重
+            // phaseName（与 finalNodes 同序口径，取首源计数）；产物 brief = artifacts 元素的
+            // id+bytes+itemCount（workflowRunArtifactSummarySchema 子集宽容读）
+            val spentTokens = dict["usage"]?.objectValue?.get("spentTokens")?.intValue
+            val phasesArray = dict["phases"]?.arrayValue
+            val phaseNamesArray = dict["phaseNames"]?.arrayValue
+            val phaseCount: Int? = if (!phasesArray.isNullOrEmpty()) {
+                phasesArray.size
+            } else if (!phaseNamesArray.isNullOrEmpty()) {
+                // 首现序去重（与 nodes 退化同口径；正常发射不重复）
+                val seen = HashSet<String>()
+                var count = 0
+                for (nameValue in phaseNamesArray) {
+                    val n = nameValue.stringValue
+                    if (!n.isNullOrEmpty() && seen.add(n)) count += 1
+                }
+                if (count == 0) null else count
+            } else {
+                // 节点即阶段站（label=display 阶段名）——去重计数
+                val distinct = finalNodes.map { it.label }.toSet()
+                if (distinct.isEmpty()) null else distinct.size
+            }
+            val artifactBriefs = (dict["artifacts"]?.arrayValue ?: emptyList()).mapNotNull { item ->
+                val d = item.objectValue ?: return@mapNotNull null
+                val aid = d["id"]?.stringValue?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                WorkflowArtifactBrief(
+                    id = aid,
+                    bytes = d["bytes"]?.intValue,
+                    itemCount = d["itemCount"]?.intValue,
+                )
+            }
+            return WorkflowRunSummary(
+                id = id,
+                name = name,
+                rawStatus = rawStatus,
+                stopReason = dict["stopReason"]?.stringValue,
+                resumable = dict["resumable"]?.boolValue ?: false,
+                truncated = dict["truncated"]?.boolValue ?: false,
+                nodes = finalNodes,
+                actors = actors,
+                artifactsCount = dict["artifacts"]?.arrayValue?.size ?: 0,
+                spentTokens = spentTokens,
+                phaseCount = phaseCount,
+                artifactBriefs = artifactBriefs,
+                pendingQuestionsCount = dict["pendingQuestions"]?.arrayValue?.size ?: 0,
+                concurrency = dict["concurrency"]?.intValue
+                    ?: dict["concurrency"]?.objectValue?.get("active")?.intValue,
+                concurrencyCeiling = dict["concurrencyCeiling"]?.intValue
+                    ?: dict["concurrency"]?.objectValue?.get("ceiling")?.intValue
+                    ?: dict["maxConcurrency"]?.intValue,
+                subagentModel = subagentModel,
+                cancellable = dict["cancellable"]?.boolValue ?: true,
+                workId = workId,
+                hasPhaseVocabulary = hasVocabulary,
+                startedAt = workflowRunTimestamp(dict, "startedAt"),
+                updatedAt = workflowRunTimestamp(dict, "updatedAt"),
+            )
+        }
+
+        /**
+         * membership/归档拉取的 scope 清单（去重；pin 与 archive 各半——web 两集合同 scope 面）。
+         * 返回 (path, identity?, pinned) 三元组列表。（iOS membershipScopes :362-386 直译）
+         */
+        fun membershipScopes(
+            all: List<StoreWorkspaceInfo>,
+            bootstrap: List<StoreWorkspaceInfo>,
+            current: StoreWorkspaceInfo,
+        ): List<Triple<String, String?, Boolean>> {
+            val paths = ArrayList<String>()
+            val seen = HashSet<String>()
+            for (ws in all) {
+                if (seen.add(ws.path)) paths.add(ws.path)
+            }
+            for (ws in bootstrap) {
+                if (seen.add(ws.path)) paths.add(ws.path)
+            }
+            if (!seen.contains(current.path)) paths.add(current.path)
+            // 每个路径两问：listPinnedTasks + listArchivedTasks（pin 在前）
+            return paths.flatMap { path ->
+                var identity = all.firstOrNull { it.path == path }?.workspaceIdentity
+                    ?: bootstrap.firstOrNull { it.path == path }?.workspaceIdentity
+                if (identity == null && path == current.path) {
+                    identity = current.workspaceIdentity
+                }
+                listOf(Triple(path, identity, true), Triple(path, identity, false))
+            }
+        }
     }
 }

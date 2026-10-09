@@ -26,9 +26,12 @@ package cn.biuz.android.connection
 // - OAuth 账户层（OAuthTokenSet/OAuthCredentialStore/Keychain、handleOAuthSuccess/
 //   logout/autoConnectAfterLogin 登录直达）：Android 无 OAuth 模型与凭据存储，登录 UI
 //   未开工（协议面不受影响——连接层凭据只走 ServerConfig.token/relay.passHash）；
-// - 云中继链路（connectRelay/connectRelayLink 的实际建链、switchWorkspace 桥切换、
-//   relayBootstrapTasks、onWorkspaceListUpdated）：随 :relay M6 落位（ZCodeServerConnection
-//   文件头注同源）；本类保留入口与守卫，中继配置连接如实失败不伪装；
+// - 云中继链路（2026-10-10 M6 随 :relay 落位接线）：connectRelayLink 解析→注册表→建链、
+//   connectOnce 直连/中继双路分派、switchWorkspace 桥切换（重跑 assembleStores 完成路径）、
+//   relayBootstrapTasks 注水（bootstrapTasksProvider）；workspace-list-updated 的 Store
+//   聚合清单回写面（iOS remoteConversationStore.setAllWorkspaces）随 RemoteConversationStore
+//   M3/M4 移植接入——清单本体已由 connection.handleWorkspaceListUpdated 回写 serverInfo
+//   联动切换器（AppSession.swift:304-309 的对等面挂账）；
 // - RemoteConversationStore 全量移植（行读/发送/审批/信封面）与 RemoteFileStore：M3/M4
 //   里程碑；连接态 conversation=file=Empty/列表直供（见 [AppSession.StoreSurface] 注）。
 
@@ -562,12 +565,10 @@ class AppSession(
     }
 
     private suspend fun connectOnce(server: ServerConfig): ConnectResult {
-        // iOS 分支 connectRelay(to:)（M6 中继链路）——当前诚实失败，不静默按局域网五步
-        // 打 wss 面（防「中继配置被当直连地址」的假连接）
+        // iOS 分支 connectRelay(to:)（AppSession.swift:422-425）：中继配置 → 云中继链路
+        // （WS + auth 握手 → bootstrap → workspace 桥），不静默按局域网五步打 wss 面
         if (server.relay != null) {
-            return ConnectResult.Failure(
-                ConnectError.Transport("云中继连接随中继传输层（M6）落位，当前不可用"),
-            )
+            return connection.connectRelay(server)
         }
         return connection.connect(server = server, preferredWorkspace = server.preferredWorkspacePath)
     }
@@ -584,6 +585,12 @@ class AppSession(
         }
         when (result) {
             is ConnectResult.Success -> {
+                // 中继连接的 bootstrap.tasks 注水源（iOS assembleRemoteStores 内
+                // connection.relayBootstrapTasks 同源，AppSession.swift:1226；先于
+                // assembleStores 赋值——装配协程读取该 provider）
+                if (server.relay != null) {
+                    bootstrapTasksProvider = { connection.relayBootstrapTasks }
+                }
                 // 先装配 Store 再切 mode（iOS :441 注：装配完成后 UI 才切换数据源）
                 val connected = connection.state.value
                     as? ZCodeServerConnection.ConnectionState.Connected
@@ -1337,14 +1344,28 @@ class AppSession(
         }
         isSwitchingWorkspace = true
         try {
-            if (!connection.supportsWorkspaceSwitching) {
-                // 中继桥切换面随 M6 落位；局域网直连不支持（诚实提示，不静默 no-op）
-                return "当前连接不支持工作区切换"
+            // M6 完成路径（iOS :1317-1343 直译）：connection.switchRelayWorkspace（桥重开 →
+            // 订阅重定向 → workspace-config 重订）成功后复核连接态（切换在途断线会重装配
+            // Store，迟到成功不得覆盖重连链路新 Store）→ 以新工作区重跑 assembleStores
+            //（epoch 触发 UI 换绑）→ return null；失败保持当前工作区并带出底层 detail。
+            when (val result = connection.switchRelayWorkspace(target)) {
+                is WorkspaceSwitchResult.Success -> {
+                    val current = _mode.value
+                    val info = connection.serverInfo
+                    if (current !is Mode.Connected || info == null) {
+                        return "切换结果未落定 · 连接已变化，请重试"
+                    }
+                    assembleStores(workspace = result.workspace)
+                    return null
+                }
+                is WorkspaceSwitchResult.Failure -> {
+                    // 失败带出底层原因（原 Store/工作区不动）；.Transport 携桥层原文
+                    //（桌面拒绝 reason / 超时 / 并发拒绝），其余形态回退 headline
+                    val detail = (result.error as? ConnectError.Transport)?.detail
+                        ?: result.error.headline
+                    return "切换失败 · 已保持当前工作区（$detail）"
+                }
             }
-            // M6 完成路径（iOS :1326-1341）：switchRelayWorkspace 成功后复核连接态
-            // （切换在途断线会重装配，迟到成功不得覆盖重连链路新 Store）→
-            // assembleStores(workspace) → return null；失败带出底层 detail。
-            return "当前连接不支持工作区切换"
         } finally {
             isSwitchingWorkspace = false
         }

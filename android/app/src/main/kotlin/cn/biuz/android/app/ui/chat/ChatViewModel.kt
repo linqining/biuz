@@ -29,11 +29,14 @@ import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.CommandAck
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.RemotePendingInteraction
+import cn.biuz.android.store.AttachmentUploadService
 import cn.biuz.android.store.ConversationEvent
 import cn.biuz.android.store.ConversationQueueInfo
 import cn.biuz.android.store.ConversationStore
 import cn.biuz.android.store.ModelSelectionInfo
 import cn.biuz.android.store.NewSessionModelSelection
+import cn.biuz.android.store.PendingAttachment
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -53,6 +56,8 @@ class ChatViewModel(
     private val hintClearMs: Long = SLASH_HINT_CLEAR_MS,
     /** 时钟源（协作模式 3s 本地切换护栏计时；测试注入虚拟时钟）。 */
     private val nowMs: () -> Long = { System.currentTimeMillis() },
+    /** 上传 hint 镜像同步延迟（毫秒；service 自身 4s 自动清除后再读回真值——测试注入 0 直驱）。 */
+    private val uploadHintSyncMs: Long = UPLOAD_HINT_SYNC_MS,
 ) {
 
     companion object {
@@ -74,6 +79,12 @@ class ChatViewModel(
 
         /** 模型切换本地收敛护栏：与协作模式同窗 3s（iOS ChatViewModel lastLocalModelSwitch 同值）。 */
         const val MODEL_SWITCH_GUARD_MS = 3_000L
+
+        /**
+         * 上传 hint 镜像同步延迟（service.HINT_CLEAR_MS=4s 自动清除窗 + 200ms 余量——
+         * 同步时读 service.hint 真值，新提示/已清空都如实镜像）。
+         */
+        const val UPLOAD_HINT_SYNC_MS = 4_200L
 
         /**
          * 思考档静态梯（iOS ChatView.fallbackThoughtLevels :2217 同值直译）：getView 不携带
@@ -304,6 +315,103 @@ class ChatViewModel(
     private val _queueActionFailure = MutableStateFlow<QueueActionFailure?>(null)
     val queueActionFailure: StateFlow<QueueActionFailure?> get() = _queueActionFailure
 
+    // MARK: 待发附件（P1-1：AttachmentUploadService 随 VM 装配；iOS ChatViewModel init 同构）
+
+    /**
+     * 上传服务（attach 时按绑定 store + 会话 id 建；iOS init 中
+     * `AttachmentUploadService(store:sessionID:)` 同构——附件事务须真实 sessionId）。
+     * 进度投影：service 是命令式可变对象，UI 经 [uploadsVersion] 计数 + 快照读面驱动
+     * 重组（Compose 无 @Observable 自动追踪——每次状态迁移点显式 bump）。
+     */
+    private var uploadsService: AttachmentUploadService? = null
+
+    /** 上传状态版本计数（bump 驱动 UI 快照重读；入队/移除/进度回调/事务收尾各 +1）。 */
+    private val _uploadsVersion = MutableStateFlow(0)
+    val uploadsVersion: StateFlow<Int> get() = _uploadsVersion
+
+    /** service.hint 镜像（add 拒绝提示同步镜像；4s 后回读 service 真值自清）。 */
+    private val _uploadHint = MutableStateFlow<String?>(null)
+    val uploadHint: StateFlow<String?> get() = _uploadHint
+
+    private var uploadHintSyncJob: Job? = null
+
+    private fun bumpUploads() {
+        _uploadsVersion.value = _uploadsVersion.value + 1
+    }
+
+    /** service.hint 镜像到 StateFlow（4s 后回读 service 真值——清空/新提示都如实落）。 */
+    private fun syncUploadHint() {
+        _uploadHint.value = uploadsService?.hint
+        val text = _uploadHint.value ?: return
+        uploadHintSyncJob?.cancel()
+        uploadHintSyncJob = scope.launch {
+            delay(uploadHintSyncMs)
+            _uploadHint.value = uploadsService?.hint
+        }
+    }
+
+    /** 待发条快照（UI remember(uploadsVersion) 直读；service 无项返回空表）。 */
+    fun uploadsSnapshot(): List<PendingAttachment> =
+        uploadsService?.itemsSnapshot() ?: emptyList()
+
+    /** 上传失败原文行（首个 failed 项 errorText 原文直出；null = 无在案失败）。 */
+    fun uploadFailureText(): String? = uploadsService?.firstFailureText
+
+    /** 发送闸（有待发且存在非 committed 项 = 发送钮禁用；iOS canSend `!uploads.blocksSend` 同口径）。 */
+    fun uploadsBlocksSend(): Boolean = uploadsService?.blocksSend ?: false
+
+    /**
+     * 入队（UI 从选择器读出字节后调；iOS addPhotoPickerItems 直译）：
+     * mime 缺席（contentResolver.getType 空的少数来源）按文件名后缀走 service 内置表兜底；
+     * add 成功即建上传事务（选定即上传，不等发送——iOS startUploadIfNeeded 同口径）。
+     */
+    fun enqueueAttachment(name: String, mediaType: String, data: ByteArray): Boolean {
+        val uploads = uploadsService ?: return false
+        val resolvedMime = mediaType.ifEmpty {
+            val ext = name.substringAfterLast('.', "")
+            if (ext.isEmpty()) "application/octet-stream" else uploads.mediaTypeForFileExtension(ext)
+        }
+        val added = uploads.add(name = name, mediaType = resolvedMime, data = data)
+        bumpUploads()
+        syncUploadHint()
+        if (added) {
+            scope.launch {
+                uploads.ensureAllCommitted()
+                bumpUploads()
+                syncUploadHint()
+            }
+        }
+        return added
+    }
+
+    /** UI 侧读取失败写提示（iOS「照片读取失败，已跳过」通道；service 4s 自动清除）。 */
+    fun setUploadHint(text: String) {
+        uploadsService?.setHint(text)
+        syncUploadHint()
+    }
+
+    /** 移除（未 committed 项尽力 AbortV4 收口由 service 承担；Abort 未送达 hint 异步落 service）。 */
+    fun removeAttachment(id: UUID) {
+        uploadsService?.remove(id)
+        bumpUploads()
+        syncUploadHint()
+    }
+
+    /**
+     * 失败重试（同 uploadId 续传由 service 承担；此处派发收敛等待以便失败终态可呈现）。
+     * service.retry 内部自派发与本收敛并行的幂等竞态无害（upload 对 uploading 短路）。
+     */
+    fun retryAttachment(id: UUID) {
+        val uploads = uploadsService ?: return
+        uploads.retry(id)
+        bumpUploads()
+        scope.launch {
+            uploads.ensureAllCommitted()
+            bumpUploads()
+            syncUploadHint()
+        }
+    }
+
     // MARK: 换源重绑（store 按实例重绑；epoch 换源即新实例）
 
     /**
@@ -328,6 +436,13 @@ class ChatViewModel(
         _queueActionFailure.value = null
         pendingUnknownModelSelection = false
         lastLocalModelSwitchRecord = null
+        // 待发附件服务随源重建（上传事务绑 store 的连接面——旧源事务不可跨源续传）
+        uploadsService = AttachmentUploadService(store = store, sessionID = conversationId).also {
+            // 进度回调挂 bump（逐块进度/committed 短路即达 UI；失败终态经收尾 bump 兜底）
+            it.onProgress = { bumpUploads() }
+        }
+        bumpUploads()
+        syncUploadHint()
         collectJob = scope.launch { observe(store) }
     }
 
@@ -338,6 +453,8 @@ class ChatViewModel(
         attachedStore = null
         _composerPanel.value = null
         _slashHint.value = null
+        uploadHintSyncJob?.cancel()
+        uploadHintSyncJob = null
     }
 
     private suspend fun observe(store: ConversationStore) = coroutineScope {
@@ -463,18 +580,54 @@ class ChatViewModel(
             showSlashHint(SlashHint.PlanSwitched)
             return true
         }
+        // 待发附件随任务（iOS :1196-1208 直译——「/plan + 附件发送后附件静默丢失」修复）：
+        // 补传失败 = 附件未就绪，阻断发送 + 草稿回填 + 失败原文上屏（禁静默丢附件）
+        val uploads = uploadsService
+        if (uploads != null && !uploads.isEmpty) {
+            _sending.value = true
+            try {
+                uploads.ensureAllCommitted()
+            } finally {
+                _sending.value = false
+            }
+            bumpUploads()
+            if (uploads.blocksSend) {
+                showSlashHint(SlashHint.Raw(uploadFailureText() ?: "附件未就绪，未发送"))
+                if (_draft.value.isEmpty()) _draft.value = originalText
+                return false
+            }
+        }
         return performSend(task)
     }
 
-    /** 普通发送主体：先清稿，失败回填 + 持久错误行（服务层拒因原文透传，禁假成功）。 */
+    /**
+     * 普通发送主体：附件补传门（iOS send :1246-1257 直译）→ 清稿 → 发送；
+     * 失败回填 + 持久错误行（服务层拒因原文透传，禁假成功）。
+     * 附件 peek 不移除（§11.1#6）：committed 引用快照随消息下发，**成功才 clear**——
+     * 失败保留待发条（committed 引用可复用，重试只发文本+引用不重传）。
+     */
     private suspend fun performSend(text: String): Boolean {
         val store = attachedStore
+        val uploads = uploadsService
+        // 附件补传门：仍有失败项 = 直发文本会丢附件 → 本次不发送（待发条保留失败态，
+        // 失败原文行常驻；此为发送钮 blocksSend 主闸的旁路兜底，iOS 静默 return false 同口径）
+        if (uploads != null && !uploads.isEmpty) {
+            _sending.value = true
+            try {
+                uploads.ensureAllCommitted()
+            } finally {
+                _sending.value = false
+            }
+            bumpUploads()
+            if (uploads.blocksSend) return false
+        }
+        val attachments = uploads?.committedAttachments() ?: emptyList()
         _draft.value = ""
         _sending.value = true
         val delivered = try {
             store?.sendWithAttachments(
                 text = text,
-                attachments = emptyList(),
+                attachments = attachments,
                 requestedDelivery = null,
                 modelSelection = null,
                 conversationId = conversationId,
@@ -483,6 +636,9 @@ class ChatViewModel(
             _sending.value = false
         }
         if (delivered) {
+            // 成功才清已随消息下发的 committed 附件（失败保留可重发）
+            uploads?.clearCommitted(attachments)
+            bumpUploads()
             _sendFailureReason.value = null
             // 发送成功：常驻失败反馈行一并出账（阻断已解除）
             if (_slashHint.value is SlashHint.Raw || _slashHint.value is SlashHint.PlanBlocked) {

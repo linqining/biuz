@@ -506,8 +506,10 @@ class SessionMergeTable {
                 // 来源过滤（G-006）数据口径：连接态会话均来自当前桌面端（局域网/云中继
                 // 均属"我的 Mac"）；云端沙盒执行端尚无会话数据源
                 source = "mac",
-                // G-007 通路 A：行迷你轨道数据（workflowActivity 投影解析在后续批次
-                // parseWorkflowActivity 移植时接入；本批保持 null = 不渲染占位）
+                // G-007 通路 A：行迷你轨道（workflowActivity 投影解析已随 M7 工作流面板轮
+                // 接入——parseWorkflowActivity 宽容解析，无效 run 行不渲染占位；live-only
+                // 过滤口径见 WorkflowActivitySummary.liveRuns KDoc）
+                workflowActivity = RemoteConversationStore.parseWorkflowActivity(summary.workflowActivity),
             )
             // 组织态三源 join（iOS :654-659：本地 override → membership → 行字段）
             conversation = conversation.copy(

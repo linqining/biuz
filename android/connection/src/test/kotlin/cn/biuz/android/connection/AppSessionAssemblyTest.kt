@@ -153,20 +153,25 @@ class AppSessionAssemblyTest {
     // MARK: ⑤ 中继配置连接：诚实失败（M6 前不伪装建链；2s/4s 退避重试两轮后 ConnectFailed）
 
     @Test
-    fun relayConfig_connectFailsHonestly_beforeRelayTransport(): Unit = runBlocking {
+    fun relayConfig_unreachable_failsHonestlyWithBackoff(): Unit = runBlocking {
+        // 2026-10-10 M6 起中继配置走真实建链（connectOnce 中继分派）——本用例改验
+        // 「不可达端点 → 如实失败 + iOS 同款 2s+4s 退避走满」，端点固定回环死端口
+        // （不依赖外网/真中继可达性；曾指 wss://zcode.z.ai 对真端点发起连接，非离线口径）
         val session = AppSession(registryPersistence = InMemoryServerRegistryPersistence())
         val link = cn.biuz.android.protocol.ConnectURLParser.parseRelayLink(
             "https://zcode.z.ai/remote/v4?sid=d_test&hash=abc%3D&t=1&mid=mid-1&name=MacBook",
         ) ?: return@runBlocking fail("配对链接应可解析")
-        val config = ServerConfig(id = "relay", name = null, host = "zcode.z.ai", port = 443, useTLS = true, token = "", relay = link)
+        val config = ServerConfig(
+            id = "relay", name = null, host = "127.0.0.1", port = 1, useTLS = false, token = "",
+            relay = link.copy(wssURL = "ws://127.0.0.1:1/ws"),
+        )
         val started = System.currentTimeMillis()
         session.connect(config)
         val elapsed = System.currentTimeMillis() - started
         val mode = session.mode.value
-        assertTrue(mode is AppSession.Mode.ConnectFailed, "中继配置（M6 前）应如实失败，实际：$mode")
+        assertTrue(mode is AppSession.Mode.ConnectFailed, "不可达中继应如实失败，实际：$mode")
         val error = (mode as AppSession.Mode.ConnectFailed).error
-        val detail = (error as? ConnectError.Transport)?.detail
-        assertTrue(detail != null && detail.contains("M6"), "失败形态应为 Transport 携 M6 挂账文案，实际：$error")
+        assertTrue(error is ConnectError.Transport, "失败形态为 Transport 携建链拒因，实际：$error")
         // iOS 中继瞬断退避（2s+4s）在此同样走满——不快失败也不伪装成功
         assertTrue(elapsed >= 6_000, "中继退避重试两轮应 ≥6s，实际 ${elapsed}ms")
         assertTrue(session.storeSurface.value.conversation is EmptyConversationStore, "失败态 = Empty 三件")

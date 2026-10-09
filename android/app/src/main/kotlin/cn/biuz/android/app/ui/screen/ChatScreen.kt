@@ -16,9 +16,13 @@ package cn.biuz.android.app.ui.screen
 // 面板呈现：撤焦先行 + 120ms 延迟（openComposerPanel；焦点在场时面板与键盘收起转场
 // 互撞被吞 = 真机「点了没反应」根因）。
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,7 +62,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -69,12 +75,16 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
 import cn.biuz.android.app.ui.LocalAppSession
+import cn.biuz.android.app.ui.chat.AttachmentFullscreenState
+import cn.biuz.android.app.ui.chat.AttachmentFullscreenHost
+import cn.biuz.android.app.ui.chat.AttachmentStripContext
 import cn.biuz.android.app.ui.chat.ChatViewModel
 import cn.biuz.android.app.ui.chat.InteractionActions
 import cn.biuz.android.app.ui.chat.InteractionCard
 import cn.biuz.android.app.ui.chat.MessageRow
 import cn.biuz.android.app.ui.chat.ModelOptionSection
 import cn.biuz.android.app.ui.chat.ModelRefetchRow
+import cn.biuz.android.app.ui.chat.PendingAttachmentThumb
 import cn.biuz.android.app.ui.chat.QueueBar
 import cn.biuz.android.app.ui.chat.ThoughtOptionSection
 import cn.biuz.android.app.ui.chat.freeTextAnswer
@@ -89,12 +99,16 @@ import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBgInput
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
 import cn.biuz.android.app.ui.theme.BiuZOnAccent
+import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
+import android.provider.OpenableColumns
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** 常驻交互卡区限高（三卡统一；iOS v1.36④ maxHeight 240 同口径）。 */
 private val INTERACTION_ZONE_MAX_HEIGHT = 240.dp
@@ -138,6 +152,39 @@ fun ChatScreen(
     val queueInfoState by viewModel.queueInfo.collectAsStateWithLifecycle()
     val queueActionFailure by viewModel.queueActionFailure.collectAsStateWithLifecycle()
     val readOnly = viewModel.isReadOnly
+
+    // 待发附件投影（service 是命令式可变对象——版本计数 + 快照读面驱动重组；
+    // 提示行镜像随同一版本号重读）
+    val uploadsVersion by viewModel.uploadsVersion.collectAsStateWithLifecycle()
+    val uploadItems = remember(uploadsVersion) { viewModel.uploadsSnapshot() }
+    val uploadHint = remember(uploadsVersion) { viewModel.uploadHint.value }
+    val uploadFailureText = remember(uploadsVersion) { viewModel.uploadFailureText() }
+    val uploadsBlocksSend = remember(uploadsVersion) { viewModel.uploadsBlocksSend() }
+
+    // 全屏单一宿主状态（图片/视频合流一个位点——v1.32③ 双 cover 遮蔽坑的对位）
+    val fullscreenState = remember { AttachmentFullscreenState() }
+
+    // 消息行附件条上下文（store 读面 + 全屏宿主状态；行 refs 空则行内不渲染）
+    val attachmentContext = remember(surface.conversation, sessionId, fullscreenState) {
+        AttachmentStripContext(
+            store = surface.conversation,
+            sessionId = sessionId,
+            fullscreen = fullscreenState,
+        )
+    }
+
+    val context = LocalContext.current
+    // 附件选择器（filter 含 video：ImageAndVideo——iOS photosPicker
+    // matching .any(of: [.images, .videos]) ChatView.swift:1747 同口径）；
+    // 多选上限 8 = AttachmentUploadService.MAX_ITEMS（服务端 staged 64MB 预算闸）
+    val pickAttachments = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(maxItems = 8),
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            uris.forEach { uri -> readPickedAttachmentInto(context, uri, viewModel) }
+        }
+    }
 
     val listState = rememberLazyListState()
     // 新行到达滚底（乐观回显 + 服务端行都走同一投影）
@@ -243,6 +290,8 @@ fun ChatScreen(
                     onEditResend = { origin: ChatMessage, newText: String ->
                         viewModel.editUserQuery(origin, newText)
                     },
+                    // G-014 附件条（refs 空的行内部自行不渲染；全屏经单一宿主）
+                    attachmentContext = attachmentContext,
                 )
             }
         }
@@ -383,6 +432,42 @@ fun ChatScreen(
                     color = BiuZText2,
                 )
             }
+            // P1-1 待发附件条 + 提示/失败原文行（iOS ChatView.swift:1638-1652 同构：
+            // 无待发不渲染整行；hint 优先、失败原文次之——「05-attach-hint / 05-attach-fail-hint」
+            // 对位锚点；失败原文 = service errorText 直出，禁折叠成笼统文案）
+            if (uploadItems.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .testTag("05-attach-strip"),
+                    horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+                ) {
+                    uploadItems.forEach { item ->
+                        PendingAttachmentThumb(
+                            item = item,
+                            onRemove = { viewModel.removeAttachment(item.id) },
+                            onRetry = { viewModel.retryAttachment(item.id) },
+                        )
+                    }
+                }
+            }
+            val hintValue = uploadHint
+            if (hintValue != null) {
+                Text(
+                    text = hintValue,
+                    style = TextStyle(fontSize = 11.sp, lineHeight = 15.sp),
+                    color = BiuZOrange,
+                    modifier = Modifier.testTag("05-attach-hint"),
+                )
+            } else if (uploadFailureText != null) {
+                Text(
+                    text = uploadFailureText ?: "",
+                    style = TextStyle(fontSize = 11.sp, lineHeight = 15.sp),
+                    color = BiuZOrange,
+                    modifier = Modifier.testTag("05-attach-fail-hint"),
+                )
+            }
             // 协作模式 chip + 模型/思考胶囊（remoteChips 同构：面板统一撤焦先行 +
             // 120ms 延迟呈现；模型胶囊恒开面板——空清单呈「重新获取」行不死路）
             Row {
@@ -429,8 +514,28 @@ fun ChatScreen(
                     )
                 }
             }
-            // 输入行
+            // 输入行（附件钮 + 输入框 + 发送钮；iOS ComposerBar inputRow 同构）
             Row(verticalAlignment = Alignment.Bottom) {
+                // 附件钮（＋；系统 photo picker 承载——ImageAndVideo 过滤含视频）
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clickable(enabled = !readOnly) {
+                            pickAttachments.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.ImageAndVideo,
+                                ),
+                            )
+                        }
+                        .testTag("05-attach-button"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "＋",
+                        fontSize = 20.sp,
+                        color = BiuZText2,
+                    )
+                }
                 BasicTextField(
                     value = draft,
                     onValueChange = viewModel::updateDraft,
@@ -454,12 +559,16 @@ fun ChatScreen(
                     },
                 )
                 Spacer(Modifier.size(BiuZSpacing.sm))
+                // 发送闸（iOS canSend :1056 直译）：`!draft.isEmpty && !uploads.blocksSend`
+                // ——有待发且存在未 committed 项禁发（防直发文本丢附件）
                 Box(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
                         .background(if (draft.isNotBlank() && !sending) BiuZAccent else BiuZBgInput)
-                        .clickable(enabled = draft.isNotBlank() && !sending && !readOnly) {
+                        .clickable(
+                            enabled = draft.isNotBlank() && !sending && !readOnly && !uploadsBlocksSend,
+                        ) {
                             scope.launch { viewModel.send() }
                         },
                     contentAlignment = Alignment.Center,
@@ -501,6 +610,59 @@ fun ChatScreen(
             }
         }
     }
+
+    // 全屏附件单一宿主（图片/视频合流一个 Dialog 位点——v1.32③ 后挂遮蔽先挂坑对位；
+    // item == null 不挂载）
+    AttachmentFullscreenHost(state = fullscreenState)
+}
+
+// MARK: - 附件选择器入队（iOS addPhotoPickerItems ChatView.swift:2457-2476 同构）
+
+/** 读 picker 产物字节并入队（失败落提示行「附件读取失败，已跳过」，不静默丢选）。 */
+private suspend fun readPickedAttachmentInto(
+    context: android.content.Context,
+    uri: android.net.Uri,
+    viewModel: ChatViewModel,
+) {
+    val data = withContext(Dispatchers.IO) {
+        runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+    }
+    if (data == null || data.isEmpty()) {
+        viewModel.setUploadHint(context.getString(R.string.attach_read_fail))
+        return
+    }
+    val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull().orEmpty()
+    val name = queryDisplayName(context, uri) ?: fallbackAttachmentName(mime)
+    viewModel.enqueueAttachment(name = name, mediaType = mime, data = data)
+}
+
+/** 内容名查询（OpenableColumns.DISPLAY_NAME；photo picker 产物大多携带）。 */
+private fun queryDisplayName(context: android.content.Context, uri: android.net.Uri): String? =
+    runCatching {
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+        }
+    }.getOrNull()?.takeIf { it.isNotEmpty() }
+
+/** 展示名兜底（iOS VID_/IMG_+毫秒时间戳 同构；扩展名按 mime 推导）。 */
+private fun fallbackAttachmentName(mime: String): String {
+    val isVideo = mime.startsWith("video/")
+    val ext = when (mime) {
+        "video/quicktime" -> "mov"
+        "video/webm" -> "webm"
+        "image/png" -> "png"
+        "image/gif" -> "gif"
+        "image/webp" -> "webp"
+        else -> if (isVideo) "mp4" else "jpg"
+    }
+    return "${if (isVideo) "VID" else "IMG"}_${System.currentTimeMillis()}.$ext"
 }
 
 /** 协作模式面板（原面板体抽出；选中成功由宿主单路径关闭）。 */

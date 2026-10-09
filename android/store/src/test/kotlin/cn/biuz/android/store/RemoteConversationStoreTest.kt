@@ -155,6 +155,44 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
     var getViewError: Throwable? = null
     var getViewCallCount: Int = 0
 
+    // 附件四方法（attachmentBegin/Chunk/Commit/AbortV4；2026-10-10 附件链路轮）
+    /**
+     * method → 回执脚本（逐次出队；脚本耗尽回退缺省自然回执）。条目：JSONValue = 成功
+     * 回执；Throwable = 传输层失败（首败 1.2s 退避重试的注水面——同一失败要连续注两条）。
+     */
+    val attachmentScripts = HashMap<String, ArrayDeque<Any>>()
+
+    /** (method, callNth, args) 调用记账（args 断言 wire 键面/无 connectionId）。 */
+    val attachmentArgs = CopyOnWriteArrayList<Triple<String, Int, Map<String, JSONValue>>>()
+
+    private val attachmentCallCounts = HashMap<String, Int>()
+
+    /** 注水附件回执脚本（Any = JSONValue 成功 | Throwable 失败）。 */
+    fun enqueueAttachment(method: String, vararg items: Any) {
+        synchronized(attachmentScripts) {
+            attachmentScripts.getOrPut(method) { ArrayDeque() }.addAll(items)
+        }
+    }
+
+    fun attachmentCallCount(method: String): Int =
+        synchronized(attachmentCallCounts) { attachmentCallCounts[method] ?: 0 }
+
+    /** 缺省自然回执（正常事务零脚本直通：begin staging{0} → chunk index+1 → commit ref → abort {}）。 */
+    private fun attachmentDefaultReply(command: String, nth: Int, args: Map<String, JSONValue>): JSONValue =
+        when (command) {
+            "attachmentBeginV4" -> testObj(
+                "uploadId" to args["uploadId"],
+                "state" to JSONValue.Str("staging"),
+                "nextChunkIndex" to JSONValue.Int(0),
+            )
+            "attachmentChunkV4" -> testObj(
+                "uploadId" to args["uploadId"],
+                "nextChunkIndex" to JSONValue.Int((args["chunkIndex"]?.intValue ?: -1) + 1),
+            )
+            "attachmentCommitV4" -> testObj("ref" to JSONValue.Str("att-fake-$nth"))
+            else -> testObj()
+        }
+
     /**
      * 非空 = resyncConversationV4 被调时同步回推该会话快照帧（经帧 handler——模拟服务端
      * resync 重发快照；CAS 第三段 ensureStateRevision 的 revision 就绪数据源）。缺省 null
@@ -234,6 +272,22 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
                 getViewCallCount += 1
                 getViewError?.let { throw it }
                 RPCValue.json(getViewReply ?: testObj())
+            }
+            "attachmentBeginV4", "attachmentChunkV4", "attachmentCommitV4", "attachmentAbortV4" -> {
+                val nth = synchronized(attachmentCallCounts) {
+                    val n = (attachmentCallCounts[command] ?: 0) + 1
+                    attachmentCallCounts[command] = n
+                    n
+                }
+                attachmentArgs.add(Triple(command, nth, args))
+                val scripted = synchronized(attachmentScripts) {
+                    attachmentScripts[command]?.removeFirstOrNull()
+                }
+                when (scripted) {
+                    is Throwable -> throw scripted
+                    is JSONValue -> RPCValue.json(scripted)
+                    else -> RPCValue.json(attachmentDefaultReply(command, nth, args))
+                }
             }
             "promoteDeferredDraftSession" -> RPCValue.json(testObj("ok" to JSONValue.Bool(true)))
             // 会话表注水路径（RemoteSessionsIndexStore）

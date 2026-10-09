@@ -12,6 +12,9 @@ import cn.biuz.android.protocol.RPCValue
 import cn.biuz.android.protocol.ReadCursor
 import cn.biuz.android.protocol.RequestType
 import cn.biuz.android.protocol.ResponseType
+import cn.biuz.android.protocol.relay.RelayAuth
+import cn.biuz.android.protocol.relay.RelayFrameAssembler
+import cn.biuz.android.protocol.relay.RelayFrameCodec
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -24,12 +27,16 @@ import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.WebSocketServerSession
 import io.ktor.server.websocket.webSocket
 import io.ktor.http.ContentType
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
+import io.ktor.websocket.close
+import io.ktor.websocket.readText
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -44,8 +51,10 @@ import kotlinx.coroutines.launch
  * ——替身与被测客户端「构造与校验同源」，入站信封不过 strict 校验即回 rejected
  * （比上游服务端 strip 口径更严，方向安全——与 CommandSchemas.kt 构造纪律同理由）。
  *
- * iOS 原文：ios/Tests/E2ELoginStubServer.swift（3118 行；本轮只平移骨架，全量
- * 业务处理器——附件四方法/bots/任务组/重置卡等——经 [methodHandlers] 扩展点按里程碑补）。
+ * iOS 原文：ios/Tests/E2ELoginStubServer.swift（3118 行；骨架轮只平移骨架，全量
+ * 业务处理器——bots/任务组/重置卡等——经 [methodHandlers] 扩展点按里程碑补；
+ * 附件四方法已于 2026-10-10 附件链路轮内置：strict 对拍 + 上传事务账本，
+ * 见「MARK: 附件四方法」）。
  *
  * 与 iOS 替身的形态偏差（【上游裁决 2026-10-09 /tmp/zcode-upstream】，推帧贴上游真实形态）：
  * - serverTime 发 epoch 毫秒数（timestampSchema = z.number()，core.ts:19；真实发射
@@ -121,6 +130,21 @@ class E2EStubServer(
         val workspaceIdentity: String?,
     )
 
+    /**
+     * 一次附件四方法（attachmentBegin/Chunk/Commit/AbortV4）的对拍记账
+     * （2026-10-10 附件链路轮）。strict 校验错误在 [schemaErrors]；业务级拒因
+     * （未知 uploadId/块错位/块未收齐/方法级故障注水）在 [businessError]；
+     * 受理回执体在 [reply]（fault 时保持 null）。
+     */
+    class RecordedAttachmentCall(
+        val order: Int,
+        val method: String,
+        val raw: JSONValue,
+        var schemaErrors: List<String> = emptyList(),
+        var businessError: String? = null,
+        var reply: JSONValue? = null,
+    )
+
     /** 发送序账（帧与 promise 回执混排，供 A8「快照先于回执」断言）。 */
     data class WireLogEntry(val order: Int, val kind: String, val detail: String, val atMillis: Long)
 
@@ -152,6 +176,33 @@ class E2EStubServer(
         val conversationTopics = LinkedHashSet<String>()
         @Volatile var clientId: String? = null
         @Volatile var open = true
+
+        /**
+         * 帧出口（sendRpcFrame/sendEventFrame 统一走此）：局域网直连 = 13 字节头二进制帧
+         * 直发（缺省）；rpc-frame 中继桥 = 桥内编码器（serialize 载荷 → rpc-frame 分片 →
+         * JSON 文本帧）。A6 全新握手态建模（见 relayBridgeOpen）即靠「每个桥一个新
+         * SessionContext + 各自 sink」承载。
+         */
+        var frameSink: (suspend (ByteArray) -> Unit) = { ws.send(Frame.Binary(fin = true, data = it)) }
+
+        /**
+         * A6 assertReady 门（上游 zcodeAgentConnectionScope `handshakeComplete` facade 实例态
+         * 镜像）：中继桥 ctx 恒 true——clientId 未注册（hello→clientHello 未完成）时
+         * assertReady 族命令（subscribe*、readSession、rowsRange）回
+         * fault.connection.handshakeRequired；sendConversationCommandV4 不过闸（上游同）。
+         * 局域网直连 ctx = false（无桥语义，行为不变）。
+         */
+        var assertReadyGate: Boolean = false
+
+        /**
+         * 中继桥 ctx 标记：帧构建走「serialize(header)+serialize(body) 裸载荷」（framingDeltas
+         * ③——rpc-frame 载荷无 13 字节 SocketProtocol 头，iOS 探针 04 01 06 c8 01 00 实证）；
+         * 局域网 ctx = false（RPCFrame.write 13 字节头二进制帧）。2026-10-10 中继联调实证：
+         * 桥内帧误带 13 字节头时客户端 deserialize 读到 tag=1 按畸形 Str 解析 → 静默丢帧
+         * （Initialize 永不到达），客户端 ack 正常（crc 只对字节自洽）——症状即「桥开成功
+         * 而桥内 Initialize 超时」。
+         */
+        var relayBridge: Boolean = false
     }
 
     // MARK: 注水面（用例内直接赋值；全部线程安全）
@@ -267,6 +318,19 @@ class E2EStubServer(
     private val sessionRows = HashMap<String, ArrayList<JSONValue>>()
     private val nextRowIds = HashMap<String, Int>()
 
+    /** 附件四方法对拍记账（用例断言面；2026-10-10 附件链路轮）。 */
+    private val attachmentCallsRecord = ArrayList<RecordedAttachmentCall>()
+
+    /**
+     * 上传事务账本（uploadId → staging 态）：begin 登记、chunk 记已收块（严格顺序）、
+     * commit 收齐后移册并落 checksum 表、abort 移册（幂等）。续传语义镜像桌面：
+     * 同 uploadId 重发 Begin 回报 staging.nextChunkIndex = 已收块数。
+     */
+    private val uploadStagings = HashMap<String, StubUploadStaging>()
+
+    /** 已 commit 附件的 checksum:totalBytes → ref（Begin committed 短路的桌面去重语义）。 */
+    private val committedRefsByChecksum = HashMap<String, String>()
+
     /** 全量入站计数（含 strict/CAS 拒收；用例断言「客户端发了多少次」）。 */
     private val commandCallCounts = HashMap<String, Int>()
 
@@ -311,6 +375,8 @@ class E2EStubServer(
     fun stop() {
         engine?.stop(200, 1000)
         engine = null
+        relayEngine?.stop(200, 1000)
+        relayEngine = null
     }
 
     private fun Application.configure() {
@@ -417,6 +483,22 @@ class E2EStubServer(
     private suspend fun dispatchPromise(session: SessionContext, id: Int, command: String, arg: RPCValue) {
         val args = arg.jsonValue
         try {
+            // 方法级故障注水前置到 try 内分派头（2026-10-10 中继轮）：原在 else 分支仅及
+            // 未内置方法，内建命令（helloConversationV4 等）注水静默无效——瞬态失败退避
+            // 用例需要内建命令可注水。必须在 try 内抛（StubFault → promiseError 回执），
+            // 置于 try 外会让调用方挂到超时（DirectConnectE2ETest 实证回归）。
+            val injected = synchronized(lock) { faultInjectedMethods[command] }
+            if (injected != null) throw StubFault(injected)
+            // A6 assertReady 门（上游 assertReady 镜像，仅中继桥 ctx 生效）：hello→clientHello
+            // 未完成的全新 facade 上，assertReady 族调用必拒——「桥重开必须重握手」的替身级
+            // 判定面（客户端 onBridgeOpened 钩子漏重握手时本门必炸）；同样依赖 try 内转
+            // promiseError 回执
+            if (session.assertReadyGate &&
+                synchronized(session.mutex) { session.clientId } == null &&
+                ASSERT_READY_COMMAND_PREFIXES.any { command.startsWith(it) }
+            ) {
+                throw StubFault("fault.connection.handshakeRequired")
+            }
             val reply: PromiseReply = when (command) {
                 "helloConversationV4" -> PromiseReply(helloBody())
                 "initializeConversationV4" -> PromiseReply(handleClientHello(session, args))
@@ -434,6 +516,11 @@ class E2EStubServer(
                 // 注水的跨工作区清单（iOS RelayChannelClient.swift:155-159 消费同源）
                 "bootstrap-request" -> PromiseReply(bootstrapResponseBody())
                 "sendConversationCommandV4" -> PromiseReply(handleConversationCommand(session, args))
+                // 附件四方法（A-4/A11，2026-10-10 附件链路轮）：strict 对拍 + 上传事务账本
+                "attachmentBeginV4" -> PromiseReply(handleAttachmentBegin(session, args))
+                "attachmentChunkV4" -> PromiseReply(handleAttachmentChunk(session, args))
+                "attachmentCommitV4" -> PromiseReply(handleAttachmentCommit(session, args))
+                "attachmentAbortV4" -> PromiseReply(handleAttachmentAbort(session, args))
                 else -> {
                     val injected = synchronized(lock) { faultInjectedMethods[command] }
                     if (injected != null) throw StubFault(injected)
@@ -968,6 +1055,208 @@ class E2EStubServer(
         return JSONValue.Obj(fields)
     }
 
+    // MARK: 附件四方法（A-4/A11 strict 对拍，2026-10-10 附件链路轮）
+    //
+    // 上游权威（【实证·上游仓】）：
+    // - wire 键面 transport.ts:846-952——Begin 8 键（uploadId/sessionId/fileName/mime/
+    //   totalBytes/totalChunks/checksum + host 注入 connectionId）/ Chunk 5 键 /
+    //   Commit·Abort 3 键，全 .strict()；workspace 信封键（workspacePath/workspaceIdentity?）
+    //   由 scope 层 getClient(params) 消费（zcodeAgentService.ts:3037），服务端实际校验
+    //   含信封（2026-10-06 真机实证：缺 workspacePath 被 Invalid params 拒）——故替身
+    //   对四方法一律要求 workspacePath 在场。
+    // - zero-byte superRefine（transport.ts:859-868 原文 message）：totalBytes==0 与
+    //   totalChunks==0 必须同真同假，异态即拒。
+    // - chunk superRefine（transport.ts:910-926）：base64 非法（长度非 4 倍数/非法字符/
+    //   '=' 位置错）即 "invalid base64"；解码后 > attachmentChunkMaxBytes(512KiB) 即超限。
+    //   两件由 :protocol StrictBase64 镜像承担（构造与校验同源）。
+    // - connectionId 出现在客户端参数 = 违反「服务端注入」纪律（withTrustedConnection
+    //   先删后写真值，zcodeAgentConnectionScope.ts:91-110；真机多发即 Invalid params，
+    //   2026-10-06 甲-2/A11）——不在 shape 键集，strict 即拒（替身比上游 facade 的
+    //   strip 口径更严，方向安全，与文件头纪律一致）。
+    // 拒收形态：strict/业务门失败 → StubFault（promiseError，客户端解码为 RPCError.message
+    // 原文）；受理回执体按上游 result schema：Begin state 判别联合 / Chunk {uploadId,
+    // nextChunkIndex} / Commit {ref} / Abort {}（transport.ts:885-952）。
+
+    /** 上传事务 staging 态（账本值；received 严格顺序块 → 解码字节数）。 */
+    private class StubUploadStaging(
+        val sessionId: String,
+        val fileName: String,
+        val mime: String,
+        val totalBytes: Int,
+        val totalChunks: Int,
+        val checksum: String,
+    ) {
+        /** chunkIndex → 解码字节数（严格顺序：下一块恒 = received.size）。 */
+        val received = java.util.TreeMap<Int, Int>()
+    }
+
+    private fun attachmentRecord(method: String, args: JSONValue?): RecordedAttachmentCall {
+        val call = RecordedAttachmentCall(order = nextOrder(), method = method, raw = args ?: JSONValue.Null)
+        synchronized(lock) { attachmentCallsRecord.add(call) }
+        return call
+    }
+
+    /** 对拍失败收口：StubFault（拒因原文回客户端，promiseError 形态）。 */
+    private fun attachmentFault(message: String): Nothing {
+        throw StubFault(message)
+    }
+
+    /** 附件四方法公共门：方法级故障注水（与 dispatch else 分支同面）→ strict schema 对拍。 */
+    private fun attachmentGate(
+        method: String,
+        call: RecordedAttachmentCall,
+        shape: PObjectShape,
+    ): Map<String, JSONValue> {
+        val injected = synchronized(lock) { faultInjectedMethods[method] }
+        if (injected != null) {
+            call.businessError = injected
+            attachmentFault(injected)
+        }
+        val errors = ArrayList<String>()
+        val check = PValidator.validate(call.raw, schema = PSchema.Obj(shape), path = method)
+        errors += check.errors
+        // workspacePath 恒在场（2026-10-06 真机实证：缺 workspacePath 被桌面 Invalid params 拒；
+        // shape 为宽容白名单键、此处按桌面行为收严）
+        if (call.raw.objectValue?.get("workspacePath")?.stringValue == null) {
+            errors.add("$method.workspacePath: 缺失必填键（桌面实校验含会话域信封）")
+        }
+        if (errors.isNotEmpty()) {
+            call.schemaErrors = errors.toList()
+            attachmentFault("Invalid params: " + errors.joinToString("; "))
+        }
+        return call.raw.objectValue!!
+    }
+
+    /** 开启（或幂等续接）上传事务。同 uploadId 重发按已收块数回报续传起点（web PCe 同款）。 */
+    private fun handleAttachmentBegin(
+        session: SessionContext,
+        @Suppress("UNUSED_PARAMETER") args: JSONValue?,
+    ): JSONValue {
+        val call = attachmentRecord("attachmentBeginV4", args)
+        val dict = attachmentGate("attachmentBeginV4", call, CommandSchemas.attachmentBeginParamsShape())
+        // zero-byte superRefine（transport.ts:859-868 上游原文 message）：
+        // totalBytes==0 与 totalChunks==0 必须同真同假，异态即拒
+        val totalBytesZ = dict["totalBytes"]?.intValue
+        val totalChunksZ = dict["totalChunks"]?.intValue
+        if (totalBytesZ != null && totalChunksZ != null && (totalBytesZ == 0) != (totalChunksZ == 0)) {
+            call.schemaErrors = listOf("totalChunks: zero-byte upload must declare zero chunks")
+            attachmentFault("Invalid params: totalChunks: zero-byte upload must declare zero chunks")
+        }
+        val uploadId = dict["uploadId"]?.stringValue ?: ""
+        val totalBytes = dict["totalBytes"]?.intValue ?: 0
+        val totalChunks = dict["totalChunks"]?.intValue ?: 0
+        val checksum = dict["checksum"]?.stringValue ?: ""
+
+        // committed 短路：checksum+totalBytes 命中已上传附件 → 免分块直取 ref（桌面去重语义）
+        val committedRef = synchronized(lock) { committedRefsByChecksum["$checksum:$totalBytes"] }
+        if (committedRef != null) {
+            val reply = stubObj(
+                "uploadId" to JSONValue.Str(uploadId),
+                "state" to JSONValue.Str("committed"),
+                "nextChunkIndex" to JSONValue.Int(totalChunks),
+                "ref" to JSONValue.Str(committedRef),
+            )
+            call.reply = reply
+            return reply
+        }
+        synchronized(lock) {
+            val existing = uploadStagings[uploadId]
+            if (existing == null || existing.checksum != checksum || existing.totalBytes != totalBytes) {
+                // 新事务 / 同 id 异文件（客户端重开）：登记 staging（已收块归零）
+                uploadStagings[uploadId] = StubUploadStaging(
+                    sessionId = dict["sessionId"]?.stringValue ?: "",
+                    fileName = dict["fileName"]?.stringValue ?: "",
+                    mime = dict["mime"]?.stringValue ?: "",
+                    totalBytes = totalBytes,
+                    totalChunks = totalChunks,
+                    checksum = checksum,
+                )
+            }
+        }
+        val received = synchronized(lock) { uploadStagings[uploadId]?.received?.size ?: 0 }
+        val reply = stubObj(
+            "uploadId" to JSONValue.Str(uploadId),
+            "state" to JSONValue.Str("staging"),
+            "nextChunkIndex" to JSONValue.Int(received),
+        )
+        call.reply = reply
+        return reply
+    }
+
+    /** 分块下发：严格顺序（下一块恒 = 已收块数）；坏 padding/超 512KiB 已被 strict 门拒。 */
+    private fun handleAttachmentChunk(
+        session: SessionContext,
+        @Suppress("UNUSED_PARAMETER") args: JSONValue?,
+    ): JSONValue {
+        val call = attachmentRecord("attachmentChunkV4", args)
+        val dict = attachmentGate("attachmentChunkV4", call, CommandSchemas.attachmentChunkParamsShape())
+        val uploadId = dict["uploadId"]?.stringValue ?: ""
+        val chunkIndex = dict["chunkIndex"]?.intValue ?: -1
+        val staging = synchronized(lock) { uploadStagings[uploadId] }
+        if (staging == null) {
+            call.businessError = "stub: 未知 uploadId（Begin 未登记）"
+            attachmentFault("fault.attachment.uploadNotFound: stub: 未知 uploadId（Begin 未登记）")
+        }
+        val decodedBytes = PValidator.strictBase64ByteLength(dict["dataBase64"]?.stringValue ?: "")
+        synchronized(lock) {
+            if (chunkIndex != staging.received.size) {
+                call.businessError =
+                    "stub: chunkIndex 错位（期望 ${staging.received.size} 实收 $chunkIndex）"
+                attachmentFault(call.businessError!!)
+            }
+            staging.received[chunkIndex] = decodedBytes ?: 0
+        }
+        val reply = stubObj(
+            "uploadId" to JSONValue.Str(uploadId),
+            "nextChunkIndex" to JSONValue.Int(synchronized(lock) { staging.received.size }),
+        )
+        call.reply = reply
+        return reply
+    }
+
+    /** 事务收口：全块收齐 → 发 ref 并落 checksum 表（后续同文件 Begin 走 committed 短路）。 */
+    private fun handleAttachmentCommit(
+        session: SessionContext,
+        @Suppress("UNUSED_PARAMETER") args: JSONValue?,
+    ): JSONValue {
+        val call = attachmentRecord("attachmentCommitV4", args)
+        val dict = attachmentGate("attachmentCommitV4", call, CommandSchemas.attachmentFinishParamsShape())
+        val uploadId = dict["uploadId"]?.stringValue ?: ""
+        val staging = synchronized(lock) { uploadStagings[uploadId] }
+        if (staging == null) {
+            call.businessError = "stub: 未知 uploadId（Begin 未登记）"
+            attachmentFault("fault.attachment.uploadNotFound: stub: 未知 uploadId（Begin 未登记）")
+        }
+        synchronized(lock) {
+            if (staging.received.size != staging.totalChunks) {
+                call.businessError =
+                    "stub: 提交时块未收齐（${staging.received.size}/${staging.totalChunks}）"
+                attachmentFault(call.businessError!!)
+            }
+        }
+        val ref = "att-stub-" + UUID.randomUUID().toString().take(8)
+        synchronized(lock) {
+            committedRefsByChecksum["${staging.checksum}:${staging.totalBytes}"] = ref
+            uploadStagings.remove(uploadId)
+        }
+        val reply = stubObj("ref" to JSONValue.Str(ref))
+        call.reply = reply
+        return reply
+    }
+
+    /** 失败路径中止：移册即收口（幂等——未知 uploadId 同样成功，回 strict 空对象）。 */
+    private fun handleAttachmentAbort(
+        session: SessionContext,
+        @Suppress("UNUSED_PARAMETER") args: JSONValue?,
+    ): JSONValue {
+        val call = attachmentRecord("attachmentAbortV4", args)
+        val dict = attachmentGate("attachmentAbortV4", call, CommandSchemas.attachmentFinishParamsShape())
+        synchronized(lock) { uploadStagings.remove(dict["uploadId"]?.stringValue ?: "") }
+        val reply = stubObj()
+        call.reply = reply
+        return reply
+    }
+
     // MARK: 下行帧发射
 
     /** conversation 行增量（每行一帧 row.appended；seq 每 topic 单调；延迟错开保序）。 */
@@ -1105,13 +1394,13 @@ class E2EStubServer(
             RPCValue.Arr(listOf(RPCValue.Int(ResponseType.eventFire.rawValue), RPCValue.Int(eventId))),
         )
         val bodyBytes = RPCSerialization.serialize(RPCValue.json(envelope))
-        val frameBytes = RPCFrame.write(header + bodyBytes)
+        val frameBytes = wireFrame(session, header + bodyBytes)
         synchronized(lock) {
             val order = nextOrderLocked()
             wireLog.add(WireLogEntry(order, WIRE_EVENT_FRAME, "$eventName|$topic|$payloadKind", System.currentTimeMillis()))
             framesSent.add(RecordedFrame(order, eventName, topic, subscriptionId, payloadKind, fromSeq, toSeq))
         }
-        session.ws.send(Frame.Binary(fin = true, data = frameBytes))
+        session.frameSink(frameBytes)
     }
 
     private suspend fun sendRpcFrame(
@@ -1124,12 +1413,553 @@ class E2EStubServer(
     ) {
         val header = RPCSerialization.serialize(RPCValue.Arr(listOf(RPCValue.Int(responseType), RPCValue.Int(id))))
         val bodyBytes = RPCSerialization.serialize(body)
-        val frameBytes = RPCFrame.write(header + bodyBytes)
+        val frameBytes = wireFrame(session, header + bodyBytes)
         synchronized(lock) {
             wireLog.add(WireLogEntry(nextOrderLocked(), wireKind, wireDetail, System.currentTimeMillis()))
         }
-        session.ws.send(Frame.Binary(fin = true, data = frameBytes))
+        session.frameSink(frameBytes)
     }
+
+    /** 线缆帧形态：中继桥 = 裸 serialize 载荷；局域网 = 13 字节头二进制帧（RelaySessionContext.relayBridge 注）。 */
+    private fun wireFrame(session: SessionContext, payload: ByteArray): ByteArray =
+        if (session.relayBridge) payload else RPCFrame.write(payload)
+
+    // MARK: rpc-frame 中继模式（同进程第二端口；协议接口文档 §3.3）
+    //
+    // 与局域网直连的三层差异（RelayTransport.kt 文件头 framingDeltas 同源）：
+    // ① WS 层是 JSON 文本帧（auth_*/pair_status_*/data/error）；
+    // ② app 载荷走 data 帧 payload（bootstrap/bridge-open 请求-响应）；
+    // ③ rpc-frame 载荷 = serialize(header)+serialize(body)（无 13 字节头）。
+    //
+    // A6 全新握手态建模：每次 workspace-bridge-open 都换新 SessionContext（clientId/
+    // eventIds/conversationTopics 全空 + assertReadyGate=true）——等价上游「每次桥(重)开
+    // 都是全新 scoped facade、handshakeComplete 实例态」；客户端不在 onBridgeOpened 里
+    // 重做 hello→clientHello，重开后的 assertReady 族调用即在本替身撞
+    // fault.connection.handshakeRequired。
+
+    /** 中继模式 WS 端口（startRelay 后非零）。 */
+    @Volatile
+    var relayPort: Int = 0
+        private set
+
+    private var relayEngine: EmbeddedServer<*, *>? = null
+
+    // auth 凭据注水（配对链接形态；proof 按 RelayAuth 同参复算——错凭据即 AUTH_FAILED 终态）
+    @Volatile
+    var relayDeviceSid: String = "d-stub-relay-terminal"
+
+    @Volatile
+    var relayPassHash: String = "stub-relay-pass-hash"
+
+    /** 终态注水：auth_response 恒回 error 帧 AUTH_FAILED（客户端终态粘滞用例面）。 */
+    @Volatile
+    var relayFailAuth: Boolean = false
+
+    /** 一次性注水：下一次 workspace-bridge-open 回 workspace-bridge-error（bridgeSessionId 匹配面拒开）。 */
+    @Volatile
+    private var relayRejectNextBridgeOpen: String? = null
+
+    private val relayTerminals = CopyOnWriteArrayList<RelayTerminal>()
+
+    private class RelayTerminal(val ws: WebSocketServerSession) {
+        @Volatile var authed = false
+        var nonce: String = ""
+    }
+
+    /**
+     * 一次桥开好的上下文（A6：每桥一个全新 SessionContext）。下行 rpc-frame 计数器
+     * ** transport 级**（[relayDownPhysicalSeq]/[relayDownMessageSeq]）不随桥重开归零——
+     * iOS 客户端的 RelayFrameAssembler.reset() 不清 highestCompletedMessageSeq（原文同口径，
+     * :protocol relay/RelayFrameCodec.kt 同注），即「对端发送计数跨桥单调」的桌面侧形态；
+     * 上行（客户端 → 替身）按桥全新 assembler（客户端 bindFrameChannel 归零发送计数）。
+     */
+    private class RelayBridge(
+        val sessionId: String,
+        val generation: Int,
+        val recoveryId: String?,
+        val ctx: SessionContext,
+    ) {
+        val assembler = RelayFrameAssembler()
+    }
+
+    /** 桌面下行 rpc-frame 计数（transport 级，跨桥单调；见 RelayBridge 注）。 */
+    private var relayDownPhysicalSeq = 1
+    private var relayDownMessageSeq = 1
+
+    @Volatile
+    private var currentRelayBridge: RelayBridge? = null
+
+    // 中继面记账
+    private var relayBridgeOpenCountN = 0
+
+    /** 桥内 rpc 字节派发记账（桥 gen + 派发动作；联调/用例断言面）。 */
+    private val relayBridgeRpcLogN = ArrayList<String>()
+    private val relayBridgeGenerationsN = ArrayList<Int>()
+    private val relayBridgeRecoveryIdsN = ArrayList<String?>()
+    private var relayAuthCountN = 0
+    private var relayDownlinkAckCountN = 0
+    private val relayViewStateUpdatesN = ArrayList<JSONValue>()
+
+    /** 启动中继模式监听（同进程第二端口；可先于/后于 [start] 调用）。 */
+    @Synchronized
+    fun startRelay(): Int {
+        check(relayEngine == null) { "E2EStubServer 中继模式已启动" }
+        val probed = ServerSocket(0, 1, InetAddress.getByName(host)).use { socket -> socket.localPort }
+        val started = embeddedServer(CIO, host = host, port = probed) { configureRelay() }
+        started.start(wait = false)
+        relayEngine = started
+        relayPort = probed
+        return probed
+    }
+
+    @Synchronized
+    fun stopRelay() {
+        relayEngine?.stop(200, 1000)
+        relayEngine = null
+        relayPort = 0
+    }
+
+    private fun Application.configureRelay() {
+        install(WebSockets)
+        routing {
+            // 云中继 WS 升级路径（wss://<host>/ws?mid=… 的替身对等面；mid 替身不校验）
+            webSocket("/ws") {
+                serveRelayTerminal(this)
+            }
+        }
+    }
+
+    private suspend fun serveRelayTerminal(ws: WebSocketServerSession) {
+        val terminal = RelayTerminal(ws)
+        relayTerminals.add(terminal)
+        try {
+            for (frame in ws.incoming) {
+                // 中继全程 JSON 文本帧；二进制帧不合预期，忽略（客户端读循环同口径）
+                if (frame is Frame.Text) serveRelayText(terminal, frame.readText())
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // 客户端断开/读写异常：静默收尾
+        } finally {
+            terminal.authed = false
+            relayTerminals.remove(terminal)
+        }
+    }
+
+    private suspend fun serveRelayText(terminal: RelayTerminal, text: String) {
+        val message = try {
+            JSONValue.parse(text)
+        } catch (e: Exception) {
+            return
+        }
+        when (message["type"]?.stringValue) {
+            "auth_init" -> {
+                // 24 位随机 nonce（iOS 实测形态 lFr2Po5uGyuNti2Xuw7LfcrN 同长度）
+                val nonce = UUID.randomUUID().toString().replace("-", "").take(24)
+                terminal.nonce = nonce
+                sendRelayJson(
+                    terminal,
+                    stubObj("type" to JSONValue.Str("auth_challenge"), "nonce" to JSONValue.Str(nonce)),
+                )
+            }
+            "auth_response" -> {
+                if (relayFailAuth) {
+                    sendRelayError(terminal, "AUTH_FAILED", "stub: auth 注水失败")
+                    return
+                }
+                val sid = message["device_sid"]?.stringValue ?: ""
+                val proof = message["proof"]?.stringValue ?: ""
+                val expected = RelayAuth.proof(
+                    passHash = relayPassHash,
+                    nonce = terminal.nonce,
+                    role = "terminal",
+                    deviceSid = sid,
+                )
+                if (sid != relayDeviceSid || proof != expected) {
+                    sendRelayError(terminal, "AUTH_FAILED", "stub: sid/proof 不匹配")
+                    return
+                }
+                terminal.authed = true
+                synchronized(lock) { relayAuthCountN += 1 }
+                sendRelayJson(
+                    terminal,
+                    stubObj(
+                        "type" to JSONValue.Str("auth_ack"),
+                        "pair_status" to JSONValue.Str("matched"),
+                        "terminal_sid" to JSONValue.Str(sid),
+                    ),
+                )
+            }
+            "pair_status_query" -> sendRelayJson(
+                terminal,
+                stubObj(
+                    "type" to JSONValue.Str("pair_status_ack"),
+                    "pair_status" to JSONValue.Str("matched"),
+                    "terminal_sid" to JSONValue.Str(relayDeviceSid),
+                ),
+            )
+            "data" -> serveRelayData(terminal, message["payload"])
+            else -> {}
+        }
+    }
+
+    private suspend fun serveRelayData(terminal: RelayTerminal, payload: JSONValue?) {
+        val zcodeType = payload?.get("zcode_type")?.stringValue ?: return
+        when (zcodeType) {
+            "rpc-frame" -> serveRelayRpcFrame(terminal, payload)
+            "rpc-frame-ack" -> synchronized(lock) { relayDownlinkAckCountN += 1 }
+            "bootstrap-request" -> {
+                // iOS RelayChannelClient.swift:156-159 消费形态：{requestId, result:{…}}
+                val body = bootstrapResponseBody()
+                sendRelayData(
+                    terminal,
+                    stubObj(
+                        "zcode_type" to JSONValue.Str("bootstrap-response"),
+                        "requestId" to payload["requestId"],
+                        "result" to (body["result"] ?: JSONValue.Null),
+                    ),
+                )
+            }
+            "workspace-list-request" -> sendRelayData(
+                terminal,
+                stubObj(
+                    "zcode_type" to JSONValue.Str("workspace-list-response"),
+                    "requestId" to payload["requestId"],
+                    "result" to stubObj(
+                        "activeWorkspaceKey" to JSONValue.Str(workspacePath),
+                        // 桌面当前无活动任务（web 形态：键可缺席/为 null）
+                        "workspaces" to JSONValue.Arr(
+                            listOf(
+                                stubObj(
+                                    "workspaceKey" to JSONValue.Str(workspacePath),
+                                    "path" to JSONValue.Str(workspacePath),
+                                    "name" to JSONValue.Str("替身工作区"),
+                                    "kind" to JSONValue.Str("local"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            "workspace-bridge-open" -> handleRelayBridgeOpen(terminal, payload)
+            "mobile-view-state-update" -> synchronized(lock) { relayViewStateUpdatesN.add(payload) }
+            else -> {}
+        }
+    }
+
+    /** workspace-bridge-open → 换新桥 ctx（A6 全新握手态）→ workspace-bridge-ready → 桥内 Initialize。 */
+    private suspend fun handleRelayBridgeOpen(terminal: RelayTerminal, payload: JSONValue) {
+        val requestedKey = payload["workspaceKey"]?.stringValue ?: ""
+        val generation = payload["bridgeGeneration"]?.intValue ?: 1
+        val recoveryId = payload["recoveryId"]?.stringValue
+        val bridgeSessionId = payload["bridgeSessionId"]?.stringValue
+            ?: UUID.randomUUID().toString().replace("-", "").lowercase()
+
+        // 一次性拒开注水：workspace-bridge-error 携 bridgeSessionId → 客户端按
+        // bridgeOpenWaiter 匹配面失败（RelayTransport.rejectErrorPayload 情形②）
+        val rejectReason = synchronized(lock) {
+            val reason = relayRejectNextBridgeOpen
+            relayRejectNextBridgeOpen = null
+            reason
+        }
+        if (rejectReason != null) {
+            sendRelayData(
+                terminal,
+                stubObj(
+                    "zcode_type" to JSONValue.Str("workspace-bridge-error"),
+                    "requestId" to payload["requestId"],
+                    "bridgeSessionId" to JSONValue.Str(bridgeSessionId),
+                    "reason" to JSONValue.Str("stub.bridgeRejected"),
+                    "error" to JSONValue.Str(rejectReason),
+                ),
+            )
+            return
+        }
+
+        // A6：旧桥 ctx 作废（open=false + 摘出 connections，增量推送不再投递）
+        val old = synchronized(lock) { currentRelayBridge }
+        if (old != null) {
+            old.ctx.open = false
+            connections.remove(old.ctx)
+        }
+        val ctx = SessionContext(terminal.ws)
+        ctx.assertReadyGate = true
+        ctx.relayBridge = true
+        // recoveryId 桌面侧铸造（重开恢复凭据；客户端下次 bridge-open 携回——客户端侧
+        // 断言「重建开桥携回首桥 recoveryId」的数据源）
+        val mintedRecoveryId = "recovery-" + UUID.randomUUID().toString().replace("-", "").take(16)
+        val bridge = RelayBridge(bridgeSessionId, generation, mintedRecoveryId, ctx)
+        ctx.frameSink = { bytes -> relayBridgeSend(bridge, bytes) }
+        synchronized(lock) {
+            currentRelayBridge = bridge
+            relayBridgeOpenCountN += 1
+            relayBridgeGenerationsN.add(generation)
+            relayBridgeRecoveryIdsN.add(mintedRecoveryId)
+            relayBridgeRpcLogN.add("bridge=$generation << bridge-open recoveryId=${recoveryId ?: "null"}")
+            connections.add(ctx)
+        }
+
+        // workspace-bridge-ready（bridge 键面 = iOS RelayChannelClient.openBridge 消费面）
+        sendRelayData(
+            terminal,
+            stubObj(
+                "zcode_type" to JSONValue.Str("workspace-bridge-ready"),
+                "requestId" to payload["requestId"],
+                "bridge" to stubObj(
+                    "bridgeSessionId" to JSONValue.Str(bridgeSessionId),
+                    "bridgeGeneration" to JSONValue.Int(generation),
+                    "recoveryId" to JSONValue.Str(mintedRecoveryId),
+                    "kind" to JSONValue.Str("local"),
+                    "workspacePath" to JSONValue.Str(requestedKey),
+                    "workspaceKey" to JSONValue.Str(requestedKey),
+                    "initialTaskId" to JSONValue.Null,
+                ),
+            ),
+        )
+        // 桌面行为：桥开即推 Initialize（channelServer.ts:29-32 同构；客户端 waitForInitialize 等它）。
+        // 时序对齐真桌面：Initialize 在 bridge-ready 之后一个 RTT 内到达，客户端先完成
+        // bindFrameChannel 再收帧——iOS Lzn 门（frameIdentity 未绑定静默丢弃）对该竞态同样
+        // 成立，真桌面时序不触发；替身若同协程紧贴 ready 推送会稳定踩中丢弃窗（150ms ≈
+        // RTT 形态），非放宽客户端校验。会话域 ws.launch 推送（勿用裸 CoroutineScope）。
+        val bridgeForInit = bridge
+        terminal.ws.launch {
+            delay(RELAY_INITIALIZE_PUSH_DELAY_MS)
+            if (!bridgeForInit.ctx.open) return@launch
+            try {
+                sendRpcFrame(
+                    bridgeForInit.ctx,
+                    responseType = ResponseType.initialize.rawValue,
+                    id = 0,
+                    body = RPCValue.Undefined,
+                    wireKind = WIRE_INITIALIZE,
+                    wireDetail = "initialize(bridge)",
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // 桥已替换/连接已断：静默（替身无重连面）
+            }
+        }
+    }
+
+    /** 桥内下行发送：serialize 载荷 → rpc-frame 编码（分片自适应）→ data JSON 文本帧。 */
+    private suspend fun relayBridgeSend(bridge: RelayBridge, bytes: ByteArray) {
+        val identity = RelayFrameCodec.Identity(
+            bridgeSessionId = bridge.sessionId,
+            bridgeGeneration = bridge.generation,
+            recoveryId = bridge.recoveryId,
+        )
+        val firstPhysicalSeq: Int
+        val messageSeq: Int
+        val frames: List<Map<String, JSONValue>>
+        synchronized(lock) {
+            frames = RelayFrameCodec.encodeMessage(
+                bytes,
+                identity = identity,
+                firstPhysicalSeq = relayDownPhysicalSeq,
+                messageSeq = relayDownMessageSeq,
+            ) ?: return
+            firstPhysicalSeq = relayDownPhysicalSeq
+            messageSeq = relayDownMessageSeq
+            relayDownMessageSeq += 1
+            relayDownPhysicalSeq += frames.size
+            relayBridgeRpcLogN.add("bridge=${bridge.generation} >> ${frames.size}片 ${bytes.size}B open=${bridge.ctx.open}")
+        }
+        for (frame in frames) {
+            if (!bridge.ctx.open) return
+            sendRelayData(bridge, JSONValue.Obj(LinkedHashMap(frame)))
+        }
+    }
+
+    /** data 帧下发（桥级）：{type:"data", payload, client_ts}；经桥 ctx 绑定的终端 WS 送出。 */
+    private suspend fun sendRelayData(bridge: RelayBridge, payload: JSONValue) {
+        val terminal = relayTerminals.firstOrNull { it.ws == bridge.ctx.ws }
+        if (terminal == null) {
+            println("[relay-stub] sendRelayData(bridge) 无匹配终端 terminals=${relayTerminals.size} zcode=${payload["zcode_type"]?.stringValue}")
+            return
+        }
+        sendRelayData(terminal, payload)
+    }
+
+    private suspend fun sendRelayData(terminal: RelayTerminal, payload: JSONValue) {
+        sendRelayJson(
+            terminal,
+            stubObj(
+                "type" to JSONValue.Str("data"),
+                "payload" to payload,
+                "client_ts" to stubNum(System.currentTimeMillis()),
+            ),
+        )
+    }
+
+    private suspend fun sendRelayJson(terminal: RelayTerminal, payload: JSONValue) {
+        terminal.ws.send(Frame.Text(payload.data?.toString(Charsets.UTF_8) ?: "{}"))
+    }
+
+    private suspend fun sendRelayError(terminal: RelayTerminal, code: String, messageText: String) {
+        sendRelayJson(
+            terminal,
+            stubObj(
+                "type" to JSONValue.Str("error"),
+                "code" to JSONValue.Str(code),
+                "message" to JSONValue.Str(messageText),
+            ),
+        )
+    }
+
+    /** 客户端上行 rpc-frame：ack 记账 / 身份三元组校验 / 分片重组 / 回 ack / 桥内派发。 */
+    private suspend fun serveRelayRpcFrame(terminal: RelayTerminal, payload: JSONValue) {
+        // 上行 ack（客户端对我下行帧的确认）记账
+        if (RelayFrameCodec.decodeAck(payload) != null) {
+            synchronized(lock) { relayDownlinkAckCountN += 1 }
+            return
+        }
+        val bridge = synchronized(lock) { currentRelayBridge } ?: return
+        // 桥身份三元组校验（客户端 handleRelayFramePayload Lzn 同款；异桥帧忽略）
+        if (payload["bridgeSessionId"]?.stringValue != bridge.sessionId ||
+            payload["bridgeGeneration"]?.intValue?.let { it != bridge.generation } == true
+        ) {
+            return
+        }
+        val fragment = RelayFrameCodec.decode(payload) ?: return
+        when (val result = bridge.assembler.accept(fragment)) {
+            is RelayFrameAssembler.AcceptResult.Incomplete ->
+                result.ackMessageSeq?.let { relayBridgeAck(bridge, it) }
+            is RelayFrameAssembler.AcceptResult.Duplicate ->
+                relayBridgeAck(bridge, result.ackMessageSeq)
+            is RelayFrameAssembler.AcceptResult.Fault ->
+                relayBridgeAck(bridge, fragment.messageSeq) // 防客户端无限重传
+            is RelayFrameAssembler.AcceptResult.Completed -> {
+                relayBridgeAck(bridge, result.messageSeq)
+                serveRelayRpcBytes(bridge, result.data)
+            }
+        }
+    }
+
+    /** 上行 rpc-frame-ack（客户端 RelayTransport.sendAck/makeAck 同键面）。 */
+    private suspend fun relayBridgeAck(bridge: RelayBridge, ackMessageSeq: Int) {
+        sendRelayData(
+            bridge,
+            RelayFrameCodec.makeAck(
+                identity = RelayFrameCodec.Identity(
+                    bridgeSessionId = bridge.sessionId,
+                    bridgeGeneration = bridge.generation,
+                    recoveryId = bridge.recoveryId,
+                ),
+                ackMessageSeq = ackMessageSeq,
+            ).let { JSONValue.Obj(LinkedHashMap(it)) },
+        )
+    }
+
+    /** 桥内 RPC 字节派发（无 13 字节头，直接 deserialize；serveFrame 的桥对等面）。 */
+    private suspend fun serveRelayRpcBytes(bridge: RelayBridge, data: ByteArray) {
+        val cursor = ReadCursor(0)
+        val headerValue = RPCSerialization.deserialize(data, cursor)
+        if (headerValue == null) {
+            synchronized(lock) { relayBridgeRpcLogN.add("bridge=${bridge.generation} << deserialize-header=null") }
+            return
+        }
+        val body = RPCSerialization.deserialize(data, cursor)
+        if (body == null) {
+            synchronized(lock) { relayBridgeRpcLogN.add("bridge=${bridge.generation} << deserialize-body=null") }
+            return
+        }
+        val header = (headerValue as? RPCValue.Arr)?.items
+        if (header == null) {
+            synchronized(lock) { relayBridgeRpcLogN.add("bridge=${bridge.generation} << header-not-arr") }
+            return
+        }
+        when (header.getOrNull(0)?.intValue) {
+            RequestType.promise.rawValue -> {
+                val id = header.getOrNull(1)?.intValue ?: return
+                val channelName = header.getOrNull(2)?.stringValue ?: ""
+                val command = header.getOrNull(3)?.stringValue ?: ""
+                synchronized(lock) {
+                    rpcCalls.add(RecordedCall(nextOrderLocked(), channelName, command, System.currentTimeMillis()))
+                }
+                // 桥内 promise body = 参数数组（toService 把调用参数列表整体序列化，host 端
+                // fromService 按 apply(o, p) 展开——RelayChannelClient.call 直译注；与局域网
+                // 裸 arg 形态不同，桥内派发先展开首元素）
+                synchronized(lock) {
+                    relayBridgeRpcLogN.add("bridge=${bridge.generation} << promise id=$id $channelName.$command")
+                }
+                val arg = (body as? RPCValue.Arr)?.items?.getOrNull(0) ?: body
+                dispatchPromise(bridge.ctx, id, command, arg)
+            }
+            RequestType.eventListen.rawValue -> {
+                val id = header.getOrNull(1)?.intValue ?: return
+                val eventName = header.getOrNull(3)?.stringValue ?: return
+                synchronized(bridge.ctx.mutex) { bridge.ctx.eventIds[eventName] = id }
+                synchronized(lock) { eventListenRecord.add(eventName) }
+            }
+            RequestType.eventDispose.rawValue -> {
+                val id = header.getOrNull(1)?.intValue ?: return
+                synchronized(bridge.ctx.mutex) { bridge.ctx.eventIds.entries.removeAll { it.value == id } }
+            }
+        }
+    }
+
+    /** 服务端主动断开全部中继 WS（客户端走传输故障 → 指数退避重连 → paired 恢复重建桥）。 */
+    fun dropRelayConnections() {
+        for (terminal in relayTerminals.toList()) {
+            terminal.authed = false
+            // cancel 会话协程（非挂起、立即生效）：连接硬断 → 客户端 OkHttp onClosed/onFailure
+            // → 读循环退出 → 传输故障链路。曾试 ws.close（挂起，需会话域 launch）与裸
+            // CoroutineScope launch——CIO 会话上不生效（本轮联调实证），勿改回。
+            runCatching { terminal.ws.cancel(CancellationException("stub drop")) }
+        }
+    }
+
+    /** 一次性注水：下一次 workspace-bridge-open 回 workspace-bridge-error。 */
+    fun injectRelayBridgeOpenReject(message: String) {
+        synchronized(lock) { relayRejectNextBridgeOpen = message }
+    }
+
+    /**
+     * 主动宣告当前桥退化（bridge-degraded 帧；无 requestId 的桌面主动推送形态，
+     * C-13——客户端 handleBridgeDegradedFrame → 快速重建桥用例面）。
+     */
+    fun pushRelayBridgeDegraded(reason: String) {
+        val bridge = synchronized(lock) { currentRelayBridge } ?: return
+        val ws = bridge.ctx.ws
+        ws.launch {
+            sendRelayData(
+                bridge,
+                stubObj(
+                    "zcode_type" to JSONValue.Str("bridge-degraded"),
+                    "bridgeSessionId" to JSONValue.Str(bridge.sessionId),
+                    "reason" to JSONValue.Str(reason),
+                ),
+            )
+        }
+    }
+
+    // MARK: 中继面记账访问器（用例断言面）
+
+    fun relayBridgeOpenCount(): Int = synchronized(lock) { relayBridgeOpenCountN }
+
+    /** 历次 workspace-bridge-open 的 bridgeGeneration 序（重开递增断言面）。 */
+    fun relayBridgeGenerations(): List<Int> = synchronized(lock) { relayBridgeGenerationsN.toList() }
+
+    /** 桥内 rpc 字节派发记账副本（命令名逐条；「客户端发了没/替身收了没」分诊面）。 */
+    fun relayBridgeRpcLog(): List<String> = synchronized(lock) { relayBridgeRpcLogN.toList() }
+
+    /** 历次桥的桌面铸造 recoveryId（客户端重开携回断言面；与请求携带值对账用）。 */
+    fun relayBridgeRecoveryIds(): List<String?> = synchronized(lock) { relayBridgeRecoveryIdsN.toList() }
+
+
+    fun relayAuthCount(): Int = synchronized(lock) { relayAuthCountN }
+
+    /** 客户端对我下行 rpc-frame 的 ack 计数（分片可靠层双向工作断言面）。 */
+    fun relayDownlinkAckCount(): Int = synchronized(lock) { relayDownlinkAckCountN }
+
+    fun relayViewStateCount(): Int = synchronized(lock) { relayViewStateUpdatesN.size }
+
+    fun relayViewStatePayloads(): List<JSONValue> = synchronized(lock) { relayViewStateUpdatesN.toList() }
+
+    /** 当前桥 sessionId（null = 无桥）。 */
+    fun currentRelayBridgeSessionId(): String? = synchronized(lock) { currentRelayBridge?.sessionId }
 
     // MARK: 记账访问器（用例断言面；返回快照副本）
 
@@ -1171,6 +2001,21 @@ class E2EStubServer(
     /** eventListen 帧记账副本（帧面挂载/幂等断言面）。 */
     fun eventListenLog(): List<String> = synchronized(lock) { eventListenRecord.toList() }
 
+    /** 附件四方法对拍记账副本（strict 结果在 schemaErrors、业务拒因在 businessError）。 */
+    fun attachmentCalls(): List<RecordedAttachmentCall> =
+        synchronized(lock) { attachmentCallsRecord.toList() }
+
+    fun attachmentCallCount(method: String): Int =
+        synchronized(lock) { attachmentCallsRecord.count { it.method == method } }
+
+    /** 指定 uploadId 的已收块数（续传断言面；未知 id = -1）。 */
+    fun attachmentReceivedChunkCount(uploadId: String): Int =
+        synchronized(lock) { uploadStagings[uploadId]?.received?.size ?: -1 }
+
+    /** 指定 uploadId 各已收块的解码字节数（分块切分断言面；未知 id = 空表）。 */
+    fun attachmentReceivedChunkBytes(uploadId: String): List<Int> =
+        synchronized(lock) { uploadStagings[uploadId]?.received?.values?.toList() ?: emptyList() }
+
     // MARK: 注水器（扩展点）
 
     /** 会话快照整体注水（键级整体替换，A10；后续里程碑灌完整 A 区形态）。 */
@@ -1211,6 +2056,12 @@ class E2EStubServer(
     private fun nullableStr(value: String?): JSONValue? = value?.takeIf { it.isNotEmpty() }?.let { JSONValue.Str(it) }
 
     companion object {
+        /**
+         * A6 assertReady 族命令前缀词表（AGENTS §7 A6：subscribe*、readSession、rowsRange
+         * 过握手闸；sendConversationCommandV4 不过闸——上游同）。
+         */
+        val ASSERT_READY_COMMAND_PREFIXES = listOf("subscribe", "readSession", "rowsRange")
+
         const val CONVERSATION_TOPIC_PREFIX = "conversation/"
         const val SESSIONS_INDEX_TOPIC_PREFIX = "sessions-index/"
 
@@ -1233,6 +2084,9 @@ class E2EStubServer(
 
         /** snapshotBeforeSubscribeAck=false 时回执到快照的补发延迟。 */
         const val SUBSCRIBE_ACK_THEN_SNAPSHOT_DELAY_MS = 50L
+
+        /** 桥内 Initialize 推送延迟（bridge-ready 后一个 RTT 形态；见 handleRelayBridgeOpen 注）。 */
+        const val RELAY_INITIALIZE_PUSH_DELAY_MS = 150L
 
         // wireLog kind 词表（用例断言用）
         const val WIRE_INITIALIZE = "initialize"

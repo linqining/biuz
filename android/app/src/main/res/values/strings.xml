@@ -143,6 +143,18 @@
     <string name="chat_edit_resend_confirm_message">将回退到这条消息之前，之后的回复会被替换。</string>
     <string name="chat_edit_resend_confirm">重发</string>
 
+    <!-- 附件（P1-1 媒体界面轮；对位 iOS MessageViews/ChatView 附件面）。
+         service 提示串（20MB 上限/条数上限/读取失败等）是 :store 数据面直出非本表职责 -->
+    <string name="attach_button_cd">添加附件</string>
+    <string name="attach_thumb_cd">附件缩略图</string>
+    <string name="attach_read_fail">附件读取失败，已跳过</string>
+    <string name="attach_load_fail">附件加载失败</string>
+    <string name="attach_video_load_fail">视频加载失败</string>
+    <string name="attach_video_play_fail">视频无法播放（格式不受支持或文件已损坏）</string>
+    <string name="attach_video_retry">重试</string>
+    <string name="attach_full_image_cd">附件原图</string>
+    <string name="attach_full_close_cd">关闭</string>
+
     <!-- 面板/动作通用 -->
     <string name="action_close">关闭</string>
     <string name="action_cancel">取消</string>

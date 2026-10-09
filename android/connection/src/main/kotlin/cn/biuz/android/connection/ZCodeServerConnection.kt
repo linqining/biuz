@@ -13,6 +13,9 @@ import cn.biuz.android.protocol.TopicWireFrame
 import cn.biuz.android.protocol.TopicWireFrameAssembler
 import cn.biuz.android.protocol.V4TopicFrame
 import cn.biuz.android.protocol.WebSocketTransportFactory
+import cn.biuz.android.relay.RelayChannelClient
+import cn.biuz.android.relay.RelayLogKind
+import cn.biuz.android.relay.RelayTransport
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
@@ -36,11 +39,11 @@ import kotlinx.coroutines.launch
 // （server-info → 鉴权 → WS → v4 握手 → workspaces[0]）+ `call` 唯一出口（ReadOnlyGate
 // 接线）+ 帧面按 workspace 多路幂等挂载（v1.23）+ workspace-config 订阅/resync 自愈。
 //
-// 云中继面（connectRelay/switchRelayWorkspace/reconnectRelayWorkspace/reportActiveTask/
-// handleWorkspaceListUpdated/mapRelayError/markRunningStepFailed）依赖 :relay 的
-// RelayTransport/RelayChannelClient（iOS Services/Relay，M6 里程碑）——本轮不移植，
-// 但握手单点已备：performRelayV4Handshake 只依赖 RPCChannelTransport 门面，M6 接线
-// onBridgeOpened 钩子时直接调入（协议文档 §5.3 桥(重)开握手纪律）。
+// 云中继面（2026-10-10 M6 随 :relay 落位接线）：connectRelay / switchRelayWorkspace /
+// reconnectRelayWorkspace / reportActiveTask / handleWorkspaceListUpdated / mapRelayError /
+// markRunningStepFailed（iOS ZCodeServerConnection.swift:468-872 直译）——桥(重)开握手
+// 单点经 onBridgeOpened 钩子调入 performRelayV4Handshake（协议文档 §5.3 桥(重)开握手
+// 纪律；A6 红线：每次桥(重)开都是全新握手态）。
 //
 // 并发模型适配（docs/Android开发交接.md §2.2）：
 // - Swift @MainActor @Observable → StateFlow 状态投 + synchronized 账本（logs/blocked/
@@ -264,6 +267,12 @@ sealed class ConnectResult {
     data class Failure(val error: ConnectError) : ConnectResult()
 }
 
+/** Swift `Result<ServerWorkspaceInfo, ConnectError>` 对应物（switchRelayWorkspace 面）。 */
+sealed class WorkspaceSwitchResult {
+    data class Success(val workspace: ServerWorkspaceInfo) : WorkspaceSwitchResult()
+    data class Failure(val error: ConnectError) : WorkspaceSwitchResult()
+}
+
 // MARK: - v4 握手模型（transport.ts:40-86）
 
 data class V4HelloMessage(
@@ -335,19 +344,30 @@ class ZCodeServerConnection(
 
     /**
      * 局域网直连（ChannelClient，13 字节头二进制帧）或云中继（RelayChannelClient，
-     * JSON 文本帧 + rpc-frame）——统一走 RPCChannelTransport 门面，只读拦截同源覆盖。
-     * 本轮实装局域网直连；中继门面随 M6 落位（relayClient 赋值点在 connectRelay）。
+     * JSON 文本帧 + rpc-frame）——统一走 RPCChannelTransport 门面，只读拦截同源覆盖
+     * （iOS `private var client: (any RPCChannelTransport)?`，:237 同型加宽）。
      */
     @Volatile
-    private var client: ChannelClient? = null
+    private var client: RPCChannelTransport? = null
 
     /**
-     * 云中继客户端引用（iOS RelayChannelClient 强类型引用的占位——M6 类型落位后替换；
-     * 局域网直连恒 null。connect 的 handshakeRequired 捕获自愈与 supportsWorkspaceSwitching
-     * 以它判向，与 iOS `relayClient != nil` 同口径）。
+     * 云中继客户端引用（iOS RelayChannelClient 强类型引用，:239；局域网直连恒 null。
+     * connect 的 handshakeRequired 捕获自愈、supportsWorkspaceSwitching、切换/重连/
+     * 活动任务上报均以它判向，与 iOS `relayClient != nil` 同口径）。
      */
     @Volatile
-    private var relayClient: RPCChannelTransport? = null
+    private var relayClient: RelayChannelClient? = null
+
+    /** 云中继传输（iOS :240；workspace-reconnect-request 的 app 层请求面用）。 */
+    @Volatile
+    private var relayTransport: RelayTransport? = null
+
+    /**
+     * 工作区清单推送（P3-10 workspace-list-updated）：handleWorkspaceListUpdated 解析后
+     * 上抛 AppSession 刷新任务聚合清单（iOS :274；Android 的 RemoteConversationStore
+     * 聚合清单面随 M3/M4 移植接入，当前清单本体已由连接层回写 serverInfo 联动切换器）。
+     */
+    var onWorkspaceListUpdated: ((List<ServerWorkspaceInfo>) -> Unit)? = null
 
     @Volatile
     var serverInfo: ServerRemoteInfo? = null
@@ -410,7 +430,7 @@ class ZCodeServerConnection(
     /** 只读边界拦截记录读面（最近 20 条快照副本）。 */
     fun blockedExecutionCallsSnapshot(): List<String> = synchronized(logLock) { blockedExecutionCalls.toList() }
 
-    /** iOS `relayClient != nil && isActive`（P3-10）：中继门面 M6 落位前恒 false。 */
+    /** iOS `relayClient != nil && isActive`（P3-10）：云中继连接为 true（切换器 UI gating）。 */
     val supportsWorkspaceSwitching: Boolean
         get() = relayClient != null && isActive
 
@@ -690,6 +710,427 @@ class ZCodeServerConnection(
         }
     }
 
+    // MARK: 云中继连接（remote/v4：跳过局域网探测，WS + auth 握手 → bootstrap → workspace 桥）
+    // （iOS ZCodeServerConnection.swift:468-872 直译；机械适配逐处注明）
+
+    /** RelayLogKind → ConnectLogLine.Kind（:relay 自带枚举的 :connection 逐值映射）。 */
+    private fun RelayLogKind.toConnectKind(): ConnectLogLine.Kind =
+        when (this) {
+            RelayLogKind.ok -> ConnectLogLine.Kind.ok
+            RelayLogKind.working -> ConnectLogLine.Kind.working
+            RelayLogKind.info -> ConnectLogLine.Kind.info
+            RelayLogKind.error -> ConnectLogLine.Kind.error
+        }
+
+    /**
+     * 中继 bootstrap-response 的跨工作区 tasks 清单（web「所有项目目录」同源；
+     * 非中继连接为 nil）（iOS :476-478）。
+     */
+    val relayBootstrapTasks: JSONValue?
+        get() = relayClient?.taskListJSON
+
+    /**
+     * 中继五步映射（L2 面板口径）：发现=跳过标注；鉴权=auth 握手 matched；
+     * WS=transport paired；握手=bootstrap + bridge-open + 桥内 Initialize；工作区=bridge.workspacePath。
+     * 成功后复用既有 Remote Store 面（call/listen 经 RPCChannelTransport 门面，
+     * ReadOnlyGate 出口拦截对中继路径同等生效）（iOS :481-605 直译）。
+     */
+    suspend fun connectRelay(server: ServerConfig): ConnectResult {
+        disconnect()
+        manuallyCancelled = false
+        synchronized(logLock) { logs.clear() }
+        var progress = ConnectProgress()
+        val link = server.relay
+        if (link == null) {
+            val error = ConnectError.Transport("中继配置缺失")
+            finishFailure(error)
+            return ConnectResult.Failure(error)
+        }
+
+        // 步骤 1：发现——中继模式无 /api/server-info HTTP 面，直连 WS（:493-496）
+        progress = progress.copy(discover = ConnectStepState(phase = ConnectStepState.Phase.done, meta = "云端中继"))
+        log(ConnectLogLine.Kind.ok, "云端中继 · 跳过局域网探测 → ${link.endpointHost ?: "?"}/ws")
+
+        // 步骤 2-4：auth 握手 → bootstrap → workspace-bridge-open → 桥内 Initialize（:498-511）
+        progress = progress.copy(auth = ConnectStepState(phase = ConnectStepState.Phase.running))
+        _state.value = ConnectionState.Connecting(progress)
+        val transport = RelayTransport(
+            config = link,
+            onLog = { kind, text -> log(kind.toConnectKind(), text) },
+        )
+        // 工作区清单推送（P3-10）：transport 拆出的独立 case 在此接线（先于任何
+        // 桥/订阅建立——推送可能在握手后任意时点到达）
+        transport.setWorkspaceListUpdatedHandler { payload ->
+            scope.launch { handleWorkspaceListUpdated(payload) }
+        }
+        val client = RelayChannelClient(
+            transport = transport,
+            link = link,
+            appVersion = appVersion,
+            backgroundDispatcher = backgroundDispatcher,
+        )
+        // 桥(重)开即重握手（RelayChannelClient.setOnBridgeOpened 注）：首连/断线恢复/
+        // degraded 重建/切换全部路径经 openBridge 汇入，握手在此单点接管——connectRelay
+        // 里不再单独调 performRelayV4Handshake（openBridge 内已先行）
+        client.setOnBridgeOpened { bridgeClient ->
+            performRelayV4Handshake(bridgeClient)
+        }
+        relayTransport = transport
+        this.client = client
+        relayClient = client
+        try {
+            val summary = client.connectRelay(timeout = 15.seconds) { error ->
+                if (manuallyCancelled) return@connectRelay
+                val connectError = ConnectError.Transport(error?.message ?: "中继连接中断")
+                notifyDroppedIfConnected(connectError.headline)
+                _state.value = ConnectionState.Disconnected(connectError)
+                teardownTransport()
+            }
+            progress = progress.copy(
+                auth = ConnectStepState(phase = ConnectStepState.Phase.done, meta = "auth matched"),
+                websocket = ConnectStepState(
+                    phase = ConnectStepState.Phase.done,
+                    meta = summary.desktopAppVersion?.let { "桌面 v$it" } ?: "paired",
+                ),
+            )
+            log(ConnectLogLine.Kind.ok, "WS + auth 握手完成 · pair_status=matched · ${summary.sessionCount} 个会话")
+
+            progress = progress.copy(
+                handshake = ConnectStepState(phase = ConnectStepState.Phase.done, meta = "bridge kind=${summary.bridgeKind ?: "local"}"),
+            )
+            log(ConnectLogLine.Kind.ok, "bootstrap + workspace-bridge-open 完成 · 桥内 Initialize 已到")
+
+            // 步骤 5：桥 workspacePath → ServerWorkspaceInfo（Store 装配与局域网同构）。
+            // 多 workspace（2026-10-06 取证 workspace-list-response）：全部工作区入 info，
+            // active（桥）保持首位——任务列表按全清单聚合，单工作区行为不变；
+            // C-15 canBridge 门控（web 同款 `kind!=='remote' || (identity && remoteSessionId)`）：
+            // 不可桥条目从切换菜单过滤（web「不可桥不开桥、退 home-only」的菜单面等价）（:542-572）
+            progress = progress.copy(workspace = ConnectStepState(phase = ConnectStepState.Phase.running))
+            _state.value = ConnectionState.Connecting(progress)
+            val activeEntry = summary.workspaces.firstOrNull { it.workspaceKey == summary.workspaceKey }
+                ?: summary.workspaces.firstOrNull()
+            val relayWorkspaces = summary.workspaces
+                .filter { it.canBridge }
+                .map { workspaceInfoFrom(it) }
+                .toMutableList()
+            if (activeEntry != null &&
+                !relayWorkspaces.any { it.path == (activeEntry.path ?: activeEntry.workspaceKey) }
+            ) {
+                relayWorkspaces.add(
+                    0,
+                    ServerWorkspaceInfo(
+                        path = activeEntry.path ?: activeEntry.workspaceKey,
+                        label = server.displayName,
+                        workspaceIdentity = activeEntry.workspaceIdentity,
+                    ),
+                )
+            }
+            if (relayWorkspaces.isEmpty()) {
+                relayWorkspaces.add(
+                    ServerWorkspaceInfo(
+                        path = summary.workspacePath,
+                        label = server.displayName,
+                        workspaceIdentity = null,
+                    ),
+                )
+            }
+            val bridgeWorkspace = relayWorkspaces[0]
+            progress = progress.copy(
+                workspace = ConnectStepState(phase = ConnectStepState.Phase.done, meta = bridgeWorkspace.label ?: bridgeWorkspace.path),
+            )
+            log(ConnectLogLine.Kind.ok, "workspace-bridge · ${bridgeWorkspace.path} · 清单 ${relayWorkspaces.size} 个工作区")
+            // iOS diag.ws.list UserDefaults 直写（:573-576）→ 连接日志承载（文件尾注）
+            log(
+                ConnectLogLine.Kind.info,
+                "diag.ws.list · count=${relayWorkspaces.size} paths=[${relayWorkspaces.joinToString(" | ") { it.path }.take(400)}]",
+            )
+            val info = ServerRemoteInfo(
+                serverId = "relay-${link.endpointHost ?: "zcode"}",
+                name = server.displayName,
+                version = summary.desktopAppVersion ?: "relay",
+                protocolVersion = ServerRemoteInfo.expectedProtocolVersion,
+                authRequired = false,
+                workspaces = relayWorkspaces,
+                capabilities = emptyList(),
+            )
+            serverInfo = info
+            workspace = bridgeWorkspace
+
+            // 桥内 v4 握手已由 onBridgeOpened 钩子在 openBridge 内完成（首连同路径）
+            frameSubscription = subscribeFrameStreams(client)
+            _state.value = ConnectionState.Connected(info, bridgeWorkspace)
+            return ConnectResult.Success(info)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: RPCError) {
+            progress = markRunningStepFailed(progress)
+            _state.value = ConnectionState.Connecting(progress)
+            val connectError = mapRelayError(e)
+            finishFailure(connectError)
+            return ConnectResult.Failure(connectError)
+        } catch (e: Throwable) {
+            progress = markRunningStepFailed(progress)
+            _state.value = ConnectionState.Connecting(progress)
+            val connectError = ConnectError.Transport(e.message ?: e.toString())
+            finishFailure(connectError)
+            return ConnectResult.Failure(connectError)
+        }
+    }
+
+    /** 在途步骤标记失败（iOS :660-666；ConnectProgress 不可变 → 逐位 copy）。 */
+    private fun markRunningStepFailed(progress: ConnectProgress): ConnectProgress {
+        var p = progress
+        if (p.discover.phase == ConnectStepState.Phase.running) {
+            p = p.copy(discover = p.discover.copy(phase = ConnectStepState.Phase.failed))
+        }
+        if (p.auth.phase == ConnectStepState.Phase.running) {
+            p = p.copy(auth = p.auth.copy(phase = ConnectStepState.Phase.failed))
+        }
+        if (p.websocket.phase == ConnectStepState.Phase.running) {
+            p = p.copy(websocket = p.websocket.copy(phase = ConnectStepState.Phase.failed))
+        }
+        if (p.handshake.phase == ConnectStepState.Phase.running) {
+            p = p.copy(handshake = p.handshake.copy(phase = ConnectStepState.Phase.failed))
+        }
+        if (p.workspace.phase == ConnectStepState.Phase.running) {
+            p = p.copy(workspace = p.workspace.copy(phase = ConnectStepState.Phase.failed))
+        }
+        return p
+    }
+
+    // MARK: 工作区切换（P3-10；C-10/C-11/C-12 对齐 web：bridge-open 重开 + mobile-view-state-update）
+
+    /**
+     * 中继工作区切换（web 同构，C-10）：**不前置 workspace-reconnect-request**——web 的
+     * reconnect 仅用于「重连已断开的远程工作区」专用面（见 reconnectRelayWorkspace），
+     * 与切换无关。切换 = ①按清单解析原始 workspaceKey（C-12 严格口径，未收录即失败，
+     * 不再以 path 冒充 key）②桥重开到目标 key（三路 dynamic 事件与 workspace-config
+     * 订阅重定向，失败回滚）③补发 mobile-view-state-update（C-11 切换场景；bridge-open
+     * 成功场景已在 RelayChannelClient.openBridge 内发送）④workspace/清单 active 序更新。
+     * 局域网直连无此消息面（iOS :677-713 直译）。
+     */
+    suspend fun switchRelayWorkspace(target: ServerWorkspaceInfo): WorkspaceSwitchResult {
+        val relay = relayClient
+        if (!isActive || relay == null || workspace == null) {
+            return WorkspaceSwitchResult.Failure(ConnectError.Transport("工作区切换仅支持云中继连接"))
+        }
+        val current = workspace
+        if (current != null && current.path == target.path) {
+            return WorkspaceSwitchResult.Failure(ConnectError.Transport("目标已是当前工作区"))
+        }
+        // C-12：workspaceKey 一律取清单原始 key；未收录返回失败（非法 key 切换必败）
+        val key = relay.resolvedWorkspaceKey(forPath = target.path, identity = target.workspaceIdentity)
+        if (key == null) {
+            log(ConnectLogLine.Kind.error, "目标工作区不在桌面清单（无原始 workspaceKey）· ${target.path}")
+            return WorkspaceSwitchResult.Failure(ConnectError.Transport("目标工作区不在桌面清单"))
+        }
+        log(ConnectLogLine.Kind.working, "workspace-bridge-open（切换）→ ${target.path}")
+        // 桥重开 + 订阅重定向；先清 workspace-config 重放缓存（旧工作区帧不重放给新
+        // Store——重放面在 setFrameHandler 按 topic 精确匹配双保险）
+        synchronized(routingLock) { workspaceConfigReplay.clear() }
+        try {
+            relay.switchBridgeWorkspace(workspaceKey = key, workspacePath = target.path)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // 错误文本含 reason（切换在途的 workspace-bridge-error 帧经 C-14 收口后以
+            // reason:error 组合上抛，不再被误判成功）。RPCError.message 原文上抛（非
+            // toString/localizedDescription），失败提示链（AppSession → 切换器 hint）才有
+            // 可行动原因（iOS :697-703 注同源）
+            val detail = (e as? RPCError)?.message ?: e.message ?: e.toString()
+            log(ConnectLogLine.Kind.error, "工作区桥切换失败 · $detail")
+            return WorkspaceSwitchResult.Failure(ConnectError.Transport(detail))
+        }
+        resubscribeWorkspaceConfig(path = target.path)
+        updateWorkspace(target)
+        // C-11 场景③（切换工作区）：显式上报无任务的视图状态并清空本地 activeTaskId
+        // （web 任务首页切换路径 `switchWorkspace` 后 `updateMobileViewState(key)` 同款
+        // ——M(e,n) 的 n=undefined 会同时清掉模块态 c，重连落点随之不带任务）（:707-710）
+        relay.updateActiveTask(null)
+        log(ConnectLogLine.Kind.ok, "工作区已切换 · ${target.path} · 清单 ${serverInfo?.workspaces?.size ?: 0} 个")
+        return WorkspaceSwitchResult.Success(target)
+    }
+
+    /**
+     * 重连已断开的远程工作区（C-10 保留项；web 侧栏「重连已断开的远程工作区」按钮
+     * 专用面，与切换流程解耦）：3 键形态 `{zcode_type, requestId, workspaceKey}`
+     * （bundle 实证——不带 workspacePath/workspaceIdentity），响应按 requestId 配对；
+     * `reason`/`error` 字符串或 ok=false 判失败（C-14 reason 识别）。移动端当前无该
+     * UI 入口，保留协议面供断连工作区恢复场景接线（iOS :720-754；Swift Result →
+     * kotlin.Result——ConnectError 即 Throwable，Failure 载荷同型）。
+     */
+    suspend fun reconnectRelayWorkspace(workspaceKey: String): Result<JSONValue> {
+        val transport = relayTransport
+        if (!isActive || transport == null) {
+            return Result.failure(ConnectError.Transport("工作区重连仅支持云中继连接"))
+        }
+        return try {
+            val response = transport.requestAppPayload(
+                linkedMapOf(
+                    "zcode_type" to JSONValue.Str("workspace-reconnect-request"),
+                    "workspaceKey" to JSONValue.Str(workspaceKey),
+                ),
+                zcodeType = "workspace-reconnect-request",
+                timeout = 8.seconds,
+            )
+            // 响应面拒绝形态（在途错误帧走 app-error/workspace-bridge-error，已被
+            // RelayTransport 按 requestId reject 到 catch 分支）
+            val reason = response["reason"]?.stringValue
+            if (!reason.isNullOrEmpty()) {
+                log(ConnectLogLine.Kind.error, "workspace-reconnect 被拒 · $reason")
+                return Result.failure(ConnectError.HandshakeFailed("workspace-reconnect: $reason"))
+            }
+            val errorText = response["error"]?.stringValue
+            if (!errorText.isNullOrEmpty()) {
+                log(ConnectLogLine.Kind.error, "workspace-reconnect 被拒 · $errorText")
+                return Result.failure(ConnectError.HandshakeFailed("workspace-reconnect: $errorText"))
+            }
+            if (response["ok"]?.boolValue == false) {
+                log(ConnectLogLine.Kind.error, "workspace-reconnect 被拒（ok=false）")
+                return Result.failure(ConnectError.HandshakeFailed("workspace-reconnect rejected"))
+            }
+            log(ConnectLogLine.Kind.ok, "workspace-reconnect 完成 · $workspaceKey")
+            Result.success(response)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: RPCError) {
+            log(ConnectLogLine.Kind.error, "workspace-reconnect 失败 · ${e.message}")
+            Result.failure(mapRelayError(e))
+        } catch (e: Throwable) {
+            log(ConnectLogLine.Kind.error, "workspace-reconnect 失败 · ${e.message ?: e.toString()}")
+            Result.failure(ConnectError.Transport(e.message ?: e.toString()))
+        }
+    }
+
+    /**
+     * C-11 场景②（打开任务）：向桌面上报当前查看的任务（web `updateMobileViewState`
+     * 由活动任务变化 effect 触发）。仅云中继有此帧面（局域网直连静默跳过）；单向通知
+     * 无响应等待，未 paired 仅记连接日志。调用面（会话/任务打开处）由视图与 Store 波次接线
+     * （iOS :759-762；AGENTS §6 接线遗留：触发点在 ChatViewModel/视图打开会话处）。
+     */
+    suspend fun reportActiveTask(taskId: String?) {
+        relayClient?.updateActiveTask(taskId)
+    }
+
+    /** 切换成功后的连接态工作区更新（iOS :767-774）。 */
+    private fun updateWorkspace(target: ServerWorkspaceInfo) {
+        workspace = target
+        serverInfo?.let { info ->
+            val list = info.workspaces.filter { it.path != target.path }.toMutableList()
+            list.add(0, target)
+            serverInfo = info.copy(workspaces = list)
+        }
+    }
+
+    /** 工作区切换后的 workspace-config 重订（新 topic；iOS :779-808 直译）。 */
+    private suspend fun resubscribeWorkspaceConfig(path: String) {
+        val previousTopic: String?
+        val previousSubscriptionId: String?
+        synchronized(routingLock) {
+            previousTopic = workspaceConfigTopicPath
+            previousSubscriptionId = workspaceConfigSubscriptionId
+            workspaceConfigTopicPath = null
+            workspaceConfigSubscriptionId = null
+        }
+        val current = client ?: return
+        if (previousTopic != null && previousSubscriptionId != null) {
+            val unsubscribe = JSONObjectBuilder()
+            unsubscribe.set("topic", previousTopic)
+            unsubscribe.set("workspacePath", workspacePathFromConfigTopic(previousTopic!!))
+            unsubscribe.set("subscriptionId", previousSubscriptionId)
+            runCatching {
+                current.call(
+                    "zcode-agent", "unsubscribeWorkspaceConfigV4",
+                    RPCValue.json(JSONValue.Obj(unsubscribe.fields)), timeout = 3.seconds,
+                )
+            }
+        }
+        val configTopic = "workspace-config/$path"
+        val builder = JSONObjectBuilder()
+        builder.set("topic", configTopic)
+        builder.set("workspacePath", path)
+        builder.set("runtimePolicy", "existing-only")
+        val value = runCatching {
+            current.call(
+                "zcode-agent", "subscribeWorkspaceConfigV4",
+                RPCValue.json(JSONValue.Obj(builder.fields)), timeout = 5.seconds,
+            )
+        }.getOrNull()
+        val subscriptionId = value?.jsonValue?.get("subscriptionId")?.stringValue
+        synchronized(routingLock) {
+            workspaceConfigSubscriptionId = subscriptionId
+            workspaceConfigTopicPath = configTopic
+        }
+        log(
+            ConnectLogLine.Kind.ok,
+            if (subscriptionId != null) "subscribeWorkspaceConfigV4 · 新工作区订阅完成"
+            else "subscribeWorkspaceConfigV4 · 新工作区订阅未获回执（chips 走缺省展示）",
+        )
+    }
+
+    /**
+     * workspace-list-updated 推送（桌面端工作区清单变化）：宽容解析清单与
+     * activeWorkspaceKey（result.workspaces | workspaces | 顶层数组多形态），active
+     * 首位回写 serverInfo（切换器菜单经 StateFlow/重读联动刷新），再上抛 AppSession
+     * 刷新任务聚合清单。activeWorkspaceKey 与本地当前工作区不一致时仅刷新清单不跟随
+     * 切换（桌面侧动作不突袭打断移动端进行中的会话）。
+     * C-15：菜单（serverInfo.workspaces）按 canBridge 过滤（active 首位恒保留——桥已
+     * 在其上打开即为可桥事实）；完整清单仍上抛 AppSession（任务聚合不受门控影响，
+     * bootstrap.tasks 才是跨工作区任务主源）（iOS :818-847 直译）。
+     */
+    private fun handleWorkspaceListUpdated(payload: JSONValue) {
+        val result = payload["result"] ?: payload
+        var listValue = result["workspaces"] ?: payload["workspaces"]
+        if (listValue == null && result.arrayValue != null) listValue = result
+        if (listValue == null && payload.arrayValue != null) listValue = payload
+        val summaries = RelayChannelClient.parseWorkspaceSummaries(listValue)
+        if (summaries.isEmpty()) {
+            log(ConnectLogLine.Kind.info, "workspace-list-updated · 清单为空或形状未识别（忽略）")
+            return
+        }
+        val activeKey = result["activeWorkspaceKey"]?.stringValue
+            ?: payload["activeWorkspaceKey"]?.stringValue
+        val ordered = summaries.toMutableList()
+        if (activeKey != null) {
+            val index = ordered.indexOfFirst {
+                (it.path ?: it.workspaceKey) == activeKey || it.workspaceIdentity == activeKey
+            }
+            if (index > 0) {
+                ordered.add(0, ordered.removeAt(index))
+            }
+        }
+        val infos = ordered.map { workspaceInfoFrom(it) }
+        // C-15：菜单只留可桥条目 + active 首位
+        serverInfo = serverInfo?.copy(
+            workspaces = ordered.mapIndexedNotNull { index, entry ->
+                if (index == 0 || entry.canBridge) workspaceInfoFrom(entry) else null
+            },
+        )
+        log(
+            ConnectLogLine.Kind.ok,
+            "workspace-list-updated · 清单 ${infos.size} 个工作区" +
+                "（菜单 ${serverInfo?.workspaces?.size ?: 0} 个可桥）" +
+                (activeKey?.let { " · activeKey=$it" } ?: ""),
+        )
+        onWorkspaceListUpdated?.invoke(infos)
+    }
+
+    /** 清单条目 → 连接态工作区描述（菜单/Store 装配共用映射；path 缺席以 workspaceKey 兜底）（iOS :850-855）。 */
+    private fun workspaceInfoFrom(entry: RelayChannelClient.RelayWorkspaceSummary): ServerWorkspaceInfo =
+        ServerWorkspaceInfo(
+            path = entry.path ?: entry.workspaceKey,
+            label = entry.name,
+            workspaceIdentity = entry.workspaceIdentity,
+        )
+
+    /** 中继错误 → L3 连接错误映射（iOS :863-872）。 */
+    private fun mapRelayError(error: RPCError): ConnectError =
+        when (error.name) {
+            "TimeoutError" -> ConnectError.Timeout(endpoint = "中继 auth/bridge")
+            "RelayFailure", "RelayClosed" -> ConnectError.HandshakeFailed(error.message)
+            else -> ConnectError.Transport(error.message)
+        }
+
     // MARK: 取消连接 / 断开（L2 右上 ✕ / 底部取消：立即中断不留半开连接）
 
     fun cancelConnecting() {
@@ -702,6 +1143,7 @@ class ZCodeServerConnection(
         manuallyCancelled = true
         teardownTransport()
         client = null
+        relayTransport = null
     }
 
     private fun teardownTransport() {
@@ -1072,11 +1514,10 @@ class ZCodeServerConnection(
     }
 }
 
-// MARK: 未从 iOS 原文移植的面（M6 中继里程碑随 :relay 落位，文件头注已列）：
-//   connectRelay / switchRelayWorkspace / reconnectRelayWorkspace / reportActiveTask /
-//   handleWorkspaceListUpdated / onWorkspaceListUpdated / mapRelayError /
-//   markRunningStepFailed / relayBootstrapTasks / workspaceInfo(from:)。
-//   全部依赖 RelayTransport/RelayChannelClient（iOS Services/Relay）类型。
+// MARK: 未从 iOS 原文移植的面（随对应里程碑/波次挂账）：
+//   connectRelay 期 diag.ws.list / diag.bootstrap.tasks 的 UserDefaults 直写（iOS :573-576 /
+//   :166-168）→ Android 以连接日志行承载（无 UserDefaults 面，AppSession.diagListener
+//   体系归属装配层）。
 
 // 辅助：token 段重建（步骤 3 与 probe 同参口径；companion 私有实现的模块内复用出口）。
 private fun percentEncodeQueryValue(value: String): String {

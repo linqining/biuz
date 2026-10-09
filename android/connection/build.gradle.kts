@@ -21,6 +21,9 @@ dependencies {
     // AppSession 装配面公开携带 Store 类型（StoreSurface/RemoteTaskStore/
     // RemoteSessionsIndexStore/Empty*Store）→ api；:store 仅依赖 :protocol，无环。
     api(project(":store"))
+    // 云中继传输（M6 落位）：connectRelay 编排面引用 RelayTransport/RelayChannelClient——
+    // 公开 API（ServerConfig/ConnectResult/WorkspaceSwitchResult）不携带 :relay 类型 → implementation
+    implementation(project(":relay"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     // WS 传输（任务指定 OkHttp；4.x 稳定线，与 Kotlin 2.2 兼容）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
