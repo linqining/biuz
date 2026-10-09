@@ -1,0 +1,336 @@
+package cn.biuz.android.protocol
+
+// 直译自 ios/ZCodeMobileApp/Sources/Services/Remote/ReadOnlyGate.swift（296 行）。
+// 写族/读白名单词表与分类判定逐条对应 Swift 原文（注释含上游/协议文档指位一律保留）。
+// 机械适配：String(localized:) → 同串字面量（iOS 键 = 串本身，Android 本地化由 UI 层
+// 资源承接——同 Models.kt 文件头约定）；arg: RPCValue 复用 RPCSerialization.kt 的
+// jsonValue 宽容读面（嵌套信封读 envelope.type ?? 顶层，P1① 修复口径，:276-279）。
+
+// MARK: - 移动端边界（产品边界 + API 层纵深防御）
+//
+// 边界口径（v3 纠偏，用户澄清）：客户端允许发送命令、由电脑/云端进程执行与修改；
+// 手机端不得直接编辑电脑/云端中的文件（文件直写/回滚/编辑器保存类接口不接）。
+// 因此分类语义为：
+// - command   = 客户端发命令、桌面代执行：消息（sendText/retryTurn/editUserQuery）、
+//   审批应答（resolveInteraction/respondWorkspaceHookReview/respondPermission/
+//   respondElicitation）、停止与中断（stop/pauseGoal/resumeGoal/stopGeneration）、
+//   队列管理（sendQueuedNow/setAutoDrain/enqueue/promote/cancelTaskCommand）、
+//   会话/任务管理（compact/goal/sendPrompt/createSession+firstInput…）→ 放行；
+// - session   = 会话元数据/账本写（置顶/归档/未读/renameTask/draft 转正）→ 放行；
+// - readOnly  = 订阅/分页查询/附件读 → 放行；
+// - directWrite = 手机直写面（文件直写/回滚/仓库破坏性写/宿主 terminal/桌面配置与
+//   凭据写族）→ 一律拦截。与 v1.3/v1.4 的差别：v4 命令面只有 applyFileRewind
+//   属文件直写（会话内文件回退），其余 v4 type 全部归 command 放行。
+// file 频道采取「默认拒绝 + 读白名单」收口：仅放行 readdir/readTextFile/stat/
+// searchWorkspaceFiles/readBinaryPreview（RemoteFileStore 实际调用面，本会话 grep
+// 核对 RemoteFileStore.swift:123-390），任何未知/写命令（writeTextFile、mkdir、
+// writeWorkspaceFile、编辑器保存类等）默认拒绝，保证「不直写文件」不依赖黑名单枚举。
+
+/** 命令四分类（ReadOnlyGate.swift:24-29） */
+enum class V4CommandClassification {
+    /** 订阅/查询：无执行下游 */
+    readOnly,
+    /** 会话元数据/账本写：不驱动 agent，放行 */
+    session,
+    /** 客户端发命令、桌面代执行（消息/审批/停止/队列/会话管理）：放行 */
+    command,
+    /** 手机直写面（文件直写/回滚/仓库写/宿主与配置写）：拦截 */
+    directWrite,
+}
+
+/** ReadOnlyGate（ReadOnlyGate.swift:31；Swift caseless enum → object）。 */
+object ReadOnlyGate {
+
+    /** 出口判定结果（:33-38）。 */
+    data class Verdict(
+        val classification: V4CommandClassification,
+        /** directWrite 时的人类可读拦截原因（其余为 null） */
+        val reason: String?,
+    ) {
+        val isBlocked: Boolean
+            get() = classification == V4CommandClassification.directWrite
+    }
+
+    /**
+     * sendConversationCommandV4 信封中唯一的直写类 type：applyFileRewind（会话内
+     * 文件回退，直接改写工作区文件历史）。其余 v4 type（sendText/stop/
+     * resolveInteraction/retryTurn/editUserQuery/队列/sendGoalCommand/compact/
+     * respondWorkspaceHookReview/cancelBackgroundWork/workflow 运行控制等）均属
+     * 「客户端发命令、桌面代执行」，放行。（:40-47）
+     */
+    private val directWriteConversationTypes: Set<String> = setOf(
+        "applyFileRewind",
+    )
+
+    /**
+     * 双态 type：带 firstInput = command（首条指令随 createSession 下发、桌面立即
+     * 开跑，边界内允许）；不带 = session（空 draft 会话，不进 sqlite、不启动 turn）
+     * （:49-53）
+     */
+    private val firstInputDependentTypes: Set<String> = setOf(
+        "createSession", "createSelectionSideSession",
+    )
+
+    /**
+     * zcode-task 频道的直写/配置写命令（黑名单口径，连接态出口必拦）：
+     * 会话配置与模型切换（set*）与桌面共享进程重启——属桌面配置写族，非本轮
+     * 开放对象（聊天页模型/思考档 chips 仍为只读展示，无调用入口）。
+     * 消息投递（sendPrompt/deliverSessionMessage）、审批应答（respondPermission/
+     * respondElicitation）、停止（stopGeneration）、会话管理（compactSession/
+     * goalSession）、队列三件（enqueueTaskCommand/promoteTaskCommand/
+     * cancelTaskCommand）全部放行（桌面代执行）。（:55-65）
+     */
+    private val directWriteTaskCommands: Set<String> = setOf(
+        "setMode", "setConfigOption", "setModel", "setAutomationSessionConfig",
+        "restartWorkspaceProcess",
+    )
+
+    /**
+     * git 频道写族（getChanges/getDiff/refresh 为纯读）：与 web bundle 对齐放开
+     * （2026-10-06 用户裁决「和 web bundle 保持一致」——web 端 stagePaths/commit/
+     * unstagePaths/discardPaths/push/switchBranch/createBranchAndSwitch/
+     * generateCommitMessage 全部走桌面代执行，同属「客户端发命令」边界模式，
+     * 与 G-002~G-005 bots 写放行同分类）。破坏性命令（discardPaths 丢工作区改动/
+     * push 推远端）接入 UI 时必须带确认弹层。（:67-73）
+     */
+    private val directWriteGitCommands: Set<String> = emptySet()
+
+    /**
+     * file 频道读白名单（默认拒绝收口）：RemoteFileStore 实际调用面 + 计划中的
+     * 二进制预览读。白名单之外的任何 file 命令（含未知写命令 writeTextFile/
+     * writeWorkspaceFile/mkdir/delete/rename/applyPatch/编辑器保存类）一律拦截。
+     * （:75-80）
+     */
+    private val fileReadCommands: Set<String> = setOf(
+        "readdir", "readTextFile", "stat", "searchWorkspaceFiles", "readBinaryPreview",
+    )
+
+    /**
+     * zcode-agent 频道直写命令黑名单（sendConversationCommandV4 之外的直发命令）。
+     * 旧协议消息/会话管理入口（sendPrompt/compactSession/goalSession/closeSession）
+     * 随消息面纠偏一并放行，不再列入；仍拦截：会话配置切换（set*）、编辑器保存类
+     * 文件直写（writeWorkspaceFile/saveFile/writeFile/applyEdits）、harness 配置写
+     * （respondSessionRuntimePreferences/grantWorkspaceHookTrust）、模型调用
+     * （generateWorkspaceText/testModelConnectivity）、插件写族、
+     * workflow 文件写与自动化写族。
+     * （2026-10-08 回归审核轮 §11.1#3：listMcpServerStatuses 移出——它是列表查询
+     * 【实证·上游仓 zcodeAgentService.ts:3820】，设置页 MCP 页真实调用面；曾列入
+     * 「MCP 真实探测」属误分类，连接态 MCP 页因此恒失败。）（:82-92）
+     */
+    private val zcodeAgentDirectWriteCommands: Set<String> = setOf(
+        "setModel", "setThoughtLevel", "setMode",
+        "writeWorkspaceFile", "saveFile", "writeFile", "applyEdits",
+        "respondSessionRuntimePreferences", "grantWorkspaceHookTrust",
+        "generateWorkspaceText", "testModelConnectivity",
+        // 插件写族（改变 harness 插件工具面）。install/uninstall 放行（P3-11 插件
+        // 卸载：桌面代执行，对齐 v1.5 git 写族分类先例——web 端同参同面；卸载 UI 带
+        // confirmationDialog 确认；安装 UI 待市场浏览面后续版本接入，gate 先按分类
+        // 放行）。updatePlugin 等其余插件写未接 UI，维持拦截。
+        "addPluginMarketplace", "removePluginMarketplace", "updatePluginMarketplace",
+        "cancelPluginOperation", "updatePlugin",
+        "restoreBuiltinPlugin", "configurePlugin", "resetPluginConfig",
+        "validatePlugin", "setPluginEnabled",
+        // workflow 文件写（修改/删除/移动被引用的定义）
+        "updateSavedWorkflowMeta", "deleteSavedWorkflow", "moveSavedWorkflow",
+        // 自动化写族（布置/启停/立即派发未来自动执行）
+        "createAutomation", "updateAutomation", "deleteAutomation",
+        "setAutomationEnabled", "restartAutomation", "runAutomationNow",
+        "deleteAutomationRun",
+    )
+
+    /**
+     * 其余频道的直写命令黑名单（频道 → 命令集；未列入的频道走 default 放行）。
+     * 覆盖口径：宿主执行面（terminal）、桌面配置写（setting/settingService/
+     * onboarding-record/settings-sync）、仓库快照写（git-checkpoint）、凭据与 OAuth 写（credential/oauth
+     * 写族）、远端写（conversation-share/usage-stats 重置操作）、bot 凭据与配置写、
+     * harness 能力面配置写（skills/mcp-sync/plugin-sync/plugins/plugin-management/
+     * subagents/commands/hooks）、交易写（coding-plan-subscription/off-peak-task）、
+     * 窗口级 mutation（window-controller.mutateTask）。（:113-120）
+     */
+    private val channelDirectWriteCommands: Map<String, Set<String>> = mapOf(
+        "terminal" to setOf("create", "write", "resize", "dispose"),
+        // setting.update 放行（P3-11 桌面设置同步：桌面代执行写，移动端「桌面设置」
+        // 页修改入口，UI 带 confirmationDialog 确认后下发；与 git 写族同分类）。
+        // updateDataBaseDir（桌面数据库目录迁移写）不属远控面，维持拦截。
+        "setting" to setOf("updateDataBaseDir"),
+        // settingService：盘点报告 :54 记 `settingService.get/update`，gate 历史词表
+        // 只有 `setting` 频道——真实频道名未取证（本轮桌面端不在线），客户端 get/update
+        // 按两候选频道依次尝试（DesktopSettingsPage.settingCall）。本频道此前完全走
+        // default 放行（设计稿 §11C 指出的「写面静默绕过拦截面」），现按同裁决补词表：
+        // update 放行（同 setting.update）；updateDataBaseDir 维持拦截（宽容补拦，
+        // 该命令在 settingService 频道是否存在未取证，拦截面从严）。
+        "settingService" to setOf("updateDataBaseDir"),
+        "onboarding-record" to setOf(
+            "appendRecord", "dismissOnboarding", "claimAnonymousRecord",
+            "syncSettingsFromRecord", "updateRecordPreferences", "clearRecords",
+        ),
+        "settings-sync" to setOf(
+            "copyClaudeAgentsFileToZcodeAgentsFile", "importSelected",
+            "markFirstRunPromptHandled",
+        ),
+        // P3-11 放行（2026-10-06，设计稿 §11A 前置裁决）：createCheckpoint/
+        // restoreBetweenCheckpoints 与 web 对齐桌面代执行（gitCheckpointService 四方法
+        // 词表见立项报告 §8.1，gitCheckpoint.ts:14-17）；移动端恢复入口硬要求
+        // destructive 确认弹层。deleteCheckpoint 无 UI 入口，维持拦截。
+        "git-checkpoint" to setOf("deleteCheckpoint"),
+        "credential" to setOf("save", "delete"),
+        "oauth" to setOf(
+            "startOAuth", "startOAuthWithPolling", "handleCallback", "refreshToken",
+            "logout", "logoutAll", "cancelPending",
+        ),
+        "conversation-share" to setOf("publish", "importShare"),
+        // G-042 放行：重置机会领取（request/use）为桌面代执行写，移动端一键领取入口；
+        // markCodingPlanResetHistoryRead 本就不属直写。保留拦截面：无。
+        "usage-stats" to emptySet(),
+        "coding-plan-subscription" to setOf(
+            "createSign", "updateSign", "bindStripeCard", "unbindStripeCard", "payStripe",
+            "createPaypalSetupToken", "subscribePaypal",
+            "calculateEnterpriseOrder", "createEnterpriseOrder", "cancelEnterpriseOrder",
+            "continueEnterpriseOrderPayment",
+        ),
+        "off-peak-task" to setOf(
+            "createTask", "cancelTask", "pauseTask", "continueTask",
+            "deleteTask", "deleteHistory", "updateTask",
+        ),
+        "window-controller" to setOf("mutateTask"),
+        "bots" to setOf(
+            "beginFeishuRegistration", "pollFeishuRegistration",
+            "beginWeixinRegistration", "pollWeixinRegistration",
+            "saveConfig", "handleInboundMessage",
+            "handleProviderCallback", "handleProviderCallbackResponse",
+            // G-002~G-005 放行（P0 缺口矩阵）：saveBot（解绑=清 providerUserId，桌面
+            // BotsDialog.tsx:1027-1035 同构）、resetBotState、deleteBot、removeBotSecret、
+            // testBot、createBindCode——写的是桌面宿主侧 Bot 配置/凭据存储，非手机直写
+            // 仓库文件，属「发命令由桌面执行」合法远控写。注册轮询与消息处理仍拦截。
+        ),
+        "skills" to setOf("setEnabled", "copyToCommon", "removeFromCommon", "deleteSkill"),
+        "skill-sync" to setOf("importSkillsArchive"),
+        "mcp-sync" to setOf("listWorkspaceMcpServerStatuses", "saveMcpToUserDirectory", "importMcpServers"),
+        "plugin-sync" to setOf("importPluginsArchive", "importMarketplaceSourceArchive"),
+        "plugins" to setOf(
+            "addMarketplace", "removeMarketplace", "updateMarketplace",
+            "installPlugin", "uninstallPlugin", "setPluginEnabled",
+        ),
+        "plugin-management" to setOf(
+            "addPluginMarketplace", "removePluginMarketplace", "updatePluginMarketplace",
+            "installPlugin", "cancelPluginOperation", "uninstallPlugin", "updatePlugin",
+            "restoreBuiltinPlugin", "configurePlugin", "resetPluginConfig",
+            "validatePlugin", "setPluginEnabled",
+        ),
+        "subagents" to setOf(
+            "setEnabled", "setBuiltInModelOverride", "setPluginAgentModelOverride",
+            "createAgent", "updateAgent", "deleteAgent",
+        ),
+        "commands" to setOf("writeCommandFile", "updateCommandFile", "deleteCommandFile", "setCommandEnabled"),
+        "hooks" to setOf("saveHooks", "grantWorkspaceHookTrust"),
+        "feedback" to setOf(
+            "create", "cancelCreate", "comment", "uploadAttachment",
+            "uploadAttachmentWithProgress", "cancelUpload", "uploadAttachmentData",
+            "attachLogsFromExport", "prepareCompactLogArchive",
+            "cleanupPreparedLogArchive", "revealLogArchive",
+        ),
+        "provider-settings" to setOf(
+            "createPersonalProvider", "savePersonalProviderOverlay", "deletePersonalProvider",
+            "reorderPersonalProviders", "reorderPersonalModels", "addPersonalModel",
+            "renamePersonalModel", "deletePersonalModel", "savePersonalModelDraft",
+            "setPersonalModelEnabled", "testModelConnectivity",
+        ),
+        "provider-provisioning-target" to setOf("apply"),
+    )
+
+    /**
+     * 对一次 channel RPC 出口做边界判定。（:211-267）
+     * - zcode-agent/zcode-task：消息/审批/停止/队列/会话管理放行（command），
+     *   配置与直写黑名单拦截（directWrite），其余默认只读；
+     * - git：web 对齐全放行（桌面代执行；破坏性命令接 UI 时须带确认）；
+     * - file：读白名单放行，其余（含未知）一律拦截（默认拒绝收口）；
+     * - 其余频道：黑名单拦截，默认放行（hello/订阅/查询链路不误杀）。
+     */
+    fun inspect(channel: String, command: String, arg: RPCValue): Verdict {
+        return when (channel) {
+            "zcode-agent" -> {
+                if (command == "sendConversationCommandV4") {
+                    return inspectConversationCommand(arg)
+                }
+                if (command in zcodeAgentDirectWriteCommands) {
+                    return Verdict(
+                        classification = V4CommandClassification.directWrite,
+                        reason = "zcode-agent.$command 为直写/配置写面")
+                }
+                // hello/init、subscribe/unsubscribe/resync、rowsRange/plans/workflow 读族、
+                // usage、commandsQuery、backgroundBashOutput、附件读族、eventListen 均 readonly；
+                // 附件事务（attachmentBegin/Chunk/Commit/Abort）为存储写非手机直写，session 放行。
+                Verdict(classification = V4CommandClassification.readOnly, reason = null)
+            }
+            "zcode-task" -> {
+                if (command in directWriteTaskCommands) {
+                    return Verdict(
+                        classification = V4CommandClassification.directWrite,
+                        reason = "zcode-task.$command 为桌面配置写面")
+                }
+                // 审批应答/停止/队列/消息投递/任务元数据写（setTaskPinned/archiveTask/
+                // setTaskUnread/renameTask/unarchiveTask/listArchivedTasks）放行
+                Verdict(classification = V4CommandClassification.readOnly, reason = null)
+            }
+            "git" -> {
+                if (command in directWriteGitCommands) {
+                    return Verdict(
+                        classification = V4CommandClassification.directWrite,
+                        reason = "git.$command 为工作区写操作")
+                }
+                Verdict(classification = V4CommandClassification.readOnly, reason = null)
+            }
+            "file" ->
+                // 默认拒绝收口：仅读白名单放行，写/未知命令全部拦截
+                if (command in fileReadCommands) {
+                    Verdict(classification = V4CommandClassification.readOnly, reason = null)
+                } else {
+                    Verdict(
+                        classification = V4CommandClassification.directWrite,
+                        reason = "file.$command 不在移动端读白名单（文件直写类不接）")
+                }
+            else -> {
+                val blacklist = channelDirectWriteCommands[channel]
+                if (blacklist != null && command in blacklist) {
+                    return Verdict(
+                        classification = V4CommandClassification.directWrite,
+                        reason = "$channel.$command 为直写/配置写面")
+                }
+                // file-watcher、model-selection、zcode-session（promoteDeferredDraftSession
+                // 属 task-index 元数据写）等移动端使用的只读/session 面放行。
+                Verdict(classification = V4CommandClassification.readOnly, reason = null)
+            }
+        }
+    }
+
+    /**
+     * sendConversationCommandV4 信封：applyFileRewind 拦截；带 firstInput 的
+     * createSession 与其余全部 type 归 command（客户端发命令、桌面代执行）放行。
+     * 信封形态双兼容（P1① 修复，2026-10-07 审查轮）：发送面实际为**嵌套**形态
+     * `{envelope:{type,payload,…}, workspacePath, …}`（ConversationCommandFactory/
+     * sendCommand 构造）；历史平铺形态保留兼容（单测与旧替身用）。此前只读顶层
+     * `type`，嵌套形态下恒为空串——唯一被拦截的 v4 直写命令 applyFileRewind 的
+     * 拦截判定从未生效（成死代码；单测只造平铺形态故全绿）。（:269-295）
+     */
+    private fun inspectConversationCommand(arg: RPCValue): Verdict {
+        val dict = arg.jsonValue?.objectValue ?: emptyMap()
+        val envelope = dict["envelope"]?.objectValue ?: dict
+        val type = envelope["type"]?.stringValue ?: dict["type"]?.stringValue ?: ""
+        val payload = envelope["payload"] ?: dict["payload"]
+        if (type in directWriteConversationTypes) {
+            return Verdict(
+                classification = V4CommandClassification.directWrite,
+                reason = "sendConversationCommandV4→$type（文件回退直写）")
+        }
+        if (type in firstInputDependentTypes &&
+            payload?.objectValue?.get("firstInput") != null
+        ) {
+            return Verdict(
+                classification = V4CommandClassification.command,
+                reason = null) // createSession+firstInput：首条指令随建会话下发，桌面开跑
+        }
+        // sendText/stop/resolveInteraction/队列/compact/goal 等全部 command 放行；
+        // 无 firstInput 的 createSession（draft）保留 session 语义。
+        return Verdict(classification = V4CommandClassification.command, reason = null)
+    }
+}

@@ -14,6 +14,10 @@ kotlin {
 // 命令回执伪造，必须校验载荷形状（strict 对拍，docs/Android开发交接.md §2.4/§9.1）。
 // CIO 引擎（纯 JVM，无原生依赖）+ ktor-network（原始套接字层）+ websockets 插件（WS 端点）。
 dependencies {
+    // 替身与被测客户端「构造与校验同源」：JSONValue/RPCSerialization/RPCFrame/
+    // PValidator/CommandSchemas 全部复用 protocol（api：替身公开 API 携带 protocol 类型）。
+    api(project(":protocol"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("io.ktor:ktor-server-core:3.2.0")
     implementation("io.ktor:ktor-network:3.2.0")
     implementation("io.ktor:ktor-server-cio:3.2.0")
