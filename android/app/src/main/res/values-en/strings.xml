@@ -1,0 +1,390 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- en 镜像表（zh 源 = values/strings.xml）。双语对账纪律：每个键两表同形，
+     改键必须双表同批；键名/占位符类型完全一致（%1$s/%1$d/%%），禁漂移。 -->
+<resources>
+    <!-- 顶栏 -->
+    <string name="chat_title">Sessions</string>
+    <string name="chat_back">Back</string>
+    <string name="chat_running">Running</string>
+    <string name="chat_load_retry">Reload</string>
+
+    <!-- 消息流空态/读面失败 -->
+    <string name="chat_empty_hint">No messages yet · send the first one to start</string>
+
+    <!-- 消息行 -->
+    <string name="chat_msg_expand">Expand all (%1$d chars)</string>
+    <string name="chat_msg_collapse">Collapse</string>
+    <string name="chat_msg_copy">Copy text</string>
+    <string name="chat_msg_copied">Copied</string>
+    <string name="chat_thinking_header">Thinking…</string>
+    <string name="chat_thinking_done">Thought for a bit</string>
+    <string name="chat_thinking_interrupted">Thinking interrupted</string>
+    <string name="chat_thinking_chars">Thinking · %1$d chars</string>
+    <string name="chat_tool_verb_bash">Run</string>
+    <string name="chat_tool_verb_read">Read</string>
+    <string name="chat_tool_verb_edit">Edit</string>
+    <string name="chat_tool_verb_ask">Ask</string>
+    <string name="chat_tool_verb_browser">Browse</string>
+
+    <!-- userselect 引用卡 -->
+    <string name="chat_userselect_single_ref">%1$s · quote</string>
+    <string name="chat_userselect_n_refs">%1$d quotes</string>
+    <string name="chat_userselect_n_dialog_refs">%1$d conversation quotes</string>
+    <string name="chat_userselect_detail_title">Quote details</string>
+    <string name="chat_userselect_source_dialog">Conversation quote</string>
+    <string name="chat_userselect_close">Close</string>
+
+    <!-- ExitPlanMode 计划预览卡 -->
+    <string name="chat_plan_card_title">Plan</string>
+    <string name="chat_plan_card_copy">Copy plan</string>
+    <string name="chat_plan_card_open">View full plan</string>
+
+    <!-- 审批/交互卡 -->
+    <string name="chat_card_permission_title">Critical operation awaiting approval</string>
+    <string name="chat_card_scope_once">Just once</string>
+    <string name="chat_card_scope_always">Always allow (be careful)</string>
+    <string name="chat_card_approve">Approve</string>
+    <string name="chat_card_reject">Reject</string>
+    <string name="chat_card_plan_title">Plan awaiting confirmation</string>
+    <string name="chat_card_plan_accept">Approve plan</string>
+    <string name="chat_card_plan_decline">Decline plan</string>
+    <string name="chat_card_question_title">Agent question</string>
+    <string name="chat_card_question_hint">Type your answer…</string>
+    <string name="chat_card_question_send">Send</string>
+    <string name="chat_card_hook_title">Workflow hook trust review</string>
+    <string name="chat_card_hook_trust">Trust selected</string>
+    <string name="chat_card_snooze">Handle later</string>
+    <string name="chat_card_decided">Submitted · waiting for desktop to confirm</string>
+
+    <!-- 决议失败行 -->
+    <string name="chat_decision_rejected">%1$s</string>
+    <string name="chat_decision_undelivered">Not delivered · try again after reconnecting</string>
+    <string name="chat_decision_unknown">Desktop response state unknown · the desktop side is authoritative</string>
+
+    <!-- composer -->
+    <string name="composer_hint">Send a message…</string>
+    <string name="composer_send">Send</string>
+    <string name="composer_sending">Sending…</string>
+    <string name="composer_readonly">Desktop is read-only · sending unavailable</string>
+    <string name="chat_send_undelivered_generic">Message not delivered · draft restored</string>
+    <string name="chat_send_undelivered_reason">Message not delivered · %1$s</string>
+    <string name="composer_retry">Retry</string>
+
+    <!-- 协作模式 chips 与面板 -->
+    <string name="composer_mode_plan">Plan</string>
+    <string name="composer_mode_build">Build</string>
+    <string name="composer_mode_edit">Auto-edit</string>
+    <string name="composer_mode_yolo">Full access</string>
+    <string name="composer_mode_panel_title">Collaboration mode</string>
+    <string name="composer_mode_panel_hint">Switching is executed by the desktop · current mode follows the session projection</string>
+
+    <!-- 协作模式错误行 -->
+    <string name="composer_mode_fail_unknown">Desktop response state unknown (status missing) · not saved locally; the actual desktop mode is authoritative</string>
+    <string name="composer_mode_fail_rejected">%1$s</string>
+
+    <!-- 斜杠反馈行 -->
+    <string name="slash_plan_blocked">Plan mode not switched · task not sent</string>
+    <string name="slash_plan_switched">Plan mode enabled</string>
+
+    <!-- 模型/思考 chips 与面板 -->
+    <string name="composer_thought_prefix">Think·%1$s</string>
+    <string name="composer_model_panel_title">Model</string>
+    <string name="composer_thought_panel_title">Thinking level</string>
+    <string name="composer_model_refetch">Refresh model list</string>
+    <string name="composer_model_fail_rejected">%1$s</string>
+    <string name="composer_model_fail_provider_unavailable">Model provider info not ready · tap the model chip to refresh the list, then switch</string>
+    <string name="composer_model_fail_undelivered">Model switch not delivered · try again after reconnecting</string>
+    <string name="composer_model_fail_unknown">Desktop response state unknown (status missing) · not saved locally; the actual desktop selection is authoritative</string>
+
+    <!-- 排队消息条 -->
+    <string name="queue_title">Queued %1$d</string>
+    <string name="queue_autodrain_on">Auto-drain · on</string>
+    <string name="queue_autodrain_off">Auto-drain · off</string>
+    <string name="queue_act_send_now">Send now</string>
+    <string name="queue_act_edit">Edit</string>
+    <string name="queue_act_delete">Delete</string>
+    <string name="queue_act_move_up">Move up</string>
+    <string name="queue_act_save">Save</string>
+    <string name="queue_guide_badge">Guided mode</string>
+    <string name="queue_fail_undelivered">Queue operation not delivered · try again after reconnecting</string>
+    <string name="queue_fail_unknown">Desktop response state unknown · the actual desktop queue is authoritative</string>
+
+    <!-- 新建会话 sheet -->
+    <string name="new_session_entry">＋ New session</string>
+    <string name="new_session_title">New session</string>
+    <string name="new_session_input_hint">Task description (optional — you can send it in the session afterwards)</string>
+    <string name="new_session_model_label">Model</string>
+    <string name="new_session_thought_label">Thinking level</string>
+    <string name="new_session_model_load_failed">Failed to load model list · desktop did not respond, tap to retry</string>
+    <string name="new_session_thought_footer">Model list not ready · the selected level falls back to the desktop default</string>
+    <string name="new_session_submit">Start task</string>
+    <string name="new_session_submitting">Creating…</string>
+    <string name="new_session_gate_title">Model selection could not be delivered</string>
+    <string name="new_session_gate_message">The desktop model list has not responded, so the selected model/thinking level cannot travel with the session. Retry fetching on the row, or continue with the desktop default configuration.</string>
+    <string name="new_session_gate_confirm">Continue with default model</string>
+    <string name="new_session_create_fail_generic">Not connected to the desktop · connect before creating a session</string>
+    <string name="new_session_create_fail">Creation failed · %1$s</string>
+
+    <!-- 编辑重发 -->
+    <string name="chat_edit_resend_title">Edit and resend</string>
+    <string name="chat_edit_resend_warning">Resending rewinds the conversation to before this message; every reply after it will be replaced. This cannot be undone.</string>
+    <string name="chat_edit_resend_sending">Resending…</string>
+    <string name="chat_edit_resend_confirm_title">Resend and rewind the conversation?</string>
+    <string name="chat_edit_resend_confirm_message">Rewinds to before this message; replies after it will be replaced.</string>
+    <string name="chat_edit_resend_confirm">Resend</string>
+
+    <!-- 附件 -->
+    <string name="attach_button_cd">Add attachment</string>
+    <string name="attach_thumb_cd">Attachment thumbnail</string>
+    <string name="attach_read_fail">Attachment could not be read and was skipped</string>
+    <string name="attach_load_fail">Failed to load attachment</string>
+    <string name="attach_video_load_fail">Failed to load video</string>
+    <string name="attach_video_play_fail">Video cannot be played (unsupported format or corrupted file)</string>
+    <string name="attach_video_retry">Retry</string>
+    <string name="attach_full_image_cd">Full-size attachment</string>
+    <string name="attach_full_close_cd">Close</string>
+
+    <!-- 面板/动作通用 -->
+    <string name="action_close">Close</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_back">Back</string>
+    <string name="state_not_connected">Desktop not connected</string>
+    <string name="action_connect_desktop">Connect desktop</string>
+
+    <!-- 品牌/跨屏共享 -->
+    <string name="app_tagline">Mobile remote console · beam tasks to your coding agent</string>
+    <string name="app_works_with">A mobile remote console that works with ZCode</string>
+    <string name="app_foot_data_source">BiuZ · commands are executed by the desktop</string>
+    <string name="app_foot_boundary">Credentials stay on this device · connections only over trusted LAN · read-only boundary enforced by the desktop</string>
+
+    <!-- 会话列表分组标签 -->
+    <string name="group_pinned">Pinned</string>
+    <string name="group_today">Today</string>
+    <string name="group_yesterday">Yesterday</string>
+    <string name="group_earlier">Earlier</string>
+
+    <!-- 设置页 -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_group_data">Data &amp; stats</string>
+    <string name="settings_row_usage">Usage stats</string>
+    <string name="settings_row_usage_sub">Syncs desktop usage once connected</string>
+    <string name="settings_group_basic">Basic</string>
+    <string name="settings_group_about">About</string>
+    <string name="settings_row_about">About BiuZ</string>
+    <string name="settings_row_about_sub">Version and execution boundary</string>
+    <string name="settings_dev_group_title">Developer</string>
+    <string name="settings_row_dev_mode">Developer mode</string>
+    <string name="settings_row_dev_mode_sub">Shows manual address entry / desktop setup guide / token notes on the connect screen</string>
+    <string name="settings_dev_announce_on">Developer mode enabled</string>
+    <string name="settings_dev_announce_off">Developer mode disabled</string>
+    <string name="settings_foot_brand">BiuZ · works with ZCode</string>
+
+    <!-- 语言设置 -->
+    <string name="language_title">Language</string>
+    <string name="language_current_label">Current interface language</string>
+    <string name="language_opt_system">Follow system</string>
+    <string name="language_opt_chinese">简体中文</string>
+    <string name="language_opt_english">English</string>
+    <string name="language_note_title">Interface language follows the system</string>
+    <string name="language_note_body">Defaults to the system language (简体中文 / English). Once a fixed language is chosen, BiuZ always displays in that language; see release notes for string coverage.</string>
+
+    <!-- 关于页 -->
+    <string name="about_title">About</string>
+    <string name="about_version_fmt">Version %1$s</string>
+
+    <!-- 权益页 -->
+    <string name="usage_title">Usage stats</string>
+    <string name="usage_loading">Loading usage…</string>
+    <string name="usage_not_connected_detail">Usage stats come from the desktop Agent database; connect to see real data here</string>
+    <string name="usage_act_reload">Reload</string>
+    <string name="usage_plan_card_title">Coding Plan quota</string>
+    <string name="usage_plan_level_fmt">Plan tier %1$s</string>
+    <string name="usage_resets_fmt">Resets %1$s</string>
+    <string name="usage_remain_fmt">%1$d%% left</string>
+    <string name="usage_used_limit_fmt">%1$d / %2$d %3$s</string>
+    <string name="usage_used_only_fmt">%1$d %2$s used</string>
+    <string name="usage_no_quota">Desktop returned no Coding Plan usage (plan may be missing or unsupported)</string>
+    <string name="usage_window_5h">5 hours</string>
+    <string name="usage_window_week">Weekly</string>
+    <string name="usage_window_tool">Tool calls</string>
+    <string name="usage_window_mcp">MCP quota</string>
+    <string name="usage_window_generic">Quota</string>
+    <string name="usage_reset_card_5h_fmt">Reset cards: 5-hour ×%1$d</string>
+    <string name="usage_reset_card_week_fmt">Reset cards: weekly ×%1$d</string>
+    <string name="usage_card_valid_until_fmt">Valid until %1$s</string>
+    <string name="usage_entitle_no_plan">No Coding Plan subscription on this account</string>
+    <string name="usage_entitle_header">Current plan benefits</string>
+    <string name="usage_entitle_header_fmt">Current plan benefits · %1$s</string>
+    <string name="usage_entitle_remaining_fmt">%1$s left</string>
+    <string name="usage_entitle_more">View all on the desktop</string>
+    <string name="usage_entitle_included">Included</string>
+    <string name="usage_entitle_unavailable">Benefit info unavailable · pull to refresh and retry</string>
+    <string name="usage_reset_opp_title">A quota reset opportunity is available</string>
+    <string name="usage_reset_opp_expire_fmt">Valid until %1$s, void after expiry</string>
+    <string name="usage_reset_opp_available_fmt">Available: 5-hour cards ×%1$d · weekly cards ×%2$d</string>
+    <string name="usage_reset_opp_last_5h_fmt">Last used (5-hour window): %1$s</string>
+    <string name="usage_reset_opp_last_week_fmt">Last used (weekly window): %1$s</string>
+    <string name="usage_act_claim_5h">Use 5-hour card</string>
+    <string name="usage_act_claim_week">Use weekly card</string>
+    <string name="usage_claiming">Using…</string>
+    <string name="usage_claim_success">Reset card used · refreshing quota</string>
+    <string name="usage_reset_confirm_title">Use a reset card?</string>
+    <string name="usage_reset_confirm_msg">Redeems one %1$s reset card and resets the %1$s window quota. Remaining: 5-hour cards ×%2$d · weekly cards ×%3$d. This cannot be undone.</string>
+    <string name="usage_act_confirm_use">Confirm use</string>
+
+    <!-- 连接页 -->
+    <string name="connect_clip_title">Connection link detected</string>
+    <string name="connect_clip_fill">Fill and connect</string>
+    <string name="connect_btn_scan">Scan to connect desktop</string>
+    <string name="connect_enter_sessions">Open sessions</string>
+    <string name="connect_connected_fmt">Connected · %1$s</string>
+    <string name="connect_disconnected_banner">Desktop connection lost · showing data from before the drop</string>
+    <string name="connect_reconnect">Reconnect</string>
+    <string name="connect_recent_last_seen_fmt">Last connected %1$s</string>
+    <string name="connect_last_seen_pattern">MMM d, HH:mm</string>
+    <string name="connect_btn_connect">Connect</string>
+    <string name="connect_step_1">Discover desktop</string>
+    <string name="connect_step_2">Auth</string>
+    <string name="connect_step_3">WS channel</string>
+    <string name="connect_step_4">v4 handshake</string>
+    <string name="connect_step_5">Workspace</string>
+    <string name="connect_connecting_fmt">Connecting to %1$s</string>
+    <string name="connect_progress_fmt">Connecting · %1$d/%2$d</string>
+    <string name="connect_failed_fmt">Connection failed · %1$s</string>
+    <string name="connect_retry">Retry connection</string>
+    <string name="connect_rescan">Rescan</string>
+    <string name="connect_delete_record">Delete record</string>
+    <string name="connect_dev_target_fmt">Target %1$s (developer mode allows editing address/token on the connect screen)</string>
+    <string name="connect_manual_show">Enter address manually</string>
+    <string name="connect_manual_hide">Hide manual connection</string>
+    <string name="connect_address_label">Address · host:port or full link</string>
+    <string name="connect_address_hint">192.168.1.24:3030</string>
+    <string name="connect_token_label">Access token (optional)</string>
+    <string name="connect_token_hint">Secure input · optional: leave empty for --no-token deployments; the token in a full link is parsed automatically</string>
+    <string name="connect_guide_title">How to enable on the desktop? · $ zcode --web --host 0.0.0.0</string>
+    <string name="connect_guide_body">① Run zcode --web --host 0.0.0.0 [--port 3030] on the desktop; the terminal prints a tokenized link (http://&lt;LAN-IP&gt;:&lt;port&gt;/?token=…)\n② Phone and desktop must share the same LAN; Android has no local-network permission dialog — check hotspot/VPN isolation first on timeout\n③ The token ships with the link and is stored only in the app\'s private storage; for --no-token deployments (authRequired=false) it can stay empty</string>
+    <string name="connect_delete_title">Delete this server record?</string>
+    <string name="connect_delete_msg_fmt">Removes the saved address and access token for \"%1$s\".</string>
+    <string name="connect_delete_confirm">Delete</string>
+    <string name="connect_empty_input">Paste a connection link or enter host:port</string>
+
+    <!-- L3 失败对照 -->
+    <string name="connect_fail_token">Token mismatch · rescan to update the token</string>
+    <string name="connect_fail_endpoint_fmt">Rejected endpoint: %1$s</string>
+    <string name="connect_fail_http_fmt">Server returned HTTP %1$d · check that the desktop service is running</string>
+    <string name="connect_fail_lan">Confirm phone and desktop are on the same LAN</string>
+    <string name="connect_fail_host">Confirm the desktop runs with --host 0.0.0.0 (not loopback)</string>
+    <string name="connect_fail_isolation">Hotspot isolation / VPN can also cause silent timeouts</string>
+    <string name="connect_fail_protocol">Protocol version mismatch between mobile and desktop · upgrade one side</string>
+    <string name="connect_fail_empty_ws">Desktop started without --workspace · check launch arguments</string>
+    <string name="connect_fail_handshake">v4 handshake rejected · see the error code line above</string>
+    <string name="connect_fail_transport">Could not establish WebSocket · check port and firewall</string>
+
+    <!-- 扫码页 -->
+    <string name="scan_requesting">Requesting camera permission…</string>
+    <string name="scan_denied_title">Camera permission is off</string>
+    <string name="scan_denied_body_fmt">Scanning the desktop connection QR code requires camera access.\nYou can also copy a tokenized link from the desktop terminal, %1$s</string>
+    <string name="scan_denied_dev_suffix">or return to the connect screen for manual entry (developer mode).</string>
+    <string name="scan_denied_default_suffix">or go back to use clipboard fill.</string>
+    <string name="scan_open_settings">Open system settings</string>
+    <string name="scan_fallback_manual">Use manual connection instead</string>
+    <string name="scan_retry_permission">Ask for camera permission again</string>
+    <string name="scan_close_cd">Close</string>
+    <string name="scan_viewfinder_hint">Point at the desktop connection QR code\nhttp(s)://host:port/?token=…</string>
+    <string name="scan_cam_init_fail_fmt">Camera init failed · %1$s</string>
+    <string name="scan_cam_unavailable_fmt">Camera unavailable · %1$s</string>
+    <string name="scan_back_fallback">Back · use clipboard/manual entry</string>
+    <string name="scan_unrecognized">Unrecognized QR content · expected http(s)://host:port/?token=…</string>
+
+    <!-- 会话列表 -->
+    <string name="sessions_connect_failed_fmt">Desktop connection failed · %1$s</string>
+    <string name="sessions_not_connected_detail">Sessions and messages sync after connecting</string>
+    <string name="sessions_syncing">Syncing sessions…</string>
+    <string name="sessions_open_settings">Settings →</string>
+    <string name="sessions_avatar_glyph">S</string>
+    <string name="row_waiting_confirm">Awaiting confirmation</string>
+    <string name="row_time_earlier_pattern">MMM d</string>
+
+    <!-- 工作流面板/文件页/预览（并行里程碑键——按 zh 源补 en 镜像，键名/占位符逐字对齐） -->
+    <string name="files_action_retry">Retry</string>
+    <string name="files_approve_all">Approve all (%1$d)</string>
+    <string name="files_approve_all_processing">Approving all…</string>
+    <string name="files_browse_tree">Browse workspace files</string>
+    <string name="files_card_approve">Approve</string>
+    <string name="files_card_approved">Approved</string>
+    <string name="files_card_processing">Processing…</string>
+    <string name="files_card_reject">Reject</string>
+    <string name="files_card_rejected">Reverted</string>
+    <string name="files_empty_clean">Workspace is clean</string>
+    <string name="files_empty_clean_detail">No changes awaiting review, or all have been handled</string>
+    <string name="files_empty_session">No file changes in this session yet</string>
+    <string name="files_empty_session_detail">This session has not written files yet, or changes were reverted</string>
+    <string name="files_load_failed_title">Failed to load file changes</string>
+    <string name="files_loading">Loading changes…</string>
+    <string name="files_more_notice">Showing the first 20 files only · view more changes on the desktop</string>
+    <string name="files_n_files">%1$d files</string>
+    <string name="files_tab_session">This session</string>
+    <string name="files_tab_staged">Staged</string>
+    <string name="files_tab_unstaged">Unstaged</string>
+    <string name="files_title">Files</string>
+    <string name="goal_pause">Pause</string>
+    <string name="goal_pause_act">Pause goal</string>
+    <string name="goal_resume">Resume</string>
+    <string name="goal_resume_act">Resume goal</string>
+    <string name="panel_control_success">Delivered · waiting for desktop to execute</string>
+    <string name="panel_control_undelivered">Command not delivered (connection dropped or not connected)</string>
+    <string name="panel_control_unknown">Desktop response state unknown · waiting for projection to confirm</string>
+    <string name="panel_goal">Goal</string>
+    <string name="panel_goal_title">Current goal</string>
+    <string name="panel_plan">Plan</string>
+    <string name="panel_plan_title">Current plan</string>
+    <string name="panel_subagents">Subagents</string>
+    <string name="panel_workflow">Workflow</string>
+    <string name="panel_works">Background</string>
+    <string name="preview_binary_unsupported">The desktop returned no binary preview data; view this file on the desktop.</string>
+    <string name="preview_image_note">Image preview · %1$s</string>
+    <string name="preview_load_more">Truncated · load more (%1$d / %2$d bytes)</string>
+    <string name="preview_loading_file">Loading file…</string>
+    <string name="preview_loading_more">Loading…</string>
+    <string name="preview_read_failed">Failed to read file content</string>
+    <string name="preview_read_failed_detail">The desktop returned no file content; try again later.</string>
+    <string name="preview_seg_preview">Preview</string>
+    <string name="preview_seg_source">Source</string>
+    <string name="sessions_open_files">Files →</string>
+    <string name="track_agents_n">%1$d agents working</string>
+    <string name="track_agents_one">1 agent working</string>
+    <string name="track_default_name">Workflow</string>
+    <string name="track_overflow">+%1$d workflows</string>
+    <string name="transcript_empty">No transcript yet</string>
+    <string name="transcript_loading">Loading subagent transcript…</string>
+    <string name="transcript_role_agent">Subagent</string>
+    <string name="transcript_role_user">User</string>
+    <string name="tree_empty">No files to show in this workspace</string>
+    <string name="tree_loading">Reading workspace…</string>
+    <string name="tree_search_hint">Search files</string>
+    <string name="tree_title">Workspace files</string>
+    <string name="tree_workspace">Workspace %1$s</string>
+    <string name="wf_actor_default">Subagent</string>
+    <string name="wf_actor_tasks">%1$d tasks</string>
+    <string name="wf_artifact_load_failed">Failed to load artifact content · desktop did not respond</string>
+    <string name="wf_artifact_loading">Loading artifact content…</string>
+    <string name="wf_artifact_unsupported">This artifact type cannot be previewed on mobile · view it on the desktop</string>
+    <string name="wf_cancel_run">Cancel run</string>
+    <string name="wf_completion_done">Completed</string>
+    <string name="wf_completion_title">Workflow completed</string>
+    <string name="wf_concurrency_default">Default concurrency</string>
+    <string name="wf_concurrency_n">Concurrency %1$d</string>
+    <string name="wf_follow_main_model">Follow main model</string>
+    <string name="wf_history_caption">Past runs</string>
+    <string name="wf_no_limit">No limit</string>
+    <string name="wf_resume_run">Resume run</string>
+    <string name="wf_stat_phases">Phases</string>
+    <string name="wf_stat_subagents">Subagents</string>
+    <string name="wf_stat_time">Time</string>
+    <string name="wf_stat_tokens">tokens</string>
+    <string name="wf_truncated">Truncated</string>
+    <string name="wf_truncated_artifacts">Artifact list truncated · view the rest on the desktop</string>
+    <string name="works_act_cancel">Cancel</string>
+    <string name="works_act_resume">Resume</string>
+    <string name="works_blocked">Blocked</string>
+</resources>

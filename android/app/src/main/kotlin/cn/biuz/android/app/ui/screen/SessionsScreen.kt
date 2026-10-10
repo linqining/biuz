@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -101,6 +102,7 @@ fun SessionsScreen(
     onOpenChat: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onBackToConnect: () -> Unit,
+    onOpenFiles: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val surface by session.storeSurface.collectAsStateWithLifecycle()
@@ -128,7 +130,7 @@ fun SessionsScreen(
             }
         }
     }
-    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.CHINA) }
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     // 分组边界（今天 00:00 / 昨天 00:00；组合期计算一次，长驻列表跨天偏差可接受）
     val dayBounds = remember {
         val cal = Calendar.getInstance()
@@ -162,7 +164,7 @@ fun SessionsScreen(
             Spacer(Modifier.height(BiuZSpacing.xl))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "会话",
+                    text = stringResource(R.string.chat_title),
                     style = MaterialTheme.typography.displayLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
@@ -184,7 +186,7 @@ fun SessionsScreen(
                 is AppSession.Mode.Disconnected -> {
                     // 橙横幅：断线保留快照（列表继续显示断线前数据），重连同入口
                     Text(
-                        text = "与桌面端的连接已断开 · 显示断线前的数据",
+                        text = stringResource(R.string.connect_disconnected_banner),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -195,7 +197,7 @@ fun SessionsScreen(
                             .fillMaxWidth()
                             .height(44.dp),
                     ) {
-                        Text("重新连接")
+                        Text(stringResource(R.string.connect_reconnect))
                     }
                     Spacer(Modifier.height(BiuZSpacing.md))
                 }
@@ -203,7 +205,7 @@ fun SessionsScreen(
                 is AppSession.Mode.ConnectFailed -> {
                     // 红横幅：失败态空数据如实（重连入口同页；详细对照见连接页失败卡）
                     Text(
-                        text = "桌面端连接失败 · ${m.error.headline}",
+                        text = stringResource(R.string.sessions_connect_failed_fmt, m.error.headline),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -214,7 +216,7 @@ fun SessionsScreen(
                             .fillMaxWidth()
                             .height(44.dp),
                     ) {
-                        Text("重试连接")
+                        Text(stringResource(R.string.connect_retry))
                     }
                     Spacer(Modifier.height(BiuZSpacing.md))
                 }
@@ -257,7 +259,7 @@ fun SessionsScreen(
                         )
                         Spacer(Modifier.height(BiuZSpacing.sm))
                         Text(
-                            text = "正在同步会话…",
+                            text = stringResource(R.string.sessions_syncing),
                             style = MaterialTheme.typography.labelMedium,
                             color = BiuZText3,
                         )
@@ -267,9 +269,9 @@ fun SessionsScreen(
                 else -> {
                     LazyColumn(modifier = Modifier.weight(1f)) {
                         sections.forEach { section ->
-                            item(key = "header-${section.label}") {
+                            item(key = "header-${section.kind}") {
                                 Text(
-                                    text = section.label,
+                                    text = sectionKindLabel(section.kind),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = BiuZText3,
                                     modifier = Modifier.padding(
@@ -286,6 +288,8 @@ fun SessionsScreen(
                                         todayStartMs = dayBounds.first,
                                         yesterdayStartMs = dayBounds.second,
                                         timeFormat = timeFormat,
+                                        yesterdayLabel = stringResource(R.string.group_yesterday),
+                                        earlierPattern = stringResource(R.string.row_time_earlier_pattern),
                                     ),
                                     onOpen = { onOpenChat(conversation.id) },
                                 )
@@ -300,11 +304,26 @@ fun SessionsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp)
+                    .clickable(onClick = onOpenFiles),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.sessions_open_files),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("04-act-open-files"),
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
                     .clickable(onClick = onOpenSettings),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "设置 →",
+                    text = stringResource(R.string.sessions_open_settings),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -662,7 +681,7 @@ private fun SessionRow(
             if (conversation.pendingApprovalCount > 0) {
                 Spacer(Modifier.height(BiuZSpacing.xs))
                 Text(
-                    text = "等待确认",
+                    text = stringResource(R.string.row_waiting_confirm),
                     style = MaterialTheme.typography.labelSmall,
                     color = BiuZOnOrange,
                     modifier = Modifier
@@ -693,20 +712,20 @@ private fun NotConnectedEmpty(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = "会",
+                text = stringResource(R.string.sessions_avatar_glyph),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Spacer(Modifier.height(BiuZSpacing.md))
         Text(
-            text = "未连接桌面端",
+            text = stringResource(R.string.state_not_connected),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(BiuZSpacing.xs))
         Text(
-            text = "连接后同步桌面端的会话与消息",
+            text = stringResource(R.string.sessions_not_connected_detail),
             style = MaterialTheme.typography.bodySmall,
             color = BiuZText3,
             textAlign = TextAlign.Center,
@@ -717,7 +736,16 @@ private fun NotConnectedEmpty(
             modifier = Modifier.height(44.dp),
             shape = BiuZRadius.medium,
         ) {
-            Text("连接桌面端")
+            Text(stringResource(R.string.action_connect_desktop))
         }
     }
+}
+
+/** 分组标题渲染（kind → 资源；zh 参考词面在 ConversationGrouping，禁按 label 匹配）。 */
+@Composable
+internal fun sectionKindLabel(kind: SectionKind): String = when (kind) {
+    SectionKind.PINNED -> stringResource(R.string.group_pinned)
+    SectionKind.TODAY -> stringResource(R.string.group_today)
+    SectionKind.YESTERDAY -> stringResource(R.string.group_yesterday)
+    SectionKind.EARLIER -> stringResource(R.string.group_earlier)
 }

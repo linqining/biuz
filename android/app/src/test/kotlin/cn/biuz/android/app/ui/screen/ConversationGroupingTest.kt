@@ -77,14 +77,31 @@ class ConversationGroupingTest {
 
     @Test
     fun failureGuidanceCoversL3ErrorFamilies() {
+        // 双语稳健口径（§5-18③ 同纪律）：断言提示种类枚举（ConnectFailureHint），不再断言
+        // zh 文案词面——en 资源态下文案词面断言必翻车。
         // 401 = 令牌不匹配（重扫对照）；超时必含局域网检查项（本地网络静默失败不可区分的兜底）
-        val http401 = connectFailureGuidance(ConnectError.Http(401, "GET /api/server-info"))
-        assertTrue(http401.first().contains("令牌"))
-        val timeout = connectFailureGuidance(ConnectError.Timeout("GET /api/server-info"))
-        assertTrue(timeout.any { it.contains("局域网") })
-        val protocol = connectFailureGuidance(ConnectError.ProtocolVersion("remote v2"))
-        assertTrue(protocol.first().contains("版本"))
-        val emptyWs = connectFailureGuidance(ConnectError.EmptyWorkspaces)
-        assertTrue(emptyWs.first().contains("workspace"))
+        val http401 = connectFailureHints(ConnectError.Http(401, "GET /api/server-info"))
+        assertTrue(http401.first() == ConnectFailureHint.TokenMismatch, "401 首条=令牌不匹配种类：$http401")
+        assertTrue(http401.getOrNull(1) is ConnectFailureHint.RejectedEndpoint, "401 附被拒端点行")
+
+        val http500 = connectFailureHints(ConnectError.Http(500, "GET /api/server-info"))
+        assertTrue(http500.single() is ConnectFailureHint.Http, "非 401 HTTP = 状态行")
+
+        val timeout = connectFailureHints(ConnectError.Timeout("GET /api/server-info"))
+        assertTrue(ConnectFailureHint.CheckLan in timeout, "超时必含局域网检查项种类")
+        assertTrue(ConnectFailureHint.CheckHostFlag in timeout)
+        assertTrue(ConnectFailureHint.IsolationVpn in timeout)
+
+        val protocol = connectFailureHints(ConnectError.ProtocolVersion("remote v2"))
+        assertTrue(protocol.single() == ConnectFailureHint.ProtocolVersion)
+
+        val emptyWs = connectFailureHints(ConnectError.EmptyWorkspaces)
+        assertTrue(emptyWs.single() == ConnectFailureHint.EmptyWorkspace)
+
+        val handshake = connectFailureHints(ConnectError.HandshakeFailed("reject detail"))
+        assertTrue(handshake.single() == ConnectFailureHint.Handshake)
+
+        val transport = connectFailureHints(ConnectError.Transport("conn refused"))
+        assertTrue(transport.single() == ConnectFailureHint.Transport)
     }
 }

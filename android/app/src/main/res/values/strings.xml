@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 会话屏 UI 文案（chat 界面轮）。职责边界：
-     - 本表只收 UI 组装文案（标题/按钮/错误行模板）——经 stringResource 上屏；
-     - 服务层错误原文（sendRejectionText / CommandAck.failureText / loadFailure 等
-       store 返回串）是**数据**不是资源：原样透传上屏，禁在本表复刻（对齐 iOS
-       「String(localized:) 键=串本身」与 AGENTS §5-12 真实拒因原文纪律）。 -->
+<!-- 全屏 UI 文案（zh 源语言；en 镜像见 values-en/strings.xml——双语对账纪律：
+     每个键两表同形，改键必须双表同批）。职责边界：
+     - 本表收 UI 组装文案（标题/按钮/错误行模板）——经 stringResource 上屏；
+       UI 层自持的服务流错误模板（未送达/领取失败族）也进本表（设置里程碑对账裁决：
+       服务层错误串也进资源）；
+     - 服务层**原样透传串**（sendRejectionText / CommandAck.failureText / loadFailure 等
+       store 返回串、RPC fault 原文）仍是**数据**不是资源：原样上屏，禁在本表复刻
+       （对齐 AGENTS §5-12 真实拒因原文纪律；:store 为 JVM 模块无法持有资源，
+       其返回串被 :store 单测锁定，UI 不改写只拼模板）。 -->
 <resources>
     <!-- 顶栏 -->
     <string name="chat_title">会话</string>
@@ -158,4 +162,255 @@
     <!-- 面板/动作通用 -->
     <string name="action_close">关闭</string>
     <string name="action_cancel">取消</string>
+    <string name="action_back">返回</string>
+    <string name="state_not_connected">未连接桌面端</string>
+    <string name="action_connect_desktop">连接桌面端</string>
+
+    <!-- 品牌/跨屏共享（商标红线 branding/naming.md：应用内禁独立「ZCode」字样，
+         仅以描述性 works with ZCode 表达社区版身份） -->
+    <string name="app_tagline">移动遥控台 · 把任务 biu 地发给你的 coding agent</string>
+    <string name="app_works_with">A mobile remote console that works with ZCode</string>
+    <string name="app_foot_data_source">BiuZ · 指令经桌面端执行</string>
+    <string name="app_foot_boundary">凭据仅保存在本机 · 连接仅面向可信局域网 · 只读边界由桌面端强制</string>
+
+    <!-- 会话列表分组标签（kind → 资源；ConversationGrouping.SectionKind 渲染面） -->
+    <string name="group_pinned">置顶</string>
+    <string name="group_today">今天</string>
+    <string name="group_yesterday">昨天</string>
+    <string name="group_earlier">更早</string>
+
+    <!-- 设置页（设置里程碑：语言切换 + 开发者模式 7 连击 + HIDDEN 入口承载） -->
+    <string name="settings_title">设置</string>
+    <string name="settings_group_data">数据与统计</string>
+    <string name="settings_row_usage">用量统计</string>
+    <string name="settings_row_usage_sub">连接后同步桌面用量</string>
+    <string name="settings_group_basic">基础设置</string>
+    <string name="settings_group_about">关于</string>
+    <string name="settings_row_about">关于 BiuZ</string>
+    <string name="settings_row_about_sub">版本与执行边界</string>
+    <string name="settings_dev_group_title">开发者</string>
+    <string name="settings_row_dev_mode">开发者模式</string>
+    <string name="settings_row_dev_mode_sub">连接页显示手动输入 / 桌面端开启指引 / 令牌说明</string>
+    <string name="settings_dev_announce_on">开发者模式已开启</string>
+    <string name="settings_dev_announce_off">开发者模式已关闭</string>
+    <string name="settings_foot_brand">BiuZ · works with ZCode</string>
+
+    <!-- 语言设置（zh/en 固定档 + 跟随系统；生效面 MainActivity attachBaseContext 注入） -->
+    <string name="language_title">语言</string>
+    <string name="language_current_label">当前界面语言</string>
+    <string name="language_opt_system">跟随系统</string>
+    <string name="language_opt_chinese">简体中文</string>
+    <string name="language_opt_english">English</string>
+    <string name="language_note_title">界面语言跟随系统</string>
+    <string name="language_note_body">默认随系统语言自动切换（简体中文 / English）。选择固定语言后，BiuZ 将始终以该语言显示；文案覆盖范围见版本说明。</string>
+
+    <!-- 关于页（BiuZ · works with ZCode） -->
+    <string name="about_title">关于</string>
+    <string name="about_version_fmt">版本 %1$s</string>
+
+    <!-- 权益页（用量统计：quota.level + subscription.details + remaining + 重置卡）。
+         窗口标签常量在 :store 投影（5 小时/每周/工具调用/额度），两处同词禁止漂移 -->
+    <string name="usage_title">用量统计</string>
+    <string name="usage_loading">正在读取用量…</string>
+    <string name="usage_not_connected_detail">用量统计来自桌面端 Agent 数据库，连接后此处展示真实数据</string>
+    <string name="usage_act_reload">重新加载</string>
+    <string name="usage_plan_card_title">Coding Plan 额度</string>
+    <string name="usage_plan_level_fmt">套餐档位 %1$s</string>
+    <string name="usage_resets_fmt">%1$s 重置</string>
+    <string name="usage_remain_fmt">剩 %1$d%%</string>
+    <string name="usage_used_limit_fmt">%1$d / %2$d %3$s</string>
+    <string name="usage_used_only_fmt">已用 %1$d %2$s</string>
+    <string name="usage_no_quota">桌面端未返回 Coding Plan 用量（可能未订阅或版本不支持）</string>
+    <string name="usage_window_5h">5 小时</string>
+    <string name="usage_window_week">每周</string>
+    <string name="usage_window_tool">工具调用</string>
+    <string name="usage_window_mcp">MCP 配额</string>
+    <string name="usage_window_generic">额度</string>
+    <string name="usage_reset_card_5h_fmt">重置卡：5 小时 ×%1$d</string>
+    <string name="usage_reset_card_week_fmt">重置卡：每周 ×%1$d</string>
+    <string name="usage_card_valid_until_fmt">%1$s 前有效</string>
+    <string name="usage_entitle_no_plan">当前账号未订阅 Coding Plan 套餐</string>
+    <string name="usage_entitle_header">当前套餐权益</string>
+    <string name="usage_entitle_header_fmt">当前套餐权益 · %1$s</string>
+    <string name="usage_entitle_remaining_fmt">剩 %1$s</string>
+    <string name="usage_entitle_more">在桌面端查看全部</string>
+    <string name="usage_entitle_included">已含</string>
+    <string name="usage_entitle_unavailable">权益信息不可用 · 下拉刷新重试</string>
+    <string name="usage_reset_opp_title">有可使用的额度重置机会</string>
+    <string name="usage_reset_opp_expire_fmt">将于 %1$s 前有效，过期作废</string>
+    <string name="usage_reset_opp_available_fmt">可用：5 小时卡 ×%1$d · 周卡 ×%2$d</string>
+    <string name="usage_reset_opp_last_5h_fmt">上次使用（5 小时窗）：%1$s</string>
+    <string name="usage_reset_opp_last_week_fmt">上次使用（周窗）：%1$s</string>
+    <string name="usage_act_claim_5h">使用 5 小时卡</string>
+    <string name="usage_act_claim_week">使用周卡</string>
+    <string name="usage_claiming">使用中…</string>
+    <string name="usage_claim_success">已使用重置卡 · 额度刷新中</string>
+    <!-- 重置卡二次确认（扣费/消耗接口红线：写明重置哪个窗口与剩余卡数、核销不可撤销；
+         %1$s 重复占位 = 窗口名同现两处——String.format 位置参数可重复） -->
+    <string name="usage_reset_confirm_title">确认使用重置卡？</string>
+    <string name="usage_reset_confirm_msg">将核销一张%1$s重置卡，并重置%1$s窗口的额度。当前剩余：5 小时卡 ×%2$d · 周卡 ×%3$d。核销后不可撤销。</string>
+    <string name="usage_act_confirm_use">确认使用</string>
+
+    <!-- 连接页（含开发者模式手动连接族 + L3 失败对照；错误行模板即 UI 自持错误串） -->
+    <string name="connect_clip_title">检测到连接链接</string>
+    <string name="connect_clip_fill">一键填充</string>
+    <string name="connect_btn_scan">扫码连接桌面端</string>
+    <string name="connect_enter_sessions">进入会话列表</string>
+    <string name="connect_connected_fmt">已连接 · %1$s</string>
+    <string name="connect_disconnected_banner">与桌面端的连接已断开 · 显示断线前的数据</string>
+    <string name="connect_reconnect">重新连接</string>
+    <string name="connect_recent_last_seen_fmt">上次连接 %1$s</string>
+    <string name="connect_last_seen_pattern">M 月 d 日 HH:mm</string>
+    <string name="connect_btn_connect">连接</string>
+    <string name="connect_step_1">发现桌面端</string>
+    <string name="connect_step_2">鉴权</string>
+    <string name="connect_step_3">WS 通道</string>
+    <string name="connect_step_4">v4 握手</string>
+    <string name="connect_step_5">工作区</string>
+    <string name="connect_connecting_fmt">正在连接 %1$s</string>
+    <string name="connect_progress_fmt">连接中 · %1$d/%2$d</string>
+    <string name="connect_failed_fmt">连接失败 · %1$s</string>
+    <string name="connect_retry">重试连接</string>
+    <string name="connect_rescan">重新扫码</string>
+    <string name="connect_delete_record">删除记录</string>
+    <string name="connect_dev_target_fmt">目标 %1$s（开发者模式可在连接页手动改址/改令牌）</string>
+    <string name="connect_manual_show">手动输入地址连接</string>
+    <string name="connect_manual_hide">收起手动连接</string>
+    <string name="connect_address_label">地址 · host:port 或完整链接</string>
+    <string name="connect_address_hint">192.168.1.24:3030</string>
+    <string name="connect_token_label">访问令牌（可选）</string>
+    <string name="connect_token_hint">安全输入 · 可选：--no-token 部署可留空；完整链接里的 token 自动拆解</string>
+    <string name="connect_guide_title">如何在桌面端开启？ · $ zcode --web --host 0.0.0.0</string>
+    <string name="connect_guide_body">① 桌面机执行 zcode --web --host 0.0.0.0 [--port 3030]，终端打印带令牌链接（http://&lt;LAN-IP&gt;:&lt;port&gt;/?token=…）\n② 手机与桌面端须同一局域网；Android 无「本地网络」权限弹窗，若超时先查热点/VPN 隔离\n③ 令牌随链接下发、仅保存在本机应用私有存储；--no-token 部署（authRequired=false）令牌可留空</string>
+    <string name="connect_delete_title">删除此服务器记录？</string>
+    <string name="connect_delete_msg_fmt">将清除已保存的「%1$s」地址与访问令牌。</string>
+    <string name="connect_delete_confirm">删除</string>
+    <string name="connect_empty_input">请粘贴连接链接或输入 host:port</string>
+
+    <!-- L3 失败对照（connectFailureGuidance 提示种类 → 资源；双语稳健口径：单测断言
+         种类枚举不再断言中文词面——语言套件 §5-18③ 同纪律） -->
+    <string name="connect_fail_token">令牌不匹配 · 重新扫码更新令牌</string>
+    <string name="connect_fail_endpoint_fmt">被拒端点：%1$s</string>
+    <string name="connect_fail_http_fmt">服务返回 HTTP %1$d · 确认桌面端服务正常</string>
+    <string name="connect_fail_lan">确认手机与桌面端在同一局域网</string>
+    <string name="connect_fail_host">确认桌面端以 --host 0.0.0.0 启动（非 loopback）</string>
+    <string name="connect_fail_isolation">热点隔离 / VPN 也会静默超时</string>
+    <string name="connect_fail_protocol">移动端与桌面端协议版本不一致 · 升级其中一端</string>
+    <string name="connect_fail_empty_ws">桌面端启动未携带 --workspace · 检查启动参数</string>
+    <string name="connect_fail_handshake">v4 握手被拒 · 拒因见上方错误码行</string>
+    <string name="connect_fail_transport">无法建立 WebSocket · 确认端口与防火墙</string>
+
+    <!-- 扫码页 -->
+    <string name="scan_requesting">正在请求相机权限…</string>
+    <string name="scan_denied_title">相机权限未开启</string>
+    <string name="scan_denied_body_fmt">扫码识别桌面端连接二维码需要相机权限。\n也可以在桌面端终端复制带令牌的连接链接，%1$s</string>
+    <string name="scan_denied_dev_suffix">或返回连接页手动输入地址（开发者模式）。</string>
+    <string name="scan_denied_default_suffix">回连接页一键填充。</string>
+    <string name="scan_open_settings">去系统设置开启</string>
+    <string name="scan_fallback_manual">改用手动输入连接</string>
+    <string name="scan_retry_permission">重新请求相机权限</string>
+    <string name="scan_close_cd">关闭</string>
+    <string name="scan_viewfinder_hint">对准桌面端出示的连接二维码\nhttp(s)://host:port/?token=…</string>
+    <string name="scan_cam_init_fail_fmt">相机初始化失败 · %1$s</string>
+    <string name="scan_cam_unavailable_fmt">相机不可用 · %1$s</string>
+    <string name="scan_back_fallback">返回 · 改用剪贴板/手动输入</string>
+    <string name="scan_unrecognized">未识别的二维码内容 · 期望 http(s)://host:port/?token=…</string>
+
+    <!-- 会话列表（横幅/空态/分组之外的存量文案已用 chat_* 系键） -->
+    <string name="sessions_connect_failed_fmt">桌面端连接失败 · %1$s</string>
+    <string name="sessions_not_connected_detail">连接后同步桌面端的会话与消息</string>
+    <string name="sessions_syncing">正在同步会话…</string>
+    <string name="sessions_open_settings">设置 →</string>
+    <string name="sessions_open_files">文件 →</string>
+    <string name="sessions_avatar_glyph">会</string>
+    <string name="row_waiting_confirm">等待确认</string>
+    <string name="row_time_earlier_pattern">M月d日</string>
+
+    <!-- 会话面板区（goal/plan/工作流/后台/子代理 chips；iOS SessionPanelsView 直译轮） -->
+    <string name="panel_goal">目标</string>
+    <string name="panel_plan">计划</string>
+    <string name="panel_workflow">工作流</string>
+    <string name="panel_works">后台</string>
+    <string name="panel_subagents">子代理</string>
+    <string name="panel_goal_title">当前目标</string>
+    <string name="panel_plan_title">当前计划</string>
+    <string name="goal_pause">暂停</string>
+    <string name="goal_resume">继续</string>
+    <string name="goal_pause_act">暂停目标</string>
+    <string name="goal_resume_act">继续目标</string>
+    <string name="panel_control_undelivered">命令未送达（连接中断或不在连接态）</string>
+    <string name="panel_control_unknown">桌面端回执状态未知 · 等待投影确认</string>
+    <string name="panel_control_success">已下发 · 等待桌面端执行</string>
+    <string name="wf_history_caption">历史 run</string>
+    <string name="wf_truncated">已截断</string>
+    <string name="wf_actor_default">子代理</string>
+    <string name="wf_actor_tasks">%1$d 个任务</string>
+    <string name="wf_follow_main_model">跟随主模型</string>
+    <string name="wf_concurrency_default">并发默认</string>
+    <string name="wf_concurrency_n">并发 %1$d</string>
+    <string name="wf_no_limit">无上限</string>
+    <string name="wf_cancel_run">取消运行</string>
+    <string name="wf_resume_run">恢复运行</string>
+    <string name="works_blocked">已阻塞</string>
+    <string name="works_act_resume">恢复</string>
+    <string name="works_act_cancel">取消</string>
+    <string name="transcript_loading">加载子代理转录…</string>
+    <string name="transcript_empty">暂无转录内容</string>
+    <string name="transcript_role_user">用户</string>
+    <string name="transcript_role_agent">子代理</string>
+
+    <!-- G-007 迷你轨道（聊天页顶 + 会话行同构；桌面 workflowRunLine 同源） -->
+    <string name="track_default_name">工作流</string>
+    <string name="track_agents_one">1 agent working</string>
+    <string name="track_agents_n">%1$d agents working</string>
+    <string name="track_overflow">+%1$d 条工作流</string>
+
+    <!-- 工作流完成卡（桌面 WorkflowCompletionCard 同款）+ 产物详情 sheet -->
+    <string name="wf_completion_title">工作流已完成</string>
+    <string name="wf_completion_done">已完成</string>
+    <string name="wf_truncated_artifacts">产物清单已截断 · 其余经桌面端查看</string>
+    <string name="wf_stat_time">时间</string>
+    <string name="wf_stat_tokens">tokens</string>
+    <string name="wf_stat_subagents">子代理</string>
+    <string name="wf_stat_phases">阶段</string>
+    <string name="wf_artifact_loading">加载产物内容…</string>
+    <string name="wf_artifact_load_failed">产物内容加载失败 · 桌面端未回执</string>
+    <string name="wf_artifact_unsupported">该产物类型暂不支持手机端预览 · 请在桌面端查看</string>
+
+    <!-- 文件页（屏 08 Diff 审查 + 屏 09 目录树/预览） -->
+    <string name="files_title">文件</string>
+    <string name="files_loading">正在读取变更…</string>
+    <string name="files_load_failed_title">文件变更读取失败</string>
+    <string name="files_action_retry">重试</string>
+    <string name="files_empty_clean">工作区是干净的</string>
+    <string name="files_empty_clean_detail">没有待审查的变更，或已全部处理完毕</string>
+    <string name="files_empty_session">本会话暂无文件变更</string>
+    <string name="files_empty_session_detail">该会话尚未产生文件写入，或变更已回退</string>
+    <string name="files_browse_tree">浏览工作区文件</string>
+    <string name="files_tab_unstaged">未暂存</string>
+    <string name="files_tab_staged">已暂存</string>
+    <string name="files_tab_session">本次会话</string>
+    <string name="files_n_files">%1$d 个文件</string>
+    <string name="files_more_notice">仅显示前 20 个文件，更多变更请在桌面端查看</string>
+    <string name="files_card_approve">批准</string>
+    <string name="files_card_reject">拒绝</string>
+    <string name="files_card_processing">处理中…</string>
+    <string name="files_card_approved">已批准</string>
+    <string name="files_card_rejected">已回退</string>
+    <string name="files_approve_all">全部批准（%1$d）</string>
+    <string name="files_approve_all_processing">全部批准中…</string>
+    <string name="tree_title">工作区文件</string>
+    <string name="tree_search_hint">搜索文件</string>
+    <string name="tree_loading">正在读取工作区…</string>
+    <string name="tree_empty">工作区没有可显示的文件</string>
+    <string name="tree_workspace">工作区 %1$s</string>
+    <string name="preview_seg_preview">预览</string>
+    <string name="preview_seg_source">源码</string>
+    <string name="preview_loading_file">正在载入文件…</string>
+    <string name="preview_read_failed">文件内容读取失败</string>
+    <string name="preview_read_failed_detail">桌面端未返回文件内容，可稍后重试。</string>
+    <string name="preview_image_note">图片预览 · %1$s</string>
+    <string name="preview_binary_unsupported">当前桌面端未返回二进制预览数据，请在桌面端查看该文件。</string>
+    <string name="preview_load_more">已截断 · 加载更多（%1$d / %2$d 字节）</string>
+    <string name="preview_loading_more">加载中…</string>
 </resources>

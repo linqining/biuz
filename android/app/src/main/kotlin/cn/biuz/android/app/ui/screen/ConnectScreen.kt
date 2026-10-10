@@ -4,8 +4,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,7 +27,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -49,6 +50,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cn.biuz.android.app.R
+import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText2
@@ -71,23 +74,27 @@ import kotlinx.coroutines.launch
  * 连接页（L1 同位 + 交接 §5-17 开发者模式裁决）：默认只留扫码主路径——
  * 剪贴板横幅（检测到连接链接即出现，一键填充直发）+ 最近连接卡（回连优先，
  * 进入页后台探测 server-info 1.5s 的中性探测点）+ 品牌区 + 扫码 CTA。
- * 手动输入地址 / 桌面端指引 / 令牌说明收进开发者模式（BuildConfig.DEBUG 调试开关等效
- * + 品牌行连点 7 次切换手势预留，iOS 落位为设置页品牌行、Android 设置页随后续里程碑接线）。
+ * 手动输入地址 / 桌面端指引 / 令牌说明收进开发者模式（有效口径 =
+ * [AppSettingsStore.effectiveDeveloperMode]：设置页品牌行连点 7 次的持久化开关
+ * || -ZCodeDevMode 启动参数——M2 壳期的 BuildConfig.DEBUG 等效与连接页品牌行
+ * 临时手势已撤，隐藏开关唯一落位在设置页品牌行，iOS 同位）。
  *
  * 失败态如实呈现（工程纪律 §5-12）：服务端拒因原文上屏（headline + mono codeLine），
- * 按 L3 四态对照给排查行，禁笼统「连接失败」。
+ * 按 L3 四态对照给排查行（[connectFailureHints] 种类 → 资源文案），禁笼统「连接失败」。
  */
 @Composable
 fun ConnectScreen(
     session: AppSession,
+    settings: AppSettingsStore,
     onOpenScan: () -> Unit,
     onOpenSessions: () -> Unit,
-    developerMode: Boolean,
-    onToggleDeveloperModeOverride: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val mode by session.mode.collectAsStateWithLifecycle()
     val connectionState by session.connection.state.collectAsStateWithLifecycle()
+    val developerModePersisted by settings.developerMode.collectAsStateWithLifecycle()
+    // 手动连接族 gating 唯一判定源（设置页品牌行 7 连击翻转持久化，|| 启动参数）
+    val developerMode = developerModePersisted || settings.developerModeStartupArgument
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -119,9 +126,6 @@ fun ConnectScreen(
     var manualError by remember { mutableStateOf<String?>(null) }
     var helpExpanded by rememberSaveable { mutableStateOf(false) }
 
-    // MARK: 品牌行连点 7 次（开发者模式手势预留；§5-17 iOS 设置页品牌行同款交互）
-    var brandTaps by remember { mutableStateOf(0) }
-
     // MARK: 最近连接卡探测点（进入页后台探测 server-info，1.5s 超时；设计稿 §9.5）
     var probe by remember { mutableStateOf<ServerInfoClient.ProbeResult?>(null) }
     val savedServer = session.savedServer
@@ -134,16 +138,23 @@ fun ConnectScreen(
     confirmDeleteFor?.let { target ->
         AlertDialog(
             onDismissRequest = { confirmDeleteFor = null },
-            title = { Text("删除此服务器记录？") },
-            text = { Text("将清除已保存的「${target.displayName}」地址与访问令牌。") },
+            title = { Text(stringResource(R.string.connect_delete_title)) },
+            text = { Text(stringResource(R.string.connect_delete_msg_fmt, target.displayName)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDeleteFor = null
                     session.deleteServer(target)
-                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                }) {
+                    Text(
+                        stringResource(R.string.connect_delete_confirm),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDeleteFor = null }) { Text("取消") }
+                TextButton(onClick = { confirmDeleteFor = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
             },
         )
     }
@@ -167,10 +178,11 @@ fun ConnectScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh, BiuZRadius.medium)
-                        .padding(BiuZSpacing.md),
+                        .padding(BiuZSpacing.md)
+                        .testTag("l1-banner-clip"),
                 ) {
                     Text(
-                        text = "检测到连接链接",
+                        text = stringResource(R.string.connect_clip_title),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
@@ -191,7 +203,11 @@ fun ConnectScreen(
                         onClick = {
                             val raw = clipboardRaw ?: return@Button
                             scope.launch {
-                                manualError = ConnectFlow.connectFromText(session, raw)
+                                manualError = ConnectFlow.connectFromText(
+                                    context,
+                                    session,
+                                    raw,
+                                )
                             }
                         },
                         modifier = Modifier
@@ -199,39 +215,30 @@ fun ConnectScreen(
                             .height(44.dp),
                         shape = BiuZRadius.medium,
                     ) {
-                        Text("一键填充")
+                        Text(stringResource(R.string.connect_clip_fill))
                     }
                 }
                 Spacer(Modifier.height(BiuZSpacing.xl))
             }
 
-            // MARK: 品牌区（连点 7 次切开发者模式手势预留；§5-17）
+            // MARK: 品牌区（商标红线：works with ZCode 描述性表述；开发者模式切换
+            // 手势唯一落位在设置页品牌行——连接页不放，保持默认简洁态）
             Text(
                 text = "BiuZ",
                 style = MaterialTheme.typography.displayLarge,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) {
-                    brandTaps += 1
-                    if (brandTaps >= 7) {
-                        brandTaps = 0
-                        onToggleDeveloperModeOverride()
-                    }
-                },
+                modifier = Modifier.testTag("l1-brand"),
             )
             Spacer(Modifier.height(BiuZSpacing.sm))
             Text(
-                text = "移动遥控台 · 把任务 biu 地发给你的 coding agent",
+                text = stringResource(R.string.app_tagline),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(BiuZSpacing.xs))
             Text(
-                // 商标裁决（branding/naming.md）：仅以描述性「works with ZCode」表达社区版身份
-                text = "A mobile remote console that works with ZCode",
+                text = stringResource(R.string.app_works_with),
                 style = MaterialTheme.typography.labelMedium,
                 color = BiuZText3,
                 textAlign = TextAlign.Center,
@@ -253,10 +260,11 @@ fun ConnectScreen(
                 onClick = onOpenScan,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
+                    .height(48.dp)
+                    .testTag("l1-btn-scan"),
                 shape = BiuZRadius.medium,
             ) {
-                Text("扫码连接桌面端")
+                Text(stringResource(R.string.connect_btn_scan))
             }
             Spacer(Modifier.height(BiuZSpacing.xl))
 
@@ -273,7 +281,7 @@ fun ConnectScreen(
 
                 is AppSession.Mode.Connected -> {
                     Text(
-                        text = "已连接 · ${m.server.displayName}",
+                        text = stringResource(R.string.connect_connected_fmt, m.server.displayName),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center,
@@ -286,7 +294,7 @@ fun ConnectScreen(
                             .height(48.dp),
                         shape = BiuZRadius.medium,
                     ) {
-                        Text("进入会话列表")
+                        Text(stringResource(R.string.connect_enter_sessions))
                     }
                 }
 
@@ -310,7 +318,7 @@ fun ConnectScreen(
                             .padding(BiuZSpacing.md),
                     ) {
                         Text(
-                            text = "与桌面端的连接已断开 · 显示断线前的数据",
+                            text = stringResource(R.string.connect_disconnected_banner),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -332,7 +340,7 @@ fun ConnectScreen(
                                 .height(44.dp),
                             shape = BiuZRadius.medium,
                         ) {
-                            Text("重新连接")
+                            Text(stringResource(R.string.connect_reconnect))
                         }
                     }
                 }
@@ -347,10 +355,15 @@ fun ConnectScreen(
                     onClick = { manualExpanded = !manualExpanded },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp),
+                        .height(44.dp)
+                        .testTag("l1-btn-manual"),
                     shape = BiuZRadius.medium,
                 ) {
-                    Text(if (manualExpanded) "收起手动连接" else "手动输入地址连接")
+                    Text(
+                        stringResource(
+                            if (manualExpanded) R.string.connect_manual_hide else R.string.connect_manual_show,
+                        ),
+                    )
                 }
                 if (manualExpanded) {
                     Spacer(Modifier.height(BiuZSpacing.sm))
@@ -363,9 +376,11 @@ fun ConnectScreen(
                         OutlinedTextField(
                             value = addressText,
                             onValueChange = { addressText = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("地址 · host:port 或完整链接") },
-                            placeholder = { Text("192.168.1.24:3030") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("l1-field-address"),
+                            label = { Text(stringResource(R.string.connect_address_label)) },
+                            placeholder = { Text(stringResource(R.string.connect_address_hint)) },
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -374,11 +389,13 @@ fun ConnectScreen(
                         OutlinedTextField(
                             value = tokenText,
                             onValueChange = { tokenText = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("访问令牌（可选）") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("l1-field-token"),
+                            label = { Text(stringResource(R.string.connect_token_label)) },
                             supportingText = {
                                 Text(
-                                    "安全输入 · 可选：--no-token 部署可留空；完整链接里的 token 自动拆解",
+                                    stringResource(R.string.connect_token_hint),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = BiuZText3,
                                 )
@@ -399,7 +416,12 @@ fun ConnectScreen(
                         Button(
                             onClick = {
                                 scope.launch {
-                                    manualError = ConnectFlow.connectFromText(session, addressText, tokenText)
+                                    manualError = ConnectFlow.connectFromText(
+                                        context,
+                                        session,
+                                        addressText,
+                                        tokenText,
+                                    )
                                 }
                             },
                             modifier = Modifier
@@ -408,28 +430,24 @@ fun ConnectScreen(
                             shape = BiuZRadius.medium,
                             enabled = addressText.isNotBlank(),
                         ) {
-                            Text("连接")
+                            Text(stringResource(R.string.connect_btn_connect))
                         }
                     }
                 }
 
                 Spacer(Modifier.height(BiuZSpacing.sm))
                 Text(
-                    text = "如何在桌面端开启？ · $ zcode --web --host 0.0.0.0",
+                    text = stringResource(R.string.connect_guide_title),
                     style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) { helpExpanded = !helpExpanded }
+                        .testTag("l1-link-guide")
+                        .clickableNoRipple { helpExpanded = !helpExpanded }
                         .padding(vertical = BiuZSpacing.sm),
                 )
                 if (helpExpanded) {
                     Text(
-                        text = "① 桌面机执行 zcode --web --host 0.0.0.0 [--port 3030]，终端打印带令牌链接（http://<LAN-IP>:<port>/?token=…）\n" +
-                            "② 手机与桌面端须同一局域网；Android 无「本地网络」权限弹窗，若超时先查热点/VPN 隔离\n" +
-                            "③ 令牌随链接下发、仅保存在本机应用私有存储；--no-token 部署（authRequired=false）令牌可留空",
+                        text = stringResource(R.string.connect_guide_body),
                         style = MaterialTheme.typography.labelMedium,
                         color = BiuZText3,
                         modifier = Modifier.fillMaxWidth(),
@@ -439,7 +457,7 @@ fun ConnectScreen(
 
             Spacer(Modifier.height(BiuZSpacing.xl))
             Text(
-                text = "凭据仅保存在本机 · 连接仅面向可信局域网 · 只读边界由桌面端强制",
+                text = stringResource(R.string.app_foot_boundary),
                 style = MaterialTheme.typography.labelSmall,
                 color = BiuZText3,
                 textAlign = TextAlign.Center,
@@ -448,6 +466,15 @@ fun ConnectScreen(
         }
     }
 }
+
+/** 去涟漪点击（链接行同款；iOS onTapGesture 对位）。 */
+private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier = this.then(
+    Modifier.clickable(
+        interactionSource = MutableInteractionSource(),
+        indication = null,
+        onClick = onClick,
+    ),
+)
 
 // MARK: - 最近连接卡（名称 + mono 地址 + 中性探测点 + 连接钮）
 
@@ -465,15 +492,8 @@ private fun RecentServerCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // 中性探测点（在线状态与任务状态胶囊解耦；spec §5.6）：绿=可达 / 灰=不可达 / 半透明=未探测
-            val dotColor = when {
-                probe == null -> BiuZText3.copy(alpha = 0.4f)
-                probe.error == null && probe.info != null -> MaterialTheme.colorScheme.primary
-                else -> BiuZText3
-            }
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .background(dotColor, CircleShape),
+            ProbeDot(
+                reachable = if (probe == null) null else probe.error == null && probe.info != null,
             )
             Spacer(Modifier.size(BiuZSpacing.sm))
             Text(
@@ -483,8 +503,15 @@ private fun RecentServerCard(
                 modifier = Modifier.weight(1f),
             )
             server.lastConnectedAt?.let { last ->
+                val lastSeenPattern = stringResource(R.string.connect_last_seen_pattern)
+                val format = remember(lastSeenPattern) {
+                    SimpleDateFormat(lastSeenPattern, Locale.getDefault())
+                }
                 Text(
-                    text = "上次连接 " + SimpleDateFormat("M 月 d 日 HH:mm", Locale.CHINA).format(Date(last)),
+                    text = stringResource(
+                        R.string.connect_recent_last_seen_fmt,
+                        format.format(Date(last)),
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = BiuZText3,
                 )
@@ -504,7 +531,7 @@ private fun RecentServerCard(
                 .height(44.dp),
             shape = BiuZRadius.medium,
         ) {
-            Text("连接")
+            Text(stringResource(R.string.connect_btn_connect))
         }
     }
 }
@@ -525,7 +552,7 @@ private fun ConnectingSteps(
             .padding(BiuZSpacing.md),
     ) {
         Text(
-            text = "正在连接 ${server.displayName}",
+            text = stringResource(R.string.connect_connecting_fmt, server.displayName),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -536,7 +563,13 @@ private fun ConnectingSteps(
         )
         Spacer(Modifier.height(BiuZSpacing.sm))
         val steps = progress?.allSteps.orEmpty()
-        val stepTitles = listOf("发现桌面端", "鉴权", "WS 通道", "v4 握手", "工作区")
+        val stepTitles = listOf(
+            stringResource(R.string.connect_step_1),
+            stringResource(R.string.connect_step_2),
+            stringResource(R.string.connect_step_3),
+            stringResource(R.string.connect_step_4),
+            stringResource(R.string.connect_step_5),
+        )
         steps.forEachIndexed { index, step ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -582,7 +615,7 @@ private fun ConnectingSteps(
         if (steps.isNotEmpty()) {
             Spacer(Modifier.height(BiuZSpacing.xs))
             Text(
-                text = "连接中 · ${progress?.completedCount ?: 0}/${steps.size}",
+                text = stringResource(R.string.connect_progress_fmt, progress?.completedCount ?: 0, steps.size),
                 style = MaterialTheme.typography.labelMedium,
                 color = BiuZText2,
             )
@@ -604,32 +637,59 @@ private fun ConnectingSteps(
                 .height(44.dp),
             shape = BiuZRadius.medium,
         ) {
-            Text("取消")
+            Text(stringResource(R.string.action_cancel))
         }
     }
 }
 
-// MARK: - L3 失败页（服务端拒因原文 + 四态对照 + 主 CTA 不死路）
+// MARK: - L3 失败对照（种类枚举 → 资源文案；单测断言种类词面，双语稳健口径）
 
-/** L3 对照行（l3-row-401/timeout/protocol/empty-ws；超时必含局域网检查项）。 */
-internal fun connectFailureGuidance(error: ConnectError): List<String> = when (error) {
+/** L3 对照行提示种类（l3-row-401/timeout/protocol/empty-ws；超时必含局域网检查项）。 */
+internal sealed interface ConnectFailureHint {
+    data object TokenMismatch : ConnectFailureHint
+    data class RejectedEndpoint(val endpoint: String) : ConnectFailureHint
+    data class Http(val status: Int) : ConnectFailureHint
+    data object CheckLan : ConnectFailureHint
+    data object CheckHostFlag : ConnectFailureHint
+    data object IsolationVpn : ConnectFailureHint
+    data object ProtocolVersion : ConnectFailureHint
+    data object EmptyWorkspace : ConnectFailureHint
+    data object Handshake : ConnectFailureHint
+    data object Transport : ConnectFailureHint
+}
+
+internal fun connectFailureHints(error: ConnectError): List<ConnectFailureHint> = when (error) {
     is ConnectError.Http -> if (error.status == 401) {
         listOf(
-            "令牌不匹配 · 重新扫码更新令牌",
-            if (error.endpoint.isNotBlank()) "被拒端点：${error.endpoint}" else "",
-        )
+            ConnectFailureHint.TokenMismatch,
+            if (error.endpoint.isNotBlank()) ConnectFailureHint.RejectedEndpoint(error.endpoint) else null,
+        ).filterNotNull()
     } else {
-        listOf("服务返回 HTTP ${error.status} · 确认桌面端服务正常")
+        listOf(ConnectFailureHint.Http(error.status))
     }
     is ConnectError.Timeout -> listOf(
-        "确认手机与桌面端在同一局域网",
-        "确认桌面端以 --host 0.0.0.0 启动（非 loopback）",
-        "热点隔离 / VPN 也会静默超时",
+        ConnectFailureHint.CheckLan,
+        ConnectFailureHint.CheckHostFlag,
+        ConnectFailureHint.IsolationVpn,
     )
-    is ConnectError.ProtocolVersion -> listOf("移动端与桌面端协议版本不一致 · 升级其中一端")
-    ConnectError.EmptyWorkspaces -> listOf("桌面端启动未携带 --workspace · 检查启动参数")
-    is ConnectError.HandshakeFailed -> listOf("v4 握手被拒 · 拒因见上方错误码行")
-    is ConnectError.Transport -> listOf("无法建立 WebSocket · 确认端口与防火墙")
+    is ConnectError.ProtocolVersion -> listOf(ConnectFailureHint.ProtocolVersion)
+    ConnectError.EmptyWorkspaces -> listOf(ConnectFailureHint.EmptyWorkspace)
+    is ConnectError.HandshakeFailed -> listOf(ConnectFailureHint.Handshake)
+    is ConnectError.Transport -> listOf(ConnectFailureHint.Transport)
+}
+
+@Composable
+internal fun connectFailureHintText(hint: ConnectFailureHint): String = when (hint) {
+    ConnectFailureHint.TokenMismatch -> stringResource(R.string.connect_fail_token)
+    is ConnectFailureHint.RejectedEndpoint -> stringResource(R.string.connect_fail_endpoint_fmt, hint.endpoint)
+    is ConnectFailureHint.Http -> stringResource(R.string.connect_fail_http_fmt, hint.status)
+    ConnectFailureHint.CheckLan -> stringResource(R.string.connect_fail_lan)
+    ConnectFailureHint.CheckHostFlag -> stringResource(R.string.connect_fail_host)
+    ConnectFailureHint.IsolationVpn -> stringResource(R.string.connect_fail_isolation)
+    ConnectFailureHint.ProtocolVersion -> stringResource(R.string.connect_fail_protocol)
+    ConnectFailureHint.EmptyWorkspace -> stringResource(R.string.connect_fail_empty_ws)
+    ConnectFailureHint.Handshake -> stringResource(R.string.connect_fail_handshake)
+    ConnectFailureHint.Transport -> stringResource(R.string.connect_fail_transport)
 }
 
 @Composable
@@ -645,11 +705,12 @@ private fun ConnectFailedCard(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f), BiuZRadius.medium)
-            .padding(BiuZSpacing.md),
+            .padding(BiuZSpacing.md)
+            .testTag("l3-card-failed"),
     ) {
         // 红横幅口径：headline + mono 错误码行（服务端拒因原文上屏，禁笼统「连接失败」）
         Text(
-            text = "连接失败 · ${error.headline}",
+            text = stringResource(R.string.connect_failed_fmt, error.headline),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.error,
             textAlign = TextAlign.Center,
@@ -664,9 +725,9 @@ private fun ConnectFailedCard(
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(BiuZSpacing.sm))
-        connectFailureGuidance(error).filter { it.isNotBlank() }.forEach { line ->
+        connectFailureHints(error).forEach { hint ->
             Text(
-                text = "· $line",
+                text = "· ${connectFailureHintText(hint)}",
                 style = MaterialTheme.typography.labelMedium,
                 color = BiuZText2,
                 modifier = Modifier.padding(vertical = BiuZSpacing.xs / 2),
@@ -677,10 +738,11 @@ private fun ConnectFailedCard(
             onClick = onRetry,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(44.dp),
+                .height(44.dp)
+                .testTag("l3-btn-retry"),
             shape = BiuZRadius.medium,
         ) {
-            Text("重试连接")
+            Text(stringResource(R.string.connect_retry))
         }
         Spacer(Modifier.height(BiuZSpacing.xs))
         Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
@@ -688,25 +750,31 @@ private fun ConnectFailedCard(
                 onClick = onRescan,
                 modifier = Modifier
                     .weight(1f)
-                    .height(44.dp),
+                    .height(44.dp)
+                    .testTag("l3-btn-rescan"),
                 shape = BiuZRadius.medium,
             ) {
-                Text("重新扫码", maxLines = 1)
+                Text(stringResource(R.string.connect_rescan), maxLines = 1)
             }
             OutlinedButton(
                 onClick = onDelete,
                 modifier = Modifier
                     .weight(1f)
-                    .height(44.dp),
+                    .height(44.dp)
+                    .testTag("l3-btn-delete"),
                 shape = BiuZRadius.medium,
             ) {
-                Text("删除记录", color = MaterialTheme.colorScheme.error, maxLines = 1)
+                Text(
+                    stringResource(R.string.connect_delete_record),
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 1,
+                )
             }
         }
         if (developerMode) {
             Spacer(Modifier.height(BiuZSpacing.xs))
             Text(
-                text = "目标 ${server.displayAddress}（开发者模式可在连接页手动改址/改令牌）",
+                text = stringResource(R.string.connect_dev_target_fmt, server.displayAddress),
                 style = MaterialTheme.typography.labelSmall,
                 color = BiuZText3,
                 textAlign = TextAlign.Center,

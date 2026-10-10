@@ -51,6 +51,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -58,7 +59,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
+import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.ui.scan.QrAnalyzer
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
@@ -86,13 +89,16 @@ import kotlinx.coroutines.launch
 @Composable
 fun ScanScreen(
     session: AppSession,
+    settings: AppSettingsStore,
     onClose: () -> Unit,
-    developerMode: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    // 手动族入口文案 gating（与连接页同源：设置页品牌行 7 连击 || -ZCodeDevMode）
+    val developerModePersisted by settings.developerMode.collectAsStateWithLifecycle()
+    val developerMode = developerModePersisted || settings.developerModeStartupArgument
 
     // MARK: 相机权限三态（正常取景 / 请求中 / 拒绝引导卡）
     var permissionGranted by remember {
@@ -137,11 +143,11 @@ fun ScanScreen(
         scope.launch {
             if (connectStarted) return@launch
             if (ConnectURLParser.extractLink(raw) == null) {
-                inlineError = "未识别的二维码内容 · 期望 http(s)://host:port/?token=…"
+                inlineError = context.getString(R.string.scan_unrecognized)
                 return@launch
             }
             connectStarted = true
-            val error = ConnectFlow.connectFromText(session, raw)
+            val error = ConnectFlow.connectFromText(context, session, raw)
             if (error != null) {
                 inlineError = error
                 connectStarted = false
@@ -161,7 +167,7 @@ fun ScanScreen(
                 val provider = try {
                     future.get() // 回调时序 = future 已完成，此 get 非阻塞
                 } catch (e: Exception) {
-                    cameraError = "相机初始化失败 · ${e.message ?: e.javaClass.simpleName}"
+                    cameraError = context.getString(R.string.scan_cam_init_fail_fmt, e.message ?: e.javaClass.simpleName)
                     return@addListener
                 }
                 try {
@@ -180,7 +186,7 @@ fun ScanScreen(
                     )
                     boundProvider = provider
                 } catch (e: Exception) {
-                    cameraError = "相机不可用 · ${e.message ?: e.javaClass.simpleName}"
+                    cameraError = context.getString(R.string.scan_cam_unavailable_fmt, e.message ?: e.javaClass.simpleName)
                 }
             },
             ContextCompat.getMainExecutor(context),
@@ -230,7 +236,7 @@ fun ScanScreen(
             !permissionGranted && !permissionDenied -> {
                 // 系统权限弹窗在场（首个 ON_RESUME 后弹）；App 层只留背景提示
                 Text(
-                    text = "正在请求相机权限…",
+                    text = stringResource(R.string.scan_requesting),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White,
                     modifier = Modifier.align(Alignment.Center),
@@ -268,7 +274,7 @@ fun ScanScreen(
                     )
                     Spacer(Modifier.height(BiuZSpacing.md))
                     OutlinedButton(onClick = onClose, modifier = Modifier.height(44.dp)) {
-                        Text("返回 · 改用剪贴板/手动输入")
+                        Text(stringResource(R.string.scan_back_fallback))
                     }
                 }
             }
@@ -320,7 +326,7 @@ fun ScanScreen(
                     }
                     Spacer(Modifier.height(BiuZSpacing.md))
                     Text(
-                        text = "对准桌面端出示的连接二维码\nhttp(s)://host:port/?token=…",
+                        text = stringResource(R.string.scan_viewfinder_hint),
                         style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
                         color = Color.White.copy(alpha = 0.85f),
                         textAlign = TextAlign.Center,
@@ -348,7 +354,7 @@ fun ScanScreen(
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(R.drawable.ic_close),
-                        contentDescription = "关闭",
+                        contentDescription = stringResource(R.string.scan_close_cd),
                         tint = Color.White,
                     )
                 }
@@ -387,14 +393,19 @@ private fun CameraDeniedCard(
     ) {
         // l1-s-card-denied：相机权限拒绝引导卡（主 CTA 不死路）
         Text(
-            text = "相机权限未开启",
+            text = stringResource(R.string.scan_denied_title),
             style = MaterialTheme.typography.titleLarge,
             color = Color.White,
         )
         Spacer(Modifier.height(BiuZSpacing.sm))
         Text(
-            text = "扫码识别桌面端连接二维码需要相机权限。\n也可以在桌面端终端复制带令牌的连接链接，" +
-                if (developerMode) "或返回连接页手动输入地址（开发者模式）。" else "回连接页一键填充。",
+            text = stringResource(
+                R.string.scan_denied_body_fmt,
+                stringResource(
+                    if (developerMode) R.string.scan_denied_dev_suffix
+                    else R.string.scan_denied_default_suffix,
+                ),
+            ),
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.copy(alpha = 0.8f),
             textAlign = TextAlign.Center,
@@ -407,7 +418,7 @@ private fun CameraDeniedCard(
                 .height(44.dp),
             shape = BiuZRadius.medium,
         ) {
-            Text("去系统设置开启")
+            Text(stringResource(R.string.scan_open_settings))
         }
         Spacer(Modifier.height(BiuZSpacing.xs))
         OutlinedButton(
@@ -418,11 +429,11 @@ private fun CameraDeniedCard(
             shape = BiuZRadius.medium,
         ) {
             // l1-s-btn-manual 逃生口（两态共用语义）：回连接页（剪贴板横幅/开发者模式手输）
-            Text("改用手动输入连接")
+            Text(stringResource(R.string.scan_fallback_manual))
         }
         Spacer(Modifier.height(BiuZSpacing.xs))
         androidx.compose.material3.TextButton(onClick = onRetryPermission) {
-            Text("重新请求相机权限", color = Color.White.copy(alpha = 0.7f))
+            Text(stringResource(R.string.scan_retry_permission), color = Color.White.copy(alpha = 0.7f))
         }
     }
 }

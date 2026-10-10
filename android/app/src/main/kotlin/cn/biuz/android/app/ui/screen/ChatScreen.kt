@@ -46,6 +46,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
@@ -69,6 +70,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -86,6 +88,9 @@ import cn.biuz.android.app.ui.chat.ModelOptionSection
 import cn.biuz.android.app.ui.chat.ModelRefetchRow
 import cn.biuz.android.app.ui.chat.PendingAttachmentThumb
 import cn.biuz.android.app.ui.chat.QueueBar
+import cn.biuz.android.app.ui.chat.SessionPanelKind
+import cn.biuz.android.app.ui.chat.SessionPanelsSection
+import cn.biuz.android.app.ui.chat.SessionWorkflowTrackView
 import cn.biuz.android.app.ui.chat.ThoughtOptionSection
 import cn.biuz.android.app.ui.chat.freeTextAnswer
 import cn.biuz.android.app.ui.chat.optionAnswer
@@ -96,6 +101,7 @@ import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.ToolCall
 import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZBgCard
+import cn.biuz.android.app.ui.theme.BiuZBgElevated
 import cn.biuz.android.app.ui.theme.BiuZBgInput
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
 import cn.biuz.android.app.ui.theme.BiuZOnAccent
@@ -151,7 +157,17 @@ fun ChatScreen(
     val modelSwitchFailure by viewModel.modelSwitchFailure.collectAsStateWithLifecycle()
     val queueInfoState by viewModel.queueInfo.collectAsStateWithLifecycle()
     val queueActionFailure by viewModel.queueActionFailure.collectAsStateWithLifecycle()
+    // 面板区投影（chips 行数据源）+ 聊天页顶迷你轨道数据源（行自带 workflowActivity）
+    val workflowRuns by viewModel.workflowRuns.collectAsStateWithLifecycle()
+    val currentConversation by viewModel.currentConversation.collectAsStateWithLifecycle()
     val readOnly = viewModel.isReadOnly
+
+    // 会话面板展开态（SessionPanelsSection 绑定；iOS ChatView expandedPanel 同位——
+    // 键盘弹出即收起的正向联动在 iOS 由 FocusState 承担，Compose 输入框聚焦不冲突，
+    // 面板体自身滚动即收键盘，此处保留显式收起单路径）
+    var expandedPanel by remember { mutableStateOf<cn.biuz.android.app.ui.chat.SessionPanelKind?>(null) }
+    // 工作流完成卡产物详情 sheet（点交付物/产物索引行；null = 收起）
+    var artifactSheet by remember { mutableStateOf<WorkflowArtifactSheetRequest?>(null) }
 
     // 待发附件投影（service 是命令式可变对象——版本计数 + 快照读面驱动重组；
     // 提示行镜像随同一版本号重读）
@@ -244,6 +260,31 @@ fun ChatScreen(
             )
         }
 
+        // MARK: 聊天页顶会话迷你轨道（G-007；行自带 workflowActivity 活 run 投影——
+        // 只画运行中，全部收尾的会话不渲染轨道）
+        val trackActivity = currentConversation?.workflowActivity
+        if (trackActivity != null && trackActivity.liveRuns.isNotEmpty()) {
+            SessionWorkflowTrackView(
+                activity = trackActivity,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = BiuZSpacing.lg)
+                    .padding(bottom = BiuZSpacing.xs),
+            )
+        }
+
+        // MARK: 会话面板区（goal/plan/工作流/后台/子代理 chips + 单开面板；iOS ChatView
+        // content 顶部同位——数据缺席整区不渲染，不占消息流空间）
+        SessionPanelsSection(
+            viewModel = viewModel,
+            expanded = expandedPanel,
+            onExpandedChange = { expandedPanel = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = BiuZSpacing.lg)
+                .padding(bottom = BiuZSpacing.sm),
+        )
+
         // MARK: 消息流
         LazyColumn(
             state = listState,
@@ -272,6 +313,21 @@ fun ChatScreen(
             items(messages, key = { it.id }) { message ->
                 MessageRow(
                     message = message,
+                    // 工作流完成卡四格 join（活投影按 runId 对位；冷恢复 run 被淘汰 = 三格
+                    // 「—」桌面同口径）+ ⤢ 门控（仅卡对应 run 是面板当前 run 时接线）
+                    workflowCompletionRun = message.workflowCompletion?.let { card ->
+                        workflowRuns.firstOrNull {
+                            (it.workId ?: it.id) == card.runId || it.id == card.runId
+                        }
+                    },
+                    onOpenWorkflowRun = message.workflowCompletion?.let { card ->
+                        viewModel.workflowRun
+                            ?.takeIf { (it.workId ?: it.id) == card.runId }
+                            ?.let { { expandedPanel = cn.biuz.android.app.ui.chat.SessionPanelKind.Workflow } }
+                    },
+                    onOpenWorkflowArtifact = { card, artifact ->
+                        artifactSheet = WorkflowArtifactSheetRequest(card = card, artifact = artifact)
+                    },
                     onRetryToolCall = { origin: ChatMessage, call: ToolCall ->
                         // G-015：retryTurn 经 store；rowId 来自行合成 id（"row-<n>"），
                         // entityId 由卡片渲染门槛保证在场（无游标 store 拒发如实反馈）
@@ -468,6 +524,11 @@ fun ChatScreen(
                     modifier = Modifier.testTag("05-attach-fail-hint"),
                 )
             }
+            // HIDDEN(H4/H5，隐藏入口待恢复清单)：仓库/语音 chips 与 composer 目标菜单
+            // 未移植（iOS ChatView 由 AppSession.isDemoDataEnabled gating 隐藏，
+            // HIDDEN 标记在位；E2E 依赖保留，常驻化属产品裁决）。Android 恢复条件 =
+            // 对应 chips 落位时同口径以 demo/dev gating 携 HIDDEN 标记接线，勿默认常驻。
+            //
             // 协作模式 chip + 模型/思考胶囊（remoteChips 同构：面板统一撤焦先行 +
             // 120ms 延迟呈现；模型胶囊恒开面板——空清单呈「重新获取」行不死路）
             Row {
@@ -614,6 +675,185 @@ fun ChatScreen(
     // 全屏附件单一宿主（图片/视频合流一个 Dialog 位点——v1.32③ 后挂遮蔽先挂坑对位；
     // item == null 不挂载）
     AttachmentFullscreenHost(state = fullscreenState)
+
+    // 工作流完成卡产物详情 sheet（点交付物/产物索引行；store.workflowArtifactContent
+    // 分块拼装，markdown/plain 全文渲染；宿主注入 store 读面——VM 内 store 私有的
+    // iOS 过桥同位）
+    val sheetRequest = artifactSheet
+    if (sheetRequest != null) {
+        WorkflowArtifactSheet(
+            request = sheetRequest,
+            sessionId = sessionId,
+            load = { request ->
+                surface.conversation.workflowArtifactContent(
+                    sessionId = sessionId,
+                    runId = request.card.runId,
+                    artifactId = request.artifact.id,
+                    version = request.artifact.version,
+                )
+            },
+            onClose = { artifactSheet = null },
+        )
+    }
+}
+
+/** 产物详情 sheet 请求（完成卡产物点按；iOS WorkflowArtifactRequest 直译）。 */
+data class WorkflowArtifactSheetRequest(
+    val card: cn.biuz.android.protocol.WorkflowCompletionCard,
+    val artifact: cn.biuz.android.protocol.WorkflowCompletionArtifact,
+)
+
+/**
+ * 工作流产物详情 sheet（iOS WorkflowArtifactSheetView :2095-2178 直译）：
+ * workflowRunArtifactReadV4 分块拼装 markdown/plain 全文渲染；其余 mediaType 如实标注
+ * 「暂不支持手机端预览」；加载失败保留错误行 + 重试（读面失败不折叠成空态，§5-12 口径）。
+ * 【平台偏差】iOS 正文走 TinyMarkdown 富渲染；Android v1 正文原样呈现（可读性够用，
+ * 富文本渲染器未移植，见交付 deviations）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WorkflowArtifactSheet(
+    request: WorkflowArtifactSheetRequest,
+    sessionId: String,
+    load: suspend (WorkflowArtifactSheetRequest) -> cn.biuz.android.store.ArtifactContent?,
+    onClose: () -> Unit,
+) {
+    var content by remember(request) { mutableStateOf<String?>(null) }
+    var failureText by remember(request) { mutableStateOf<String?>(null) }
+    var isLoading by remember(request) { mutableStateOf(true) }
+    var reloadTick by remember(request) { mutableStateOf(0) }
+
+    LaunchedEffect(request, reloadTick) {
+        isLoading = true
+        failureText = null
+        content = null
+        val result = load(request)
+        isLoading = false
+        if (result == null) {
+            failureText = "" // UI 层映射资源文案（VM 零文案纪律同款：sheet 内自持文案位）
+            return@LaunchedEffect
+        }
+        if (isRenderableArtifact(result.mediaType)) {
+            val text = result.data.toString(Charsets.UTF_8)
+            // >6k 字内置截断护解析（iOS MarkdownMessageBody 同口径）
+            content = if (text.length > 6_000) text.take(6_000) else text.ifEmpty { null }
+        } else {
+            content = null // 非文本族：不出空态，出如实提示（产物元数据仍可见）
+        }
+    }
+
+    ModalBottomSheet(onDismissRequest = onClose, containerColor = BiuZBgElevated) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 560.dp),
+        ) {
+            // 头部：标题 + 关闭
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = BiuZSpacing.lg, vertical = BiuZSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = request.artifact.title ?: request.artifact.id,
+                    style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                    color = BiuZText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = stringResource(R.string.action_close),
+                    style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                    color = BiuZText2,
+                    modifier = Modifier
+                        .clickable(onClick = onClose)
+                        .testTag("07-wf-artifact-close")
+                        .padding(BiuZSpacing.sm),
+                )
+            }
+            when {
+                isLoading -> Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = BiuZSpacing.xl),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = BiuZAccent,
+                    )
+                    Spacer(Modifier.size(BiuZSpacing.sm))
+                    Text(
+                        text = stringResource(R.string.wf_artifact_loading),
+                        style = TextStyle(fontSize = 13.sp),
+                        color = BiuZText3,
+                    )
+                }
+
+                failureText != null -> Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = BiuZSpacing.lg, vertical = BiuZSpacing.xl),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+                ) {
+                    Text(
+                        text = stringResource(R.string.wf_artifact_load_failed),
+                        style = TextStyle(fontSize = 13.sp),
+                        color = BiuZText3,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        text = stringResource(R.string.composer_retry),
+                        style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                        color = BiuZAccent,
+                        modifier = Modifier
+                            .clickable { reloadTick++ }
+                            .padding(BiuZSpacing.sm),
+                    )
+                }
+
+                content != null -> Text(
+                    text = content ?: "",
+                    style = TextStyle(fontSize = 13.sp, lineHeight = 20.sp, color = BiuZText),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = BiuZSpacing.lg)
+                        .verticalScroll(rememberScrollState()),
+                )
+
+                else -> Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = BiuZSpacing.lg, vertical = BiuZSpacing.xl),
+                    verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = request.artifact.title ?: request.artifact.id,
+                        style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                        color = BiuZText,
+                    )
+                    Text(
+                        text = stringResource(R.string.wf_artifact_unsupported),
+                        style = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp),
+                        color = BiuZText3,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+            Spacer(Modifier.height(BiuZSpacing.xl))
+        }
+    }
+}
+
+/** 可渲染判定：markdown/纯文本族（v1 渲染面；二进制族如实体签名出提示页）（iOS :2153-2158）。 */
+private fun isRenderableArtifact(mediaType: String): Boolean {
+    val mt = mediaType.lowercase()
+    return mt.startsWith("text/") || mt.contains("markdown") || mt == "application/json"
 }
 
 // MARK: - 附件选择器入队（iOS addPhotoPickerItems ChatView.swift:2457-2476 同构）

@@ -4,21 +4,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import cn.biuz.android.app.BuildConfig
+import cn.biuz.android.app.settings.AppSettingsStore
+import cn.biuz.android.app.ui.screen.AboutScreen
 import cn.biuz.android.app.ui.screen.ChatScreen
 import cn.biuz.android.app.ui.screen.ConnectScreen
+import cn.biuz.android.app.ui.screen.FilePreviewScreen
+import cn.biuz.android.app.ui.screen.FileTreeScreen
+import cn.biuz.android.app.ui.screen.FilesScreen
+import cn.biuz.android.app.ui.screen.LanguageSettingsScreen
 import cn.biuz.android.app.ui.screen.ScanScreen
 import cn.biuz.android.app.ui.screen.SessionsScreen
 import cn.biuz.android.app.ui.screen.SettingsScreen
+import cn.biuz.android.app.ui.screen.UsageStatsScreen
 import cn.biuz.android.connection.AppSession
 
 /** AppSession 装配面（深层占位屏后续经此取 Store 面而不必逐层传参）。 */
@@ -26,24 +29,36 @@ val LocalAppSession = staticCompositionLocalOf<AppSession> {
     error("AppSession 未装配（BiuzApplication/MainActivity 接线缺失）")
 }
 
+/** 应用设置装配面（开发者模式/语言偏好；BiuzApplication 构造，全导航树可达）。 */
+val LocalAppSettings = staticCompositionLocalOf<AppSettingsStore> {
+    error("AppSettingsStore 未装配（BiuzApplication/MainActivity 接线缺失）")
+}
+
 /**
  * 导航宿主（Routes：connect（连接页，未连接拦截入口）→ scan（扫码）/ sessions（会话列表）
- * → chat/{sessionId}（会话流）/ settings（设置））。
+ * → chat/{sessionId}（会话流）/ settings（设置）→ settings/{language,about,usage}（设置族）。
  *
  * 连接生命周期接线（iOS RootView 数据源切换同语义）：
  * - 冷启动一次 bootstrap（已存服务器自动重连；未配置连接页为根）；
  * - mode=Connected → 会话列表为根（先装配 Store 再切 mode，装配面经 [AppSession.storeSurface]
  *   以 epoch 为 key 重绑——视图按 store 实例重建，防永久抱空 store）；
  * - mode=Demo（删除服务器等）→ 连接页为根；断线/连接失败不导航（快照/错误横幅原地呈现）。
+ *
+ * 开发者模式（§5-17）：设置页品牌行连点 7 次翻转持久化开关（[AppSettingsStore]），
+ * 有效口径 = 持久化 || -ZCodeDevMode 启动参数；连接页/扫码页手动连接族统一消费同一
+ * StateFlow（M2 壳期的 BuildConfig.DEBUG 等效与连接页品牌行临时手势已撤——见
+ * AppSettingsStore KDoc）。
  */
 @Composable
-fun BiuZApp(session: AppSession) {
+fun BiuZApp(
+    session: AppSession,
+    settings: AppSettingsStore,
+) {
     val navController = rememberNavController()
-    // 开发者模式（交接 §5-17）：effectiveDeveloperMode = BuildConfig.DEBUG（本期调试开关等效）
-    // || 连接页品牌行连点 7 次的本地 override（iOS 设置页品牌行落位；设置页随设置里程碑接线后迁移）。
-    var developerModeOverride by rememberSaveable { mutableStateOf(false) }
-    val developerMode = BuildConfig.DEBUG || developerModeOverride
-    CompositionLocalProvider(LocalAppSession provides session) {
+    CompositionLocalProvider(
+        LocalAppSession provides session,
+        LocalAppSettings provides settings,
+    ) {
         // 冷启动装配（iOS RootView .task { await session.bootstrap() } 同位；幂等由
         // AppSession 生命周期保证——本组合即宿主根，仅执行一次）
         LaunchedEffect(session) {
@@ -74,17 +89,16 @@ fun BiuZApp(session: AppSession) {
             composable(Routes.CONNECT) {
                 ConnectScreen(
                     session = session,
+                    settings = settings,
                     onOpenScan = { navController.navigate(Routes.SCAN) },
                     onOpenSessions = { navController.navigate(Routes.SESSIONS) },
-                    developerMode = developerMode,
-                    onToggleDeveloperModeOverride = { developerModeOverride = !developerModeOverride },
                 )
             }
             composable(Routes.SCAN) {
                 ScanScreen(
                     session = session,
+                    settings = settings,
                     onClose = { navController.popBackStack() },
-                    developerMode = developerMode,
                 )
             }
             composable(Routes.SESSIONS) {
@@ -97,6 +111,43 @@ fun BiuZApp(session: AppSession) {
                             popUpTo(0) { inclusive = true }
                         }
                     },
+                    onOpenFiles = { navController.navigate(Routes.FILES) },
+                )
+            }
+            // 文件页（屏 08 Diff 审查根 → 屏 09 目录树 → 文件预览；iOS FileTreeView/
+            // DiffReviewView 直译对位）
+            composable(Routes.FILES) {
+                FilesScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                    onOpenTree = { navController.navigate(Routes.FILES_TREE) },
+                )
+            }
+            composable(Routes.FILES_TREE) {
+                FileTreeScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                    onOpenPreview = { node ->
+                        navController.navigate(
+                            Routes.filesPreview(
+                                path = node.path,
+                                name = node.name,
+                                size = node.size?.toLong(),
+                            ),
+                        )
+                    },
+                )
+            }
+            composable(Routes.FILES_PREVIEW) { backStackEntry ->
+                val path = backStackEntry.arguments?.getString("path").orEmpty()
+                val name = backStackEntry.arguments?.getString("name").orEmpty()
+                val size = backStackEntry.arguments?.getString("size")?.toLongOrNull()?.takeIf { it >= 0 }
+                FilePreviewScreen(
+                    session = session,
+                    path = path,
+                    name = name,
+                    size = size,
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(Routes.CHAT) { backStackEntry ->
@@ -104,7 +155,34 @@ fun BiuZApp(session: AppSession) {
                 ChatScreen(sessionId = sessionId, onBack = { navController.popBackStack() })
             }
             composable(Routes.SETTINGS) {
-                SettingsScreen(onBack = { navController.popBackStack() })
+                SettingsScreen(
+                    session = session,
+                    settings = settings,
+                    onBack = { navController.popBackStack() },
+                    onOpenLanguage = { navController.navigate(Routes.LANGUAGE) },
+                    onOpenUsage = { navController.navigate(Routes.USAGE) },
+                    onOpenAbout = { navController.navigate(Routes.ABOUT) },
+                )
+            }
+            composable(Routes.LANGUAGE) {
+                LanguageSettingsScreen(
+                    settings = settings,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.ABOUT) {
+                AboutScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.USAGE) {
+                UsageStatsScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                    onGoConnect = {
+                        navController.navigate(Routes.CONNECT) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                )
             }
         }
     }

@@ -25,16 +25,23 @@ package cn.biuz.android.app.ui.chat
 // VM 内不落任何用户可见文案（stringResource 由 UI 层承担；服务层拒因原文原样透传）——
 // 本类零 Android 依赖，:app 的 testDebugUnitTest 直测。
 
+import cn.biuz.android.protocol.BackgroundWorkSummary
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.CommandAck
+import cn.biuz.android.protocol.Conversation
 import cn.biuz.android.protocol.JSONValue
+import cn.biuz.android.protocol.PlanPanelSummary
+import cn.biuz.android.protocol.RemoteGoalSummary
 import cn.biuz.android.protocol.RemotePendingInteraction
+import cn.biuz.android.protocol.SubagentSessionSummary
+import cn.biuz.android.protocol.WorkflowRunSummary
 import cn.biuz.android.store.AttachmentUploadService
 import cn.biuz.android.store.ConversationEvent
 import cn.biuz.android.store.ConversationQueueInfo
 import cn.biuz.android.store.ConversationStore
 import cn.biuz.android.store.ModelSelectionInfo
 import cn.biuz.android.store.NewSessionModelSelection
+import cn.biuz.android.store.OptionalArg
 import cn.biuz.android.store.PendingAttachment
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -85,6 +92,12 @@ class ChatViewModel(
          * 同步时读 service.hint 真值，新提示/已清空都如实镜像）。
          */
         const val UPLOAD_HINT_SYNC_MS = 4_200L
+
+        /** 控制动作后首次回读 run 延迟（iOS scheduleRunRefresh 1.2s 同值）。 */
+        const val RUN_REFRESH_FIRST_MS = 1_200L
+
+        /** 首次回读到二次回读的间隔（iOS 2.5s 同值；总窗 3.7s）。 */
+        const val RUN_REFRESH_SECOND_GAP_MS = 2_500L
 
         /**
          * 思考档静态梯（iOS ChatView.fallbackThoughtLevels :2217 同值直译）：getView 不携带
@@ -315,6 +328,196 @@ class ChatViewModel(
     private val _queueActionFailure = MutableStateFlow<QueueActionFailure?>(null)
     val queueActionFailure: StateFlow<QueueActionFailure?> get() = _queueActionFailure
 
+    // MARK: 会话面板投影（goal/plan/工作流/btw 后台/side 子代理；iOS ChatViewModel :73-97 直译）
+
+    /**
+     * 桌面 workflow run 多 run 列表（store.workflowRuns 仲裁后投影：活 run 优先、
+     * stale 降级、同名取最新活——「取消按钮取活 run」的 store 侧保证：面板每张 run 卡
+     * 的取消打到各自 workId，且滞留活态旧 run 已被 store 降级 stopped，命令不再打到
+     * 死 workId【实证·上游仓 command.ts:221 cancelBackgroundWork {workId}】）。
+     */
+    private val _workflowRuns = MutableStateFlow<List<WorkflowRunSummary>>(emptyList())
+    val workflowRuns: StateFlow<List<WorkflowRunSummary>> get() = _workflowRuns
+
+    /** 主 run（活优先首个；chips 徽标与完成卡四格 join 兜底用）（iOS :75）。 */
+    val workflowRun: WorkflowRunSummary? get() = _workflowRuns.value.firstOrNull()
+
+    private val _goalSummary = MutableStateFlow<RemoteGoalSummary?>(null)
+    val goalSummary: StateFlow<RemoteGoalSummary?> get() = _goalSummary
+
+    private val _planPanel = MutableStateFlow<PlanPanelSummary?>(null)
+    val planPanel: StateFlow<PlanPanelSummary?> get() = _planPanel
+
+    private val _backgroundWorks = MutableStateFlow<List<BackgroundWorkSummary>>(emptyList())
+    val backgroundWorks: StateFlow<List<BackgroundWorkSummary>> get() = _backgroundWorks
+
+    private val _subagentSessions = MutableStateFlow<List<SubagentSessionSummary>>(emptyList())
+    val subagentSessions: StateFlow<List<SubagentSessionSummary>> get() = _subagentSessions
+
+    /**
+     * 当前会话行投影（聊天页顶迷你轨道数据源 = 行自带 workflowActivity，G-007；
+     * 初值 cachedConversation 内存摘要，随后列表事件逐条覆盖）。
+     */
+    private val _currentConversation = MutableStateFlow<Conversation?>(null)
+    val currentConversation: StateFlow<Conversation?> get() = _currentConversation
+
+    // MARK: 面板控制命令（pauseGoal / cancelBackgroundWork / resumeWorkflowRun / amendWorkflowRunSettings）
+
+    /** 面板控制命令失败面（常驻错误行数据源；成功提示走 [ControlFeedback.Success] 3s 自清）。 */
+    sealed class ControlFailure {
+        /** ack null：未送达（断线/未连接）。 */
+        data object Undelivered : ControlFailure()
+
+        /** status 缺席/词表外：未知态（交投影定案）。 */
+        data object UnknownState : ControlFailure()
+
+        /** 六态词表内失败：CommandAck.failureText（reasonCode + message 原文）。 */
+        data class Rejected(val text: String) : ControlFailure()
+    }
+
+    /** 面板控制成功反馈（UI 显资源文案 3s 自清；VM 零文案纪律）。 */
+    data object ControlSuccessHint
+
+    private val _controlFailure = MutableStateFlow<ControlFailure?>(null)
+    val controlFailure: StateFlow<ControlFailure?> get() = _controlFailure
+
+    private val _controlSuccess = MutableStateFlow(false)
+    val controlSuccess: StateFlow<Boolean> get() = _controlSuccess
+
+    /**
+     * 面板控制命令统一收口（iOS controlFeedback :549-557 + recordControlDiag 直译）：
+     * ack 三态映射；权威成功静默落 [ControlSuccessHint]（UI 3s 自清），失败落常驻
+     * 错误行（下次动作或 detach 清——「失败 3s 气泡一律改常驻」任务口径）。
+     * 成功后回读 run 投影（amend 类追加全量 resync——桌面停旧换新，新 run 可能只在
+     * 重发快照的 state.workflowRuns 里）（iOS scheduleRunRefresh :570-585 直译）。
+     */
+    private suspend fun controlAction(
+        resync: Boolean = false,
+        action: suspend (ConversationStore) -> JSONValue?,
+    ): ControlFailure? {
+        val store = attachedStore
+        val ack = store?.let { action(it) }
+        val commandAck = CommandAck(ack)
+        val failure = when {
+            ack == null -> ControlFailure.Undelivered
+            commandAck.isFailure -> ControlFailure.Rejected(commandAck.failureText ?: "桌面端拒绝")
+            commandAck.isAuthoritativeSuccess -> null
+            else -> ControlFailure.UnknownState
+        }
+        _controlFailure.value = failure
+        if (failure == null) {
+            _controlSuccess.value = true
+            scope.launch {
+                delay(hintClearMs)
+                _controlSuccess.value = false
+            }
+        }
+        scheduleRunRefresh(resync = resync)
+        return failure
+    }
+
+    /** 目标暂停/继续（state.goal 只读回显取反；无 goal = 本地拒绝不下发）（iOS toggleGoalPause :102-107）。 */
+    suspend fun toggleGoalPause(): ControlFailure? {
+        val goal = _goalSummary.value
+            ?: return ControlFailure.Rejected("当前会话没有可暂停的目标").also {
+                _controlFailure.value = it
+            }
+        return controlAction { store ->
+            store.setGoalPaused(paused = !goal.isPaused, conversationId = conversationId)
+        }
+    }
+
+    /** 取消后台工作 / run（btw 面板与 workflow 卡控制面；workId 由调用方取活 run 卡自带值）。 */
+    suspend fun cancelWork(workId: String): ControlFailure? =
+        controlAction { store -> store.cancelWork(conversationId, workId) }
+
+    /** 恢复工作流运行（stopped+resumable 卡；name 喂恢复后完成通知主题）。 */
+    suspend fun resumeWork(workId: String, name: String?): ControlFailure? =
+        controlAction { store -> store.resumeWorkflowRun(conversationId, workId, name) }
+
+    /**
+     * 子代理模型修改（amendWorkflowRunSettings.subagentModel；null = 跟随主模型）。
+     * 桌面语义：对运行中 run 改设置 = 停旧 run → 以新设置重启（新 runId）——成功也提示
+     * 「已下发」，回执后 run 由 resync 换新（iOS setSubagentModel :129-140 直译）。
+     * workId = run 卡自带定位键（store.workflowRuns 仲裁后的活 run；UI 层以
+     * `run.workId ?: run.id` 传入）。
+     */
+    suspend fun setSubagentModel(model: String?, workId: String): ControlFailure? =
+        controlAction(resync = true) { store ->
+            store.amendWorkflowRunSettings(
+                conversationId = conversationId,
+                workId = workId,
+                subagentModel = OptionalArg(model),
+                maxConcurrency = null,
+            )
+        }
+
+    /** 并发 agent 数修改（amendWorkflowRunSettings.maxConcurrency；null = 解除上限）。 */
+    suspend fun setMaxConcurrency(limit: Int?, workId: String): ControlFailure? =
+        controlAction(resync = true) { store ->
+            store.amendWorkflowRunSettings(
+                conversationId = conversationId,
+                workId = workId,
+                subagentModel = null,
+                maxConcurrency = OptionalArg(limit),
+            )
+        }
+
+    /**
+     * 控制动作后延迟回读 run（state 事件未及时到达时按钮态也能跟上）；
+     * 三段式——1.2s / 3.7s 双次回读 + amend 类动作追加全量 resync（iOS :570-585 同值）。
+     */
+    private fun scheduleRunRefresh(resync: Boolean) {
+        val store = attachedStore ?: return
+        scope.launch {
+            delay(RUN_REFRESH_FIRST_MS)
+            _workflowRuns.value = store.workflowRuns(conversationId)
+            if (resync) {
+                runCatching { store.triggerResync(conversationId) }
+            }
+            delay(RUN_REFRESH_SECOND_GAP_MS)
+            _workflowRuns.value = store.workflowRuns(conversationId)
+        }
+    }
+
+    /** 子代理只读转录（actor.sessionId → store 只读拉一页；页大小 200 = iOS 同值 :1306-1309）。 */
+    suspend fun actorTranscript(sessionId: String): List<ChatMessage> =
+        attachedStore?.actorTranscript(sessionId = sessionId, limit = 200) ?: emptyList()
+
+    /**
+     * 子代理转录下钻 sheet 态（工作流 actor 行 / 子代理面板行共用；null = 收起）。
+     * 打开即清空旧内容 + loading，拉取完成后原位呈现（iOS openTranscript :329-335 同构）。
+     */
+    data class ActorTranscriptSheetState(
+        val title: String?,
+        val sessionId: String,
+        val loading: Boolean,
+        val messages: List<ChatMessage>,
+    )
+
+    private val _actorTranscriptSheet = MutableStateFlow<ActorTranscriptSheetState?>(null)
+    val actorTranscriptSheet: StateFlow<ActorTranscriptSheetState?> get() = _actorTranscriptSheet
+
+    /** 打开子代理转录（sessionId 为 null 的实例行无下钻入口——渲染层已禁用，此处防御性忽略）。 */
+    fun openActorTranscript(title: String?, sessionId: String?) {
+        val target = sessionId ?: return
+        _actorTranscriptSheet.value =
+            ActorTranscriptSheetState(title = title, sessionId = target, loading = true, messages = emptyList())
+        scope.launch {
+            val messages = actorTranscript(target)
+            // 关闭竞态守卫：sheet 已被用户关掉则丢弃结果
+            if (_actorTranscriptSheet.value?.sessionId == target) {
+                _actorTranscriptSheet.value =
+                    ActorTranscriptSheetState(title = title, sessionId = target, loading = false, messages = messages)
+            }
+        }
+    }
+
+    /** 转录 sheet 关闭唯一路径（§5-15 单路径口径）。 */
+    fun closeActorTranscript() {
+        _actorTranscriptSheet.value = null
+    }
+
     // MARK: 待发附件（P1-1：AttachmentUploadService 随 VM 装配；iOS ChatViewModel init 同构）
 
     /**
@@ -434,6 +637,15 @@ class ChatViewModel(
         _modelSwitchFailure.value = null
         _queueInfo.value = null
         _queueActionFailure.value = null
+        _workflowRuns.value = emptyList()
+        _goalSummary.value = null
+        _planPanel.value = null
+        _backgroundWorks.value = emptyList()
+        _subagentSessions.value = emptyList()
+        _currentConversation.value = null
+        _controlFailure.value = null
+        _controlSuccess.value = false
+        _actorTranscriptSheet.value = null
         pendingUnknownModelSelection = false
         lastLocalModelSwitchRecord = null
         // 待发附件服务随源重建（上传事务绑 store 的连接面——旧源事务不可跨源续传）
@@ -453,6 +665,16 @@ class ChatViewModel(
         attachedStore = null
         _composerPanel.value = null
         _slashHint.value = null
+        _controlFailure.value = null
+        _controlSuccess.value = false
+        _actorTranscriptSheet.value = null
+        // 面板投影一并出账（离开会话即旧数据不可见；重进走 attach 全量重读）
+        _workflowRuns.value = emptyList()
+        _goalSummary.value = null
+        _planPanel.value = null
+        _backgroundWorks.value = emptyList()
+        _subagentSessions.value = emptyList()
+        _currentConversation.value = null
         uploadHintSyncJob?.cancel()
         uploadHintSyncJob = null
     }
@@ -472,18 +694,55 @@ class ChatViewModel(
         refreshCollaborationModeProjection(store)
         refreshSessionModelOverlay(store)
         refreshQueueProjection(store)
+        refreshPanelProjections(store)
+        _currentConversation.value = store.cachedConversation(conversationId)
+            ?: store.conversations().firstOrNull { it.id == conversationId }
         store.observeConversations().collect { event ->
             val current = _messages.value
             val reduced = reduceMessages(current, event, conversationId)
             if (reduced !== current) _messages.value = reduced
+            applyConversationRowProjection(event)
             // 面板/模式/模型 chip/队列投影逐事件覆盖（iOS refreshPendingInteractions /
             // refreshCollaborationModeProjection / refreshSessionModelOverlay 同挂点——
-            // 快照与每条增量都重读，多为内存读）
+            // 快照与每条增量都重读，多为内存读；面板投影随事件轻量刷新 iOS :834-836 同口径）
             refreshInteractionProjection(store)
             refreshCollaborationModeProjection(store)
             refreshSessionModelOverlay(store)
             refreshQueueProjection(store)
+            refreshPanelProjections(store)
         }
+    }
+
+    /**
+     * 当前会话行投影维护（迷你轨道数据源 workflowActivity 随列表事件到达）：
+     * ConversationsReplaced / ConversationUpdated 事件按 id 认领，其余事件不携行变更。
+     */
+    private fun applyConversationRowProjection(event: ConversationEvent) {
+        when (event) {
+            is ConversationEvent.ConversationsReplaced ->
+                _currentConversation.value =
+                    event.conversations.firstOrNull { it.id == conversationId }
+                        ?: _currentConversation.value
+
+            is ConversationEvent.ConversationUpdated ->
+                if (event.conversation.id == conversationId) {
+                    _currentConversation.value = event.conversation
+                }
+
+            else -> Unit
+        }
+    }
+
+    /**
+     * 面板投影刷新（iOS refreshPanels :93-100 直译）：goal/plan/works/subagents 只读投影
+     * + workflowRuns 多 run 仲裁列表。全部内存读（state 表直读），随每个会话事件轻量重读。
+     */
+    private suspend fun refreshPanelProjections(store: ConversationStore) {
+        _workflowRuns.value = store.workflowRuns(conversationId)
+        _goalSummary.value = store.goalSummary(conversationId)
+        _planPanel.value = store.planPanel(conversationId)
+        _backgroundWorks.value = store.backgroundWorks(conversationId)
+        _subagentSessions.value = store.subagentSessions(conversationId)
     }
 
     /**

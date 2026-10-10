@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -65,6 +66,7 @@ import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZAccentDim
 import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBgCode
+import cn.biuz.android.app.ui.theme.BiuZBgElevated
 import cn.biuz.android.app.ui.theme.BiuZBgInput
 import cn.biuz.android.app.ui.theme.BiuZBlue
 import cn.biuz.android.app.ui.theme.BiuZBorder
@@ -87,6 +89,9 @@ import cn.biuz.android.protocol.TodoState
 import cn.biuz.android.protocol.ToolCall
 import cn.biuz.android.protocol.ToolCallStatus
 import cn.biuz.android.protocol.ToolKind
+import cn.biuz.android.protocol.WorkflowCompletionArtifact
+import cn.biuz.android.protocol.WorkflowCompletionCard
+import cn.biuz.android.protocol.WorkflowRunSummary
 import cn.biuz.android.store.ConversationStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -116,10 +121,27 @@ fun MessageRow(
     onEditResend: (suspend (ChatMessage, String) -> ChatViewModel.InteractionFailure?)? = null,
     /** 附件条上下文（null = 不渲染附件位；refs 空的行不渲染占位死块）。 */
     attachmentContext: AttachmentStripContext? = null,
+    /**
+     * 工作流完成卡四格 join（活投影按 runId 对位；null = tokens/子代理/阶段三格「—」
+     * ——冷恢复 run 被淘汰的桌面同口径）。iOS ChatView :351-355 同位注入。
+     */
+    workflowCompletionRun: WorkflowRunSummary? = null,
+    /** 完成卡 ⤢ 展开工作流面板（宿主门控接线；null = 不渲染入口）。 */
+    onOpenWorkflowRun: (() -> Unit)? = null,
+    /** 完成卡产物点按 → 产物详情 sheet（宿主接 store.workflowArtifactContent）。 */
+    onOpenWorkflowArtifact: ((WorkflowCompletionCard, WorkflowCompletionArtifact) -> Unit)? = null,
 ) {
     when (message.role) {
         MessageRole.user -> UserMessageRow(message, modifier, onEditResend, attachmentContext)
-        MessageRole.agent -> AgentMessageRow(message, modifier, onRetryToolCall, attachmentContext)
+        MessageRole.agent -> AgentMessageRow(
+            message = message,
+            modifier = modifier,
+            onRetryToolCall = onRetryToolCall,
+            attachmentContext = attachmentContext,
+            workflowCompletionRun = workflowCompletionRun,
+            onOpenWorkflowRun = onOpenWorkflowRun,
+            onOpenWorkflowArtifact = onOpenWorkflowArtifact,
+        )
     }
 }
 
@@ -347,6 +369,9 @@ private fun AgentMessageRow(
     modifier: Modifier = Modifier,
     onRetryToolCall: (ChatMessage, ToolCall) -> Unit,
     attachmentContext: AttachmentStripContext?,
+    workflowCompletionRun: WorkflowRunSummary? = null,
+    onOpenWorkflowRun: (() -> Unit)? = null,
+    onOpenWorkflowArtifact: ((WorkflowCompletionCard, WorkflowCompletionArtifact) -> Unit)? = null,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -417,6 +442,18 @@ private fun AgentMessageRow(
                     }
                 }
             }
+        }
+        // 工作流完成卡（桌面 ConversationWorkflowCompletion 同款，2026-10-09 点单；
+        // iOS MessageViews.swift:113-121 同位挂点——整卡替换在 todos 之后、流式光标之前）
+        message.workflowCompletion?.let { card ->
+            WorkflowCompletionCardView(
+                card = card,
+                run = workflowCompletionRun,
+                onOpenRun = onOpenWorkflowRun,
+                onOpenArtifact = onOpenWorkflowArtifact?.let { callback ->
+                    { artifact -> callback(card, artifact) }
+                },
+            )
         }
         if (message.status == MessageStatus.streaming) {
             StreamingCursor()
@@ -1382,3 +1419,234 @@ fun freeTextAnswer(text: String): JSONValue =
 
 /** 提问选项应答：{optionId}。 */
 fun optionAnswer(optionId: String): JSONValue = permissionAnswer(optionId)
+
+// MARK: - 工作流完成卡（桌面 WorkflowCompletionCard 同款；iOS MessageViews.swift:1885-2083 直译）
+//
+// 三段收据式：表头（种类词+run 名+状态灯）→ 交付物行/产物索引（通知载荷 artifacts，
+// join 活投影补 bytes/条目）→ 四格数字（时间/tokens/子代理/阶段）。数字的诚实：拿不到
+// 的格写「—」不写 0【实证·上游仓 WorkflowCompletionCard.tsx:13 注释 +
+// ConversationWorkflowCompletion.tsx:39-48】。
+
+@Composable
+fun WorkflowCompletionCardView(
+    card: WorkflowCompletionCard,
+    /** 活投影 run（按 runId 对位；null = tokens/子代理/阶段三格「—」）。 */
+    run: WorkflowRunSummary?,
+    /** ⤢ 打开工作流面板（宿主门控接线；null = 不渲染入口）。 */
+    onOpenRun: (() -> Unit)?,
+    /** 产物点按 → 内容详情 sheet（markdown/plain 渲染全文；其余类型 sheet 内如实标注）。 */
+    onOpenArtifact: ((WorkflowCompletionArtifact) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(BiuZRadius.medium)
+            .background(BiuZBgCard)
+            .border(1.dp, BiuZBorder, BiuZRadius.medium)
+            .padding(BiuZSpacing.md)
+            .testTag("05-wf-completion"),
+        verticalArrangement = Arrangement.spacedBy(BiuZSpacing.md),
+    ) {
+        // 表头：flowchart 图标 + 「工作流已完成」+ run 名，右侧绿点「已完成」+ [⤢]
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+            Text(text = "⑂", fontSize = 14.sp, color = BiuZText3)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = stringResource(R.string.wf_completion_title),
+                    style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+                    color = BiuZText,
+                )
+                Text(
+                    text = card.name,
+                    style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
+                    color = BiuZText2,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
+                Box(modifier = Modifier.size(7.dp).background(BiuZAccent, CircleShape))
+                Text(
+                    text = stringResource(R.string.wf_completion_done),
+                    style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                    color = BiuZAccent,
+                )
+                if (onOpenRun != null) {
+                    Text(
+                        text = "⤢",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BiuZText3,
+                        modifier = Modifier
+                            .testTag("05-wf-completion-open")
+                            .combinedClickableSafe(enabled = true, onClick = onOpenRun)
+                            .padding(6.dp),
+                    )
+                }
+            }
+        }
+        // 交付物行/产物索引（primary 大卡置顶 + 其余索引行；truncated 如实声明）
+        val primary = card.artifacts.firstOrNull { it.primary }
+        val rest = card.artifacts.filter { !it.primary }
+        if (primary != null || rest.isNotEmpty() || card.truncated) {
+            Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+                primary?.let { artifact ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(BiuZRadius.small)
+                            .background(BiuZBgElevated)
+                            .combinedClickableSafe(enabled = onOpenArtifact != null) {
+                                onOpenArtifact?.invoke(artifact)
+                            }
+                            .padding(BiuZSpacing.sm)
+                            .testTag("05-wf-completion-artifact"),
+                        verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
+                    ) {
+                        Text(
+                            text = artifact.title ?: artifact.id,
+                            style = TextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                            color = BiuZText,
+                        )
+                        artifact.description?.takeIf { it.isNotEmpty() }?.let {
+                            Text(
+                                text = it,
+                                style = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp),
+                                color = BiuZText3,
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Text(
+                            text = artifactMetaText(artifact, run),
+                            style = TextStyle(fontSize = 11.5.sp),
+                            color = BiuZText3,
+                        )
+                    }
+                }
+                rest.forEach { artifact ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 36.dp)
+                            .combinedClickableSafe(enabled = onOpenArtifact != null) {
+                                onOpenArtifact?.invoke(artifact)
+                            }
+                            .padding(vertical = BiuZSpacing.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+                    ) {
+                        Text(text = "☰", fontSize = 11.sp, color = BiuZText3)
+                        Text(
+                            text = artifact.title ?: artifact.id,
+                            style = TextStyle(fontSize = 12.5.sp),
+                            color = BiuZText2,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Text(
+                            text = artifactMetaText(artifact, run),
+                            style = TextStyle(fontSize = 11.5.sp),
+                            color = BiuZText3,
+                        )
+                    }
+                }
+                if (card.truncated) {
+                    Text(
+                        text = stringResource(R.string.wf_truncated_artifacts),
+                        style = TextStyle(fontSize = 11.5.sp),
+                        color = BiuZText3,
+                    )
+                }
+            }
+        }
+        // 四格数字（桌面 figures 同序：时间/tokens/子代理/阶段；拿不到写「—」不写 0）
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Figure(
+                modifier = Modifier.weight(1f),
+                label = stringResource(R.string.wf_stat_time),
+                value = completionDurationText(card.durationMs),
+            )
+            Figure(
+                modifier = Modifier.weight(1f),
+                label = stringResource(R.string.wf_stat_tokens),
+                value = run?.spentTokens?.let { compactCount(it) },
+            )
+            Figure(
+                modifier = Modifier.weight(1f),
+                label = stringResource(R.string.wf_stat_subagents),
+                value = run?.actors?.size?.toString(),
+            )
+            Figure(
+                modifier = Modifier.weight(1f),
+                label = stringResource(R.string.wf_stat_phases),
+                value = run?.phaseCount?.toString(),
+            )
+        }
+    }
+}
+
+/** 种类词 + 大小/条目（bytes/itemCount 来自活投影 join，缺席只显种类词）（iOS :2019-2028）。 */
+private fun artifactMetaText(artifact: WorkflowCompletionArtifact, run: WorkflowRunSummary?): String {
+    val parts = mutableListOf(kindLabel(artifact.kind))
+    val joined = run?.artifactBriefs?.firstOrNull { it.id == artifact.id }
+    (joined?.bytes ?: artifact.bytes)?.let { parts.add(byteText(it)) }
+    (joined?.itemCount ?: artifact.itemCount)?.let { parts.add("${it} 条") }
+    return parts.joinToString(" · ")
+}
+
+/** 四格数字单格（值缺席显「—」；等宽布局四格均分）。 */
+@Composable
+private fun Figure(modifier: Modifier = Modifier, label: String, value: String?) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        Text(
+            text = value ?: "—",
+            style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold),
+            color = BiuZText,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = label,
+            style = TextStyle(fontSize = 11.sp),
+            color = BiuZText3,
+        )
+    }
+}
+
+/** tokens 紧凑写法（上游 formatCompactCount 逐字移植：固定位数让四格等宽数字对齐）。 */
+fun compactCount(count: Int): String = when {
+    count < 1_000 -> "$count"
+    count < 1_000_000 -> String.format("%.1fk", count / 1_000.0)
+    else -> String.format("%.2fM", count / 1_000_000.0)
+}
+
+/** 字节格式化（iOS byteText :2066-2070 同构）。 */
+fun byteText(bytes: Int): String = when {
+    bytes < 1_000 -> "$bytes B"
+    bytes < 1_000_000 -> String.format("%.1f KB", bytes / 1_000.0)
+    else -> String.format("%.1f MB", bytes / 1_000_000.0)
+}
+
+/** 毫秒时长格式化（「N 小时 M 分钟」桌面同款；P2ExtrasViews.durationText :634-643 直译）。 */
+fun completionDurationText(ms: Int?): String? {
+    if (ms == null || ms <= 0) return null
+    val minutes = Math.round(ms / 60_000.0).toInt()
+    val hours = minutes / 60
+    return if (hours >= 1) "$hours 小时 ${minutes % 60} 分钟" else "$minutes 分钟"
+}
+
+/** 产物种类词（六态闭集【实证·上游仓 workflow-row-meta.ts:60】；文档=markdown 桌面同款）。 */
+fun kindLabel(kind: String): String = when (kind) {
+    "markdown" -> "文档"
+    "chart" -> "图表"
+    "table" -> "表格"
+    "metrics" -> "指标"
+    "board" -> "看板"
+    else -> "文件"
+}
