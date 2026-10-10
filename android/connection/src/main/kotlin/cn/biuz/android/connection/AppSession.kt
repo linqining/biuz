@@ -26,32 +26,26 @@ package cn.biuz.android.connection
 // - OAuth 账户层（OAuthTokenSet/OAuthCredentialStore/Keychain、handleOAuthSuccess/
 //   logout/autoConnectAfterLogin 登录直达）：Android 无 OAuth 模型与凭据存储，登录 UI
 //   未开工（协议面不受影响——连接层凭据只走 ServerConfig.token/relay.passHash）；
-// - 云中继链路（2026-10-10 M6 随 :relay 落位接线）：connectRelayLink 解析→注册表→建链、
-//   connectOnce 直连/中继双路分派、switchWorkspace 桥切换（重跑 assembleStores 完成路径）、
-//   relayBootstrapTasks 注水（bootstrapTasksProvider）；workspace-list-updated 的 Store
-//   聚合清单回写面（iOS remoteConversationStore.setAllWorkspaces）随 RemoteConversationStore
-//   M3/M4 移植接入——清单本体已由 connection.handleWorkspaceListUpdated 回写 serverInfo
-//   联动切换器（AppSession.swift:304-309 的对等面挂账）；
-// - RemoteConversationStore 全量移植（行读/发送/审批/信封面）与 RemoteFileStore：M3/M4
-//   里程碑；连接态 conversation=file=Empty/列表直供（见 [AppSession.StoreSurface] 注）。
+// - usage-stats 投影在本类自有承载（iOS AppSession usageStatsCall 同位直译）：
+//   :store 的 RemoteUsageStatsStore 是同面提取孪生件（自测用），UI 数据源恒为本类
+//   codingPlanUsage/entitlements/useCodingPlanResetCard——不重复装配零消费实例；
+// - iOS P1 重连缓存迁移（exportCaches/adoptCaches）：Android RemoteConversationStore
+//   未移植该对方法，重连即重建行缓存（同批 iOS Task { adoptCaches } 面如实挂账）。
 
 import cn.biuz.android.protocol.ConnectURLParser
-import cn.biuz.android.protocol.Conversation
-import cn.biuz.android.protocol.ExecutorKind
-import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.JSONObjectBuilder
 import cn.biuz.android.protocol.JsonParseException
 import cn.biuz.android.protocol.RPCChannelTransport
 import cn.biuz.android.protocol.RPCValue
 import cn.biuz.android.protocol.EventSubscription
-import cn.biuz.android.store.ConversationEvent
 import cn.biuz.android.store.ConversationStore
 import cn.biuz.android.store.EmptyConversationStore
 import cn.biuz.android.store.EmptyFileStore
 import cn.biuz.android.store.EmptyTaskStore
 import cn.biuz.android.store.FileStore
-import cn.biuz.android.store.NewSessionModelSelection
+import cn.biuz.android.store.RemoteConversationStore
+import cn.biuz.android.store.RemoteFileStore
 import cn.biuz.android.store.RemoteSessionsIndexStore
 import cn.biuz.android.store.RemoteTaskStore
 import cn.biuz.android.store.StoreWorkspaceInfo
@@ -218,9 +212,11 @@ data class AppUsageToolStat(
  * 读面空、写面如实失败），UI 永不判空；换源绑定以 [epoch] 为 key（视图/ViewModel 按
  * store 实例重建，防永久抱空 store——iOS .task(id: storeEpoch) 环境值换绑同语义）。
  *
- * 里程碑注：conversation 在连接态为 [SessionsIndexConversationStore]（sessions-index
- * 订阅直供列表投影；行读/发送/审批随 RemoteConversationStore M3/M4 移植），file 在
- * RemoteFileStore（M4）落位前恒 EmptyFileStore。
+ * 连接态三件 = 真实实现（iOS assembleRemoteStores 同构）：
+ * - conversation = [RemoteConversationStore]（行读/发送/审批/信封命令面；会话列表读面
+ *   委托 sessions-index 订阅直供——:store 承载口径）；
+ * - task = RemoteTaskStore（审批/停止经 RemoteConversationBridge 注入上者）；
+ * - file = RemoteFileStore（会话维度变更经 FileConversationAnchor 注入上者）。
  */
 data class StoreSurface(
     val epoch: Int,
@@ -242,36 +238,6 @@ data class StoreSurface(
             workspace = null,
         )
     }
-}
-
-/**
- * 连接态会话列表 Store：sessions-index 订阅投影（RemoteSessionsIndexStore）向
- * ConversationStore 协议面的直读桥（iOS RemoteConversationStore.swift:686-858 即该订阅面的
- * 归宿；全量移植 M3/M4 前的诚实读面）。未列面走接口默认实现 = 读空、写如实失败。
- */
-internal class SessionsIndexConversationStore(
-    private val index: RemoteSessionsIndexStore,
-) : ConversationStore {
-    override suspend fun conversations(): List<Conversation> = index.conversations()
-
-    override fun observeConversations(): Flow<ConversationEvent> = index.observeConversations()
-
-    /** 会话行投影（readSession/rowsRange 订阅）随 M3/M4 移植；当前诚实空读，不伪造消息行。 */
-    override suspend fun messages(conversationId: String): List<ChatMessage> = emptyList()
-
-    /** 新建会话写面随 M3 接入；返回空 id（U-6 防假成功导航口径，与 EmptyConversationStore 同）。 */
-    override suspend fun createConversation(
-        title: String,
-        directory: String,
-        executor: ExecutorKind,
-        modelSelection: NewSessionModelSelection?,
-    ): Conversation = Conversation(
-        id = "",
-        title = title,
-        summary = "",
-        directory = directory,
-        updatedAt = System.currentTimeMillis(),
-    )
 }
 
 /**
@@ -461,6 +427,13 @@ class AppSession(
             if (current is Mode.Connected) {
                 _mode.value = Mode.Disconnected(current.server, detail)
             }
+        }
+        // 工作区清单推送（P3-10 workspace-list-updated）：清单本体已由 connection 回写
+        // serverInfo（切换器菜单联动）；此处回写会话 Store 聚合清单（iOS :304-309 直译
+        // —— membership scope 枚举/identity 反查/聚合任务列表的活体清单源，键级整体替换）
+        connection.onWorkspaceListUpdated = { workspaces ->
+            (_storeSurface.value.conversation as? RemoteConversationStore)?.allWorkspaces =
+                workspaces.map { it.toStoreWorkspace() }
         }
         // E2E 钩子：须先于凭据加载执行（iOS :310-315 同序；OAuth 凭据加载随 OAuth 层
         // 移植接入，当前无操作）。
@@ -1252,9 +1225,14 @@ class AppSession(
      * 连接成功装配（iOS 同名直译；先于 mode=.connected 执行——装配完成后 UI 才切数据源）。
      * - sessions-index 订阅面 + 任务 Store 走 [ConnectionTransport]（唯一出口，ReadOnlyGate
      *   出口拦截与握手自愈对 Store 调用面同等生效）；
-     * - conversation 列表直供 [SessionsIndexConversationStore]；行读/发送/审批/文件面随
-     *   RemoteConversationStore（M3/M4）与 RemoteFileStore（M4）移植后替换；
-     * - iOS P1 重连缓存迁移（exportCaches/adoptCaches）随 RemoteConversationStore 移植接入；
+     * - conversation = [RemoteConversationStore]（行读/发送/审批/信封命令面全量接入；
+     *   列表读面委托 sessionsIndex 直读；帧面=连接本体 implements ConversationFrameSurface；
+     *   clientId=握手注册值构造注入——A2 全生命周期单一来源）；
+     * - 任务 Store 审批/停止经 RemoteConversationBridge、文件 Store 会话维度变更经
+     *   FileConversationAnchor，均注入同一会话 Store 实例（iOS 同构三 Store 同批）；
+     * - iOS P1 重连缓存迁移（exportCaches/adoptCaches）未移植——重连即重建行缓存；
+     * - 多 workspace 回写两源（iOS Task { setAllWorkspaces/setBootstrapTasks } 同批）：
+     *   连接层采集清单 + bootstrap.tasks 派生工作区（membership scope 枚举源）；
      * - bootstrap.tasks 派生清单 + 直入会话表（iOS Task { setBootstrapTasks } 同批）——中继
      *   bootstrap 面 M6 经 [bootstrapTasksProvider] 注入，局域网直连恒 null = 不注水。
      */
@@ -1273,20 +1251,42 @@ class AppSession(
             backgroundDispatcher = backgroundDispatcher,
         )
         sessionsIndex.diagListener = { key, value -> diagListener?.invoke(key, value) }
+        val conversationStore = RemoteConversationStore(
+            transport = transport,
+            // 帧面=连接本体：四件方法签名与 ConversationFrameSurface 逐字一致（A8+陷阱④
+            // 帧 handler 先于 subscribe 注册的次序由 Store 内部序保证）
+            frameSurface = connection,
+            workspace = storeWorkspace,
+            sessionsIndex = sessionsIndex,
+            clientId = connection.registeredClientId,
+            backgroundDispatcher = backgroundDispatcher,
+        )
+        conversationStore.diagListener = { key, value -> diagListener?.invoke(key, value) }
+        // 多 workspace：连接期 workspace-list-response 采集的桌面全部工作区回写
+        // （聚合任务列表 + membership scope 枚举 + identity 反查；iOS setAllWorkspaces :441-443）
+        conversationStore.allWorkspaces = connection.serverInfo?.workspaces?.map { it.toStoreWorkspace() }
+            ?: emptyList()
         val taskStore = RemoteTaskStore(
             transport = transport,
             workspace = storeWorkspace,
-            // RemoteConversationBridge 随 RemoteConversationStore（M3）接入；当前审批/停止
-            // 如实「未送达」（EmptyTaskStore 写面同口径，禁假成功）
-            conversationStore = null,
+            // 审批（resolvePermission）/停止（stopTurn）/行投影经桥注入——不再恒 Undelivered
+            conversationStore = conversationStore,
             backgroundDispatcher = backgroundDispatcher,
         )
         taskStore.diagListener = { key, value -> diagListener?.invoke(key, value) }
+        val fileStore = RemoteFileStore(
+            transport = transport,
+            workspace = storeWorkspace,
+            // 会话维度变更（sessionDiffFiles）的水位/归属寻址注入
+            conversationAnchor = conversationStore,
+            backgroundDispatcher = backgroundDispatcher,
+        )
+        fileStore.diagListener = { key, value -> diagListener?.invoke(key, value) }
         _storeSurface.value = StoreSurface(
             epoch = previous.epoch + 1,
-            conversation = SessionsIndexConversationStore(sessionsIndex),
+            conversation = conversationStore,
             task = taskStore,
-            file = EmptyFileStore(),
+            file = fileStore,
             sessionsIndex = sessionsIndex,
             workspace = workspace,
         )
@@ -1296,13 +1296,44 @@ class AppSession(
             val tasks = runCatching { bootstrapTasksProvider?.invoke() }.getOrNull()
             _bootstrapWorkspaces.value = deriveBootstrapWorkspaces(tasks)
             sessionsIndex.setBootstrapTasks(tasks)
+            // bootstrap 派生工作区（membership scope 枚举第二源；iOS setBootstrapTasks 同批）
+            conversationStore.bootstrapWorkspaces = deriveBootstrapWorkspaces(tasks).map { it.toStoreWorkspace() }
+        }
+    }
+
+    /** 连接层工作区条目 → :store 工作区条目（三处回写共用映射）。 */
+    private fun ServerWorkspaceInfo.toStoreWorkspace() = StoreWorkspaceInfo(
+        path = path,
+        label = label,
+        workspaceIdentity = workspaceIdentity,
+    )
+
+    /**
+     * 旧 Store 显式释放（iOS deinit 兜底的 Kotlin 对应物；仅在 [teardownStores] 调用）：
+     * 真退订（携 subscriptionId，桌面侧订阅单调增长——缺省退订=泄漏）+ file-watcher
+     * unwatch + 订阅面撤销。**重装配路径不调用**：assembleStores 前桥已重开/传输已拆
+     * （teardownTransport 清空 frameHandlers 注册表，旧订阅随桥消亡），异步 dispose 的
+     * removeFrameHandler 会与新 Store 的同名 topic handler 竞态（陷阱④同类静默丢帧）；
+     * iOS 重装配同样直接丢弃旧 Store 不退订（AppSession.swift:1225 口径）。
+     */
+    private fun disposeStoreStores(surface: StoreSurface) {
+        val conversation = surface.conversation as? RemoteConversationStore
+        val file = surface.file as? RemoteFileStore
+        val index = surface.sessionsIndex
+        if (conversation == null && file == null && index == null) return
+        scope.launch {
+            if (conversation != null) runCatching { conversation.dispose() }
+            if (file != null) runCatching { file.dispose() }
+            if (index != null) runCatching { index.dispose() }
         }
     }
 
     private fun teardownStores() {
         // 未连接/连接失败 = Empty 三件（红线：读面空、写面如实失败，无 Mock）；
         // epoch +1 驱动 UI 换源重绑（防旧视图永久抱已失效 Store 实例）
-        _storeSurface.value = StoreSurface.empty(epoch = _storeSurface.value.epoch + 1)
+        val previous = _storeSurface.value
+        disposeStoreStores(previous)
+        _storeSurface.value = StoreSurface.empty(epoch = previous.epoch + 1)
         storesAssembled = false
         _desktopOAuthInfo.value = null
         _codingPlanUsage.value = null
@@ -1332,8 +1363,8 @@ class AppSession(
      * 切换活动工作区（iOS :1317-1343 直译；iOS connection.switchRelayWorkspace 属中继链路，
      * 局域网直连无该面——iOS supportsWorkspaceSwitching=false 时切换器 UI 即隐藏）。
      * 守卫链直译：未连接拒、并发切换拒、不支持拒（用户可读失败原因）；失败时原工作区
-     * Store/桥均保持不动。桥重开 → 订阅重定向 → 以新工作区重跑 assembleStores 的完成路径
-     * 随 M6 中继面接入。
+     * Store/桥均保持不动。M6 完成路径：桥重开 → 订阅重定向 → 以新工作区重跑
+     * [assembleStores]（旧工作区 Store 随面替换丢弃——桥重开已回收订阅，不迁移缓存）。
      */
     suspend fun switchWorkspace(target: ServerWorkspaceInfo): String? {
         if (_mode.value !is Mode.Connected) {

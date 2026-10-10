@@ -18,22 +18,32 @@
 
 ---
 
-## 工程状态（2026-10-09：M1 已达成，M2 开工——:app 壳已产出 APK）
+## 工程状态（2026-10-10：M1–M7 全部实装——终验门禁全绿 + 真机冒烟通过；真机/真桌面联调挂账）
 
-**M1 里程碑达成**（骨架随 `a547f6c`、protocol/teststub 实装随 `be25b65 feat: zcode mobile` 入库）：纯 JVM 多模块骨架 + protocol 层直译 + 单测平移 + 替身服务器骨架。未达成的项在下文如实挂账。
+**M2–M7 工作流轮（2026-10-10）收尾**：connection/store/relay/app 四模块随 `53785bd`（android store）→ `4ba23b1`（conversation）→ `3f3fb70`（store）→ `4cae0ba`（cas）→ `962d18e`（relay+attach）→ `4a4392d`（workflow）六批入库。**终验门禁全绿**（逐模块数字见「门禁现状」）、**独立终审 3 条（高 1 条已修）**、**真机冒烟通过**（截图 `docs/acceptance-android/`，止步扫码页——边界见「已知未决」）。终验后工作区另有一批**未提交**的连接层装配改动（`connection/AppSession.kt` + `ZCodeServerConnection.kt`：连接态 StoreSurface 换装 RemoteConversationStore/RemoteFileStore、连接本体 `implements ConversationFrameSurface`、workspace-list-updated 回写 `allWorkspaces`），本页门禁数字已覆盖该改动，待入库。
 
-**M2 开工（2026-10-09 同日）**：:app Android 壳落地——AGP 8.13.2 + Kotlin 2.2.0 + Compose（BOM 2025.06.01 + material3/activity-compose/navigation-compose/lifecycle-runtime-compose），单 Activity + NavHost 五路由占位（connect/scan/sessions/chat/{sessionId}/settings）；Material3 深色 ColorScheme 直映 design/design-spec.md §2.1 令牌（近黑 #0a0b0d + 强调绿 #32f08c）；biuz-mark.svg 转 VectorDrawable adaptive 图标（mipmap-anydpi-v26 + API 24/25 兜底）；应用名 BiuZ，品牌字样守 branding/naming.md 裁决（仅「works with ZCode」描述性用法）。连接/会话业务链路仍未接线（下方「下一步」）。
+### 里程碑状态（对照交接文档 §8.3 验收口径，如实）
 
-### 模块结构（五个 JVM 模块，见 `settings.gradle.kts`）
+| 里程碑 | 状态 | 证据 / 挂账 |
+|---|---|---|
+| M1 protocol + 单测平移 | **达成，挂账已回补** | 2 例 @Disabled（relayLinkArgument / ServerConfig 旧 JSON 解码）随 :connection 落位迁回（`protocol/RelayLinkTests.kt` 复活 + `connection/RelayLinkConnectionLayerTests.kt` 迁入，占位删除）；parseInteraction 缺例落 store 层 `RemoteConversationStoreTest.pendingInteractionList_normalizesPlanApprovalSchema`（plan_approval schema 归位全形状断言）。protocol 记账 78 例 0 skip（M1 时 77 例 / 2 skip）；store/VM 层约 71 例挂账以 Android 等价套件落地（非 iOS 逐例平移记账） |
+| M2 直连 + 握手 + sessions 列表 + bootstrap.tasks | **自动化面达成；「真机桌面直连目检」挂账** | `DirectConnectE2ETest`（真实 OkHttp WS ↔ Ktor 替身 127.0.0.1，建链→握手→订阅→call→回执→帧序五步全链路）+ `AppSessionAssemblyTest` + `RemoteSessionsIndexStore`（sessions-index 订阅 + bootstrap.tasks 多工作区）。真机侧冒烟只到扫码页（见「已知未决」），连接完成态目检待真机+桌面在线轮 |
+| M3 会话订阅（寻址/帧面/屏障）+ 行渲染 + 发送 | **自动化面达成（替身级）** | `ConversationDeltaSmokeTest`（快照/增量/订阅回执）+ store 层 RemoteConversationStore/Send/Command 三套（乐观回显 sourceCommandId 消费、ACK 判定）；「跨 workspace 会话实收」为替身级断言，真桌面实收挂账 |
+| M4 CAS 族 + 审批三族 + 队列 + 模型/模式切换 | **自动化面达成** | stale 自愈：`casRetry_staleOnceResolvedOnSecondSend_noResync`（RemoteConversationCommandTest:114）+ `StubCasGenerationTest` 4 例（替身 CAS 生成器 stale 注水）；CAS 未就绪本地拒发：`casRevisionUnavailable_rejectedLocallyWithoutWire`（RemoteConversationSendTest:172）；provider 复合键 `ProviderDisplayTest`；双源运行态 `DualSourceRunningSynthesisTest` |
+| M5 附件四方法 + 视频 + 缓存 | **自动化面达成** | `AttachmentUploadServiceTest`（超 20MB 本地拒 + 分块各自带 padding A11 断言）+ `StubAttachmentStrictTest`（替身 strict 对拍）+ `AttachmentMediaKeysTest` |
+| M6 中继链路（Relay 四件 + 开桥重握手单点） | **自动化面达成；验收口径「真实中继链接连通」未达，如实挂账** | `RelayChannelE2ETest`（3 例，本地伪中继端到端）+ `RelayConnectE2ETest`（瞬断 1.2s 退避重试测真实 onBridgeOpened 单点 + 直连/中继双链路装配）。该文件头原文：「真实中继验证需用户桌面在线且串行，本轮替身级如实挂账」；真实验证另受中继**单连接槽**约束（AGENTS §6 -1001 挂账），须串行 |
+| M7 工作流面板/完成卡/产物详情 + 组织态 + 设置/权益/i18n | **自动化面达成；「对齐 iOS FeatureCompletion 场景清单」未做，挂账** | `WorkflowPanelsPureTest` / `WorkflowRunsArbitrationTest` / `WorkflowActorBindingTest` / `BackgroundWorkPanelTests`；组织态 `MembershipJoinTest` + `ConversationGroupingTest`（三级合成）；设置/权益 `SettingsPatchShapeTest` + `UsageEntitlementParseTest` + `EntitlementUiModelTest` + `AppSettingsStoreTest`；i18n `values/` 与 `values-en/` 各 330 键对齐。app 无 androidTest/instrumented 套件，FeatureCompletion 级场景对齐未执行 |
+
+### 模块结构（六个模块，见 `settings.gradle.kts`）
 
 | 模块 | 状态 | 内容 |
 |---|---|---|
-| `protocol` | **已实装** | 纯协议层直译（零 Android 依赖，仅 kotlin-stdlib + kotlinx-coroutines）：Models / RPCSerialization（含自研 RFC 8259 JsonCodec，模块禁第三方 JSON 依赖）/ V4Wire / ChannelClient / ProtocolSchema / CommandSchemas / ConversationCommandFactory / ReadOnlyGate / AckActivationBarrier / ConnectURLParser 十件；`relay/` 子包另有中继帧面两件（RelayLink / RelayFrameCodec，iOS Services/Relay 归属）；单测 6 套 |
-| `relay` | 占位 | 中继传输（OkHttp WS；RelayTransport / RelayChannelClient），M6 实装 |
-| `connection` | 占位 | `Connection.call` 唯一出口 + ReadOnlyGate 接线 + 桥重开握手单点 + AppSession 装配，M2 实装 |
-| `store` | 占位 | 三大 Store + 协议面 interface + 空实现（未连接态），M2–M4 实装 |
-| `teststub` | **骨架已实装** | Ktor 本地替身服务器（`E2EStubServer.kt`）：握手/快照/增量/命令回执伪造 + strict 信封对拍（复用 `:protocol` 校验器）+ ACK/CAS/快照注水开关，随后续里程碑扩展 |
-| `app` | **壳已实装（M2 开工）** | 单 Activity Compose UI（`cn.biuz.android.app.MainActivity`，applicationId `cn.biuz.android`）：NavHost 五路由占位 + BiuZTheme（深色 Material3 直映射 design-spec 令牌）+ adaptive 启动图标（biuz-mark 矢量移植）。业务零接线，依赖 :protocol/:connection/:store/:relay（后三者仍占位） |
+| `protocol` | **已实装** | 纯协议层直译（零 Android 依赖，仅 kotlin-stdlib + kotlinx-coroutines）：Models / RPCSerialization（自研 RFC 8259 JsonCodec，模块禁第三方 JSON 依赖）/ V4Wire / ChannelClient / ProtocolSchema / CommandSchemas / ConversationCommandFactory / ReadOnlyGate / AckActivationBarrier / ConnectURLParser / Bootstrap 十一件；`relay/` 子包中继帧面两件（RelayLink / RelayFrameCodec）；单测 7 套 |
+| `relay` | **已实装（M6）** | RelayTransport / RelayTextSocket / RelayChannelClient（rpc-frame 编解码 + 中继 WS 信道 + 开桥重握手单点）；单测 1 套 3 例 |
+| `connection` | **已实装（M2）** | ZCodeServerConnection（`call` 唯一出口 + ReadOnlyGate 出口拦截 + 桥重开握手单点 + 帧面多路挂载 + `ConversationFrameSurface` 实现）、AppSession 装配（直连/中继双路分派、workspace-list-updated 回写）、OkHttpWebSocketTransport、ServerConfig / ServerRegistry；单测 4 套 11 例 |
+| `store` | **已实装（M3–M5、M7）** | RemoteConversationStore / RemoteTaskStore / RemoteFileStore / RemoteSessionsIndexStore / RemoteSessionMerge / AttachmentUploadService / RemoteUsageStatsStore / TaskNotificationContent / StoreProtocols（三大协议面 + Empty* 空实现）；单测 17 套 145 例 |
+| `teststub` | **已实装并扩展** | Ktor 本地替身服务器（`E2EStubServer.kt`）+ StubAck / StubV4Frames / StubIndexFixtures：握手/快照/增量/命令回执伪造 + strict 信封对拍（复用 `:protocol` 校验器）+ CAS 生成器 stale 注水 + 附件 strict + sessions-index 注水；单测 6 套 14 例 |
+| `app` | **已实装（M2–M7 UI）** | 单 Activity Compose UI（`cn.biuz.android`）：Connect / Scan（相机扫码）/ Sessions（分组）/ Chat（行渲染+审批卡+composer+工作流轨道）/ Files / Settings / UsageStats / Language / About 九屏 + ChatViewModel + 附件视图；`values` 与 `values-en` 各 330 键；单测 10 套 103 例（1 例为默认禁用的手工活体替身宿主，见下） |
 
 ### 构建与测试
 
@@ -43,25 +53,49 @@ android/scripts/build-jvm.sh :protocol:test      # 协议层单测
 android/scripts/build-jvm.sh :teststub:test      # 替身服务器冒烟
 android/scripts/build-jvm.sh                     # 全量 build（无参数默认 build）
 
+# 全量门禁（2026-10-10 终验口径：六模块单测 + APK）
+android/scripts/build-jvm.sh :protocol:test :relay:test :connection:test :store:test \
+  :teststub:test :app:testDebugUnitTest :app:assembleDebug
+
 # 等价直调（确认无并行构建时）
 /Users/mac/opt/gradle/gradle-8.14.3/bin/gradle -p android :protocol:test --console=plain
 
 # :app 产出 APK（需 Android SDK，见 android/local.properties 的 sdk.dir）
 /Users/mac/opt/gradle/gradle-8.14.3/bin/gradle -p android :app:assembleDebug --console=plain
 # 产物：android/app/build/outputs/apk/debug/app-debug.apk
+
+# 可选：宿主机活体替身（模拟器/真机手动联调用；默认禁用，否则阻塞等哨兵）
+android/scripts/build-jvm.sh :app:testDebugUnitTest --tests cn.biuz.android.app.StubLiveServerTest -Dbiuz.stubLive=true
+# 端口落 /tmp/m2ui-stub-port；模拟器内连 10.0.2.2:<port>；写 /tmp/m2ui-stub-stop 哨兵收尾
 ```
 
-### 门禁现状（2026-10-09 实跑记录）
+### 门禁现状（2026-10-10 终验 + 收尾轮强制重跑复核）
 
-- `android/scripts/build-jvm.sh :protocol:test --rerun-tasks` → exit=0，JUnit XML 记账 tests=77 / skipped=2 / failures=0 / errors=0：执行 75 例全绿；2 例 @Disabled 挂账（RelayLinkTests 的 relayLinkArgument / ServerConfig 旧 JSON 解码——被测 API 在 connection 装配层，随 M2 回补）。
-- `android/scripts/build-jvm.sh :teststub:test --rerun-tasks` → exit=0，冒烟 3 例全绿（握手→订阅→sendText→ACK 帧序与替身记账；A5 能力越权 + strict 信封拒收；CAS stale-once + 写拦截 + ACK 六态词表）。
-- **未达成（如实挂账）**：
-  - 交接文档 §8.3 的 M1 验收口径「148 用例同口径绿」未整达——iOS 148 例中约 71 例属 store/VM 层单测，依赖未移植的 store/connection 代码，挂账至对应里程碑；Android 协议层五套平移 76 例（缺 parseInteraction 1 例，Store 层 API 缺位）+ 骨架占位 BootstrapTest 1 例 = 记账 77 例。
-  - 独立复核发现 5 条，高优先级 0 条（未触发修复轮）；5 条 low 级发现以「遗留观察」挂账供人工判断，明细见交接文档 §7.1 的 2026-10-09 注记。
+- 终验命令：`android/scripts/build-jvm.sh :protocol:test :relay:test :connection:test :store:test :teststub:test :app:testDebugUnitTest :app:assembleDebug` → exit=0、`BUILD SUCCESSFUL`；APK 产出 `android/app/build/outputs/apk/debug/app-debug.apk`。
+- 收尾轮强制重执行复核：同任务面加 `--rerun-tasks` → exit=0、`BUILD SUCCESSFUL in 9m 45s`、`46 actionable tasks: 46 executed`（六个 `:test` 全部真实重跑，非 up-to-date 放行）。注：首次强制重跑被外部 `gradle --stop` 杀共享 daemon 中断一次（环境事件，非代码失败），重试干净通过。
+- JUnit XML 记账（failures=0 / errors=0）：**protocol 78 / relay 3 / connection 11 / store 145 / teststub 14 / app(testDebugUnitTest) 103——合计记账 354 例，执行 353 例全绿**；1 例 skip = `StubLiveServerTest.hostStubUntilSentinel`（手工活体替身宿主，`-Dbiuz.stubLive=true` 才启用，默认跳过是设计行为非挂账）。
+- M1 挂账回补完成（详见里程碑表 M1 行）；M1 独立复核 5 条 low 级「遗留观察」维持挂账（明细见交接文档 §7.1 的 2026-10-09 注记）。
 
-### 下一步（M2，按交接文档 §8.3；:app 壳/主题/图标已就绪，以下为剩余项）
+### 已知未决（如实挂账，2026-10-10）
 
-- `connection` 模块：ZCodeServerConnection 同构移植（`call` 唯一出口 + 帧面多路挂载 + 桥重开握手单点）+ 局域网直连（`GET /ws?token=…`）。
-- `store` 模块：RemoteTaskStore + sessions 列表 + bootstrap.tasks 多工作区。
-- 替身服务器扩展：附件四方法、乐观回显（sourceCommandId 消费）、CAS stale 注水。
-- 回补 2 例 @Disabled 单测与 parseInteraction 平移（connection/store 层 API 就位后）。
+**联调面（需真机 / 真桌面在线）**
+
+- **真实中继链接连通未验证**（M6 验收口径未达）：替身级全绿；真实验证需用户桌面在线且**串行**——中继单连接槽（AGENTS §6「-1001 单槽」挂账在案），不得与 web/其他客户端并行占用。
+- **真机直连完成链路未目检**：冒烟截图止步扫码页（`docs/acceptance-android/01-launch.png` 真机 home + `01-launch-real.png` 扫码页取景框对准桌面配对二维码面板）；扫码→握手→会话列表→行增量→发送/审批全链待真机 + 桌面在线轮。
+- 桌面在线轮取证（交接文档 §7.3 清单 Android 侧同源适用）与 §7.2 真机复测场景（plan 审批卡、协作模式 chip 回流、键盘在场胶囊等）Android 实现后同样要过。
+
+**功能面（代码内如实标注，file:line 为证）**
+
+- OAuth 账户层未开工：登录 UI / 凭据存储缺位，连接凭据只走 `ServerConfig.token` / `relay.passHash`（`connection/AppSession.kt:25-28`）。
+- iOS P1 重连缓存迁移（exportCaches/adoptCaches）未移植：重连即重建行缓存（`connection/AppSession.kt:32-33`）。
+- 部分 payload type 未移植 schema（sendGoalCommand / startSavedWorkflow / deleteSession / workspaceHook 三族 / resumeWorkflowRun 等）：payloadSchema 返回 null，仅信封层校验 + 构造告警，接入 UI 前须按 AGENTS §5-11 取证补条目（`protocol/CommandSchemas.kt:14-19`、`:247`）。
+- 系统通知投递 / 点击路由未接：本批只落内容构建纯逻辑 G-016（`store/TaskNotificationContent.kt:10-11`）。
+- 文件页 PDF 只读预览未移植（如实提示桌面端查看）、TinyMarkdown 富渲染未移植（markdown 正文原样呈现）（`app/ui/screen/FilesScreen.kt:1085-1086`）；全屏图片「保存相册」面挂账另轮（scoped storage 权限差异，`app/ui/chat/AttachmentViews.kt:518`）；多服务器去重挂账装配层（`app/ui/screen/ConnectFlow.kt:16`）。
+- usage-stats 投影由 AppSession 自有承载，:store 的 RemoteUsageStatsStore 为自测孪生件不装配（`connection/AppSession.kt:29-31`）。
+
+**工程面**
+
+- 终验后工作区存在**未提交**改动：`android/connection/.../AppSession.kt`、`ZCodeServerConnection.kt`（见页首「M2–M7 工作流轮收尾」段），待入库。
+- mobile-view-state-update 的 deviceInfo.platform 如实报 `"android"`（值域未取证，iOS 报 `"ios"` 同病；viewState 不生效首查此值，`relay/RelayChannelClient.kt:50`）。
+- M1 既定 deviations 存续（JSON 运行时自研 / JSONValue.Int 32 位值域毫秒恒走 Double / AckActivationBarrier stagingLimit=256 / ReadOnlyGate draft 直译等），明细见交接文档 §7.1 的 2026-10-09 注记。
+- 独立终审 3 条（高 1 条已修）为交接材料结论转述，报告本体未存档于本仓。

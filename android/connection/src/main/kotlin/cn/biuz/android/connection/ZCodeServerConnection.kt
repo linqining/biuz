@@ -16,6 +16,7 @@ import cn.biuz.android.protocol.WebSocketTransportFactory
 import cn.biuz.android.relay.RelayChannelClient
 import cn.biuz.android.relay.RelayLogKind
 import cn.biuz.android.relay.RelayTransport
+import cn.biuz.android.store.ConversationFrameSurface
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
@@ -315,13 +316,18 @@ data class V4HelloMessage(
 /**
  * 与桌面 zcode-server 的单条连接：GET server-info → WS /ws?token → v4 握手 → workspaces[0]。
  * （iOS @MainActor @Observable → StateFlow 投影 + synchronized 账本，见文件头并发适配注。）
+ *
+ * 实现 [ConversationFrameSurface]（:store 帧面契约——RemoteConversationStore 装配注入用）：
+ * 本类四件帧方法（:1223/:1408/:1424/:1433）与接口签名逐字一致，装配轮声明 implements
+ * 即接线（RemoteConversationStore.kt 文件头预置口径；单例共享注册表语义——同一 workspace
+ * 恒一路 eventListen、帧 handler 按 topic 精确匹配——由本类既有实现保证）。
  */
 class ZCodeServerConnection(
     /** iOS Bundle.main CFBundleShortVersionString 的构造参数对应物（缺省同 iOS 兜底值）。 */
     val appVersion: String = DEFAULT_APP_VERSION,
     private val transportFactory: WebSocketTransportFactory = DEFAULT_TRANSPORT_FACTORY,
     private val backgroundDispatcher: CoroutineDispatcher = Dispatchers.Default,
-) {
+) : ConversationFrameSurface {
 
     sealed class ConnectionState {
         data object Idle : ConnectionState()
@@ -364,8 +370,9 @@ class ZCodeServerConnection(
 
     /**
      * 工作区清单推送（P3-10 workspace-list-updated）：handleWorkspaceListUpdated 解析后
-     * 上抛 AppSession 刷新任务聚合清单（iOS :274；Android 的 RemoteConversationStore
-     * 聚合清单面随 M3/M4 移植接入，当前清单本体已由连接层回写 serverInfo 联动切换器）。
+     * 上抛 AppSession 刷新任务聚合清单（iOS :274；清单本体已由连接层回写 serverInfo
+     * 联动切换器，AppSession 侧再回写 RemoteConversationStore.allWorkspaces——iOS
+     * setAllWorkspaces 同源）。
      */
     var onWorkspaceListUpdated: ((List<ServerWorkspaceInfo>) -> Unit)? = null
 
@@ -1220,7 +1227,7 @@ class ZCodeServerConnection(
      * 订阅按归属 workspace 寻址（v1.17），帧面必须同 workspace（本方法）。
      * identity 型工作区必须携 identity（emitter 键 = identity || path，§11.2）。
      */
-    suspend fun ensureConversationFrameStream(workspacePath: String, workspaceIdentity: String? = null) {
+    override suspend fun ensureConversationFrameStream(workspacePath: String, workspaceIdentity: String?) {
         val current = client
         if (current == null || !isActive || workspacePath.isEmpty()) return
         val streamKey = if (!workspaceIdentity.isNullOrEmpty()) workspaceIdentity else workspacePath
@@ -1405,7 +1412,7 @@ class ZCodeServerConnection(
      * 注册 logical 帧处理器（topic：conversation/<sessionId> 或 sessions-index/<workspaceId>）。
      * workspace-config topic 注册时重放缓存帧（连接即订阅、Store 晚注册不丢快照）。
      */
-    fun setFrameHandler(topic: String, handler: (V4TopicFrame) -> Unit) {
+    override fun setFrameHandler(topic: String, handler: (V4TopicFrame) -> Unit) {
         var replay: List<V4TopicFrame> = emptyList()
         synchronized(routingLock) {
             frameHandlers[topic] = handler
@@ -1421,7 +1428,7 @@ class ZCodeServerConnection(
         }
     }
 
-    fun removeFrameHandler(topic: String) {
+    override fun removeFrameHandler(topic: String) {
         synchronized(routingLock) { frameHandlers.remove(topic) }
     }
 
@@ -1430,7 +1437,7 @@ class ZCodeServerConnection(
      * 回调方（各 Store）保存订阅回执的 subscriptionId，据以发 resyncConversationV4 /
      * resyncSessionsIndexV4 / resyncWorkspaceConfigV4 恢复续流。
      */
-    fun setFrameDropHandler(key: String, handler: () -> Unit) {
+    override fun setFrameDropHandler(key: String, handler: () -> Unit) {
         synchronized(routingLock) { frameDropHandlers[key] = handler }
     }
 
