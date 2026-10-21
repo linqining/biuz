@@ -675,10 +675,15 @@ final class E2ELoginStubServer {
                  "status": "success", "output": ["text": "plan approved"]],
                 ["rowId": 3, "kind": "assistantText", "text": "替身助手：计划已按步推进", "state": "complete"],
             ],
+            // sess-e2e-ask：userInput 提问卡（questions/options/自由文本；门禁 test22）
+            "sess-e2e-ask": [
+                ["rowId": 1, "kind": "userInput", "text": "请帮我确认模型和补充说明"],
+                ["rowId": 2, "kind": "assistantText", "text": "替身助手：我先确认两个问题。", "state": "complete"],
+            ],
         ]
         nextRowId = ["sess-e2e-1": 7, "sess-e2e-2": 3, "task-e2e-1": 4, "sess-e2e-3": 7,
                      "sess-e2e-plan": 4, "sess-e2e-think": 4, "sess-e2e-usel": 3,
-                     "sess-e2e-exitplan": 4]
+                     "sess-e2e-exitplan": 4, "sess-e2e-ask": 3]
         // sess-e2e-1 预置一条 permission 挂起交互（pendingInteractionSummary.permissionCount=1
         // 的具体对象）：conversation 订阅后经 state.updated 下发 → ChatView 审批卡渲染，
         // resolveInteraction 应答后清空
@@ -706,6 +711,31 @@ final class E2ELoginStubServer {
                     "schema": ["interaction": "plan_approval", "toolName": "ExitPlanMode"],
                     "input": [
                         "plan": "第一步：梳理登录超时复现路径\n第二步：修补会话重连竞态\n第三步：补回归测试并归档",
+                    ],
+                ],
+            ]],
+            // sess-e2e-ask：userInput 提问卡（单/多题、options value/label、freeText）
+            "sess-e2e-ask": [[
+                "id": "int-e2e-ask-1",
+                "kind": "userInput",
+                "payload": [
+                    "kind": "userInput",
+                    "prompt": "请确认以下问题",
+                    "freeText": true,
+                    "questions": [
+                        [
+                            "question": "选择模型",
+                            "header": "模型",
+                            "options": [
+                                ["value": "glm", "label": "GLM"],
+                                ["value": "kimi", "label": "Kimi"],
+                            ],
+                        ],
+                        [
+                            "question": "补充说明",
+                            "header": "说明",
+                            "options": [],
+                        ],
                     ],
                 ],
             ]],
@@ -1637,14 +1667,27 @@ final class E2ELoginStubServer {
                           "startedAt": Int(Date().timeIntervalSince1970 * 1000) - 600_000,
                           "status": "completed"]],
             ])))
+        case "offPeak/list" where channelName == "zcode-agent":
+            lock.lock(); _capabilityReads.append("offPeak/list"); lock.unlock()
+            // 上游 zcodeOffPeakListResultSchema = {tasks:[...]}（P2ExtrasViews 优先读 tasks）
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "tasks": .array([
+                    .object(["offPeakTaskId": .string("offpeak-e2e-1"),
+                             "title": .string("错峰回归任务 · stub"),
+                             "createdAt": .int(Int(Date().timeIntervalSince1970 * 1000)),
+                             "status": .string("queued")]),
+                ]),
+            ])))
         case "list" where channelName == "off-peak":
+            // 旧形态保留（历史替身调用方），移动端正式路径已改 zcode-agent.offPeak/list
             lock.lock(); _capabilityReads.append("off-peak.list"); lock.unlock()
-            // offPeak 解析取顶层 JSON 数组（P2ExtrasViews:1040 arrayValue）→ StubRPC.array
-            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.array([
-                .object(["offPeakTaskId": .string("offpeak-e2e-1"),
-                         "title": .string("错峰回归任务 · stub"),
-                         "createdAt": .int(Int(Date().timeIntervalSince1970 * 1000)),
-                         "status": .string("queued")]),
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "tasks": .array([
+                    .object(["offPeakTaskId": .string("offpeak-e2e-1"),
+                             "title": .string("错峰回归任务 · stub"),
+                             "createdAt": .int(Int(Date().timeIntervalSince1970 * 1000)),
+                             "status": .string("queued")]),
+                ]),
             ])))
         case "list" where channelName == "feedback":
             lock.lock(); _capabilityReads.append("feedback.list"); lock.unlock()
@@ -2398,6 +2441,16 @@ final class E2ELoginStubServer {
                 "lastAssistantPreview": "计划已按步推进。",
                 "workspacePath": "/Users/e2e/zcode_mobile",
                 "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 0],
+            ],
+            // userInput 提问卡专用会话（questions 多题 + options + 自由输入；门禁 test22）
+            [
+                "sessionId": "sess-e2e-ask",
+                "title": "替身会话 · 提问卡",
+                "phase": "completedSuccess",
+                "lastActivityAt": Self.iso8601.string(from: Date().addingTimeInterval(-1_800)),
+                "lastAssistantPreview": "我先确认两个问题。",
+                "workspacePath": "/Users/e2e/zcode_mobile",
+                "pendingInteractionSummary": ["permissionCount": 0, "userInputCount": 1],
             ],
         ]
         // recordedPinned 命中的会话注入 pinned 投影（服务端投影 zcode-task 写的前置验证面）

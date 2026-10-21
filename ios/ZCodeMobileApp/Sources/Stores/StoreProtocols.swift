@@ -80,6 +80,8 @@ protocol ConversationStore: AnyObject, Sendable {
     func observeModelSelection() -> AsyncStream<ModelSelectionInfo?>
     /// 待处理交互投影列表（连接态 conversation state.pendingInteractions；演示态空）
     func pendingInteractionList(in conversationID: String) async -> [RemotePendingInteraction]
+    /// 运行时初始化态（3.16.2 snapshot.runtimeInitialization；nil = 旧桌面未投影）
+    func runtimeInitialization(in conversationID: String) async -> RuntimeInitializationInfo?
     /// 重命名会话（连接态 zcode-task.renameTask 双写；演示态本地改）
     func renameConversation(_ title: String, conversationID: String) async
     /// 标记未读（连接态 zcode-task.setTaskUnread unread:true；compare-and-clear 的反向）
@@ -368,6 +370,9 @@ extension ConversationStore {
 
     /// 待处理交互投影列表（演示态无交互面，返回空）
     func pendingInteractionList(in conversationID: String) async -> [RemotePendingInteraction] { [] }
+
+    /// 运行时初始化态（演示态无 runtime，nil）
+    func runtimeInitialization(in conversationID: String) async -> RuntimeInitializationInfo? { nil }
 
     /// 重命名会话（mock 默认本地改，连接态由远端实现双写覆写）
     func renameConversation(_ title: String, conversationID: String) async {}

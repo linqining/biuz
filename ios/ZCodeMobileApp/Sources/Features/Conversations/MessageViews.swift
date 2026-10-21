@@ -39,6 +39,12 @@ struct MessageView: View {
         onEditResend != nil && rowId != nil && message.entityId != nil
     }
 
+    /// v3.15.1 Inline Gen UI：`::visualize{path=… title=…}` 在桌面端投影为内联卡片；
+    /// 移动端不承载 HTML 渲染，至少剥离标记并给出「桌面端查看」占位，避免 JSON 污染正文。
+    private var genUiProjection: GenUiMarker.Projection {
+        GenUiMarker.project(message.text, streaming: message.status == .streaming)
+    }
+
     @State private var showEditResend = false
 
     var body: some View {
@@ -79,8 +85,18 @@ struct MessageView: View {
                 if !message.text.isEmpty {
                     HStack(alignment: .top, spacing: T.sp2) {
                         AgentAvatar(size: 22)
-                        MarkdownMessageBody(text: message.text, streaming: message.status == .streaming)
+                        MarkdownMessageBody(
+                            text: genUiProjection.visible,
+                            streaming: message.status == .streaming)
                     }
+                }
+                if !genUiProjection.references.isEmpty {
+                    VStack(alignment: .leading, spacing: T.sp2) {
+                        ForEach(genUiProjection.references) { reference in
+                            GenUiReferenceCard(reference: reference)
+                        }
+                    }
+                    .padding(.leading, 30)
                 }
                 // 项 4：思考折叠块（正文后、工具卡前；折叠态不渲染正文，列表不因长思考抖动）
                 if let thinking = message.thinking {
@@ -2174,5 +2190,224 @@ struct WorkflowArtifactSheetView: View {
             return
         }
         content = text
+    }
+}
+
+// MARK: - Inline Gen UI 标记（v3.15.1 `::visualize{...}`）
+
+/// 上游 `packages/ui/src/gen-ui/domain/references.ts` 的移动端最小移植：
+/// 只做「剥离标记 + 提取 path/title」，不渲染 HTML（移动端无插件沙箱）。
+/// - 支持 `::visualize{path="…" title="…"}`、`::visualize{"path":…}` 与
+///   Unicode `\u{E000}visualize\u{E001}…\u{E002}` 三种形态；
+/// - 跳过围栏代码块；流式未闭合标记整段隐藏，避免半截 JSON 上屏。
+enum GenUiMarker {
+    struct Reference: Identifiable, Equatable {
+        let id: String
+        let path: String?
+        let title: String?
+    }
+
+    struct Projection: Equatable {
+        var visible: String
+        var references: [Reference]
+    }
+
+    static func project(_ text: String, streaming: Bool) -> Projection {
+        guard !text.isEmpty else { return Projection(visible: "", references: []) }
+        let ns = text as NSString
+        let codeRanges = fencedCodeRanges(ns)
+        var removals: [NSRange] = []
+        var references: [Reference] = []
+        var cursor = 0
+
+        while cursor < ns.length {
+            let search = NSRange(location: cursor, length: ns.length - cursor)
+            let ascii = ns.range(of: "::visualize", options: [], range: search)
+            let unicode = ns.range(of: "\u{E000}visualize\u{E001}", options: [], range: search)
+            var found = ascii
+            var isUnicode = false
+            if unicode.location != NSNotFound,
+               (found.location == NSNotFound || unicode.location < found.location) {
+                found = unicode
+                isUnicode = true
+            }
+            guard found.location != NSNotFound else { break }
+            if codeRanges.contains(where: { NSLocationInRange(found.location, $0) }) {
+                cursor = found.location + found.length
+                continue
+            }
+            let bodyStart = found.location + found.length
+
+            if isUnicode {
+                let endMarker = ns.range(
+                    of: "\u{E002}", options: [],
+                    range: NSRange(location: bodyStart, length: ns.length - bodyStart))
+                guard endMarker.location != NSNotFound else {
+                    removals.append(NSRange(location: found.location, length: ns.length - found.location))
+                    break
+                }
+                let body = ns.substring(
+                    with: NSRange(location: bodyStart, length: endMarker.location - bodyStart))
+                if let reference = parseReference(body) { references.append(reference) }
+                removals.append(NSRange(
+                    location: found.location,
+                    length: endMarker.location + endMarker.length - found.location))
+                cursor = endMarker.location + endMarker.length
+                continue
+            }
+
+            var brace = bodyStart
+            while brace < ns.length, isWhitespace(ns.character(at: brace)) {
+                brace += 1
+            }
+            guard brace < ns.length, ns.character(at: brace) == 0x7B else {
+                // 形态不完整：整段隐藏，不把半截标记留给用户
+                removals.append(NSRange(location: found.location, length: ns.length - found.location))
+                break
+            }
+            var depth = 0
+            var inString = false
+            var escaped = false
+            var end = NSNotFound
+            var index = brace
+            while index < ns.length {
+                let ch = ns.character(at: index)
+                if inString {
+                    if escaped { escaped = false }
+                    else if ch == 0x5C { escaped = true }
+                    else if ch == 0x22 { inString = false }
+                } else if ch == 0x22 {
+                    inString = true
+                } else if ch == 0x7B {
+                    depth += 1
+                } else if ch == 0x7D {
+                    depth -= 1
+                    if depth == 0 { end = index; break }
+                }
+                index += 1
+            }
+            guard end != NSNotFound else {
+                // 流式半截 / 非法：从标记起到文末隐藏
+                removals.append(NSRange(location: found.location, length: ns.length - found.location))
+                break
+            }
+            let body = ns.substring(with: NSRange(location: brace, length: end - brace + 1))
+            if let reference = parseReference(body) { references.append(reference) }
+            removals.append(NSRange(location: found.location, length: end + 1 - found.location))
+            cursor = end + 1
+        }
+
+        // 流式尾部半截 `::visua…`：上游同款抑制（标记可出现在行中，不要求行首）。
+        if streaming, let markerStart = text.range(of: "::", options: .backwards) {
+            let tail = String(text[markerStart.lowerBound...])
+            if !tail.isEmpty, "::visualize".hasPrefix(tail) {
+                removals.append(NSRange(location: ns.length - tail.utf16.count,
+                                        length: tail.utf16.count))
+            }
+        }
+
+        let visible = NSMutableString(string: text)
+        for range in removals.sorted(by: { $0.location > $1.location }) {
+            guard range.location >= 0, range.location + range.length <= visible.length else { continue }
+            visible.replaceCharacters(in: range, with: "")
+        }
+        return Projection(
+            visible: (visible as String).trimmingCharacters(in: .whitespacesAndNewlines),
+            references: references)
+    }
+
+    private static func isWhitespace(_ value: unichar) -> Bool {
+        value == 0x20 || value == 0x09 || value == 0x0A || value == 0x0D
+    }
+
+    private static func parseReference(_ body: String) -> Reference? {
+        var path: String?
+        var title: String?
+        if let data = body.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            path = (object["path"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            title = (object["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            path = capture(body, key: "path")
+            title = capture(body, key: "title")
+        }
+        guard let path, !path.isEmpty || !(title ?? "").isEmpty else {
+            if let title, !title.isEmpty {
+                return Reference(id: "title:\(title)", path: nil, title: title)
+            }
+            return nil
+        }
+        let identity = "\(path)|\(title ?? "")"
+        return Reference(id: identity, path: path.isEmpty ? nil : path, title: title)
+    }
+
+    private static func capture(_ body: String, key: String) -> String? {
+        let pattern = "\\b\(key)\\s*=\\s*(?:\"((?:\\\\.|[^\"])*)\"|'((?:\\\\.|[^'])*)')"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(location: 0, length: (body as NSString).length)
+        guard let match = regex.firstMatch(in: body, range: range) else { return nil }
+        for index in 1..<match.numberOfRanges {
+            let candidate = (body as NSString).substring(with: match.range(at: index))
+            if !candidate.isEmpty {
+                return candidate
+                    .replacingOccurrences(of: "\\\"", with: "\"")
+                    .replacingOccurrences(of: "\\\\", with: "\\")
+            }
+        }
+        return nil
+    }
+
+    /// 围栏代码块范围（``` … ```）；代码块里的 `::visualize` 是示例，不执行。
+    private static func fencedCodeRanges(_ ns: NSString) -> [NSRange] {
+        var ranges: [NSRange] = []
+        var cursor = 0
+        var open: Int?
+        while cursor < ns.length {
+            let found = ns.range(of: "```", options: [], range: NSRange(location: cursor, length: ns.length - cursor))
+            guard found.location != NSNotFound else { break }
+            if let start = open {
+                ranges.append(NSRange(location: start, length: found.location + found.length - start))
+                open = nil
+            } else {
+                open = found.location
+            }
+            cursor = found.location + found.length
+        }
+        if let start = open {
+            ranges.append(NSRange(location: start, length: ns.length - start))
+        }
+        return ranges
+    }
+}
+
+/// 移动端不渲染 Gen UI HTML：给出可读占位（桌面端查看），避免原始 JSON 污染正文。
+struct GenUiReferenceCard: View {
+    let reference: GenUiMarker.Reference
+
+    private var filename: String? {
+        guard let path = reference.path, !path.isEmpty else { return nil }
+        return (path as NSString).lastPathComponent
+    }
+
+    var body: some View {
+        HStack(spacing: T.sp2) {
+            Image(systemName: "rectangle.on.rectangle.angled")
+                .font(.system(size: 15))
+                .foregroundColor(T.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(reference.title ?? filename ?? String(localized: "可视化内容"))
+                    .font(T.font(12.5, .medium))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                Text(String(localized: "内联可视化 · 请在桌面端查看"))
+                    .font(T.font(10.5))
+                    .foregroundColor(T.text3)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .card()
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("05-genui-card")
     }
 }

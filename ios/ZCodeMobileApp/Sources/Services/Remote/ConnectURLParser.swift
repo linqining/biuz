@@ -28,10 +28,12 @@ enum ConnectURLParser {
 
     // MARK: 云中继链接（remote/v4 配对链接；逆向结论⑦）
 
-    /// 识别中继链接：`https://<host>/remote/v4?sid=…&hash=…&mid=…&name=…&app_version=…`
-    /// → RelayLinkConfig{wssURL(`wss://<host>/ws?mid=…`), machineName}。
-    /// - sid/hash 不进 WS URL（仅用于 auth 帧）；hash 为 URL 解码后的 base64 原字符串（HMAC 密钥）
-    /// - wssURL 保留 mid 参数语义（桌面端 _Vn.connect 仅设置 mid；无 mid 时不带参数也可 101）
+    /// 识别中继链接。
+    /// - V1（旧桌面）：`https://<host>/remote/v4?sid=…&hash=…&mid=…` → `wss://<host>/ws?mid=…`，
+    ///   hash 作 HMAC 密钥。
+    /// - V2（3.16.2 起）：`https://<host>/remote/v4?sid=…&mid=…&name=…&app_version=…`（无 hash/t）
+    ///   → `wss://<host>/api/v1/remote/ws2`，建连时用 JWT 换一次性 token。
+    /// - 带 `token=` 的链接归局域网直连，不进中继。
     static func parseRelayLink(_ input: String) -> RelayLinkConfig? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -52,23 +54,46 @@ enum ConnectURLParser {
         func value(_ name: String) -> String? {
             query.first { $0.name.lowercased() == name }?.value.flatMap { $0.isEmpty ? nil : $0 }
         }
-        guard let sid = value("sid"), let hash = value("hash") else { return nil }
+        guard let sid = value("sid") else { return nil }
         let mid = value("mid")
+        let hash = value("hash")
+        let hasLegacyCredential = hash != nil || value("t") != nil
 
+        if hasLegacyCredential {
+            // V1：旧桌面的 hash/t 凭据；上游 V2 已删除，但移动端保留兼容。
+            guard let hash else { return nil }
+            var wss = URLComponents()
+            wss.scheme = "wss"
+            wss.host = components.host
+            wss.path = "/ws"
+            if let mid {
+                wss.queryItems = [URLQueryItem(name: "mid", value: mid)]
+            }
+            guard let wssURL = wss.url?.absoluteString else { return nil }
+            return RelayLinkConfig(
+                wssURL: wssURL,
+                machineName: value("name"),
+                deviceSid: sid,
+                passHash: hash,
+                desktopAppVersion: value("app_version"),
+                protocolVersion: 1,
+                deviceMid: mid)
+        }
+
+        // V2：无 hash/t；token 由 JWT 在建连时换取（上游 relay-v2-pairing.md）。
         var wss = URLComponents()
         wss.scheme = "wss"
         wss.host = components.host
-        wss.path = "/ws"
-        if let mid {
-            wss.queryItems = [URLQueryItem(name: "mid", value: mid)]
-        }
+        wss.path = "/api/v1/remote/ws2"
         guard let wssURL = wss.url?.absoluteString else { return nil }
         return RelayLinkConfig(
             wssURL: wssURL,
             machineName: value("name"),
             deviceSid: sid,
-            passHash: hash,
-            desktopAppVersion: value("app_version"))
+            passHash: nil,
+            desktopAppVersion: value("app_version"),
+            protocolVersion: 2,
+            deviceMid: mid)
     }
 
     /// 剪贴板/输入框统一识别形态：中继链接优先，其次局域网直连链接

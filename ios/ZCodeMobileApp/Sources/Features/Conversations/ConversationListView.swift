@@ -907,6 +907,15 @@ struct ConversationRowView: View {
                         StatusPill(text: "等待确认", kind: .wait, compact: true)
                             .accessibilityIdentifier("04-row-pending-\(conversation.id)")
                     }
+                    if conversation.hasBackgroundWork, !conversation.isRunning {
+                        // 3.16.2 sessions-index.hasBackgroundWork：无前台 turn 但后台仍有活
+                        StatusPill(text: String(localized: "后台任务"), kind: .tag, compact: true)
+                            .accessibilityIdentifier("04-row-bgwork-\(conversation.id)")
+                    }
+                    if conversation.goalStatus == "active" || conversation.goalStatus == "verifying" {
+                        StatusPill(text: String(localized: "目标"), kind: .tag, compact: true)
+                            .accessibilityIdentifier("04-row-goal-\(conversation.id)")
+                    }
                     Spacer(minLength: 0)
                     Text(timeText)
                         .font(T.font(10.5, .medium))

@@ -27,13 +27,27 @@ final class RelayLinkTests: XCTestCase {
         let link = ConnectURLParser.parseRelayLink("https://zcode.z.ai/remote/v4?sid=s1&hash=h1")
         XCTAssertNotNil(link)
         XCTAssertEqual(link?.wssURL, "wss://zcode.z.ai/ws")
+        XCTAssertEqual(link?.protocolVersion, 1)
+    }
+
+    /// 3.16.2 起的 V2 配对链接：无 hash/t，JWT 换 token 后连 ws2。
+    func testParseRelayLinkV2() {
+        let link = ConnectURLParser.parseRelayLink(
+            "https://zcode.z.ai/remote/v4?sid=d_v2_sid&mid=mid-1&name=MacBook&app_version=3.16.2")
+        XCTAssertNotNil(link)
+        XCTAssertEqual(link?.protocolVersion, 2)
+        XCTAssertEqual(link?.passHash, nil)
+        XCTAssertEqual(link?.deviceMid, "mid-1")
+        XCTAssertEqual(link?.wssURL, "wss://zcode.z.ai/api/v1/remote/ws2")
+        XCTAssertEqual(link?.httpOrigin, "https://zcode.z.ai")
+        XCTAssertEqual(link?.desktopAppVersion, "3.16.2")
     }
 
     func testParseRelayLinkRejectsNonRelayInputs() {
         XCTAssertNil(ConnectURLParser.parseRelayLink("http://zcode.z.ai/remote/v4?sid=s&hash=h")) // 非 https
         XCTAssertNil(ConnectURLParser.parseRelayLink("https://zcode.z.ai/other?sid=s&hash=h"))    // 非 /remote/
-        XCTAssertNil(ConnectURLParser.parseRelayLink("https://zcode.z.ai/remote/v4?sid=s"))       // 缺 hash
         XCTAssertNil(ConnectURLParser.parseRelayLink("https://zcode.z.ai/remote/v4?hash=h"))      // 缺 sid
+        XCTAssertNil(ConnectURLParser.parseRelayLink("https://zcode.z.ai/remote/v4?sid=s&t=1"))   // 只有 t 缺 hash（V1 残缺）
         XCTAssertNil(ConnectURLParser.parseRelayLink(""))
     }
 

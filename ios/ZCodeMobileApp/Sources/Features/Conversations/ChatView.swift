@@ -130,6 +130,12 @@ struct ChatView: View {
                 if let banner = ConnectionBanner.model(for: session) {
                     ConnectionBanner(model: banner)
                 }
+                // 3.16.2 运行时初始化态（failed/initializing 时 composer 禁发，原因上屏）
+                if let runtime = viewModel.runtimeInitialization, runtime.isBlocking {
+                    RuntimeInitializationBanner(runtime: runtime)
+                        .padding(.horizontal, T.sp4)
+                        .padding(.top, T.sp2)
+                }
                 // 待审批交互卡（常驻 composer 上方：不随消息滚动，新消息不再顶走；
                 // 连接态 permission/plan/workspaceHookReview/escalation 类挂起交互，按
                 // kind 分派应答命令——permission/plan 走 resolveInteraction，
@@ -150,6 +156,8 @@ struct ChatView: View {
                                 onRevoke: { ids in
                                     await viewModel.revokeWorkspaceHookTrust(reviewItemIds: ids)
                                 })
+                        } else if interaction.isUserInput {
+                            UserInputInteractionCard(viewModel: viewModel, interaction: interaction)
                         } else if interaction.isPermission
                                     || interaction.kind.lowercased().contains("escalation") {
                             ApprovalInteractionCard(viewModel: viewModel, interaction: interaction)
@@ -164,7 +172,8 @@ struct ChatView: View {
                     // 「模型/思考不可选而计划/排队可选」的物理成因：后者在栈里位置
                     // 更高未被盖）。审批卡限高 240 + 超限内部滚动，底部栈总能抬到
                     // 键盘上方（fixedSize：卡片高度自适应内容、不超上限不占死块）
-                    .modifier(ApprovalCardKeyboardBound())
+                    .modifier(ApprovalCardKeyboardBound(
+                        maxHeight: interaction.isUserInput ? 360 : 240))
                     .padding(.horizontal, T.sp4)
                     .padding(.top, T.sp2)
                 }
@@ -633,15 +642,17 @@ struct PermissionOptionMatrix: Equatable {
 
 // MARK: - 连接态审批卡（pendingInteractions.permission 投影：命令/路径/影响结构化排版）
 
-/// 审批卡限高包装：内容自适应、超 240 内部滚动（键盘在场时底部栈不再被顶到
-/// 键盘底下；构造背景见 safeAreaInset ForEach 注释）
+/// 交互卡限高包装：内容自适应、超限内部滚动（键盘在场时底部栈不再被顶到
+/// 键盘底下；构造背景见 safeAreaInset ForEach 注释）。提问卡题目较多，给更高上限。
 private struct ApprovalCardKeyboardBound: ViewModifier {
+    var maxHeight: CGFloat = 240
+
     func body(content: Content) -> some View {
         ScrollView(showsIndicators: false) {
             content.frame(maxWidth: .infinity, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxHeight: 240)
+        .frame(maxHeight: maxHeight)
     }
 }
 
@@ -1862,13 +1873,15 @@ struct ComposerBar: View {
         .accessibilityIdentifier("05-chip-mode")
     }
 
-    /// 协作模式 4 档文案（web Qme 全集对齐 + 中文翻译，用户裁决 2026-10-06：
-    /// build=变更前确认 / edit=自动编辑 / plan=计划模式 / yolo=完全访问）
+    /// 协作模式 5 档文案（web 全集对齐 + 中文翻译，用户裁决 2026-10-06：
+    /// build=变更前确认 / edit=自动编辑 / plan=计划模式 / yolo=完全访问；
+    /// v3.15.1 新增 guarded=自主模式：有风险时询问）
     static func collaborationLabel(_ mode: String) -> String {
         switch mode {
         case "edit": return String(localized: "自动编辑")
         case "plan": return String(localized: "计划模式")
         case "yolo": return String(localized: "完全访问")
+        case "guarded": return String(localized: "自主模式")
         default: return String(localized: "变更前确认")
         }
     }
@@ -1878,6 +1891,7 @@ struct ComposerBar: View {
         case "edit": return String(localized: "自动编辑相关文件，不再逐项确认")
         case "plan": return String(localized: "先出计划，改动需经你确认")
         case "yolo": return String(localized: "自动执行并运行命令，最少确认")
+        case "guarded": return String(localized: "在有风险时询问")
         default: return String(localized: "每次文件改动前询问确认")
         }
     }
@@ -1887,6 +1901,7 @@ struct ComposerBar: View {
         case "edit": return "pencil.and.list.clipboard"
         case "plan": return "list.clipboard"
         case "yolo": return "bolt.fill"
+        case "guarded": return "shield.lefthalf.filled"
         default: return "hammer"
         }
     }
@@ -2785,5 +2800,267 @@ struct CameraPicker: UIViewControllerRepresentable {
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             parent.dismiss()
         }
+    }
+}
+
+// MARK: - 连接态提问卡（userInput / AskUserQuestion / MCP elicitation）
+
+/// 上游 v4 交互面：单题可选即决；多题（AskUserQuestion / elicitation form）逐题选择 +
+/// 自由输入，提交 `{action:"accept", content:{answers, answer_N, answer}}`。
+/// 移动端不落草稿（上游 answerDrafts 为 renderer 本地草稿，非协议事实）。
+struct UserInputInteractionCard: View {
+    @Bindable var viewModel: ChatViewModel
+    let interaction: RemotePendingInteraction
+
+    /// qid → 已选 option value（多选集合；单选只保留一个）
+    @State private var selections: [String: Set<String>] = [:]
+    /// qid → 自由输入
+    @State private var texts: [String: String] = [:]
+    /// 单题（无 questions）选项
+    @State private var simpleSelection: String?
+    @State private var simpleText = ""
+    @State private var submitting = false
+    @State private var errorText: String?
+
+    private var prompt: String {
+        interaction.title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? interaction.title!
+            : String(localized: "Agent 提问")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            HStack(spacing: T.sp2) {
+                Image(systemName: "questionmark.bubble.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(T.blue)
+                Text(String(localized: "待回答"))
+                    .font(T.font(13.5, .semibold))
+                    .foregroundColor(T.text)
+                Spacer()
+                StatusPill(text: String(localized: "提问"), kind: .wait, compact: true)
+            }
+            if interaction.questions.isEmpty {
+                simpleQuestion
+            } else {
+                ForEach(interaction.questions) { question in
+                    questionBlock(question)
+                }
+                HStack(spacing: T.sp2) {
+                    Button(String(localized: "跳过")) { skip() }
+                        .font(T.font(13, .medium))
+                        .foregroundColor(T.text3)
+                        .frame(minHeight: 44)
+                        .disabled(submitting)
+                        .accessibilityIdentifier("05-userinput-skip")
+                    Spacer()
+                    Button {
+                        submitQuestions()
+                    } label: {
+                        Text(String(localized: "提交回答"))
+                            .font(T.font(14, .semibold))
+                            .foregroundColor(T.onAccent)
+                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .background(T.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                    }
+                    .disabled(submitting)
+                    .accessibilityIdentifier("05-userinput-submit")
+                }
+            }
+            if let errorText {
+                Text(errorText)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.red)
+                    .accessibilityIdentifier("05-userinput-error")
+            }
+        }
+        .card()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-userinput-card")
+    }
+
+    private var simpleQuestion: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            Text(prompt)
+                .font(T.font(13.5, .medium))
+                .foregroundColor(T.text)
+            if !interaction.options.isEmpty {
+                FlowChips(
+                    items: interaction.options.map(\.label),
+                    identifierPrefix: "05-userinput-option") { label in
+                        guard let option = interaction.options.first(where: { $0.label == label }) else { return }
+                        simpleSelection = option.id
+                        submitSimple(optionId: option.id, freeText: nil)
+                    }
+            }
+            if interaction.freeTextEnabled || interaction.options.isEmpty {
+                HStack(spacing: T.sp2) {
+                    TextField(
+                        interaction.sensitive ? String(localized: "请输入（敏感内容）") : String(localized: "输入回答"),
+                        text: $simpleText)
+                        .textFieldStyle(.plain)
+                        .font(T.font(13))
+                        .padding(.horizontal, T.sp3)
+                        .frame(minHeight: 44)
+                        .background(T.bgElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                        .accessibilityIdentifier("05-userinput-text")
+                    Button(String(localized: "提交")) {
+                        let text = simpleText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !text.isEmpty else { return }
+                        submitSimple(optionId: nil, freeText: text)
+                    }
+                    .font(T.font(13, .semibold))
+                    .foregroundColor(T.accentText)
+                    .frame(minWidth: 52, minHeight: 44)
+                    .disabled(submitting)
+                    .accessibilityIdentifier("05-userinput-submit")
+                }
+            }
+        }
+    }
+
+    private func questionBlock(_ question: RemoteInteractionQuestion) -> some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            if let header = question.header, !header.isEmpty {
+                Text(header.uppercased())
+                    .font(T.font(10, .semibold))
+                    .foregroundColor(T.text3)
+            }
+            Text(question.question)
+                .font(T.font(13, .medium))
+                .foregroundColor(T.text)
+            if !question.options.isEmpty {
+                FlowChips(
+                    items: question.options.map { option in
+                        (selections[question.id]?.contains(option.id) == true ? "✓ " : "") + option.label
+                    },
+                    identifierPrefix: "05-userinput-option") { label in
+                        let clean = label.hasPrefix("✓ ") ? String(label.dropFirst(2)) : label
+                        guard let option = question.options.first(where: { $0.label == clean }) else { return }
+                        toggle(question: question, value: option.id)
+                    }
+            }
+            if question.options.isEmpty || interaction.freeTextEnabled {
+                TextField(String(localized: "补充回答（可选）"), text: binding(for: question.id))
+                    .textFieldStyle(.plain)
+                    .font(T.font(13))
+                    .padding(.horizontal, T.sp3)
+                    .frame(minHeight: 42)
+                    .background(T.bgElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                    .accessibilityIdentifier("05-userinput-text-\(question.id)")
+            }
+        }
+    }
+
+    private func binding(for questionID: String) -> Binding<String> {
+        Binding(
+            get: { texts[questionID] ?? "" },
+            set: { texts[questionID] = $0 })
+    }
+
+    private func toggle(question: RemoteInteractionQuestion, value: String) {
+        var current = selections[question.id] ?? []
+        if question.multiSelect {
+            if current.contains(value) { current.remove(value) } else { current.insert(value) }
+        } else {
+            current = current.contains(value) ? [] : [value]
+        }
+        selections[question.id] = current
+    }
+
+    private func submitQuestions() {
+        var answers: [String: JSONValue] = [:]
+        var content: [String: JSONValue] = [:]
+        for (index, question) in interaction.questions.enumerated() {
+            var values = Array(selections[question.id] ?? []).sorted()
+            let text = (texts[question.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { values.append(text) }
+            guard !values.isEmpty else { continue }
+            answers[question.question] = .string(values.joined(separator: ", "))
+            content["answer_\(index)"] = question.multiSelect
+                ? .array(values.map { .string($0) })
+                : .string(values[0])
+        }
+        content["answers"] = .object(answers)
+        if interaction.questions.count == 1, let only = content["answer_0"] {
+            content["answer"] = only
+        }
+        let answer = JSONValue.object([
+            "action": .string("accept"),
+            "content": .object(content),
+        ])
+        submit(answer)
+    }
+
+    private func submitSimple(optionId: String?, freeText: String?) {
+        var answer: [String: JSONValue] = [:]
+        if let optionId { answer["optionId"] = .string(optionId) }
+        if let freeText { answer["freeText"] = .string(freeText) }
+        guard !answer.isEmpty else { return }
+        submit(.object(answer))
+    }
+
+    private func skip() {
+        submit(.object(["action": .string("cancel")]))
+    }
+
+    private func submit(_ answer: JSONValue) {
+        guard !submitting else { return }
+        submitting = true
+        errorText = nil
+        Task {
+            let failure = await viewModel.resolveUserInput(interaction, answer: answer)
+            await MainActor.run {
+                submitting = false
+                errorText = failure
+            }
+        }
+    }
+}
+
+// MARK: - 运行时初始化横幅（3.16.2 runtimeInitialization）
+
+struct RuntimeInitializationBanner: View {
+    let runtime: RuntimeInitializationInfo
+
+    var body: some View {
+        HStack(spacing: T.sp2) {
+            if runtime.status == "initializing" {
+                SpinnerView(size: 12)
+            } else {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(T.orange)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(runtime.status == "initializing"
+                     ? String(localized: "运行时初始化中…")
+                     : String(localized: "运行时初始化失败"))
+                    .font(T.font(11.5, .semibold))
+                    .foregroundColor(T.text)
+                if let detail = runtime.message?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !detail.isEmpty {
+                    Text(detail)
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text2)
+                        .lineLimit(2)
+                } else if let reason = runtime.reasonCode, !reason.isEmpty {
+                    Text(reason)
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text2)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, T.sp3)
+        .padding(.vertical, T.sp2)
+        .background(T.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("05-runtime-init-banner")
     }
 }

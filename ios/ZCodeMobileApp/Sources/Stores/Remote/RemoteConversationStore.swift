@@ -264,6 +264,11 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         /// 通路 A（G-007）：行自带 workflowActivity（sessions-index.ts:44 sessionWorkflowActivitySchema，
         /// 随既有订阅到达零新增订阅）；原始 JSON 保存，投影解析见 parseWorkflowActivity
         var workflowActivity: JSONValue?
+        /// 3.16.2 sessions-index 新字段
+        var titleSource: String?
+        var lastOutcome: String?
+        var hasBackgroundWork: Bool = false
+        var goalStatus: String?
     }
 
     init(connection: ZCodeServerConnection, workspace: ServerWorkspaceInfo) {
@@ -642,6 +647,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 conversation.isFailed = summary.phase.lowercased().contains("error")
                     || summary.phase.lowercased().contains("failed")
                     || summary.taskStatus == "error"
+                conversation.hasBackgroundWork = summary.hasBackgroundWork
+                conversation.goalStatus = summary.goalStatus
+                conversation.titleSource = summary.titleSource
+                conversation.lastOutcome = summary.lastOutcome
                 // G-007 通路 A：行迷你轨道数据（无 run 时 nil，行不渲染占位）
                 conversation.workflowActivity = Self.parseWorkflowActivity(summary.workflowActivity)
                 // 来源过滤（G-006）数据口径：连接态会话均来自当前桌面端（局域网/云中继
@@ -1299,7 +1308,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     "control", "availability", "inputRouting", "meta", "sharedContextImport",
                     "config", "modelTransition", "usage", "queue", "pendingInteractions",
                     "pendingCommands", "backgroundWorks", "subagents", "workflowRuns",
-                    "goal", "plan", "workspaceHookAdmission",
+                    "goal", "plan", "workspaceHookAdmission", "runtimeInitialization",
                 ]
                 var merged: [String: JSONValue] = dict["state"]?.objectValue ?? [:]
                 var hasState = !merged.isEmpty
@@ -2900,6 +2909,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         return array.compactMap(Self.parseInteraction)
     }
 
+    /// 3.16.2 运行时初始化态（initializing/ready/failed）。旧桌面无此键 → nil，不阻塞。
+    func runtimeInitialization(in conversationID: String) async -> RuntimeInitializationInfo? {
+        guard let raw = snapshotState[conversationID]?.objectValue?["runtimeInitialization"]?
+            .objectValue,
+            let status = raw["status"]?.stringValue, !status.isEmpty else { return nil }
+        return RuntimeInitializationInfo(
+            status: status,
+            attemptId: raw["attemptId"]?.stringValue,
+            reasonCode: raw["reasonCode"]?.stringValue,
+            message: raw["message"]?.stringValue)
+    }
+
     /// 交互投影解析（宽容：id/interactionId 二选一；命令/路径/影响/title/options 就近取）
     nonisolated static func parseInteraction(_ json: JSONValue) -> RemotePendingInteraction? {
         guard let dict = json.objectValue else { return nil }
@@ -2953,6 +2974,32 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 guard let id, !id.isEmpty else { return nil }
                 return RemoteInteractionOption(id: id, label: label ?? id)
             }
+        // userInput / AskUserQuestion / MCP elicitation：题目列表（上游
+        // userInputRequestPayloadSchema.questions，options 元素用 value/label，
+        // 与权限族 optionId 形态不同）；旧形态无 questions 时用 prompt+options。
+        if interaction.isUserInput {
+            // 提问卡标题优先 prompt（此前 title 先被 toolName 占位，prompt 永远进不来）
+            if let prompt = payload["prompt"]?.stringValue ?? dict["prompt"]?.stringValue,
+               !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                interaction.title = prompt
+            }
+            let questions = Self.parseQuestions(
+                payload["questions"]?.arrayValue
+                    ?? dict["questions"]?.arrayValue
+                    ?? payload["input"]?.objectValue?["questions"]?.arrayValue
+                    ?? [])
+            interaction.questions = questions
+            interaction.freeTextEnabled = payload["freeText"]?.boolValue
+                ?? dict["freeText"]?.boolValue
+                ?? questions.contains(where: { $0.options.isEmpty })
+            // 既无选项也无题目 = 纯自由输入（避免出现无可操作控件的卡）
+            if questions.isEmpty && interaction.options.isEmpty {
+                interaction.freeTextEnabled = true
+            }
+            interaction.sensitive = payload["sensitive"]?.boolValue
+                ?? dict["sensitive"]?.boolValue
+                ?? false
+        }
         // G-017：plan_approval 计划文本。宽容链：renderContext.plan / 顶层 plan /
         // payload.input.plan（上游实证：request.input.plan 为计划正文，
         // zcodeTaskServiceAdapter.ts:4944-4947「直接取 schema ?? input 会丢 input.plan」）
@@ -2972,6 +3019,38 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             interaction.hookReviewItems = Self.parseHookReviewItems(payload: payload, dict: dict)
         }
         return interaction
+    }
+
+    /// userInput questions[] 宽容解析（上游元素：{question, header, options[{value,label,
+    /// description?, preview?}], multiSelect?}；options 缺席 = 自由文本题）。
+    nonisolated static func parseQuestions(_ array: [JSONValue]) -> [RemoteInteractionQuestion] {
+        array.enumerated().compactMap { index, element in
+            guard let object = element.objectValue,
+                  let question = object["question"]?.stringValue,
+                  !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            let options = (object["options"]?.arrayValue ?? []).compactMap {
+                option -> RemoteInteractionOption? in
+                if let text = option.stringValue, !text.isEmpty {
+                    return RemoteInteractionOption(id: text, label: text)
+                }
+                guard let dict = option.objectValue else { return nil }
+                let value = dict["value"]?.stringValue
+                    ?? dict["optionId"]?.stringValue
+                    ?? dict["id"]?.stringValue
+                guard let value, !value.isEmpty else { return nil }
+                return RemoteInteractionOption(
+                    id: value,
+                    label: dict["label"]?.stringValue ?? dict["title"]?.stringValue ?? value)
+            }
+            return RemoteInteractionQuestion(
+                id: "q\(index)",
+                question: question,
+                header: object["header"]?.stringValue,
+                options: options,
+                multiSelect: object["multiSelect"]?.boolValue ?? false)
+        }
     }
 
     /// workspaceHookReview 审核项宽容解析。元素 schema（web Hae/Nee 同层）在共享
@@ -3664,6 +3743,21 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             guard let d = item.objectValue, let aid = d["id"]?.stringValue, !aid.isEmpty else { return nil }
             return WorkflowArtifactBrief(id: aid, bytes: d["bytes"]?.intValue, itemCount: d["itemCount"]?.intValue)
         }
+        // 3.15.1 留白：holes[]（零条键缺席）；`concurrency.limit` 才是本 run 自己的界，
+        // ceiling 是默认并发 D（UI 读数优先 limit）。
+        let holes: [WorkflowHoleInfo] = (dict["holes"]?.arrayValue ?? []).compactMap { item in
+            guard let d = item.objectValue,
+                  let siteId = d["siteId"]?.stringValue,
+                  let name = d["name"]?.stringValue, !name.isEmpty else { return nil }
+            let ordinal = d["ordinal"]?.intValue ?? 0
+            return WorkflowHoleInfo(
+                id: "\(siteId)#\(ordinal)",
+                name: name,
+                state: d["state"]?.stringValue ?? "waiting",
+                prompt: d["prompt"]?.stringValue)
+        }
+        let concurrencyLimit = dict["concurrency"]?.objectValue?["limit"]?.intValue
+            ?? dict["maxConcurrency"]?.intValue
         return WorkflowRunSummary(
             id: id,
             name: name,
@@ -3683,6 +3777,8 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             concurrencyCeiling: dict["concurrencyCeiling"]?.intValue
                 ?? dict["concurrency"]?.objectValue?["ceiling"]?.intValue
                 ?? dict["maxConcurrency"]?.intValue,
+            concurrencyLimit: concurrencyLimit,
+            holes: holes,
             subagentModel: subagentModel,
             cancellable: dict["cancellable"]?.boolValue ?? true,
             workId: workId,
@@ -5622,6 +5718,11 @@ private extension RemoteConversationStore.SessionSummary {
             summary.pendingPermissionCount = pending["permissionCount"]?.intValue ?? 0
             summary.pendingUserInputCount = pending["userInputCount"]?.intValue ?? 0
         }
+        // 3.16.2 sessions-index 新字段（optional 兼容旧 frame）
+        summary.titleSource = dict["titleSource"]?.stringValue
+        summary.lastOutcome = dict["lastOutcome"]?.stringValue
+        summary.hasBackgroundWork = dict["hasBackgroundWork"]?.boolValue ?? false
+        summary.goalStatus = dict["goalStatus"]?.stringValue
         // setTaskPinned/archiveTask 的 sessions-index 投影（缺席 = 服务端未投影，本地 override 兜底）
         summary.pinned = dict["pinned"]?.boolValue
         summary.archived = dict["archived"]?.boolValue ?? dict["isArchived"]?.boolValue

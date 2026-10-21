@@ -573,6 +573,9 @@ struct WorkflowPanelContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
             header
+            if !run.holes.isEmpty {
+                holesPanel
+            }
             phaseChain
             controlBar
         }
@@ -617,6 +620,48 @@ struct WorkflowPanelContent: View {
     }
 
     // MARK: 阶段链（桌面同构：阶段行 n/m + chevron；展开为子代理实例行）
+
+    /// 3.15.1 留白：脚本 `hole<T>(name)` 停驻等主代理补代码。waiting 行橙色提示，
+    /// filled 行灰显留痕（零条时整个区块不渲染）。
+    private var holesPanel: some View {
+        VStack(alignment: .leading, spacing: T.sp1) {
+            HStack(spacing: T.sp1) {
+                Image(systemName: "square.dashed")
+                    .font(.system(size: 10))
+                    .foregroundColor(T.orange)
+                Text(String(localized: "留白"))
+                    .font(T.font(10.5, .semibold))
+                    .foregroundColor(T.text3)
+            }
+            ForEach(run.holes) { hole in
+                HStack(alignment: .top, spacing: T.sp2) {
+                    Image(systemName: hole.isWaiting ? "ellipsis.circle" : "checkmark.circle")
+                        .font(.system(size: 11))
+                        .foregroundColor(hole.isWaiting ? T.orange : T.text3)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(hole.name)
+                            .font(T.font(11.5, .medium))
+                            .foregroundColor(hole.isWaiting ? T.text : T.text3)
+                        if let prompt = hole.prompt, !prompt.isEmpty, hole.isWaiting {
+                            Text(prompt)
+                                .font(T.font(10.5))
+                                .foregroundColor(T.text3)
+                                .lineLimit(2)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Text(hole.isWaiting ? String(localized: "等待补全") : String(localized: "已补全"))
+                        .font(T.font(9.5))
+                        .foregroundColor(hole.isWaiting ? T.orange : T.text3)
+                }
+            }
+        }
+        .padding(T.sp2)
+        .background(T.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-wf-holes")
+    }
 
     private var phaseChain: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -783,20 +828,21 @@ struct WorkflowPanelContent: View {
             }
             .accessibilityIdentifier("05-wf-act-model")
 
-            // 并发 agent 数（amendWorkflowRunSettings.maxConcurrency）
+            // 并发 agent 数（amendWorkflowRunSettings.maxConcurrency）。上游语义：
+            // run.concurrency.limit = 本 run 自己的界；nil = 跟随默认 D（不是「无上限」）。
             Menu {
                 ForEach(concurrencyChoices, id: \.self) { limit in
                     MenuConcurrencyPicker(
                         label: "\(limit)", limit: limit,
-                        current: run.concurrencyCeiling, onPick: pickConcurrency)
+                        current: run.concurrencyLimit, onPick: pickConcurrency)
                 }
                 MenuConcurrencyPicker(
-                    label: String(localized: "无上限"), limit: nil,
-                    current: run.concurrencyCeiling, onPick: pickConcurrency)
+                    label: String(localized: "跟随默认"), limit: nil,
+                    current: run.concurrencyLimit, onPick: pickConcurrency)
             } label: {
                 controlLabel(
                     icon: "square.stack.3d.up",
-                    text: run.concurrencyCeiling.map { String(localized: "并发 \($0)") }
+                    text: run.concurrencyLimit.map { String(localized: "并发 \($0)") }
                         ?? String(localized: "并发默认"))
             }
             .accessibilityIdentifier("05-wf-act-concurrency")
@@ -831,8 +877,10 @@ struct WorkflowPanelContent: View {
     }
 
     private var concurrencyChoices: [Int] {
-        let ceiling = max(run.concurrencyCeiling ?? 4, 4)
-        return Array(1...min(ceiling, 8))
+        // 上游允许高于默认 D（可到 1024）；移动端给常用档位，并把当前值纳入，
+        // 避免「已设为 20 但菜单里没有 20」。
+        let upper = max(16, run.concurrencyLimit ?? 0, run.concurrencyCeiling ?? 0)
+        return Array(1...upper)
     }
 
     private func pickModel(_ model: String?) {

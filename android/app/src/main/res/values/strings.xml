@@ -83,6 +83,7 @@
     <string name="composer_mode_build">构建</string>
     <string name="composer_mode_edit">自动编辑</string>
     <string name="composer_mode_yolo">完全访问</string>
+    <string name="composer_mode_guarded">自主模式</string>
     <string name="composer_mode_panel_title">协作模式</string>
     <string name="composer_mode_panel_hint">切换经桌面端代执行 · 当前模式随会话投影同步</string>
 

@@ -1688,9 +1688,12 @@ struct RemoteCapabilityListPage: View {
                         + items.compactMap { $0.objectValue?["id"]?.stringValue })
                 await loadPluginMarket(connection, installedKeys: installedKeys)
             case .savedWorkflows:
-                // G-022：已保存工作流库（桌面 <cwd>/.zcode/workflows）+ 最近运行；只读
+                // G-022：已保存工作流库（桌面 <cwd>/.zcode/workflows）+ 最近运行；只读。
+                // 上游 GUI 中枢要求 workspace 目标（ZCodeAgentSavedWorkflowTarget），
+                // listSavedWorkflowRuns 的 limit 必填 [1,50]——此前传 undefined 必被拒。
+                let savedScope = workspaceScopeFields(connection)
                 let workflowsResult = try await connection.call(
-                    "zcode-agent", "listSavedWorkflows", .undefined)
+                    "zcode-agent", "listSavedWorkflows", .json(.object(savedScope)))
                 let workflows = workflowsResult.jsonValue?["workflows"]?.arrayValue
                     ?? workflowsResult.jsonValue?["savedWorkflows"]?.arrayValue
                     ?? workflowsResult.jsonValue?["items"]?.arrayValue
@@ -1713,21 +1716,24 @@ struct RemoteCapabilityListPage: View {
                         workflowID: d["id"]?.stringValue ?? d["workflowId"]?.stringValue ?? name,
                         workflowEntry: item)
                 }
+                var runsParams = savedScope
+                runsParams["limit"] = .int(20)
                 if let runsResult = try? await connection.call(
-                    "zcode-agent", "listSavedWorkflowRuns", .undefined) {
+                    "zcode-agent", "listSavedWorkflowRuns", .json(.object(runsParams))) {
                     let runs = runsResult.jsonValue?["runs"]?.arrayValue
                         ?? runsResult.jsonValue?["items"]?.arrayValue
                         ?? []
                     loaded += runs.compactMap { item in
                         guard let d = item.objectValue,
                               let runId = d["runId"]?.stringValue ?? d["id"]?.stringValue else { return nil }
-                        let started = (d["startedAt"]?.intValue).map {
+                        let started = (d["startedAt"]?.intValue ?? d["createdAt"]?.intValue).map {
                             Self.shortFormatter.string(from: Date(timeIntervalSince1970: Double($0) / 1000))
                         } ?? ""
                         return Row(
                             id: "run-\(runId)",
                             icon: "clock.arrow.circlepath",
-                            title: d["workflowName"]?.stringValue ?? runId,
+                            title: d["workflowName"]?.stringValue
+                                ?? d["name"]?.stringValue ?? runId,
                             subtitle: started.isEmpty ? String(localized: "最近运行") : String(format: String(localized: "最近运行 · %@"), started),
                             badge: String(localized: "运行"))
                     }
@@ -1735,10 +1741,14 @@ struct RemoteCapabilityListPage: View {
                 rows = loaded
             case .offPeak:
                 // G-024：错峰任务 list/get 只读（ZCodeOffPeakTask；创建/取消/暂停写面维持拦截）
-                let result = try await connection.call("off-peak", "list", .undefined)
-                let items = result.jsonValue?.arrayValue
-                    ?? result.jsonValue?["tasks"]?.arrayValue
-                    ?? result.jsonValue?["items"]?.arrayValue
+                // 上游方法名是 `zcode-agent` 频道的 `offPeak/list`（zcodeProtocolMethods，
+                // 参数 {}），不是独立 off-peak 频道。
+                let result = try await connection.call(
+                    "zcode-agent", "offPeak/list", .json(.object([:])))
+                let payload = result.jsonValue
+                let items: [JSONValue] = payload?["tasks"]?.arrayValue
+                    ?? payload?.arrayValue
+                    ?? payload?["items"]?.arrayValue
                     ?? []
                 rows = items.compactMap { item in
                     guard let d = item.objectValue,

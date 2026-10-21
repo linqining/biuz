@@ -10,15 +10,29 @@ import Foundation
 
 actor RelayTransport {
 
-    // MARK: 常量（bundle AN/jN/MN/NN + Mh）
-    static let heartbeatIntervalSeconds: TimeInterval = 10
-    static let heartbeatJitterMaxSeconds: TimeInterval = 2
-    static let heartbeatAckTimeoutSeconds: TimeInterval = 30
+    // MARK: 常量（V1: bundle AN/jN/MN/NN + Mh；V2: relay-v2-pairing.md「心跳基准 5,000ms、
+    // jitter ±1,000ms、ACK deadline 15,000ms」）
+    static let v1HeartbeatIntervalSeconds: TimeInterval = 10
+    static let v1HeartbeatJitterMaxSeconds: TimeInterval = 2
+    static let v1HeartbeatAckTimeoutSeconds: TimeInterval = 30
+    static let v2HeartbeatIntervalSeconds: TimeInterval = 5
+    static let v2HeartbeatJitterMaxSeconds: TimeInterval = 1
+    static let v2HeartbeatAckTimeoutSeconds: TimeInterval = 15
     static let waitingTimeoutSeconds: TimeInterval = 30
     static let deviceOfflineGraceSeconds: TimeInterval = 15
     static let reconnectBaseMillis: UInt64 = 500
     static let reconnectMaxSeconds: TimeInterval = 10
     static let maxReconnectAttempts = 6 // 浏览器端无限退避；移动端后台功耗上限（终态上抛由 UI 重试）
+
+    private var heartbeatIntervalSeconds: TimeInterval {
+        config.isV2 ? Self.v2HeartbeatIntervalSeconds : Self.v1HeartbeatIntervalSeconds
+    }
+    private var heartbeatJitterMaxSeconds: TimeInterval {
+        config.isV2 ? Self.v2HeartbeatJitterMaxSeconds : Self.v1HeartbeatJitterMaxSeconds
+    }
+    private var heartbeatAckTimeoutSeconds: TimeInterval {
+        config.isV2 ? Self.v2HeartbeatAckTimeoutSeconds : Self.v1HeartbeatAckTimeoutSeconds
+    }
 
     // MARK: rpc-frame 通道常量（Vzn/f9）
     static let saturationHighWaterMarkBytes = 1_000_000
@@ -66,6 +80,8 @@ actor RelayTransport {
     }
 
     private let config: RelayLinkConfig
+    /// V2 建连前获取 Z.ai JWT（每次重连都要重新换一次性 token）。
+    private let jwtProvider: (@Sendable () async throws -> String)?
     /// 连接日志钩子（L2 面板；token/凭据一律不落日志）
     nonisolated let onLog: @Sendable (ConnectLogLine.Kind, String) -> Void
 
@@ -126,9 +142,12 @@ actor RelayTransport {
     /// C-13）：RelayChannelClient 据此快速重建桥（对齐 web markDegraded → T(reason) 编排）
     private var bridgeDegradedHandler: (@Sendable (String) -> Void)?
 
-    init(config: RelayLinkConfig, onLog: @escaping @Sendable (ConnectLogLine.Kind, String) -> Void) {
+    init(config: RelayLinkConfig,
+         onLog: @escaping @Sendable (ConnectLogLine.Kind, String) -> Void,
+         jwtProvider: (@Sendable () async throws -> String)? = nil) {
         self.config = config
         self.onLog = onLog
+        self.jwtProvider = jwtProvider
     }
 
     // MARK: 生命周期
@@ -185,39 +204,20 @@ actor RelayTransport {
     // MARK: WS + auth
 
     private func openSocketAndAuthenticate(timeout: TimeInterval) async throws {
-        guard var components = URLComponents(string: config.wssURL) else {
-            throw RPCError(message: String(localized: "中继地址无效：\(config.wssURL)"), name: "RelayConfig")
-        }
-        if components.scheme == nil {
-            components.scheme = "wss"
-        }
-        guard let url = components.url else {
-            throw RPCError(message: String(localized: "中继地址无效：\(config.wssURL)"), name: "RelayConfig")
-        }
+        let url = try await relaySocketURL()
         socketGeneration += 1
         let task = urlSession.webSocketTask(with: url)
         // 同 ChannelClient：16MB 逻辑帧上限对齐（缺省 1MiB 超限即断连）
         task.maximumMessageSize = RelayFrameCodec.maxMessageBytes
         socket = task
         task.resume()
-        log(.working, "WS 升级 \(url.host ?? "")\(url.path)?mid=…")
+        // 日志不落 token（V2 query 含一次性凭据）
+        log(.working, "WS 升级 \(url.host ?? "")\(url.path) · \(config.isV2 ? "V2" : "V1")")
 
-        // WS open 即发 auth_init（_Vn connect() 的 open 监听；meta 照 bundle 原样：
-        // {platform:'web', version:<app_version|'web'>, name:'mobile-browser'}）
-        sendJSON([
-            "type": .string("auth_init"),
-            "role": .string("terminal"),
-            "device_sid": .string(config.deviceSid),
-            "meta": .object([
-                "platform": .string("web"),
-                "version": .string(config.desktopAppVersion ?? "web"),
-                "name": .string("mobile-browser"),
-            ]),
-            "client_ts": .int(Int(Date().timeIntervalSince1970 * 1000)),
-        ])
-        log(.working, "auth_init · role=terminal · sid=\(config.deviceSid.prefix(12))…")
+        sendJSON(makeAuthInit())
+        log(.working, "auth_init · \(config.isV2 ? "v2(ws2)" : "v1(hmac)") · sid=\(config.deviceSid.prefix(12))…")
 
-        // 读循环先行：auth_challenge 依赖它
+        // 读循环先行：V1 auth_challenge 依赖它
         receiveNext()
 
         // auth 握手完成（paired 或 waiting）等待；waiting 态在此放行
@@ -245,6 +245,125 @@ actor RelayTransport {
             failPairedWaiters(error) // 清残留 waiter（超时/失败两路竞争收口）
             throw error
         }
+    }
+
+    /// 建连 URL：V1 用链接内 wssURL；V2 每次重连现换一次性 token 并追加 token/mid。
+    private func relaySocketURL() async throws -> URL {
+        guard var components = URLComponents(string: config.wssURL) else {
+            throw RPCError(message: String(localized: "中继地址无效：\(config.wssURL)"), name: "RelayConfig")
+        }
+        if components.scheme == nil {
+            components.scheme = "wss"
+        }
+        if config.isV2 {
+            let token = try await fetchV2Token()
+            var items = components.queryItems ?? []
+            items.removeAll { $0.name == "token" || $0.name == "mid" }
+            items.append(URLQueryItem(name: "token", value: token))
+            if let mid = config.deviceMid, !mid.isEmpty {
+                items.append(URLQueryItem(name: "mid", value: mid))
+            }
+            components.queryItems = items
+        }
+        guard let url = components.url else {
+            throw RPCError(message: String(localized: "中继地址无效：\(config.wssURL)"), name: "RelayConfig")
+        }
+        return url
+    }
+
+    /// V2：JWT → `POST /api/v1/remote/token {role:"terminal"}` → 一次性 token。
+    /// token 绑定用户与角色、60s 有效、WS Upgrade 前原子消费——失败不恢复，重连必须重新申请。
+    private func fetchV2Token() async throws -> String {
+        guard let jwtProvider else {
+            throw RPCError(message: String(localized: "云中继需要登录 Z.ai 账号（缺少登录凭据）"),
+                           name: "RelayAuthRequired")
+        }
+        let jwt: String
+        do {
+            jwt = try await jwtProvider()
+        } catch {
+            throw RPCError(message: String(localized: "云中继需要登录 Z.ai 账号：\(error.localizedDescription)"),
+                           name: "RelayAuthRequired")
+        }
+        guard let origin = config.httpOrigin else {
+            throw RPCError(message: String(localized: "中继 token 端点无效"), name: "RelayConfig")
+        }
+        let base = origin.hasSuffix("/") ? String(origin.dropLast()) : origin
+        guard let url = URL(string: base + "/api/v1/remote/token") else {
+            throw RPCError(message: String(localized: "中继 token 端点无效"), name: "RelayConfig")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"role":"terminal"}"#.utf8)
+        request.timeoutInterval = 15
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await urlSession.data(for: request)
+        } catch {
+            throw RPCError(message: String(localized: "中继 token 请求失败：\(error.localizedDescription)"),
+                           name: "RelayToken")
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 401 {
+            throw RPCError(message: String(localized: "云中继登录已失效，请重新登录 Z.ai 账号"),
+                           name: "RelayAuthRequired")
+        }
+        guard (200..<300).contains(status) else {
+            throw RPCError(message: String(localized: "中继 token 请求失败（HTTP \(status)）"),
+                           name: "RelayToken")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = json["code"] as? Int, code == 0,
+              let payload = json["data"] as? [String: Any],
+              let token = payload["token"] as? String, !token.isEmpty else {
+            throw RPCError(message: String(localized: "中继 token 回执无效"), name: "RelayToken")
+        }
+        return token
+    }
+
+    /// V1: role + hash 挑战（meta 保持旧 bundle 形态）；V2: 无 role，meta 上报终端身份，
+    /// client_ts 为秒。
+    private func makeAuthInit() -> [String: JSONValue] {
+        var object: [String: JSONValue] = [
+            "type": .string("auth_init"),
+            "device_sid": .string(config.deviceSid),
+            "client_ts": .int(clientTimestamp()),
+        ]
+        if config.isV2 {
+            object["meta"] = .object([
+                "platform": .string("ios"),
+                "version": .string(Self.clientAppVersion),
+                "name": .string("BiuZ"),
+            ])
+        } else {
+            object["role"] = .string("terminal")
+            object["meta"] = .object([
+                "platform": .string("web"),
+                "version": .string(config.desktopAppVersion ?? "web"),
+                "name": .string("mobile-browser"),
+            ])
+        }
+        return object
+    }
+
+    private static let clientAppVersion: String = {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        switch (version, build) {
+        case let (version?, build?): return "\(version)(\(build))"
+        case let (version?, nil): return version
+        case let (nil, build?): return build
+        default: return "ios"
+        }
+    }()
+
+    /// V1 用毫秒（旧中继契约）；V2 严格秒（relay-v2-pairing.md：拒绝毫秒值）。
+    private func clientTimestamp() -> Int {
+        let now = Date().timeIntervalSince1970
+        return config.isV2 ? Int(now) : Int(now * 1000)
     }
 
     private func failPairedWaiters(_ error: Error) {
@@ -300,7 +419,11 @@ actor RelayTransport {
         }
         switch type {
         case "auth_challenge":
-            handleAuthChallenge(message)
+            if config.isV2 {
+                log(.info, "V2 不应收到 auth_challenge（忽略）")
+            } else {
+                handleAuthChallenge(message)
+            }
         case "auth_ack", "pair_status_ack":
             if let sid = message["terminal_sid"]?.stringValue, !sid.isEmpty {
                 terminalSid = sid
@@ -320,18 +443,19 @@ actor RelayTransport {
     // MARK: auth 握手
 
     private func handleAuthChallenge(_ message: JSONValue) {
-        guard let nonce = message["nonce"]?.stringValue else {
+        guard let nonce = message["nonce"]?.stringValue,
+              let passHash = config.passHash else {
             enterTerminalFailure(.invalidMobileConnection)
             return
         }
         let proof = RelayAuth.proof(
-            passHash: config.passHash, nonce: nonce, role: "terminal", deviceSid: config.deviceSid)
+            passHash: passHash, nonce: nonce, role: "terminal", deviceSid: config.deviceSid)
         log(.ok, "auth_challenge · nonce=\(nonce.prefix(8))… → auth_response")
         sendJSON([
             "type": .string("auth_response"),
             "device_sid": .string(config.deviceSid),
             "proof": .string(proof),
-            "client_ts": .int(Int(Date().timeIntervalSince1970 * 1000)),
+            "client_ts": .int(clientTimestamp()),
         ])
     }
 
@@ -538,7 +662,7 @@ actor RelayTransport {
             sendJSON([
                 "type": .string("data"),
                 "payload": .object(request),
-                "client_ts": .int(Int(Date().timeIntervalSince1970 * 1000)),
+                "client_ts": .int(clientTimestamp()),
             ])
             log(.working, "→ \(zcodeType) requestId=\(requestId.prefix(8))…")
             // 超时兜底
@@ -573,7 +697,7 @@ actor RelayTransport {
         sendJSON([
             "type": .string("data"),
             "payload": .object(payload),
-            "client_ts": .int(Int(Date().timeIntervalSince1970 * 1000)),
+            "client_ts": .int(clientTimestamp()),
         ])
         log(.working, "→ \(zcodeType)（单向通知）")
     }
@@ -587,6 +711,8 @@ actor RelayTransport {
             while !Task.isCancelled {
                 guard let self else { return }
                 let current = await self.state
+                let interval = await self.heartbeatIntervalSeconds
+                let jitterMax = await self.heartbeatJitterMaxSeconds
                 guard current == .paired || current == .waiting else { return }
                 await self.sendPairStatusQuery()
                 // 桥本地退化监测（C-13 接线，原死代码）：45s 无 rpc-frame-ack 且尚有
@@ -595,8 +721,8 @@ actor RelayTransport {
                 if await self.checkReplayDeadline() {
                     await self.notifyLocalBridgeDegraded()
                 }
-                let jitter = Double.random(in: 0...Self.heartbeatJitterMaxSeconds)
-                try? await Task.sleep(nanoseconds: UInt64((Self.heartbeatIntervalSeconds + jitter) * 1_000_000_000))
+                let jitter = Double.random(in: 0...jitterMax)
+                try? await Task.sleep(nanoseconds: UInt64((interval + jitter) * 1_000_000_000))
             }
         }
     }
@@ -619,7 +745,8 @@ actor RelayTransport {
     private func armAckWatchdog() {
         ackWatchdogTask?.cancel()
         ackWatchdogTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.heartbeatAckTimeoutSeconds * 1_000_000_000))
+            let timeout = await self?.heartbeatAckTimeoutSeconds ?? 30
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await self?.handleAckWatchdogTimeout()
         }
@@ -627,7 +754,7 @@ actor RelayTransport {
 
     private func handleAckWatchdogTimeout() async {
         guard state == .paired || state == .waiting else { return }
-        log(.error, "30s 无 pair_status_ack · 判定 stale → 重连")
+        log(.error, "\(Int(heartbeatAckTimeoutSeconds))s 无 pair_status_ack · 判定 stale → 重连")
         await reconnectAfterStale()
     }
 
@@ -654,11 +781,16 @@ actor RelayTransport {
     }
 
     private func sendPairStatusQuery() {
-        sendJSON([
+        var object: [String: JSONValue] = [
             "type": .string("pair_status_query"),
-            "device_sid": .string(config.deviceSid),
-            "client_ts": .int(Int(Date().timeIntervalSince1970 * 1000)),
-        ])
+            "client_ts": .int(clientTimestamp()),
+        ]
+        // V2 契约：pair_status_query 不带 device_sid（role/SID 由 token 绑定）；
+        // V1 保留旧字段。
+        if !config.isV2 {
+            object["device_sid"] = .string(config.deviceSid)
+        }
+        sendJSON(object)
     }
 
     // MARK: 重连（指数退避 min(10s, 500ms·2^n)；重走 auth_init）
@@ -841,7 +973,7 @@ actor RelayTransport {
             while outboundBatches[index].nextFrameIndex < outboundBatches[index].frames.count {
                 let frame = outboundBatches[index].frames[outboundBatches[index].nextFrameIndex]
                 sendJSON(["type": .string("data"), "payload": .object(frame),
-                          "client_ts": .int(Int(Date().timeIntervalSince1970 * 1000))])
+                          "client_ts": .int(clientTimestamp())])
                 outboundBatches[index].nextFrameIndex += 1
             }
         }
@@ -883,7 +1015,7 @@ actor RelayTransport {
         sendJSON([
             "type": .string("data"),
             "payload": .object(RelayFrameCodec.makeAck(identity: identity, ackMessageSeq: ackMessageSeq)),
-            "client_ts": .int(Int(Date().timeIntervalSince1970 * 1000)),
+            "client_ts": .int(clientTimestamp()),
         ])
     }
 

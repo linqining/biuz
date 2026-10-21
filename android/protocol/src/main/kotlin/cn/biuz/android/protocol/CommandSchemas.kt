@@ -132,7 +132,7 @@ object CommandSchemas {
                 PSchema.Obj(
                     PObjectShape(
                         fields = mapOf(
-                            "mode" to PField.required(PSchema.enumeration("build", "edit", "plan", "yolo")),
+                            "mode" to PField.required(PSchema.enumeration("build", "edit", "plan", "yolo", "guarded")),
                         ),
                     ),
                 )
@@ -317,7 +317,7 @@ object CommandSchemas {
                 "attachments" to attachmentsField(),
                 "requestedDelivery" to PField.optional(PSchema.enumeration("startNow", "queue", "guide")),
                 "modelSelection" to PField.optional(PSchema.Obj(modelSelectionShape())),
-                "mode" to PField.optional(PSchema.enumeration("build", "edit", "plan", "yolo")),
+                "mode" to PField.optional(PSchema.enumeration("build", "edit", "plan", "yolo", "guarded")),
                 "planEnabled" to PField.optional(PSchema.Bool),
                 "heldQueueDisposition" to PField.optional(
                     PSchema.enumeration("clearQueueAndSend", "keepQueueAndSend"),
@@ -338,7 +338,7 @@ object CommandSchemas {
                                 "text" to PField.required(PSchema.string),
                                 "attachments" to attachmentsField(),
                                 "modelSelection" to PField.optional(PSchema.Obj(modelSelectionShape())),
-                                "mode" to PField.optional(PSchema.enumeration("build", "edit", "plan", "yolo")),
+                                "mode" to PField.optional(PSchema.enumeration("build", "edit", "plan", "yolo", "guarded")),
                                 "planEnabled" to PField.optional(PSchema.Bool),
                             ),
                         ),

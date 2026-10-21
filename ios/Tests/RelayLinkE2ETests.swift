@@ -198,11 +198,12 @@ final class RelayLinkE2ETests: XCTestCase {
 
     // MARK: - 用例 4：-ZCodeRelayLink 冷启动钩子（无效链接 → 解析拒绝 → 直接演示态）
 
-    /// 缺 hash 的链接解析拒绝（ConnectURLParser.parseRelayLink 返回 nil）：connectRelayLink
+    /// 无效链接解析拒绝（ConnectURLParser.parseRelayLink 返回 nil）：connectRelayLink
     /// 直接回演示态（AppSession.swift:174-177），不发起任何连接——无失败横幅、无 L2/L3
     /// （拦截形态回归；演示态为确定性行为，负向等待窗口有界）。
+    /// 注：缺 hash 已不再是无效条件（3.16.2 V2 链接无 hash），此处用「缺 sid」形态。
     func test04_relayLinkLaunchArgInvalidLinkStaysDemo() throws {
-        let app = launch(args: ["-ZCodeRelayLink", "https://127.0.0.1/remote/v4?sid=only-sid-no-hash"])
+        let app = launch(args: ["-ZCodeRelayLink", "https://127.0.0.1/remote/v4?mid=only-mid-no-sid"])
 
         XCTAssertTrue(element(app, "04-row-c1").waitForExistence(timeout: 10),
                       "解析拒绝的中继链接应直接进入演示模式（会话列表可见）")

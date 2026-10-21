@@ -15343,7 +15343,268 @@
           }
         }
       }
+    },
+    "自主模式" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autonomous"
+          }
+        }
+      }
+    },
+    "在有风险时询问" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask when there's risk"
+          }
+        }
+      }
+    },
+    "待回答" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting answer"
+          }
+        }
+      }
+    },
+    "跳过" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip"
+          }
+        }
+      }
+    },
+    "提交回答" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Submit answer"
+          }
+        }
+      }
+    },
+    "Agent 提问" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent question"
+          }
+        }
+      }
+    },
+    "请输入（敏感内容）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter sensitive input"
+          }
+        }
+      }
+    },
+    "输入回答" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type your answer"
+          }
+        }
+      }
+    },
+    "补充回答（可选）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Additional answer (optional)"
+          }
+        }
+      }
+    },
+    "运行时初始化中…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Initializing runtime…"
+          }
+        }
+      }
+    },
+    "运行时初始化失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runtime initialization failed"
+          }
+        }
+      }
+    },
+    "留白" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Holes"
+          }
+        }
+      }
+    },
+    "等待补全" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting to be filled"
+          }
+        }
+      }
+    },
+    "已补全" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filled"
+          }
+        }
+      }
+    },
+    "可视化内容" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Visualization"
+          }
+        }
+      }
+    },
+    "内联可视化 · 请在桌面端查看" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inline visualization · Open on desktop"
+          }
+        }
+      }
+    },
+    "中继 token 端点无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid relay token endpoint"
+          }
+        }
+      }
+    },
+    "中继 token 请求失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relay token request failed: %@"
+          }
+        }
+      }
+    },
+    "云中继登录已失效，请重新登录 Z.ai 账号" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relay login expired. Please sign in to Z.ai again."
+          }
+        }
+      }
+    },
+    "中继 token 请求失败（HTTP %lld）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relay token request failed (HTTP %lld)"
+          }
+        }
+      }
+    },
+    "中继 token 回执无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid relay token response"
+          }
+        }
+      }
+    },
+    "云中继需要登录 Z.ai 账号（缺少登录凭据）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud relay requires a Z.ai account (missing credentials)"
+          }
+        }
+      }
+    },
+    "云中继需要登录 Z.ai 账号：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud relay requires a Z.ai account: %@"
+          }
+        }
+      }
+    },
+    "云中继需要登录 Z.ai 账号（请在设置中登录后重试）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud relay requires a Z.ai account (sign in from Settings and retry)"
+          }
+        }
+      }
+    },
+    "后台任务" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background work"
+          }
+        }
+      }
+    },
+    "跟随默认" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use default"
+          }
+        }
+      }
     }
+
   },
   "version" : "1.0"
 }

@@ -81,7 +81,7 @@ class ChatViewModel(
          * 协作模式词表（switchCollaborationMode mode 值域【实证·web bundle v1.12】：
          * `La(["build","edit","plan","yolo"])` 4 档全集；初值兜底 build（web 同构）。
          */
-        val COLLABORATION_MODES = listOf("build", "edit", "plan", "yolo")
+        val COLLABORATION_MODES = listOf("build", "edit", "plan", "yolo", "guarded")
         const val DEFAULT_COLLABORATION_MODE = "build"
 
         /** 模型切换本地收敛护栏：与协作模式同窗 3s（iOS ChatViewModel lastLocalModelSwitch 同值）。 */

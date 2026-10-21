@@ -68,6 +68,9 @@ final class ChatViewModel {
     /// permission 类渲染审批卡，其余类型暂以折叠卡呈现）
     var pendingInteractions: [RemotePendingInteraction] = []
 
+    /// 运行时初始化态（3.16.2 snapshot.runtimeInitialization；nil = 旧桌面未投影）
+    var runtimeInitialization: RuntimeInitializationInfo?
+
     /// 桌面 workflow 运行进度（要求 5 · 多 run：活 run 优先、stale 仲裁降级；
     /// 演示态运行中会话提供演示 run）
     var workflowRuns: [WorkflowRunSummary] = []
@@ -892,6 +895,7 @@ final class ChatViewModel {
         guard isReadOnly else { return }
         let all = await store.pendingInteractionList(in: conversationID)
         pendingInteractions = all.filter { !snoozedInteractionIds.contains($0.id) }
+        runtimeInitialization = await store.runtimeInitialization(in: conversationID)
     }
 
     /// 审批卡决议（A-3：权限族 answer={optionId}——四族 allowOnce/allowAlways/
@@ -919,6 +923,19 @@ final class ChatViewModel {
         recordControlDiag("planResolve action=\(action)", workId: interaction.id, ack: ack)
         await refreshPendingInteractions()
         return Self.controlFeedback(ack, verb: "计划决议")
+    }
+
+    /// userInput / AskUserQuestion / MCP elicitation 应答（上游 resolveInteraction：
+    /// 单题走 optionId/freeText；多题/表单走 action:"accept" + content）。
+    @discardableResult
+    func resolveUserInput(_ interaction: RemotePendingInteraction, answer: JSONValue) async -> String? {
+        let ack = await store.resolveInteractionRaw(
+            conversationID,
+            interactionId: interaction.id,
+            answer: answer)
+        recordControlDiag("userInput resolve", workId: interaction.id, ack: ack)
+        await refreshPendingInteractions()
+        return Self.controlFeedback(ack, verb: "回答")
     }
 
     // MARK: workspace hook 信任审核（web 对齐：respond/request/revoke；返回失败文案，
@@ -1051,9 +1068,14 @@ final class ChatViewModel {
     }
 
     /// 发送可用：无待发附件沿用 draft 非空口径；有待发附件时须全部 committed
-    /// （P1-1 设计稿 1.3③④——上传中禁发、纯附件无文本不允许发送）
+    /// （P1-1 设计稿 1.3③④——上传中禁发、纯附件无文本不允许发送）；
+    /// 3.16.2 runtimeInitialization 非 ready 时禁发（旧桌面 nil 不阻塞）。
     var canSend: Bool {
-        !draft.isEmpty && !uploads.blocksSend
+        runtimeReady && !draft.isEmpty && !uploads.blocksSend
+    }
+
+    var runtimeReady: Bool {
+        runtimeInitialization?.isBlocking != true
     }
 
     /// U-6：最近一次 send 未送达时回填的文本（nil = 最近一次发送成功，或未真正
@@ -1339,7 +1361,7 @@ enum ComposerModeStore {
     /// Qme 全集 build=Ask before changes / edit=Edit automatically / plan=Plan mode /
     /// yolo=Full access。原 plan/build 两档是设计稿口述子集——用户 2026-10-06
     /// 报「命令只有 plan 和 build」即此缺口）
-    static let collaborationModes = ["build", "edit", "plan", "yolo"]
+    static let collaborationModes = ["build", "edit", "plan", "yolo", "guarded"]
     /// 投递模式词表（移动端三档。A-2：queue/guide 下发 setFollowupMode【实证 bundle
     /// 枚举】并随 sendText 走对应 admission；now 为纯本机档——不下发命令，
     /// send 恒携 requestedDelivery:"startNow"（sendText delivery 枚举【实证】））

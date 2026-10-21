@@ -416,3 +416,93 @@ final class WorkspaceConfigThoughtKeyTests: XCTestCase {
         XCTAssertNil(bare?.spentTokens)
     }
 }
+
+// MARK: - v3.15.1 / 3.16.2 跟进单测（Gen UI 标记 / userInput questions）
+
+final class GenUiMarkerUnitTests: XCTestCase {
+    func testStripsDirectiveAndExtractsReference() {
+        let text = "前文\n::visualize{path=\"/work/demo.html\" title=\"工作区体积\" mode=\"wide\"}\n后文"
+        let projected = GenUiMarker.project(text, streaming: false)
+        XCTAssertFalse(projected.visible.contains("visualize"))
+        XCTAssertTrue(projected.visible.contains("前文"))
+        XCTAssertTrue(projected.visible.contains("后文"))
+        XCTAssertEqual(projected.references.first?.path, "/work/demo.html")
+        XCTAssertEqual(projected.references.first?.title, "工作区体积")
+    }
+
+    func testStripsJSONDirectiveAndUnicodeMarker() {
+        let json = #"::visualize{"path":"/work/chart.html","title":"贝塞尔"}"#
+        let unicode = "\u{E000}visualize\u{E001}{\"path\":\"/work/u.html\"}\u{E002}"
+        let projected = GenUiMarker.project("A \(json) B \(unicode) C", streaming: false)
+        XCTAssertFalse(projected.visible.contains("visualize"))
+        XCTAssertEqual(projected.references.count, 2)
+        XCTAssertEqual(projected.references[0].path, "/work/chart.html")
+        XCTAssertEqual(projected.references[0].title, "贝塞尔")
+        XCTAssertEqual(projected.references[1].path, "/work/u.html")
+    }
+
+    func testCodeFenceMarkerIsInert() {
+        let text = "```text\n::visualize{path=\"/work/demo.html\"}\n```"
+        let projected = GenUiMarker.project(text, streaming: false)
+        XCTAssertTrue(projected.visible.contains("::visualize"))
+        XCTAssertTrue(projected.references.isEmpty)
+    }
+
+    func testStreamingPartialMarkerSuppressed() {
+        let projected = GenUiMarker.project("正文 ::visualize{path=\"/work/de", streaming: true)
+        XCTAssertEqual(projected.visible, "正文")
+        XCTAssertTrue(projected.references.isEmpty)
+        let tail = GenUiMarker.project("正文 ::visua", streaming: true)
+        XCTAssertEqual(tail.visible, "正文")
+    }
+}
+
+final class UserInputQuestionParsingTests: XCTestCase {
+    func testParseQuestionsPreservesValueAndMultiSelect() {
+        let questions = RemoteConversationStore.parseQuestions([
+            .object([
+                "question": .string("选哪些？"),
+                "header": .string("目标"),
+                "multiSelect": .bool(true),
+                "options": .array([
+                    .object(["value": .string("a"), "label": .string("A")]),
+                    .object(["value": .string("b"), "label": .string("B")]),
+                ]),
+            ]),
+            .object([
+                "question": .string("补充说明"),
+                "options": .array([]),
+            ]),
+        ])
+        XCTAssertEqual(questions.count, 2)
+        XCTAssertEqual(questions[0].options.map(\.id), ["a", "b"])
+        XCTAssertTrue(questions[0].multiSelect)
+        XCTAssertTrue(questions[1].options.isEmpty)
+    }
+
+    func testParseInteractionMarksUserInputAndParsesQuestions() {
+        let interaction = RemoteConversationStore.parseInteraction(.object([
+            "interactionId": .string("i-1"),
+            "kind": .string("userInput"),
+            "payload": .object([
+                "kind": .string("userInput"),
+                "prompt": .string("请选择"),
+                "freeText": .bool(true),
+                "questions": .array([
+                    .object([
+                        "question": .string("模型？"),
+                        "options": .array([
+                            .object(["value": .string("glm"), "label": .string("GLM")]),
+                        ]),
+                    ]),
+                ]),
+            ]),
+        ]))
+        XCTAssertNotNil(interaction)
+        XCTAssertTrue(interaction?.isUserInput == true)
+        XCTAssertEqual(interaction?.title, "请选择")
+        XCTAssertEqual(interaction?.questions.count, 1)
+        XCTAssertTrue(interaction?.freeTextEnabled == true)
+        XCTAssertEqual(interaction?.questions.first?.options.first?.id, "glm")
+    }
+}

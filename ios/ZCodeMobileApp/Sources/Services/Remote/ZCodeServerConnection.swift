@@ -498,9 +498,21 @@ final class ZCodeServerConnection {
         // 步骤 2-4：auth 握手 → bootstrap → workspace-bridge-open → 桥内 Initialize
         progress.auth.phase = .running
         state = .connecting(progress)
-        let transport = RelayTransport(config: link) { [weak self] kind, text in
-            Task { @MainActor [weak self] in self?.log(kind, text) }
-        }
+        let transport = RelayTransport(
+            config: link,
+            onLog: { [weak self] kind, text in
+                Task { @MainActor [weak self] in self?.log(kind, text) }
+            },
+            jwtProvider: {
+                // Relay V2：终端用账号 JWT 换一次性 token；无登录态直接如实失败。
+                guard let jwt = OAuthCredentialStore.tokenSet?.zcodeJwtToken,
+                      !jwt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw RPCError(
+                        message: String(localized: "云中继需要登录 Z.ai 账号（请在设置中登录后重试）"),
+                        name: "RelayAuthRequired")
+                }
+                return jwt
+            })
         // 工作区清单推送（P3-10）：transport 拆出的独立 case 在此接线（先于任何
         // 桥/订阅建立——推送可能在握手后任意时点到达）
         await transport.setWorkspaceListUpdatedHandler { [weak self] payload in

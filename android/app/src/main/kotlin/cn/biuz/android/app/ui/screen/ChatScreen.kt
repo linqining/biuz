@@ -1087,6 +1087,7 @@ private fun collaborationModeLabel(mode: String): String = when (mode) {
     "build" -> stringResource(R.string.composer_mode_build)
     "edit" -> stringResource(R.string.composer_mode_edit)
     "yolo" -> stringResource(R.string.composer_mode_yolo)
+    "guarded" -> stringResource(R.string.composer_mode_guarded)
     else -> mode
 }
 

@@ -3,23 +3,41 @@ import CryptoKit
 
 // MARK: - 云中继链接配置（remote/v4 配对链接 → WS 端点 + 会话凭据）
 
-/// 配对链接解析产物（逆向结论⑦）：`https://<host>/remote/v4?sid=…&hash=…&mid=…`
-/// - sid/hash 不进 WS URL：仅用于 auth_init/auth_response 帧（hash 保留为字符串作 HMAC 密钥，
-///   不做 base64 解码）；WS 端点 `wss://<host>/ws?mid=<mid>`（src-D3H6NV7w.js@179516 xh + Lh）。
+/// 配对链接解析产物。
+/// - V1（旧桌面）：`https://<host>/remote/v4?sid=…&hash=…&mid=…`，WS `wss://<host>/ws?mid=…`，
+///   `auth_challenge → auth_response`（HMAC-SHA256(passHash)）。
+/// - V2（3.16.2 起）：`https://<host>/remote/v4?sid=…&mid=…&name=…&app_version=…`（无 hash），
+///   JWT 换一次性 token 后连 `wss://<host>/api/v1/remote/ws2?token=…`，`auth_init` 不带 role。
+///   上游契约：docs/web-remote-control/relay-v2-pairing.md §HTTP/§WebSocket。
 struct RelayLinkConfig: Codable, Equatable {
-    /// wss 端点（query 原样保留 mid 参数语义）
+    /// wss 端点（V1：`/ws?mid=…`；V2：`/api/v1/remote/ws2`，token 在建连时追加）
     var wssURL: String
     /// 配对链接 name 参数（桌面机器名，UI 展示用）
     var machineName: String?
-    /// 配对链接 sid 参数（桌面会话凭据，auth 帧 device_sid）
+    /// 配对链接 sid 参数（桌面设备凭据，auth 帧 device_sid）
     var deviceSid: String
-    /// 配对链接 hash 参数（URL 解码后的 base64 原字符串，HMAC-SHA256 密钥；仅存 Keychain）
-    var passHash: String
+    /// V1 配对链接 hash（HMAC 密钥）；V2 无此字段
+    var passHash: String?
     /// 配对链接 app_version 参数（桌面版本，诊断对照 bootstrap-response.desktopAppVersion）
     var desktopAppVersion: String?
+    /// 1/nil = V1（兼容 3.16.2 之前桌面）；2 = V2（3.16.2 起）
+    var protocolVersion: Int?
+    /// V2 网关路由提示 mid（ws2?mid=…）
+    var deviceMid: String?
+
+    var isV2: Bool { protocolVersion == 2 }
 
     var endpointHost: String? {
         URLComponents(string: wssURL)?.host
+    }
+
+    /// V2 HTTP 面 origin（/api/v1/remote/token 挂在同一 host）
+    var httpOrigin: String? {
+        guard var components = URLComponents(string: wssURL) else { return nil }
+        components.scheme = "https"
+        components.path = ""
+        components.query = nil
+        return components.url?.absoluteString
     }
 }
 

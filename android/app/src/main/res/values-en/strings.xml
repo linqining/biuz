@@ -75,6 +75,7 @@
     <string name="composer_mode_build">Build</string>
     <string name="composer_mode_edit">Auto-edit</string>
     <string name="composer_mode_yolo">Full access</string>
+    <string name="composer_mode_guarded">Autonomous</string>
     <string name="composer_mode_panel_title">Collaboration mode</string>
     <string name="composer_mode_panel_hint">Switching is executed by the desktop · current mode follows the session projection</string>
 

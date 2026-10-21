@@ -1955,6 +1955,51 @@ final class FeatureCompletionE2ETests: XCTestCase {
                        "纯读面渲染不应产生任何边界外写命令")
     }
 
+    // MARK: - 门禁 22：userInput 提问卡（questions/options/自由输入 → resolveInteraction）
+
+    /// v3.15.1 AskUserQuestion / MCP elicitation 同构：真实链路此前 userInput 落 EmptyView，
+    /// 提问卡只在 Mock 构造。替身注入 questions[]（options value/label + 空选项自由题），
+    /// 断言卡片渲染、选项选择、提交 action/content 与 pending 撤下。
+    func test22_userInputQuestionCardAnswer() throws {
+        let application = connectAndEnterMain(launchFresh())
+        element(application, "04-tab-chat").tap()
+
+        let row = element(application, "04-row-sess-e2e-ask")
+        XCTAssertTrue(openConversation(row, application: application), "应进入提问卡会话详情")
+
+        let card = element(application, "05-userinput-card")
+        XCTAssertTrue(waitUntil(timeout: 12, "userInput 挂起交互应渲染提问卡") {
+            card.exists
+        }, "真实链路 userInput 不再落 EmptyView")
+        XCTAssertTrue(application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "选择模型")).firstMatch.exists,
+                      "题目文本应上屏")
+        XCTAssertTrue(application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "补充说明")).firstMatch.exists,
+                      "第二题（自由输入）应上屏")
+
+        let glm = card.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "GLM")).firstMatch
+        XCTAssertTrue(glm.waitForExistence(timeout: 6), "选项 chip 应在场")
+        glm.tap()
+        let submit = card.buttons["05-userinput-submit"].firstMatch
+        XCTAssertTrue(submit.waitForExistence(timeout: 4), "多题卡应出现提交按钮")
+        snap(application, "60b-userinput-card-before-submit")
+        submit.tap()
+
+        XCTAssertTrue(waitUntil(timeout: 10, "提交后应下发 resolveInteraction") {
+            self.stub.resolveInteractionCount >= 1
+        }, "提问卡提交必须走 resolveInteraction")
+        XCTAssertEqual(stub.lastResolveInteraction?.interactionId, "int-e2e-ask-1",
+                       "interactionId 应逐字回传")
+        let answer = stub.lastResolveInteraction?.payload["answer"] as? [String: Any]
+        XCTAssertEqual(answer?["action"] as? String, "accept",
+                       "多题/表单答案应走 action=accept + content")
+        XCTAssertTrue(waitUntil(timeout: 8, "应答后卡片应撤下") { !card.exists },
+                      "服务端 pendingInteractions 清空后卡片应消失")
+        snap(application, "61-userinput-card")
+    }
+
     // MARK: - 门禁 21：getView 失败时会话级 provider 兜底（真机「模型/思考强度不可选」根修）
 
     /// 真机报障形态（2026-10-09「计划模式和排队方式可选，模型和思考强度依然不能选，

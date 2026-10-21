@@ -108,7 +108,7 @@ enum CommandSchemas {
             ]))
         case "switchCollaborationMode":
             return .object(PObjectShape(fields: [
-                "mode": .required(.enumeration("build", "edit", "plan", "yolo")),
+                "mode": .required(.enumeration("build", "edit", "plan", "yolo", "guarded")),
             ]))
         case "setFollowupMode":
             return .object(PObjectShape(fields: [
@@ -222,7 +222,7 @@ enum CommandSchemas {
             "attachments": attachmentsField(),
             "requestedDelivery": .optional(.enumeration("startNow", "queue", "guide")),
             "modelSelection": .optional(.object(modelSelectionShape())),
-            "mode": .optional(.enumeration("build", "edit", "plan", "yolo")),
+            "mode": .optional(.enumeration("build", "edit", "plan", "yolo", "guarded")),
             "planEnabled": .optional(.boolean),
             "heldQueueDisposition": .optional(
                 .enumeration("clearQueueAndSend", "keepQueueAndSend")),
@@ -240,7 +240,7 @@ enum CommandSchemas {
                 "text": .required(.string),
                 "attachments": attachmentsField(),
                 "modelSelection": .optional(.object(modelSelectionShape())),
-                "mode": .optional(.enumeration("build", "edit", "plan", "yolo")),
+                "mode": .optional(.enumeration("build", "edit", "plan", "yolo", "guarded")),
                 "planEnabled": .optional(.boolean),
             ]))),
             "config": .optional(.object(PObjectShape(fields: [

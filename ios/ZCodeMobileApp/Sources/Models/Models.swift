@@ -169,6 +169,17 @@ struct WorkflowArtifactBrief: Equatable {
     var itemCount: Int?
 }
 
+/// 工作流留白（上游 workflow-runs.ts workflowRunHoleSchema：脚本 `hole<T>("名字")`
+/// 停驻等主代理补代码；state waiting/filled）。
+struct WorkflowHoleInfo: Identifiable, Equatable {
+    var id: String
+    var name: String
+    var state: String
+    var prompt: String?
+
+    var isWaiting: Bool { state == "waiting" }
+}
+
 struct WorkflowRunSummary: Identifiable, Equatable {
     var id: String
     var name: String
@@ -192,6 +203,11 @@ struct WorkflowRunSummary: Identifiable, Equatable {
     var pendingQuestionsCount: Int = 0
     var concurrency: Int?
     var concurrencyCeiling: Int?
+    /// 本 run 自己的并发界（上游 `concurrency.limit`，只在 ≠ 默认时在场；
+    /// nil = 跟随默认。UI 当前值应优先它，而不是 concurrencyCeiling）
+    var concurrencyLimit: Int? = nil
+    /// 留白（3.15.1 holes；零条即空）
+    var holes: [WorkflowHoleInfo] = []
     /// 子代理模型（桌面 amendWorkflowRunSettings 的 subagentModel 同名透传；nil = 跟随主模型）
     var subagentModel: String?
     /// 运行取消（桌面 workflow 卡 cancellable → cancelBackgroundWork）
@@ -333,6 +349,27 @@ struct RemoteInteractionOption: Identifiable, Equatable {
     var label: String
 }
 
+/// userInput / AskUserQuestion / MCP elicitation 的单题投影
+/// （上游 snapshot.ts userInputQuestionPayloadSchema：question/header/options[{value,label}]/multiSelect）。
+struct RemoteInteractionQuestion: Identifiable, Equatable {
+    var id: String
+    var question: String
+    var header: String?
+    var options: [RemoteInteractionOption]
+    var multiSelect: Bool
+}
+
+/// 会话运行时初始化态（上游 3.16.2 snapshot.runtimeInitialization；
+/// initializing/ready/failed 三态，failed 带 reasonCode/message/attemptId）。
+struct RuntimeInitializationInfo: Equatable {
+    var status: String
+    var attemptId: String?
+    var reasonCode: String?
+    var message: String?
+
+    var isBlocking: Bool { status == "initializing" || status == "failed" }
+}
+
 /// workspaceHookReview 审核项（web 对齐 2026-10-06）。应答键 `reviewItemId` 为
 /// web 实证（bundle respondWorkspaceHookReview 调用点 `reviewItemIds:[t.reviewItemId]`）；
 /// 其余展示字段（title/detail/trustState）宽容解析【未取证——元素 schema 在共享 chunk，
@@ -367,6 +404,13 @@ struct RemotePendingInteraction: Identifiable, Equatable {
     var impact: String?
     /// 服务端选项（A-3：(id,label) 对——应答回传 optionId，label 展示）
     var options: [RemoteInteractionOption] = []
+    /// userInput / AskUserQuestion / MCP elicitation 的题目（上游 questions[]；
+    /// 旧形态无 questions 时回落到 prompt + options）
+    var questions: [RemoteInteractionQuestion] = []
+    /// 自由文本输入（payload.freeText；MCP elicitation 自由字段为 true）
+    var freeTextEnabled: Bool = false
+    /// 敏感输入（密码型，不落草稿；上游 payload.sensitive）
+    var sensitive: Bool = false
     /// 计划审批（G-017）：renderContext.kind == "plan_approval" 时的计划文本
     var planText: String?
     /// workspaceHookReview 审核项（payload 宽容解析；非该 kind 恒空）
@@ -379,6 +423,10 @@ struct RemotePendingInteraction: Identifiable, Equatable {
     /// 是否 workspace hook 信任审核类（web payload.kind='workspaceHookReview'；
     /// 应答走 respondWorkspaceHookReview，与 resolveInteraction 是姊妹 kind）
     var isWorkspaceHookReview: Bool { kind == "workspaceHookReview" }
+    /// 是否提问类（AskUserQuestion / MCP elicitation / 旧 userInput）
+    var isUserInput: Bool {
+        kind == "userInput" || kind == "elicitation" || kind == "question" || kind == "mcp_elicitation"
+    }
 }
 
 /// 会话消息：用户气泡 / Agent 正文 / 内嵌思考折叠块、工具卡、todo 卡、提问卡
@@ -485,6 +533,12 @@ struct Conversation: Identifiable, Equatable {
     var isArchived: Bool = false
     /// 失败任务（phase=completedError 族；桌面侧栏失败任务带「清理」动作）
     var isFailed: Bool = false
+    /// sessions-index 3.16.2 新字段：后台工作布尔（侧栏小圆点）、目标状态、标题来源、
+    /// 最近终态（completed/error/interrupted）
+    var hasBackgroundWork: Bool = false
+    var goalStatus: String?
+    var titleSource: String?
+    var lastOutcome: String?
     var taskProgress: Double?
     var todoSummary: String?
     /// 会话来源（项 5 来源过滤 chips 数据口径）："mac" = 已配对桌面端（局域网/云中继均属
