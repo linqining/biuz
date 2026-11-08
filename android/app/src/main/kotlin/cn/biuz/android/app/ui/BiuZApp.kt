@@ -16,6 +16,7 @@ import cn.biuz.android.app.ui.screen.AboutScreen
 import cn.biuz.android.app.ui.screen.ChatScreen
 import cn.biuz.android.app.ui.screen.ConnectScreen
 import cn.biuz.android.app.ui.screen.DevicesScreen
+import cn.biuz.android.app.ui.screen.SharePreviewScreen
 import cn.biuz.android.app.ui.screen.FilePreviewScreen
 import cn.biuz.android.app.ui.screen.FileTreeScreen
 import cn.biuz.android.app.ui.screen.FilesScreen
@@ -57,6 +58,8 @@ val LocalAppSettings = staticCompositionLocalOf<AppSettingsStore> {
 fun BiuZApp(
     session: AppSession,
     settings: AppSettingsStore,
+    /** 009：冷启/热链带进来的分享 code（null = 非分享进入）。 */
+    initialShareCode: String? = null,
 ) {
     val navController = rememberNavController()
     val uiScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -123,6 +126,10 @@ fun BiuZApp(
                 },
             )
         }
+        // 009 分享深链：有 code 即导航到只读预览（不要求先连接桌面）
+        androidx.compose.runtime.LaunchedEffect(initialShareCode) {
+            if (initialShareCode != null) navController.navigate(Routes.share(initialShareCode))
+        }
         NavHost(navController = navController, startDestination = Routes.CONNECT) {
             composable(Routes.CONNECT) {
                 ConnectScreen(
@@ -143,6 +150,14 @@ fun BiuZApp(
                 )
             }
             // 003-设备列表（登录后自动发现已配对电脑；点选即连 V2）
+            // 009-分享落地（只读预览；公开分享未登录也可看）
+            composable(Routes.SHARE) { entry ->
+                SharePreviewScreen(
+                    session = session,
+                    shareCode = entry.arguments?.getString("code").orEmpty(),
+                    onClose = { navController.popBackStack() },
+                )
+            }
             composable(Routes.DEVICES) {
                 DevicesScreen(
                     session = session,

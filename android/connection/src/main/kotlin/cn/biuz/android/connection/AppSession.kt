@@ -432,6 +432,7 @@ class AppSession(
     val oauthCredentials: OAuthCredentialStore = OAuthCredentialStore(oauthPersistence)
     private val oauthClient = ZaiOAuthClient(oauthConfig)
     private val deviceCatalog = RelayDeviceCatalog()
+    private val sharePreviewClient = SharePreviewClient()
 
     /** 桌面版本与链接声明不一致时的「桌面当前版本」（非 null = 需阻断提示）。 */
     private val _versionMismatch = MutableStateFlow<String?>(null)
@@ -641,6 +642,14 @@ class AppSession(
             deviceMid = device.deviceMid,
         )
     }
+
+    /**
+     * 分享预览（009）：带登录态时附 Bearer，公开分享未登录也照常可看（服务端 401/403 判定）。
+     * 失败抛 [SharePreviewError]，由页面如实上屏。
+     */
+    @Throws(SharePreviewError::class)
+    suspend fun loadSharePreview(shareCode: String): SharePreview =
+        sharePreviewClient.load(shareCode, oauthCredentials.tokenSet?.zcodeJwtToken)
 
     /** 设备目录（003 设备列表页数据源）：未登录返回 null；失败返回 null（页面如实呈现）。 */
     suspend fun loadRelayDevices(): List<RelayDeviceSummary>? =

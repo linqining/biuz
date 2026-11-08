@@ -9,6 +9,7 @@ object Routes {
     const val SCAN = "scan"
     const val LOGIN = "login"
     const val DEVICES = "devices"
+    const val SHARE = "share/{code}"
     const val SESSIONS = "sessions"
     const val SETTINGS = "settings"
     const val CHAT = "chat/{sessionId}"
@@ -22,6 +23,8 @@ object Routes {
     const val FILES_PREVIEW = "filesPreview?path={path}&name={name}&size={size}"
 
     fun chat(sessionId: String): String = "chat/$sessionId"
+
+    fun share(code: String): String = "share/" + android.net.Uri.encode(code)
 
     fun filesPreview(path: String, name: String, size: Long?): String =
         "filesPreview?path=${android.net.Uri.encode(path)}" +

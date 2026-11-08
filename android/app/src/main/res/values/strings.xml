@@ -124,6 +124,13 @@
     <string name="switch_account_cancel">取消</string>
     <string name="switch_account_confirm">退出并切换</string>
 
+    <!-- 009-分享落地（对齐 web ConversationShareLandingPage / iOS SharePreviewSheet 文案） -->
+    <string name="share_title">会话分享</string>
+    <string name="share_loading">正在获取分享内容…</string>
+    <string name="share_untitled">未命名会话</string>
+    <string name="share_retry">重试</string>
+    <string name="share_unsupported">另有 %1$d 行内容暂不支持预览</string>
+
     <!-- 协作模式 chips 与面板 -->
     <string name="composer_mode_plan">计划</string>
     <string name="composer_mode_build">构建</string>

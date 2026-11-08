@@ -2,6 +2,7 @@ package cn.biuz.android.app
 
 import android.content.Context
 import android.content.res.Configuration
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -9,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import cn.biuz.android.app.settings.AppLanguagePreference
 import cn.biuz.android.app.ui.BiuZApp
 import cn.biuz.android.app.ui.theme.BiuZTheme
+import cn.biuz.android.connection.SharePreviewClient
 import java.util.Locale
 
 /**
@@ -24,6 +26,9 @@ import java.util.Locale
  */
 class MainActivity : ComponentActivity() {
 
+    /** 009 分享深链的当次 code（冷启读 intent，热链由 onNewIntent 更新并触发重组）。 */
+    private val shareCodeState = androidx.compose.runtime.mutableStateOf<String?>(null)
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(wrapLocale(newBase))
     }
@@ -34,11 +39,22 @@ class MainActivity : ComponentActivity() {
         val application = application as BiuzApplication
         val session = application.appSession
         val settings = application.appSettings
+        shareCodeState.value = SharePreviewClient.shareCodeFrom(intent?.dataString)
         setContent {
             BiuZTheme {
-                BiuZApp(session = session, settings = settings)
+                BiuZApp(
+                    session = session,
+                    settings = settings,
+                    initialShareCode = shareCodeState.value,
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 应用在后台时点分享链接：更新 code 触发重组导航（不清已连接状态）
+        SharePreviewClient.shareCodeFrom(intent.dataString)?.let { shareCodeState.value = it }
     }
 
     /** 存档语言档 → locale 包裹上下文（system 档原样返回）。 */
