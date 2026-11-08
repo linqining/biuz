@@ -25,3 +25,8 @@
 | P-016 | W2 | 008-版本提示 | ios/miniprogram | **Android 已修（2026-11-08）**：`VersionGuard` 纯逻辑 + 阻断弹层 + 「重新加载」回写链接版本（避免旧链接重连死循环），单测 4 例 + 模拟器 E2E 双段验证 | `android/connection/VersionGuard.kt`；web `webRemoteControlVersionNotice.tsx:6` | 修复中（iOS/小程序待接） |
 | P-017 | W2 | 005-连接失败 | android | 只有连接页内 `ConnectFailedCard`，没有 web 的 12 种 FailureReason 全量文案页 | web `webRemoteControlScreenCopy.ts:16-141`；Android `ConnectScreen.kt:696` | 待修 |
 | P-018 | W2 | 001-登录 | miniprogram | 登录页 UI + 文案已完成并实跑验证，但 OAuth 换取 code 的链路未接入（点击如实提示「登录待接入」） | `miniprogram/pages/login/login.js` | 待修（待连接层） |
+| P-019 | W4 | 011-会话对话 | ios/android/miniprogram | **消息变更摘要条**缺失（web `MessageChangeSummaryPanel.tsx:73-140`）：折叠头 = 箭头 + `N 个文件已更改` + `+A`(绿)/`-D`(红) + `撤销`，展开 = 逐文件 diff。证据：线上会话页基线 `.capture/sync/w4-chat/shots/web-011-chat.png` 里的「1 个文件已更改 +7 -4 ↺撤销」 | web 源码；三端无对应实现 | 待修 |
+| P-020 | W4 | 011-会话对话 | android/miniprogram | **消息动作行**：web 为 复制 / 赞 / 踩 / 展开 / 锚点 / 时间；iOS 已有 `MessageFeedbackRow` + 「复制文本」（`MessageViews.swift:143,168`），Android/小程序无 | web 基线截图；`ios/.../MessageViews.swift:143` | 待修 |
+| P-021 | W4 | 011-会话对话 | ios/android/miniprogram | **会话页第二行**：`📁 项目名 ⋯ ⤡收起`（web 顶部第二行，用于切项目与收起侧栏）；三端均无 | web 基线截图 `web-011-chat.png` | 待修 |
+| P-022 | W4 | 011-会话对话 | android/miniprogram | **工作流运行大卡**：web「工作流运行中 工作流脚本 / 10 个阶段 · 1 个子代理工作中…」+ 站点灯 `+4 ●●◐ ○○○` + 子代理行（含「还有 78 个」）+ 「收敛循环发现流/收敛进度」按钮；Android 只有迷你轨道与折叠面板，无此卡 | web 基线截图；`packages/ui/src/v4/highspeed` 同源 | 待修 |
+
