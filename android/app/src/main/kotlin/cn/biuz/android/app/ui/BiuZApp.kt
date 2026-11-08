@@ -14,6 +14,7 @@ import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.ui.screen.AboutScreen
 import cn.biuz.android.app.ui.screen.ChatScreen
 import cn.biuz.android.app.ui.screen.ConnectScreen
+import cn.biuz.android.app.ui.screen.DevicesScreen
 import cn.biuz.android.app.ui.screen.FilePreviewScreen
 import cn.biuz.android.app.ui.screen.FileTreeScreen
 import cn.biuz.android.app.ui.screen.FilesScreen
@@ -94,6 +95,7 @@ fun BiuZApp(
                     onOpenScan = { navController.navigate(Routes.SCAN) },
                     onOpenSessions = { navController.navigate(Routes.SESSIONS) },
                     onOpenLogin = { navController.navigate(Routes.LOGIN) },
+                    onOpenDevices = { navController.navigate(Routes.DEVICES) },
                 )
             }
             // 001-登录（Relay V2 账户层：拿 JWT → 设备目录自动落点）
@@ -101,7 +103,15 @@ fun BiuZApp(
                 LoginScreen(
                     session = session,
                     onClose = { navController.popBackStack() },
-                    onLoggedIn = {
+                    onLoggedIn = { navController.navigate(Routes.DEVICES) },
+                )
+            }
+            // 003-设备列表（登录后自动发现已配对电脑；点选即连 V2）
+            composable(Routes.DEVICES) {
+                DevicesScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                    onConnected = {
                         navController.navigate(Routes.SESSIONS) {
                             popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
                         }

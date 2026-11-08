@@ -105,6 +105,13 @@
     <string name="login_close">暂不登录</string>
     <string name="login_entry">登录 Z.ai 账号</string>
 
+    <!-- 003-设备列表（对齐 web webRemoteControlDeviceListPage.tsx 文案） -->
+    <string name="devices_title">选择电脑</string>
+    <string name="devices_not_logged_in">未登录</string>
+    <string name="devices_loading">正在加载设备…</string>
+    <string name="devices_empty_title">暂无设备</string>
+    <string name="devices_empty_desc">在电脑端登录同一账号并开启 Web 远程控制，然后刷新列表。</string>
+
     <!-- 协作模式 chips 与面板 -->
     <string name="composer_mode_plan">计划</string>
     <string name="composer_mode_build">构建</string>

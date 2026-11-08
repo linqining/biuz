@@ -599,6 +599,9 @@ class AppSession(
         )
     }
 
+    /** 设备目录（003 设备列表页数据源）：未登录返回 null；失败返回 null（页面如实呈现）。 */
+    suspend fun loadRelayDevices(): List<RelayDeviceSummary>? = fetchRelayDevices()
+
     /** 拉设备目录；任何失败返回 null（不代表「没有设备」，调用方要回退本地）。 */
     private suspend fun fetchRelayDevices(): List<RelayDeviceSummary>? {
         val jwt = oauthCredentials.tokenSet?.zcodeJwtToken?.trim().orEmpty()

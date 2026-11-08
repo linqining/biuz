@@ -90,6 +90,7 @@ fun ConnectScreen(
     onOpenScan: () -> Unit,
     onOpenSessions: () -> Unit,
     onOpenLogin: () -> Unit = {},
+    onOpenDevices: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val mode by session.mode.collectAsStateWithLifecycle()
@@ -284,6 +285,23 @@ fun ConnectScreen(
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(BiuZSpacing.lg))
+
+            // 已登录（Keystore 有账户凭据）→ 直接进「选择电脑」：登录过的用户不必每次重走授权
+            if (session.isLoggedIn) {
+                Text(
+                    text = stringResource(R.string.devices_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(BiuZRadius.medium)
+                        .clickable(onClick = onOpenDevices)
+                        .padding(vertical = BiuZSpacing.md)
+                        .testTag("03-entry-devices"),
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(BiuZSpacing.md))
+            }
             when (val m = mode) {
                 is AppSession.Mode.Connecting -> {
                     ConnectingSteps(
