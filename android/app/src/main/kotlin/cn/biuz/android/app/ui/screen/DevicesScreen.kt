@@ -62,6 +62,7 @@ fun DevicesScreen(
     var loading by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var connectingSid by remember { mutableStateOf<String?>(null) }
+    var showSwitchAccount by remember { mutableStateOf(false) }
 
     fun refresh() {
         loading = true
@@ -159,6 +160,18 @@ fun DevicesScreen(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (account != null) {
+                Text(
+                    text = stringResource(R.string.switch_account_action),
+                    fontSize = 12.sp,
+                    color = BiuZText3,
+                    modifier = Modifier
+                        .clip(BiuZRadius.small)
+                        .clickable { showSwitchAccount = true }
+                        .padding(horizontal = BiuZSpacing.sm, vertical = 2.dp)
+                        .testTag("07-switch-account"),
+                )
+            }
         }
 
         errorText?.let { message ->
@@ -206,6 +219,30 @@ fun DevicesScreen(
                 }
                 item { Spacer(Modifier.height(BiuZSpacing.xl)) }
             }
+        }
+        if (showSwitchAccount) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showSwitchAccount = false },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showSwitchAccount = false
+                            session.logout()
+                            onBack()
+                        },
+                        modifier = Modifier.testTag("07-switch-confirm"),
+                    ) {
+                        androidx.compose.material3.Text(stringResource(R.string.switch_account_confirm))
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showSwitchAccount = false }) {
+                        androidx.compose.material3.Text(stringResource(R.string.switch_account_cancel))
+                    }
+                },
+                title = { androidx.compose.material3.Text(stringResource(R.string.switch_account_title)) },
+                text = { androidx.compose.material3.Text(stringResource(R.string.switch_account_desc)) },
+            )
         }
     }
 }

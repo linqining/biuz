@@ -172,6 +172,7 @@ fun BiuZApp(
                         }
                     },
                     onOpenFiles = { navController.navigate(Routes.FILES) },
+                    onOpenDevices = { navController.navigate(Routes.DEVICES) },
                 )
             }
             // 文件页（屏 08 Diff 审查根 → 屏 09 目录树 → 文件预览；iOS FileTreeView/

@@ -117,6 +117,13 @@
     <string name="version_notice_body">桌面当前版本为 %1$s。任务操作已暂停，请重新加载以继续。未发送的附件不会保留。</string>
     <string name="version_notice_reload">重新加载</string>
 
+    <!-- 007-切换账号（对齐 web webRemoteControlSwitchAccountDialog.tsx 文案） -->
+    <string name="switch_account_action">切换</string>
+    <string name="switch_account_title">切换账号？</string>
+    <string name="switch_account_desc">将退出当前手机网页端账号，返回登录页。电脑端仍保持登录。</string>
+    <string name="switch_account_cancel">取消</string>
+    <string name="switch_account_confirm">退出并切换</string>
+
     <!-- 协作模式 chips 与面板 -->
     <string name="composer_mode_plan">计划</string>
     <string name="composer_mode_build">构建</string>

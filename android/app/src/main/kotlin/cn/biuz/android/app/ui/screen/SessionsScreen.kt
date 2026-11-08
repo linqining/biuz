@@ -106,6 +106,7 @@ fun SessionsScreen(
     onOpenSettings: () -> Unit,
     onBackToConnect: () -> Unit,
     onOpenFiles: () -> Unit = {},
+    onOpenDevices: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val surface by session.storeSurface.collectAsStateWithLifecycle()
@@ -185,7 +186,7 @@ fun SessionsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(BiuZRadius.medium)
-                    .clickable(onClick = onOpenSettings)
+                    .clickable(onClick = onOpenDevices)
                     .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
