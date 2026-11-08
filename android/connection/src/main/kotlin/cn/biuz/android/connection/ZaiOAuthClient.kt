@@ -56,21 +56,27 @@ class ZaiOAuthClient(
         )
     }
 
-    /** 回调 URL 判定（注册的 web 回调路径 / 兼容自定义 scheme）。 */
+    /**
+     * 回调 URL 判定。**两种注册形态都要认**：
+     * ① 分享/标准回调路径 `/cn/share/callback`、`/share/callback`；
+     * ② **远控入口回调 `/remote/v4?...&code=…&state=…`**——`redirect_uri` 随入口而变，
+     *    远控场景注册的就是 `/remote/v4` 本身（web 的 `isWebRemoteControlOAuthCallback` 同口径）。
+     *
+     * 判据兜底用「参数形状」：`state` 在场且 `code|authCode|error` 任一在场，即视为 OAuth 回调。
+     * 只按路径判会在远控入口漏拦——页面自己跑完换 token 并跳走，App 永远拿不到 code。
+     */
     fun isCallbackUrl(url: String): Boolean {
         val target = runCatching { URI(url) }.getOrNull() ?: return false
+        if (target.scheme?.lowercase() != "https" && target.scheme?.lowercase() != "http") return false
+        val query = queryParams(url)
+        val looksLikeOAuthResult = !query["state"].isNullOrEmpty() &&
+            (!query["code"].isNullOrEmpty() || !query["authCode"].isNullOrEmpty() || !query["error"].isNullOrEmpty())
+        if (looksLikeOAuthResult) return true
+
         val path = (target.path ?: "").lowercase()
-        val redirect = runCatching { URI(config.redirectUri) }.getOrNull()
-        if (redirect?.scheme?.lowercase() == "https") {
-            val isWebCallbackPath = path == "/cn/share/callback" || path == "/share/callback"
-            return isWebCallbackPath &&
-                target.host?.lowercase() == redirect.host?.lowercase() &&
-                (target.scheme?.lowercase() == "https" || target.scheme?.lowercase() == "http")
-        }
-        if (redirect == null) return false
-        return target.scheme?.lowercase() == redirect.scheme?.lowercase() &&
-            target.host?.lowercase() == redirect.host?.lowercase() &&
-            path.startsWith(((redirect.path ?: "")).ifEmpty { "/" })
+        val redirect = runCatching { URI(config.redirectUri) }.getOrNull() ?: return false
+        return path == "/cn/share/callback" || path == "/share/callback" ||
+            path == ((redirect.path ?: "")).lowercase()
     }
 
     /**

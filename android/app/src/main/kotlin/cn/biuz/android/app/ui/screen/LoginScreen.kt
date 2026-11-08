@@ -68,6 +68,10 @@ fun LoginScreen(
     var authorizeUrl by remember { mutableStateOf<String?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf(false) }
+    // 调试入口（仅 debug 构建）：手填 ZCode JWT，跳过 OAuth 交换验证后续链路
+    val debugEnabled = cn.biuz.android.app.BuildConfig.DEBUG
+    var showInject by remember { mutableStateOf(false) }
+    var injectToken by remember { mutableStateOf("") }
 
     fun finishWithCallback(callbackUrl: String) {
         if (submitting) return
@@ -122,6 +126,8 @@ fun LoginScreen(
                             .testTag("01-oauth-cancel"),
                     )
                 }
+                // 注意：update 块每次重组都会执行；在这里 loadUrl 会随重组无限重载导致页面
+                // 永远停在加载态（实测：空白 + 三点转圈）。加载只在 factory 里做一次。
                 AndroidView(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -131,6 +137,10 @@ fun LoginScreen(
                         WebView(context).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
+                            settings.javaScriptCanOpenWindowsAutomatically = true
+                            // 授权链路依赖 cookie（authorize 与回调同浏览器会话）
+                            CookieManager.getInstance().setAcceptCookie(true)
+                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             webViewClient = object : WebViewClient() {
                                 override fun shouldOverrideUrlLoading(
                                     view: WebView?,
@@ -138,15 +148,36 @@ fun LoginScreen(
                                 ): Boolean {
                                     val target = request?.url?.toString() ?: return false
                                     if (isOAuthCallback(target)) {
+                                        android.util.Log.i("BiuZ", "oauth callback intercepted: " + target.substringBefore('?'))
                                         finishWithCallback(target)
                                         return true
                                     }
                                     return false
                                 }
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    android.util.Log.i("BiuZ", "oauth webview finished: " + url?.substringBefore('?'))
+                                }
+
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: android.webkit.WebResourceError?,
+                                ) {
+                                    if (request?.isForMainFrame != true) return
+                                    android.util.Log.e("BiuZ", "oauth webview error: " + error?.description + " @ " + request.url)
+                                    errorText = "无法打开授权页（${error?.description ?: "网络错误"}）"
+                                }
                             }
+                            webChromeClient = object : android.webkit.WebChromeClient() {
+                                override fun onConsoleMessage(msg: android.webkit.ConsoleMessage?): Boolean {
+                                    android.util.Log.i("BiuZ", "webview console: " + msg?.message())
+                                    return true
+                                }
+                            }
+                            loadUrl(url)
                         }
                     },
-                    update = { it.loadUrl(url) },
                 )
             }
             return@Box
@@ -242,7 +273,79 @@ fun LoginScreen(
                         .padding(vertical = BiuZSpacing.sm)
                         .testTag("01-login-close"),
                 )
+                if (debugEnabled) {
+                    Spacer(Modifier.height(BiuZSpacing.sm))
+                    Text(
+                        text = "开发者：手动填入 ZCode JWT",
+                        color = BiuZText3,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .clip(BiuZRadius.small)
+                            .clickable { showInject = true }
+                            .padding(vertical = BiuZSpacing.sm)
+                            .testTag("01-debug-inject"),
+                    )
+                }
             }
+        }
+
+        if (showInject) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showInject = false },
+                title = { Text("开发者：填入 ZCode JWT") },
+                text = {
+                    Column {
+                        Text(
+                            "从已登录网页的 localStorage['zcodejwttoken'] 复制。仅用于联调验证设备目录 / Relay V2。",
+                            fontSize = 12.sp,
+                            color = BiuZText3,
+                        )
+                        Spacer(Modifier.height(BiuZSpacing.sm))
+                        androidx.compose.material3.OutlinedTextField(
+                            value = injectToken,
+                            onValueChange = { injectToken = it },
+                            label = { Text("zcodeJwtToken") },
+                            singleLine = false,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(110.dp)
+                                .testTag("01-debug-token"),
+                        )
+                    }
+                },
+                confirmButton = {
+                    Text(
+                        text = "保存并继续",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 14.sp,
+                        modifier = Modifier
+                            .clickable {
+                                val jwt = injectToken.trim()
+                                if (jwt.isNotEmpty()) {
+                                    session.injectCredentials(
+                                        accessToken = jwt,
+                                        zcodeJwtToken = jwt,
+                                        displayName = "调试账号",
+                                    )
+                                    showInject = false
+                                    onLoggedIn()
+                                }
+                            }
+                            .padding(BiuZSpacing.sm)
+                            .testTag("01-debug-save"),
+                    )
+                },
+                dismissButton = {
+                    Text(
+                        text = "取消",
+                        color = BiuZText3,
+                        fontSize = 14.sp,
+                        modifier = Modifier
+                            .clickable { showInject = false }
+                            .padding(BiuZSpacing.sm),
+                    )
+                },
+            )
         }
     }
 }
@@ -284,11 +387,19 @@ private fun ProviderButton(
     }
 }
 
-/** 回调 URL 判定（与连接层 `ZaiOAuthClient.isCallbackUrl` 同口径的最小子集）。 */
+/**
+ * 回调 URL 判定（与连接层 `ZaiOAuthClient.isCallbackUrl` 同口径）。
+ *
+ * 关键：远控入口的 `redirect_uri` 是 `https://zcode.z.ai/remote/v4`，**不是** `/cn/share/callback`；
+ * 只按路径判会漏拦，WebView 会把回调页自己跑完（换 token 后跳到官方域），App 永远拿不到 code。
+ * 因此判据以**参数形状**为准：`state` 在场且 `code|authCode|error` 任一在场即回调。
+ */
 internal fun isOAuthCallback(url: String): Boolean {
     val lower = url.lowercase()
     if (!lower.startsWith("https://") && !lower.startsWith("http://")) return false
-    val path = lower.substringAfter("://", "").substringAfter('/', "")
-    val normalized = "/" + path.substringBefore('?')
-    return normalized == "/cn/share/callback" || normalized == "/share/callback"
+    val query = lower.substringAfter('?', "")
+    if (query.isEmpty()) return false
+    fun has(name: String): Boolean = query.split('&').any { it.startsWith("$name=") && it.length > name.length + 1 }
+    val hasState = has("state")
+    return hasState && (has("code") || has("authcode") || has("error"))
 }

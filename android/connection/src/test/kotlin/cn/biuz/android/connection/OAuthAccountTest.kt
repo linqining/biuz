@@ -71,6 +71,24 @@ class OAuthAccountTest {
     }
 
     @Test
+    fun remoteEntryCallbackIsRecognizedByParamShape() {
+        // 远控入口的 redirect_uri 是 /remote/v4 本身——只按 /cn/share/callback 判会漏拦，
+        // WebView 会把回调页跑完并跳到官方域，App 拿不到 code（实测踩坑）。
+        assertTrue(
+            client.isCallbackUrl(
+                "https://zcode.z.ai/remote/v4?sid=d_SNZ&mid=4499&code=abc&state=eyJub25jZSI6IngifQ",
+            ),
+            "远控入口回调必须被识别",
+        )
+        assertTrue(client.isCallbackUrl("https://zcode.z.ai/remote/v4?error=access_denied&state=st"))
+        assertTrue(
+            !client.isCallbackUrl("https://zcode.z.ai/remote/v4?sid=d_SNZ&mid=4499"),
+            "普通入口 URL 不是回调",
+        )
+        assertTrue(!client.isCallbackUrl("https://zcode.z.ai/remote/v4?code=abc"), "缺 state 不算回调")
+    }
+
+    @Test
     fun callbackUrlRecognition() {
         assertTrue(client.isCallbackUrl("https://zcode.z.ai/cn/share/callback?code=1&state=2"))
         assertTrue(client.isCallbackUrl("https://zcode.z.ai/share/callback?code=1&state=2"))

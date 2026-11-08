@@ -1,6 +1,7 @@
 package cn.biuz.android.app
 
 import android.app.Application
+import android.webkit.WebView
 import android.content.Context
 import cn.biuz.android.app.settings.AppSettingsPersistence
 import cn.biuz.android.app.settings.AppSettingsStore
@@ -18,6 +19,12 @@ import cn.biuz.android.connection.ServerRegistryPersistence
  * 存档键与 iOS UserDefaults 键名对齐：settings.developerMode / AppleLanguages 词面档位）。
  */
 class BiuzApplication : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+        // 仅 debug：允许 DevTools 协议连 WebView（联调/自动化读 DOM 与截图用；release 不开）
+        if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
+    }
 
     val appSettings: AppSettingsStore by lazy {
         AppSettingsStore(

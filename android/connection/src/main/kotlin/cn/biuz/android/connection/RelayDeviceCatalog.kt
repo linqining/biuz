@@ -48,10 +48,16 @@ class RelayDeviceCatalog(
                 .newCall(request)
                 .execute()
                 .use { response ->
-                    if (response.code !in 200..299) return null
-                    parseDevices(response.body?.string())
+                    val body = response.body?.string()
+                    println("[BiuZ] device catalog http=" + response.code + " len=" + (body?.length ?: 0))
+                    if (response.code !in 200..299) {
+                        println("[BiuZ] device catalog body=" + (body?.take(160) ?: ""))
+                        return null
+                    }
+                    parseDevices(body)
                 }
         } catch (err: Exception) {
+            println("[BiuZ] device catalog failed: " + err::class.simpleName + ": " + err.message)
             null
         }
     }

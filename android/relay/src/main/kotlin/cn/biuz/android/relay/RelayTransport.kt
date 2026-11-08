@@ -321,7 +321,11 @@ class RelayTransport(
         val origin = config.httpOrigin
             ?: throw RPCError(message = "中继 token 端点无效", name = "RelayConfig")
         val token = try {
-            RelayV2.fetchToken(httpOrigin = origin, jwt = jwt, httpClient = tokenHttpClient)
+            // OkHttp 同步调用：必须离开调用方线程（连接链路可能从主线程发起 →
+            // NetworkOnMainThreadException，实测踩坑）
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                RelayV2.fetchToken(httpOrigin = origin, jwt = jwt, httpClient = tokenHttpClient)
+            }
         } catch (e: RelayTokenException) {
             throw RPCError(message = e.message ?: "中继 token 获取失败", name = "RelayToken")
         }

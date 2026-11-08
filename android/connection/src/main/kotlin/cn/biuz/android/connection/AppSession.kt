@@ -505,6 +505,27 @@ class AppSession(
         return credentials
     }
 
+    /**
+     * **调试专用**：直接注入账户凭据，跳过 OAuth 交换。
+     *
+     * 只在 debug 构建的「开发者」入口暴露（release 无入口）——用于无账号密码时验证
+     * 设备目录 / Relay V2 链路。id 取 JWT 载荷的 user_id/sub，不编造身份。
+     */
+    fun injectCredentials(accessToken: String, zcodeJwtToken: String, displayName: String) {
+        val payload = zcodeJwtToken.split('.').getOrNull(1)?.let { body ->
+            runCatching {
+                val padded = body.replace('-', '+').replace('_', '/') + "=".repeat((4 - body.length % 4) % 4)
+                cn.biuz.android.protocol.JSONValue.parse(java.util.Base64.getDecoder().decode(padded))
+            }.getOrNull()
+        }
+        val id = payload?.get("user_id")?.stringValue ?: payload?.get("sub")?.stringValue ?: "unknown"
+        oauthCredentials.save(
+            OAuthTokenSet(accessToken = accessToken, zcodeJwtToken = zcodeJwtToken, expiresAt = null),
+            OAuthUserInfo(id = id, username = displayName, displayName = displayName, avatarUrl = null),
+        )
+        _oauthSessionVersion.value += 1
+    }
+
     /** 凭据已由调用方落盘后的状态推送（iOS `handleOAuthSuccess`）。 */
     fun handleOAuthSuccess(tokenSet: OAuthTokenSet, userInfo: OAuthUserInfo) {
         oauthCredentials.save(tokenSet, userInfo)
@@ -526,7 +547,7 @@ class AppSession(
     suspend fun autoConnectAfterLogin(): AutoConnectOutcome {
         if (_mode.value is Mode.Connected) return AutoConnectOutcome.Connected
 
-        val devices = fetchRelayDevices()
+        val devices = kotlinx.coroutines.withContext(Dispatchers.IO) { fetchRelayDevices() }
         if (devices != null) {
             val online = devices.filter { it.online }
             val savedSid = registry.servers
@@ -600,7 +621,9 @@ class AppSession(
     }
 
     /** 设备目录（003 设备列表页数据源）：未登录返回 null；失败返回 null（页面如实呈现）。 */
-    suspend fun loadRelayDevices(): List<RelayDeviceSummary>? = fetchRelayDevices()
+    suspend fun loadRelayDevices(): List<RelayDeviceSummary>? =
+        // OkHttp 同步调用必须离开主线程（否则 NetworkOnMainThreadException——实测踩坑）
+        kotlinx.coroutines.withContext(Dispatchers.IO) { fetchRelayDevices() }
 
     /** 拉设备目录；任何失败返回 null（不代表「没有设备」，调用方要回退本地）。 */
     private suspend fun fetchRelayDevices(): List<RelayDeviceSummary>? {
