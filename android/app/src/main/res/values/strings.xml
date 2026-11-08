@@ -112,6 +112,11 @@
     <string name="devices_empty_title">暂无设备</string>
     <string name="devices_empty_desc">在电脑端登录同一账号并开启 Web 远程控制，然后刷新列表。</string>
 
+    <!-- 008-版本提示（对齐 web webRemoteControlVersionNotice.tsx 文案：阻断式，需重新加载） -->
+    <string name="version_notice_title">桌面版本已更新</string>
+    <string name="version_notice_body">桌面当前版本为 %1$s。任务操作已暂停，请重新加载以继续。未发送的附件不会保留。</string>
+    <string name="version_notice_reload">重新加载</string>
+
     <!-- 协作模式 chips 与面板 -->
     <string name="composer_mode_plan">计划</string>
     <string name="composer_mode_build">构建</string>

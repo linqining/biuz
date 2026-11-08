@@ -1,4 +1,5 @@
 package cn.biuz.android.app.ui
+import androidx.compose.ui.platform.testTag
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -25,6 +26,7 @@ import cn.biuz.android.app.ui.screen.SessionsScreen
 import cn.biuz.android.app.ui.screen.SettingsScreen
 import cn.biuz.android.app.ui.screen.UsageStatsScreen
 import cn.biuz.android.connection.AppSession
+import kotlinx.coroutines.launch
 
 /** AppSession 装配面（深层占位屏后续经此取 Store 面而不必逐层传参）。 */
 val LocalAppSession = staticCompositionLocalOf<AppSession> {
@@ -57,6 +59,7 @@ fun BiuZApp(
     settings: AppSettingsStore,
 ) {
     val navController = rememberNavController()
+    val uiScope = androidx.compose.runtime.rememberCoroutineScope()
     CompositionLocalProvider(
         LocalAppSession provides session,
         LocalAppSettings provides settings,
@@ -86,6 +89,39 @@ fun BiuZApp(
                 }
                 else -> Unit
             }
+        }
+        // 008-版本提示：桌面版本与链接声明不一致 → 阻断式提示（web 同口径，确认后重连）
+        val versionMismatch by session.versionMismatch.collectAsStateWithLifecycle()
+        versionMismatch?.let { desktopVersion ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { /* 阻断式：只能重新加载 */ },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            session.confirmVersionReload()
+                            uiScope.launch { session.reconnect() }
+                        },
+                        modifier = androidx.compose.ui.Modifier.testTag("08-version-reload"),
+                    ) {
+                        androidx.compose.material3.Text(
+                            androidx.compose.ui.res.stringResource(cn.biuz.android.app.R.string.version_notice_reload),
+                        )
+                    }
+                },
+                title = {
+                    androidx.compose.material3.Text(
+                        androidx.compose.ui.res.stringResource(cn.biuz.android.app.R.string.version_notice_title),
+                    )
+                },
+                text = {
+                    androidx.compose.material3.Text(
+                        androidx.compose.ui.res.stringResource(
+                            cn.biuz.android.app.R.string.version_notice_body,
+                            desktopVersion,
+                        ),
+                    )
+                },
+            )
         }
         NavHost(navController = navController, startDestination = Routes.CONNECT) {
             composable(Routes.CONNECT) {

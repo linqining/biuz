@@ -433,6 +433,28 @@ class AppSession(
     private val oauthClient = ZaiOAuthClient(oauthConfig)
     private val deviceCatalog = RelayDeviceCatalog()
 
+    /** 桌面版本与链接声明不一致时的「桌面当前版本」（非 null = 需阻断提示）。 */
+    private val _versionMismatch = MutableStateFlow<String?>(null)
+    val versionMismatch: StateFlow<String?> = _versionMismatch
+
+    /**
+     * 用户确认「重新加载」：把**实际桌面版本回写进已保存链接**再重连。
+     *
+     * web 的做法是把 `app_version` 改写到 URL 后 navigate（`webRemoteControlVersion.ts:38-46`）；
+     * 移动端等价于改写 `relay.desktopAppVersion`。缺少这一步会死循环——用旧版本链接重连必然再次不一致。
+     */
+    fun confirmVersionReload() {
+        val version = _versionMismatch.value ?: return
+        val server = (_mode.value as? Mode.Connected)?.server
+        if (server != null) {
+            val relay = server.relay
+            if (relay != null) {
+                registry.upsert(server.copy(relay = relay.copy(desktopAppVersion = version)))
+            }
+        }
+        _versionMismatch.value = null
+    }
+
     private val _oauthSessionVersion = MutableStateFlow(0)
     val oauthSessionVersion: StateFlow<Int> = _oauthSessionVersion
 
@@ -791,6 +813,14 @@ class AppSession(
                     as? ZCodeServerConnection.ConnectionState.Connected
                 assembleStores(workspace = connected?.workspace ?: return)
                 _mode.value = Mode.Connected(server)
+                // 版本守卫（web webRemoteControlVersion：链接声明 vs 实际桌面版本）
+                val mismatch = VersionGuard.mismatch(
+                    linkVersion = server.relay?.desktopAppVersion,
+                    desktopVersion = result.info.version,
+                )
+                println("[BiuZ] version guard link=" + server.relay?.desktopAppVersion +
+                    " actual=" + result.info.version + " mismatch=" + mismatch)
+                _versionMismatch.value = mismatch
                 // 连接成功收口：注册表更新（名称回填 + 最近连接时间 + 选中台）
                 var updated = server.copy(lastConnectedAt = System.currentTimeMillis())
                 if (updated.name == null) {
@@ -816,6 +846,7 @@ class AppSession(
     // MARK: 配对流程（L1 → L2 → 成功/失败；iOS :1095-1135 直译）
 
     suspend fun connect(server: ServerConfig) {
+        _versionMismatch.value = null
         _mode.value = Mode.Connecting(server)
         connectToSaved(server)
     }
