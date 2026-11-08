@@ -1,0 +1,60 @@
+# ============================================================
+# web-to-app 配置 — BiuZ（zcode_mobile）
+#
+# web 源 = ZCode 上游仓的 web 前端包 @zcode/web（React + Vite），
+#          真实 UI 主体在 packages/ui（与桌面端共享）。
+# 目标   = 复用现有 ios/ZCodeMobileApp + android/，新增 miniprogram/。
+# ============================================================
+
+# ---- 权威参照（web 源项目）----
+web:
+  repo: /Users/mac/projects/zcode_mobile/ZCode      # 上游仓 clone（自带 .git，只读）；web 应用在 packages/web
+  package_dir: packages/web                         # web 前端包（@zcode/web）
+  ui_package_dir: packages/ui                       # 真实 UI 主体（WebRemoteControlMobileShell / V4ChatPane / SettingsPage）
+  deployed_base: "https://zcode.z.ai"               # 线上远控入口（/remote/v4，实测可用；带 sid/mid 直连桌面）
+  local_dev_base: http://localhost:5173             # pnpm dev:web 起的 vite dev server（@zcode/web）
+  remote_route: /remote/v4                          # web 远控入口路由（shared/src/web-remote-control.ts 推导）
+
+# ---- 页面索引（web 路由 ↔ 采集 key ↔ 各端路由的机器可读映射）----
+pages:
+  index: config/page-index.json
+
+# ---- 浏览器采证 ----
+capture:
+  chrome_debug_port: 9225                # 9224 可能被其他项目调试实例占用，本项目独立端口
+  chrome_profile_dir: .capture/chrome-profile
+  output_dir: .capture/runs
+  viewport_width: 390                    # web 手机壳断点 max-width:767px，取 iPhone 390 基准
+  viewport_height: 844
+  device_scale_factor: 3
+  user_agent: ""                         # 留空用内置 iPhone UA
+  login_hints: ""                        # 远控入口需登录；登录判定正则待采证后补
+
+# ---- 同步状态 / 脚手架 ----
+sync:
+  state_file: docs/parity-sync-state.json
+  scaffold_dir: .capture/sync
+  ledger_key: web-sync-base
+  required_gates: build,logic,ui,capture
+
+# ---- 差异标记语言 ----
+diff_language:
+  prefix: APP-DIFF
+  ledger: docs/parity-diff-ledger.md
+  kinds:
+    platform: 平台/基建差异——框架能力、系统组件、性能优化导致实现形态不同，视觉/交互规格已对齐
+    business: 业务原因刻意不同——产品决策、合规要求、移动端入口策略
+    pending: 暂时不同待对齐——必须挂 PARITY_BACKLOG 编号，修完删标记
+
+# ---- 目标 App ----
+app:
+  platforms: ios,android,miniprogram
+  ios:
+    dir: ios/ZCodeMobileApp              # SwiftUI 源码根
+    module: ZCodeMobile                  # PRODUCT_NAME（工程 scheme: ZCodeMobile）
+  android:
+    dir: android                         # 工程根；app 模块在 android/app
+    package: cn.biuz.android             # applicationId；namespace = cn.biuz.android.app
+  miniprogram:
+    dir: miniprogram                     # 新建（当前不存在）
+    appid: "wxd12bbd2e769dfd44"                            # 待用户提供；开发测试可先用测试号

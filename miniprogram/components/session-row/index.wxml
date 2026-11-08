@@ -1,0 +1,12 @@
+<view class="row" bind:tap="onOpen" bind:longpress="onLongPress">
+  <view class="row__pin" wx:if="{{row.isPinned}}">
+    <text class="row__pin-glyph">📌</text>
+  </view>
+  <view class="row__main">
+    <view class="row__titleline">
+      <text class="row__title">{{row.title}}</text>
+      <text class="row__time">{{row.timeText}}</text>
+    </view>
+    <workflow-track wx:if="{{row.track}}" track="{{row.track}}" />
+  </view>
+</view>

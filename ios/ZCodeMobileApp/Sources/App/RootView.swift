@@ -253,6 +253,16 @@ struct ConnectionBanner: View {
             // 断线重连中（快照在场，不打断浏览——设计稿 §1.4）；从未连上的
             // connecting 由根页/cover 整层 ConnectingView 承担，横幅不重复出现
             guard session.remoteConversationStore != nil else { return nil }
+            if session.isAutoReconnecting {
+                return Model(
+                    icon: "arrow.triangle.2.circlepath", tint: T.orange,
+                    title: String(localized: "连接已断开 · 正在自动重连…"),
+                    detail: "\(session.autoReconnectAttempt)/\(session.autoReconnectMax) · \(server.displayName)",
+                    action: String(localized: "取消"),
+                    identifier: "13-banner-reconnecting") {
+                    session.cancelConnecting()
+                }
+            }
             return Model(
                 icon: "arrow.triangle.2.circlepath", tint: T.accent,
                 title: String(localized: "正在连接桌面端…"),

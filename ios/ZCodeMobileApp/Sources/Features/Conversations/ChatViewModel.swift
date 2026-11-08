@@ -11,6 +11,14 @@ final class ChatViewModel {
     var draft: String = ""
     var isLoading = true
 
+    /// 3.17.2 输入预测 ghost hint（接在草稿后的续写灰字；nil = 无）。仅连接态 +
+    /// Host 能力门 inputPrediction 开启时产生；点按采纳拼到 draft 尾部（不 trim）。
+    /// 任何异常 / 非 show 决策 = nil，不提示用户【实证·上游仓 mobile-input-prediction.md】。
+    var inputHint: String?
+    /// 预测请求号（自增；迟到回包 requestId 失配即丢弃）与防抖任务句柄
+    private var predictionRequestId = 0
+    private var predictionDebounce: Task<Void, Never>?
+
     /// 会话加载失败文本（连接态订阅/历史行拉取失败的 UI 透出面；nil = 无失败——
     /// 含「订阅/拉取都成功但行为空」的正常空会话，空/载/失败三态据此区分。
     /// 真机报障「二级页面消息区空白且无提示」2026-10-06 修复面）
@@ -823,6 +831,10 @@ final class ChatViewModel {
                 if !messages.contains(where: { $0.id == message.id }) {
                     messages.append(message)
                 }
+                // 新行 = revision 前进：仅清已显示 hint，不取消在途预测/防抖——取消会让
+                // 有活动期间永远不出 hint（v1.39 E2E 实测）；在途结果仍受 requestId +
+                // 草稿快照双重校验（spec「不是最新的就丢弃」由这两道守卫承担）
+                clearInputHintDisplay()
             case .messageUpdated(let id, let message) where id == conversationID:
                 if let index = messages.firstIndex(where: { $0.id == message.id }) {
                     messages[index] = message
@@ -1258,6 +1270,7 @@ final class ChatViewModel {
     func send() async -> Bool {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return false }
+        invalidateInputHint()
         heldConfirmVisible = false
         // 斜杠命令拦截（仅连接态；演示态无命令面）。未命中意图的 /xxx 原文直发
         if isReadOnly, let intent = Self.parseSlashIntent(text) {
@@ -1327,6 +1340,53 @@ final class ChatViewModel {
     /// 主会话初始 loadHistory 的 200 行）
     func storeActorTranscript(sessionId: String) async -> [ChatMessage] {
         await store.actorTranscript(sessionId: sessionId, limit: 200)
+    }
+
+    // MARK: 输入预测（3.17.2 ghost hint）
+
+    /// 草稿变化触发（ComposerBar onChange）：防抖 ~700ms 后请求续写预测。每次变化
+    /// 先清旧 hint（不再匹配当前草稿）；演示态/无能力门由 store 侧返 nil 兜底。
+    func scheduleInputPrediction() {
+        predictionDebounce?.cancel()
+        inputHint = nil
+        guard isReadOnly else { return }
+        let snapshot = draft
+        predictionDebounce = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.requestInputPrediction(for: snapshot)
+        }
+    }
+
+    private func requestInputPrediction(for snapshot: String) async {
+        predictionRequestId += 1
+        let requestId = "r-\(predictionRequestId)"
+        let result = await store.inputPrediction(in: conversationID, draft: snapshot, requestId: requestId)
+        // 过期丢弃（spec 手机端建议③⑤）：requestId 非最新 / 草稿已变 / 决策非 show
+        guard requestId == "r-\(predictionRequestId)",
+              draft == snapshot,
+              let text = result?.topText else { return }
+        inputHint = text
+    }
+
+    /// 点按采纳：续写拼到草稿尾部（spec：draft + text，不 trim——英文续写可空格起头）；清 hint。
+    func acceptInputHint() {
+        guard let text = inputHint else { return }
+        draft += text
+        inputHint = nil
+    }
+
+    /// 发送/新 revision/切会话：作废在途预测并清 hint（requestId 自增使迟到回包失配）。
+    func invalidateInputHint() {
+        predictionDebounce?.cancel()
+        predictionRequestId += 1
+        inputHint = nil
+    }
+
+    /// 仅清显示（不取消在途/防抖）：新行到达时 revision 前进，旧 hint 不该继续显示，
+    /// 但用户草稿未变——在途预测仍可落地（spec 丢弃语义由 requestId/草稿校验承担）。
+    func clearInputHintDisplay() {
+        inputHint = nil
     }
 
     /// G-015：失败工具卡「重试」→ retryTurn 下发（行合成 id "row-<n>" 携 rowId；

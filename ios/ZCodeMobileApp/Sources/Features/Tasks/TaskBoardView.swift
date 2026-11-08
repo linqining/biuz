@@ -31,7 +31,7 @@ struct TaskBoardView: View {
     @State private var searchDebounce: Task<Void, Never>?
     /// G-057 状态筛选 chips（nil = 全部）
     @State private var statusFilter: TaskStatus?
-    /// P2-6 桌面分组结构（listGroupedTaskViewStructure 回执；连接态拉取，键级整体
+    /// P2-6 桌面分组结构（task-groups.read 回执；连接态拉取，键级整体
     /// 替换不深合并；nil = 未取到/不可用 → 回退本地状态四组）
     @State private var desktopGrouping: DesktopTaskGrouping?
     /// P2-6 桌面分组拉取失败轻提示（回退态常驻淡行；成功即隐；演示态恒隐）
@@ -59,7 +59,7 @@ struct TaskBoardView: View {
         return base.filter { $0.title.localizedCaseInsensitiveContains(query) }
     }
 
-    // MARK: P2-6 桌面分组（listGroupedTaskViewStructure）
+    // MARK: P2-6 桌面分组（task-groups.read）
 
     /// 桌面分组渲染段：组序=回执序；组内=回执成员序 ∩ 当前 filtered（回执给的
     /// taskId 不在缓存/被筛掉则跳过）；回执未领走的任务归尾部「未分组」组（组头
@@ -88,27 +88,17 @@ struct TaskBoardView: View {
 
     /// 连接态拉桌面分组结构（.task 并行路径，不阻塞首屏——本地四组先渲染，回执到
     /// 达键级整体替换）。失败/空回执/解析不出成员 → 回退本地四组 + 轻提示。
+    /// v1.39：桌面 TaskGroup 无折叠字段（contract.ts:5-11），折叠纯本地 UI 态。
     private func loadDesktopGrouping() async {
         guard let remote = store as? RemoteTaskStore else { return }
         let structure = await remote.groupedTaskViewStructure()
         if let structure, structure.groups.contains(where: { !$0.taskIDs.isEmpty }) {
             desktopGrouping = structure
             groupingUnavailable = false
-            seedCollapsedGroupsIfFirstRun(from: structure)
         } else {
             desktopGrouping = nil
             groupingUnavailable = true
         }
-    }
-
-    /// 桌面折叠标记（宽容键，未取证）仅作本地折叠初值：本地无存档时生效一次，
-    /// 之后本地持久化态权威（折叠是纯本地 UI 态，不回写桌面）。
-    private func seedCollapsedGroupsIfFirstRun(from structure: DesktopTaskGrouping) {
-        guard UserDefaults.standard.object(forKey: Self.collapsedGroupsStoreKey) == nil else { return }
-        let desktopCollapsed = Set(structure.groups.filter(\.collapsed).map(\.name))
-        guard !desktopCollapsed.isEmpty else { return }
-        collapsedGroups = desktopCollapsed
-        persistCollapsedGroups()
     }
 
     // MARK: 折叠态本地持久化（组名键控；纯本地 UI 态，不影响桌面结构对齐）

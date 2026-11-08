@@ -272,12 +272,12 @@ final class LayoutAuditTests: XCTestCase {
         snap("15-login-authorize-sheet")
         assertOnScreen(element(app, "o2-act-close"), "授权 Sheet 关闭按钮应在屏内")
 
-        // 关闭 → O3 取消页 → 跳过回主界面
+        // 关闭 → 回 O1 登录主页 → 关闭整个登录流程回主界面
         element(app, "o2-act-close").tap()
-        wait(element(app, "o3-btn-skip"), timeout: 10, "取消后应进入 O3 页")
-        snap("16-login-cancel-result")
-        element(app, "o3-btn-skip").tap()
-        wait(element(app, "04-tab-chat"), timeout: 10, "跳过后应回主界面")
+        wait(element(app, "o1-btn-oauth"), timeout: 10, "取消后应回 O1 登录主页")
+        snap("16-login-cancel-return-home")
+        element(app, "o1-act-close").tap()
+        wait(element(app, "04-tab-chat"), timeout: 10, "关闭登录流程后应回主界面")
     }
 
     // MARK: - L1 手动表单（含键盘弹起态，已知遮挡线索）

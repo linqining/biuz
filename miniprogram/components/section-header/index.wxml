@@ -1,0 +1,6 @@
+<view class="section-header" bind:tap="onToggle">
+  <text class="section-header__arrow" wx:if="{{collapsible}}">{{collapsed ? '▸' : '▾'}}</text>
+  <text class="section-header__title">{{title}}</text>
+  <text class="section-header__count" wx:if="{{count > 0}}">{{count}}</text>
+  <slot></slot>
+</view>

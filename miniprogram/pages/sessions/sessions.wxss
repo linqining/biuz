@@ -1,0 +1,162 @@
+/* 010-任务主页 —— 尺寸换算：web 手机壳 390pt 视口，小程序 750rpx = 屏宽 → 1px ≈ 1.923rpx。
+   实测值见 .capture/runs/20261108-080125-* 的 style probe 记录。 */
+
+.page {
+  height: 100vh;
+  background-color: var(--color-background);
+}
+
+/* ---- 顶部导航：设备切换行 + 新建任务（web: 12px 8px padding / gap 4px）---- */
+.nav {
+  flex: 0 0 auto;
+  padding: 24rpx 16rpx 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.nav__device {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  height: 62rpx;
+  padding: 0 19rpx;
+  border-radius: var(--radius-md);
+}
+.nav__device-icon {
+  font-size: var(--font-base);
+  color: var(--color-muted);
+}
+.nav__device-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-base);
+  font-weight: 500;
+  color: var(--color-foreground);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.nav__chevron {
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+}
+.nav__new {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  height: 62rpx;
+  padding: 0 19rpx;
+  border-radius: var(--radius-md);
+}
+.nav__new:active {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+.nav__new-icon {
+  font-size: var(--font-base);
+  color: var(--color-foreground);
+}
+.nav__new-label {
+  font-size: var(--font-base);
+  color: var(--color-foreground);
+}
+
+/* ---- 任务列表头（web: padding 0 8px 8px / 标题 14px 500 alpha .6）---- */
+.toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 8rpx 16rpx 16rpx;
+}
+.toolbar__title {
+  flex: 1;
+  padding: 0 19rpx;
+  font-size: var(--font-base);
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.toolbar__view {
+  font-size: var(--font-sm);
+  color: var(--color-muted-2);
+}
+.toolbar__action {
+  width: 62rpx;
+  height: 62rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--color-muted);
+  font-size: var(--font-base);
+}
+.toolbar__action:active {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ---- 列表 ---- */
+.list {
+  flex: 1;
+  min-height: 0;
+  padding: 0 16rpx;
+  box-sizing: border-box;
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+}
+.list__state {
+  padding: 48rpx 0;
+}
+.list__error {
+  padding: 0 0 24rpx;
+}
+
+/* ---- 底部账号（web: login-trigger 32px / radius 16px 8px 8px 16px）---- */
+.footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 16rpx 16rpx 24rpx;
+}
+.footer__account {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  height: 62rpx;
+  padding-right: 19rpx;
+  border-radius: 31rpx 16rpx 16rpx 31rpx;
+}
+.footer__avatar {
+  width: 46rpx;
+  height: 46rpx;
+  border-radius: 50%;
+  background-color: var(--color-input);
+  color: var(--color-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-sm);
+}
+.footer__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-base);
+  color: var(--color-foreground);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.footer__settings {
+  width: 62rpx;
+  height: 62rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--color-muted);
+  font-size: var(--font-lg);
+}

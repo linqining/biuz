@@ -46,7 +46,6 @@ actor EmptyTaskStore: @preconcurrency TaskStore {
     func reject(taskID: String, optionId: String) async -> TaskDecisionOutcome { .undelivered }
     func stop(taskID: String) async -> String? { nil }
     func retry(taskID: String) async {}
-    func terminalStream(taskID: String) -> AsyncStream<TerminalLine> { AsyncStream { $0.finish() } }
     func trajectoryLines(taskID: String) async -> [TerminalLine] { [] }
 }
 

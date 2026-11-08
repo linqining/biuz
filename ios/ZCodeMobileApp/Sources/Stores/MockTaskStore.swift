@@ -1,12 +1,10 @@
 import Foundation
 
-/// 任务内存实现：审批动作驱动状态流转，终端输出经 AsyncStream 模拟。
+/// 任务内存实现：审批动作驱动状态流转；轨迹投影静态模拟（v1.39 伪终端泵已随死 UI 移除）。
 actor MockTaskStore: @preconcurrency TaskStore {
 
     private var tasks: [TaskRecord] = []
     private var taskContinuations: [UUID: AsyncStream<[TaskRecord]>.Continuation] = [:]
-    private var terminalContinuations: [String: [UUID: AsyncStream<TerminalLine>.Continuation]] = [:]
-    private var terminalLineID = 0
 
     init() {
         seed()
@@ -76,17 +74,6 @@ actor MockTaskStore: @preconcurrency TaskStore {
         }
     }
 
-    func terminalStream(taskID: String) -> AsyncStream<TerminalLine> {
-        AsyncStream { continuation in
-            let key = UUID()
-            terminalContinuations[taskID, default: [:]][key] = continuation
-            continuation.onTermination = { _ in
-                Task { await self.removeTerminalContinuation(taskID: taskID, key: key) }
-            }
-            Task { await self.pumpTerminal(taskID: taskID) }
-        }
-    }
-
     func trajectoryLines(taskID: String) async -> [TerminalLine] {
         [
             TerminalLine(id: 1, label: "[plan]", text: "拆解任务为 5 个步骤，预计 12 分钟"),
@@ -95,46 +82,6 @@ actor MockTaskStore: @preconcurrency TaskStore {
             TerminalLine(id: 4, label: "[agent]", text: "调用方迁移决策待用户确认，已发起提问"),
             TerminalLine(id: 5, label: "[subagent]", text: String(localized: "子智能体 test-runner 运行中（回归 46 用例）")),
         ]
-    }
-
-    // MARK: - 终端泵
-
-    private func pumpTerminal(taskID: String) async {
-        let history: [(String?, String, Bool, Bool)] = [
-            (nil, "npm run db:migrate -- --env=staging", true, false),
-            ("[migrate]", "resolving migrations… found 3 pending", false, false),
-            ("[migrate]", "applying 0042_add_index_to_sessions.sql", false, false),
-            ("[migrate]", "applying 0043_backfill_tokens.sql", false, false),
-            ("[migrate]", "backfill complete: 18,204 rows in 9.6s", false, true),
-        ]
-        for (label, text, isCommand, isSuccess) in history {
-            emit(taskID, TerminalLine(id: nextLineID(), label: label, text: text, isCommand: isCommand, isSuccess: isSuccess))
-            try? await Task.sleep(nanoseconds: 120_000_000)
-        }
-        let tail = [
-            ("[migrate]", "applying 0044_partition_events.sql", false, false),
-            ("[migrate]", "scanning events… 42%", false, false),
-            ("[migrate]", "scanning events… 78%", false, false),
-            ("[migrate]", "partition created, vacuuming", false, false),
-            ("[migrate]", "3 migrations applied, schema v44 ✓", false, true),
-        ]
-        for (label, text, _, isSuccess) in tail {
-            emit(taskID, TerminalLine(id: nextLineID(), label: label, text: text, isSuccess: isSuccess))
-            try? await Task.sleep(nanoseconds: 900_000_000)
-        }
-    }
-
-    private func nextLineID() -> Int {
-        terminalLineID += 1
-        return terminalLineID
-    }
-
-    private func emit(_ taskID: String, _ line: TerminalLine) {
-        terminalContinuations[taskID]?.values.forEach { $0.yield(line) }
-    }
-
-    private func removeTerminalContinuation(taskID: String, key: UUID) {
-        terminalContinuations[taskID]?[key] = nil
     }
 
     private func sortedTasks() -> [TaskRecord] {

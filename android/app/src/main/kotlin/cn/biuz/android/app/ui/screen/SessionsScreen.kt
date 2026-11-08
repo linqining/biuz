@@ -24,6 +24,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -54,6 +56,7 @@ import cn.biuz.android.app.R
 import cn.biuz.android.app.ui.chat.ChatViewModel
 import cn.biuz.android.app.ui.chat.ModelOptionSection
 import cn.biuz.android.app.ui.chat.ModelRefetchRow
+import cn.biuz.android.app.ui.chat.SessionWorkflowTrackView
 import cn.biuz.android.app.ui.chat.ThoughtOptionSection
 import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZBgCard
@@ -145,12 +148,21 @@ fun SessionsScreen(
 
     // LazyColumn key 需唯一非空：空 id 行（未连接态 Empty Store 防御位）不入列
     val rows = conversations.filter { it.id.isNotEmpty() }
-    val sections = remember(rows, dayBounds) {
-        groupConversationsByRecency(
-            rows = rows,
-            todayStartMs = dayBounds.first,
-            yesterdayStartMs = dayBounds.second,
-        )
+    // 列表视图四档（对齐 web `ProjectSidebarListHeader.tsx:87-102`）
+    var viewMode by remember { mutableStateOf(ListViewMode.PROJECTS) }
+    var showViewMenu by remember { mutableStateOf(false) }
+    val pinnedTitle = stringResource(R.string.group_pinned)
+    val ungroupedTitle = stringResource(R.string.sessions_section_tasks)
+    val timelineTitle = stringResource(R.string.sessions_view_timeline)
+    val unreadTitle = stringResource(R.string.sessions_view_unread_label)
+    val unreadEmpty = stringResource(R.string.sessions_unread_empty)
+    val sections = remember(rows, viewMode, pinnedTitle, ungroupedTitle, timelineTitle, unreadTitle, unreadEmpty) {
+        when (viewMode) {
+            ListViewMode.PROJECTS -> projectSections(rows, pinnedTitle, ungroupedTitle)
+            ListViewMode.TIMELINE -> timelineSections(rows, pinnedTitle, timelineTitle)
+            ListViewMode.UNREAD -> unreadSections(rows, pinnedTitle, unreadTitle, unreadEmpty)
+            ListViewMode.GROUPED -> emptyList()
+        }
     }
 
     Scaffold(modifier = modifier) { padding ->
@@ -161,14 +173,71 @@ fun SessionsScreen(
                 .statusBarsPadding()
                 .padding(horizontal = BiuZSpacing.lg),
         ) {
-            Spacer(Modifier.height(BiuZSpacing.xl))
+            Spacer(Modifier.height(BiuZSpacing.lg))
+            // 设备切换行（对齐 web home 顶部 `aria-label=切换设备`）：图标 + 设备名 + 展开箭头
+            val serverName = when (val m = mode) {
+                is AppSession.Mode.Connected -> m.server.name ?: m.server.host
+                is AppSession.Mode.Disconnected -> m.server.name ?: m.server.host
+                is AppSession.Mode.ConnectFailed -> m.server.name ?: m.server.host
+                else -> null
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(BiuZRadius.medium)
+                    .clickable(onClick = onOpenSettings)
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(text = "💻", fontSize = 13.sp)
+                Spacer(Modifier.size(BiuZSpacing.sm))
+                Text(
+                    text = serverName ?: stringResource(R.string.sessions_no_device),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(text = "⌃⌄", fontSize = 10.sp, color = BiuZText3)
+            }
+            Spacer(Modifier.height(BiuZSpacing.sm))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = stringResource(R.string.chat_title),
+                    text = stringResource(R.string.sessions_title),
                     style = MaterialTheme.typography.displayLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
+                // 筛选视图四档（对齐 web sidebar-view-menu）
+                Box {
+                    Text(
+                        text = "≣",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable { showViewMenu = true }
+                            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
+                            .testTag("04-view-menu"),
+                    )
+                    DropdownMenu(expanded = showViewMenu, onDismissRequest = { showViewMenu = false }) {
+                        listOf(
+                            ListViewMode.PROJECTS to R.string.sessions_view_projects,
+                            ListViewMode.GROUPED to R.string.sessions_view_grouped,
+                            ListViewMode.TIMELINE to R.string.sessions_view_timeline,
+                            ListViewMode.UNREAD to R.string.sessions_view_unread,
+                        ).forEach { (target, labelRes) ->
+                            DropdownMenuItem(
+                                text = { Text(stringResource(labelRes)) },
+                                onClick = {
+                                    viewMode = target
+                                    showViewMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
                 // 新建会话入口（iOS 会话列表 + 新建 sheet 同位；提交门在 sheet 内）
                 Text(
                     text = stringResource(R.string.new_session_entry),
@@ -266,12 +335,24 @@ fun SessionsScreen(
                     }
                 }
 
+                viewMode == ListViewMode.GROUPED -> {
+                    // 数据源未接入：如实提示，不用项目分组冒充
+                    Text(
+                        text = stringResource(R.string.sessions_view_grouped_pending),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = BiuZText3,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("04-view-grouped-pending"),
+                    )
+                }
+
                 else -> {
                     LazyColumn(modifier = Modifier.weight(1f)) {
                         sections.forEach { section ->
-                            item(key = "header-${section.kind}") {
+                            item(key = "header-${section.title}-${section.rows.firstOrNull()?.id ?: ""}") {
                                 Text(
-                                    text = sectionKindLabel(section.kind),
+                                    text = section.title,
                                     style = MaterialTheme.typography.labelMedium,
                                     color = BiuZText3,
                                     modifier = Modifier.padding(
@@ -607,7 +688,10 @@ private fun NewConversationSheet(
 }
 
 
-// MARK: - 会话行（首字符圆徽 + 标题/摘要 + 运行转圈/等待确认标 + 时间）
+// MARK: - 会话行（严格对齐 web home 行：图钉 + 标题 + 时间 + 工作流迷你轨道）
+//
+// 2026-11-08 用户裁决：移除首字符圆徽、运行转圈、摘要、等待确认胶囊 —— 行只保留
+// 图钉/标题/时间/轨道四项。web 侧运行态由轨道点表达（`.capture/sync/.../compare-report.md`）。
 
 @Composable
 private fun SessionRow(
@@ -618,26 +702,17 @@ private fun SessionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 64.dp)
             .clickable(onClick = onOpen)
-            .padding(vertical = BiuZSpacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = BiuZSpacing.xs, horizontal = BiuZSpacing.xs),
+        verticalAlignment = Alignment.Top,
     ) {
-        // 会话 icon（裁决）：标题首字符圆徽
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
+        if (conversation.isPinned) {
             Text(
-                text = conversation.title.firstOrNull()?.toString() ?: "·",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                text = "📌",
+                fontSize = 10.sp,
+                modifier = Modifier.padding(end = BiuZSpacing.xs, top = 2.dp),
             )
         }
-        Spacer(Modifier.size(BiuZSpacing.md))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -648,46 +723,19 @@ private fun SessionRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                // 运行转圈（桌面侧栏逐字 parity；isRunning 为 Store 层双源合成：
-                // sessions-index 实时 phase 优先 ∪ task-index status 补源）
-                if (conversation.isRunning) {
-                    Spacer(Modifier.size(BiuZSpacing.xs))
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
-                        color = BiuZBlue,
+                Spacer(Modifier.weight(1f))
+                if (timeLabel.isNotEmpty()) {
+                    Text(
+                        text = timeLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = BiuZText3,
                     )
                 }
             }
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = conversation.summary,
-                style = MaterialTheme.typography.bodySmall,
-                color = BiuZText3,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Spacer(Modifier.size(BiuZSpacing.sm))
-        Column(horizontalAlignment = Alignment.End) {
-            if (timeLabel.isNotEmpty()) {
-                Text(
-                    text = timeLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = BiuZText3,
-                )
-            }
-            // 「等待确认」标（桌面侧栏同源口径：pendingApprovalCount = permission + userInput）
-            if (conversation.pendingApprovalCount > 0) {
-                Spacer(Modifier.height(BiuZSpacing.xs))
-                Text(
-                    text = stringResource(R.string.row_waiting_confirm),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = BiuZOnOrange,
-                    modifier = Modifier
-                        .background(BiuZOrange, RoundedCornerShape(999.dp))
-                        .padding(horizontal = BiuZSpacing.sm, vertical = 2.dp),
-                )
+            val activity = conversation.workflowActivity
+            if (activity != null && activity.liveRuns.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                SessionWorkflowTrackView(activity = activity)
             }
         }
     }

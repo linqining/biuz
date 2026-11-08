@@ -18,6 +18,7 @@ import cn.biuz.android.app.ui.screen.FilePreviewScreen
 import cn.biuz.android.app.ui.screen.FileTreeScreen
 import cn.biuz.android.app.ui.screen.FilesScreen
 import cn.biuz.android.app.ui.screen.LanguageSettingsScreen
+import cn.biuz.android.app.ui.screen.LoginScreen
 import cn.biuz.android.app.ui.screen.ScanScreen
 import cn.biuz.android.app.ui.screen.SessionsScreen
 import cn.biuz.android.app.ui.screen.SettingsScreen
@@ -92,6 +93,19 @@ fun BiuZApp(
                     settings = settings,
                     onOpenScan = { navController.navigate(Routes.SCAN) },
                     onOpenSessions = { navController.navigate(Routes.SESSIONS) },
+                    onOpenLogin = { navController.navigate(Routes.LOGIN) },
+                )
+            }
+            // 001-登录（Relay V2 账户层：拿 JWT → 设备目录自动落点）
+            composable(Routes.LOGIN) {
+                LoginScreen(
+                    session = session,
+                    onClose = { navController.popBackStack() },
+                    onLoggedIn = {
+                        navController.navigate(Routes.SESSIONS) {
+                            popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                        }
+                    },
                 )
             }
             composable(Routes.SCAN) {

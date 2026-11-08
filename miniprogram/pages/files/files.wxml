@@ -1,0 +1,7 @@
+<!-- 030-文件管理器 —— 骨架页。按 web 源实现，禁止填假数据。 -->
+<view class="page safe-top" data-page="030-文件管理器">
+  <view class="page-placeholder">
+    <text class="page-placeholder__title">030-文件管理器</text>
+    <text class="page-placeholder__hint">TODO · web 源：packages/ui/src/app-shell/AnimatedSidePanePanel.tsx:1333</text>
+  </view>
+</view>

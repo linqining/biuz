@@ -1,0 +1,4 @@
+<view class="error-line" wx:if="{{message}}">
+  <text class="error-line__text">{{message}}</text>
+  <text class="error-line__retry" wx:if="{{retryable}}" bind:tap="onRetry">重试</text>
+</view>

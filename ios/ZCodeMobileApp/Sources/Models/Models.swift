@@ -370,6 +370,25 @@ struct RuntimeInitializationInfo: Equatable {
     var isBlocking: Bool { status == "initializing" || status == "failed" }
 }
 
+/// 3.17.2 输入预测 ghost hint（mobile-input-prediction.md 线格式）。
+/// candidates[].text 接在草稿后面（不做 trim）；仅 decision=="show" 展示首候选。
+struct InputPredictionResult: Equatable {
+    struct Candidate: Equatable {
+        var text: String
+        var confidence: Double
+    }
+    var decision: String
+    var candidates: [Candidate]
+    var requestId: String?
+    var revision: Int
+
+    var topText: String? {
+        guard decision == "show", let first = candidates.first,
+              !first.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return first.text
+    }
+}
+
 /// workspaceHookReview 审核项（web 对齐 2026-10-06）。应答键 `reviewItemId` 为
 /// web 实证（bundle respondWorkspaceHookReview 调用点 `reviewItemIds:[t.reviewItemId]`）；
 /// 其余展示字段（title/detail/trustState）宽容解析【未取证——元素 schema 在共享 chunk，

@@ -27,6 +27,32 @@ struct ConversationListView: View {
     /// 项目分组折叠态（组名键控）
     @State private var collapsedGroups: Set<String> = []
 
+    /// 列表视图（web home「筛选视图」四档，`ProjectSidebarListHeader.tsx:87-102` 逐字同名）。
+    /// `.grouped` 需要 task-groups 数据源（移动端未接入），选中时给如实提示而非空列表。
+    enum ListViewMode: String, CaseIterable, Identifiable {
+        case projects, grouped, timeline, unread
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .projects: return "按项目"
+            case .grouped: return "按分组"
+            case .timeline: return "最近更新"
+            case .unread: return "按未读"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .projects: return "folder"
+            case .grouped: return "number"
+            case .timeline: return "clock"
+            case .unread: return "bell"
+            }
+        }
+        var identifier: String { "04-view-\(rawValue)" }
+    }
+
+    @State private var viewMode: ListViewMode = .projects
+
     /// 来源过滤口径（项 5）：all=全部（默认）；mac=已配对桌面端（局域网/云中继，source=="mac"）；
     /// cloud=云端沙盒（source=="cloud"，BiuZ 尚无云端会话数据源，选中显示对应空态提示）
     enum SourceFilter: String, CaseIterable, Identifiable {
@@ -64,6 +90,16 @@ struct ConversationListView: View {
 
     private var pinned: [Conversation] { filtered.filter(\.isPinned) }
     private var timeline: [Conversation] { filtered.filter { !$0.isPinned } }
+
+    /// 「最近更新」视图：非置顶按更新时间倒序单列（web `ProjectTaskRows kind=timeline`，不分桶）
+    private var timelineItems: [Conversation] {
+        timeline.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// 「按未读」视图：仅未读会话（置顶已在独立分区）
+    private var unreadItems: [Conversation] {
+        timeline.filter { $0.unreadCount > 0 }.sorted { $0.updatedAt > $1.updatedAt }
+    }
     private var archived: [Conversation] {
         let base = showArchived ? archivedConversations : []
         guard !query.isEmpty else { return base }
@@ -165,7 +201,24 @@ struct ConversationListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("会话").font(T.font(17, .bold)).foregroundColor(T.text)
+                Text(String(localized: "任务列表")).font(T.font(17, .bold)).foregroundColor(T.text)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                // 「筛选视图」四档：与 web `ProjectSidebarListHeader.tsx:87-102` 逐字同名
+                Menu {
+                    Picker("筛选视图", selection: $viewMode) {
+                        ForEach(ListViewMode.allCases) { mode in
+                            Label(mode.label, systemImage: mode.icon)
+                                .tag(mode)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .font(.system(size: 15))
+                        .foregroundColor(T.text)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityIdentifier("04-view-menu")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -200,9 +253,9 @@ struct ConversationListView: View {
 } message: {
             Text("新名称会同步到桌面端任务列表")
         }
-        // G-017：移入分组（B-3 修正：全链走 moveConversationToGroup——拿 createTaskGroup
-        // 回执真实 groupId、applyGroupedTaskViewOrder 按全量视图形状提交；旧实现丢弃
-        // 回执、以组名充当 groupId，恒静默无效）。失败必须提示（写面禁止静默）。
+        // G-017：移入分组（v1.39 全链走 moveConversationToGroup → task-groups
+        // read/save/move 真实 API——旧 zcode-task 六命令上游零命中、恒静默无效）。
+        // 失败必须提示（写面禁止静默）。
         .alert("移入分组", isPresented: Binding(
             get: { groupTarget != nil },
             set: { if !$0 { groupTarget = nil } })) {
@@ -281,12 +334,42 @@ struct ConversationListView: View {
         }
     }
 
+    /// 设备切换行 —— 对齐 web home 顶部 `aria-label=切换设备` 行（图标 + 设备名 + 展开箭头）。
+    /// 未配对时如实显示「未连接设备」；点击进入「服务器与账户」（L4-B）。
+    private var deviceRow: some View {
+        let server = ServerRegistry.selectedServer ?? ServerRegistry.servers.first
+        return Button {
+            router.pushSettings(.serverAccount)
+        } label: {
+            HStack(spacing: T.sp2) {
+                Image(systemName: "laptopcomputer")
+                    .font(.system(size: 14))
+                    .foregroundColor(T.text2)
+                Text(server?.displayName ?? String(localized: "未连接设备"))
+                    .font(T.font(14, .medium))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10))
+                    .foregroundColor(T.text3)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, T.sp4)
+            .padding(.top, T.sp1)
+            .padding(.bottom, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("04-device-row")
+    }
+
     private var list: some View {
         // 搜索 + 来源 chips 固定头部（List 行外提）：List 行在过滤后行数骤减时会回收重排，
         // chips 的可访问性帧随之失准（症状：tap 云端沙盒选中后，再 tap「我的 Mac」两次均
         // 落空——门禁 Matrix test01 line202 确定性复现，连拍 frame 证实 filter 停留 cloud）。
         // 提为固定 VStack 头后元素帧稳定，identifier（04-search / 04-chip-source-*）全保留。
         VStack(spacing: 0) {
+            deviceRow
             // 工作区切换器（P3-10）：连接态且桌面工作区清单非空时渲染在列表头部
             //（未连接/清单空不渲染，演示态布局零变化）
             workspaceSwitcher
@@ -329,30 +412,60 @@ struct ConversationListView: View {
                     .accessibilityIdentifier("04-filter-empty")
                 }
             }
-            if !pinned.isEmpty {
+            if viewMode != .unread, !pinned.isEmpty {
                 Section {
                     ForEach(pinned) { item in row(item) }
                 } header: {
-                    sectionHeader("置顶")
+                    sectionHeader(String(localized: "已置顶"))
                 }
             }
-            // 项目/工作区分组（项 5：📁 项目名 + 可折叠 chevron，Qoder 对照屏 1 口径）。
-            // 要求 4：分组键 = 每个会话自带的工作区/项目字段，与桌面侧栏项目全集对齐
-            ForEach(projectGroups, id: \.name) { group in
+            switch viewMode {
+            case .timeline:
                 Section {
-                    projectGroupHeader(group)
-                    if !collapsedGroups.contains(group.name) {
-                        ForEach(group.items) { item in row(item) }
+                    ForEach(timelineItems) { item in row(item) }
+                } header: {
+                    sectionHeader(String(localized: "最近更新"))
+                }
+            case .unread:
+                Section {
+                    if unreadItems.isEmpty {
+                        Text("暂无未读会话")
+                            .font(T.font(12.5))
+                            .foregroundColor(T.text3)
+                            .accessibilityIdentifier("04-view-unread-empty")
+                    } else {
+                        ForEach(unreadItems) { item in row(item) }
+                    }
+                } header: {
+                    sectionHeader(String(localized: "未读"))
+                }
+            case .grouped:
+                // 数据源未接入：如实提示，不用项目分组冒充
+                Section {
+                    Text("分组视图待接入：task-groups 数据源尚未接入移动端")
+                        .font(T.font(12.5))
+                        .foregroundColor(T.text3)
+                        .accessibilityIdentifier("04-view-grouped-pending")
+                }
+            case .projects:
+                // 项目/工作区分组（项 5：📁 项目名 + 可折叠 chevron，Qoder 对照屏 1 口径）。
+                // 要求 4：分组键 = 每个会话自带的工作区/项目字段，与桌面侧栏项目全集对齐
+                ForEach(projectGroups, id: \.name) { group in
+                    Section {
+                        projectGroupHeader(group)
+                        if !collapsedGroups.contains(group.name) {
+                            ForEach(group.items) { item in row(item) }
+                        }
                     }
                 }
-            }
-            // 桌面语义：未归集到项目的会话单独在「任务」组（桌面侧栏同名组；用户实测
-            // 「其它」命名与桌面分区不一致）
-            if !ungrouped.isEmpty {
-                Section {
-                    projectGroupHeader((name: String(localized: "任务"), items: ungrouped))
-                    if !collapsedGroups.contains(String(localized: "任务")) {
-                        ForEach(ungrouped) { item in row(item) }
+                // 桌面语义：未归集到项目的会话单独在「任务」组（桌面侧栏同名组；用户实测
+                // 「其它」命名与桌面分区不一致）
+                if !ungrouped.isEmpty {
+                    Section {
+                        projectGroupHeader((name: String(localized: "任务"), items: ungrouped))
+                        if !collapsedGroups.contains(String(localized: "任务")) {
+                            ForEach(ungrouped) { item in row(item) }
+                        }
                     }
                 }
             }
@@ -719,8 +832,7 @@ struct ConversationListView: View {
                 Label("派生会话", systemImage: "arrow.triangle.branch")
             }
             .accessibilityIdentifier("04-ctx-fork-\(conversation.id)")
-            // G-017：移入分组（moveConversationToGroup 全链：createTaskGroup 零参 + 真实
-            // groupId + rename 落名 + applyGroupedTaskViewOrder 全量视图写，B-3）
+            // G-017：移入分组（moveConversationToGroup → task-groups read/save/move）
             Button {
                 groupTarget = conversation
                 newGroupName = ""
@@ -869,14 +981,72 @@ struct ConversationListView: View {
     }
 }
 
-/// 会话行：40px 头像 + 标题 + 摘要 + 工作流迷你轨道（G-007）+ 时间 + 未读徽章 + 运行中胶囊
+/// 会话行 —— 严格对齐 web home 行（线上实测：图钉 + 标题 14px 单行 + 时间 12px α.6 + 工作流迷你轨道）。
+/// 已按用户裁决（2026-11-08）移除首字头像、状态 pill、预览摘要、agents working；
+/// 行级状态改由「标题/时间」承载无障碍锚点（04-row-pending-* / 04-row-running-*），
+/// 视觉上不再出现胶囊——web 侧运行态由轨道点表达（D007）。
 struct ConversationRowView: View {
     let conversation: Conversation
 
-    private var timeText: String {
-        // 兜底防御：时间字段全缺时 updatedAt=distantPast（公元 1 年）——真机曾渲染
-        // 「2025年前」（报障 2026-10-07）；解析侧已补 updatedAt/createdAt 回退，
-        // 此处再挡不合理旧日期（ZCode 诞生前）不显示时间
+    var body: some View {
+        HStack(alignment: .top, spacing: T.sp2) {
+            if conversation.isPinned {
+                Image(systemName: "pin")
+                    .font(.system(size: 10))
+                    .foregroundColor(T.text3)
+                    .frame(width: 16, height: 16)
+                    .padding(.top, 2)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: T.sp2) {
+                    titleText
+                    Spacer(minLength: 0)
+                    timeText
+                }
+                // G-007：workflowActivity 迷你轨道（随 sessions-index 帧实时更新；
+                // 无 run 时 nil → 不渲染任何占位）。只画运行中 run（live-only 口径）
+                if let activity = conversation.workflowActivity, !activity.liveRuns.isEmpty {
+                    SessionWorkflowTrackView(activity: activity)
+                        .padding(.top, 1)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    /// 标题：web 为 14px 单行省略。挂「等待确认」无障碍锚点（胶囊已移除，锚点保留
+    /// 以维持 MatrixAcceptance test25 的行级状态断言）。
+    @ViewBuilder
+    private var titleText: some View {
+        let label = Text(conversation.title)
+            .font(T.font(14, .medium))
+            .foregroundColor(T.text)
+            .lineLimit(1)
+        if conversation.pendingApprovalCount > 0 {
+            label.accessibilityIdentifier("04-row-pending-\(conversation.id)")
+        } else {
+            label
+        }
+    }
+
+    /// 时间：web 为 12px、foreground α0.6。挂「运行中」无障碍锚点（同上理由）。
+    @ViewBuilder
+    private var timeText: some View {
+        let label = Text(timeTextValue)
+            .font(T.font(11))
+            .foregroundColor(T.text3)
+        if conversation.isRunning {
+            label.accessibilityIdentifier("04-row-running-\(conversation.id)")
+        } else {
+            label
+        }
+    }
+
+    private var timeTextValue: String {
         if conversation.updatedAt.timeIntervalSinceNow < -15 * 365 * 86_400 { return "" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
@@ -887,105 +1057,6 @@ struct ConversationRowView: View {
             return conversation.updatedAt.formatted(date: .omitted, time: .shortened)
         }
         return formatter.localizedString(fromTimeInterval: delta)
-    }
-
-    var body: some View {
-        HStack(spacing: T.sp3) {
-            avatar
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: T.sp2) {
-                    Text(conversation.title)
-                        .font(T.font(15, .semibold))
-                        .foregroundColor(T.text)
-                        .lineLimit(1)
-                    if conversation.isRunning {
-                        StatusPill(text: "运行中", kind: .run, compact: true)
-                    }
-                    if conversation.pendingApprovalCount > 0 {
-                        // 桌面侧栏同款「等待确认」标（2026-10-08 用户报障 parity：
-                        // 「待审批的有显示，这个移动端也需要」；permission+userInput 合计）
-                        StatusPill(text: "等待确认", kind: .wait, compact: true)
-                            .accessibilityIdentifier("04-row-pending-\(conversation.id)")
-                    }
-                    if conversation.hasBackgroundWork, !conversation.isRunning {
-                        // 3.16.2 sessions-index.hasBackgroundWork：无前台 turn 但后台仍有活
-                        StatusPill(text: String(localized: "后台任务"), kind: .tag, compact: true)
-                            .accessibilityIdentifier("04-row-bgwork-\(conversation.id)")
-                    }
-                    if conversation.goalStatus == "active" || conversation.goalStatus == "verifying" {
-                        StatusPill(text: String(localized: "目标"), kind: .tag, compact: true)
-                            .accessibilityIdentifier("04-row-goal-\(conversation.id)")
-                    }
-                    Spacer(minLength: 0)
-                    Text(timeText)
-                        .font(T.font(10.5, .medium))
-                        .foregroundColor(T.text3)
-                }
-                HStack(alignment: .firstTextBaseline, spacing: T.sp2) {
-                    Text(conversation.summary)
-                        .font(T.font(12.5))
-                        .foregroundColor(T.text2)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    // 服务端挂起审批已由「等待确认」绿标表达，橙计数徽标只留给
-                    // 本地「标记未读」（避免同源双指示）
-                    if conversation.unreadCount > 0, conversation.pendingApprovalCount == 0 {
-                        TabBadge(count: conversation.unreadCount, color: T.orangeBright)
-                    }
-                }
-                // G-007：workflowActivity 迷你轨道（随 sessions-index 帧实时更新；
-                // 无 run 时 nil → 不渲染任何占位）。只画运行中 run（live-only 口径
-                // 见 WorkflowActivitySummary.liveRuns；全部收尾的会话行不渲染轨道）
-                if let activity = conversation.workflowActivity, !activity.liveRuns.isEmpty {
-                    SessionWorkflowTrackView(activity: activity)
-                        .padding(.top, 1)
-                }
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(T.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: T.rM))
-    }
-
-    @ViewBuilder
-    private var avatar: some View {
-        if conversation.taskProgress == 1.0 {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 22))
-                .foregroundColor(T.accentText)
-                .frame(width: 40, height: 40)
-                .background(T.accentDim)
-                .clipShape(RoundedRectangle(cornerRadius: T.rM - 2))
-                .overlay(alignment: .bottomTrailing) { runningDot }
-        } else {
-            // 标题首字符头像（用户反馈 2026-10-07「都是 Z 完全没意义」）；CJK 取
-            // 首字、无标题回退 Z。grapheme 取首字：emoji/多字节组合字符不劈半
-            let initial = conversation.title.first.map(String.init) ?? "Z"
-            Text(initial)
-                .font(T.font(17, .semibold))
-                .foregroundColor(T.text2)
-                .frame(width: 40, height: 40)
-                .background(T.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: T.rM - 2))
-                .overlay(RoundedRectangle(cornerRadius: T.rM - 2).stroke(T.border, lineWidth: 1))
-                .overlay(alignment: .bottomTrailing) { runningDot }
-        }
-    }
-
-    /// 行级运行指示（2026-10-08 用户报障 parity：「进行中的会话有个转圈 loading……
-    /// 这个移动端也需要」——桌面侧栏头像位是旋转 loading，静态蓝点升级为同款转圈；
-    /// 详情页数据充足时由 WorkflowPanelView 承载完整节点链）
-    private var runningDot: some View {
-        Group {
-            if conversation.isRunning {
-                SpinnerView(size: 11)
-                    .padding(3)
-                    .background(Circle().fill(T.bgCard))
-                    .overlay(Circle().stroke(T.border, lineWidth: 1))
-                    .accessibilityIdentifier("04-row-running-\(conversation.id)")
-            }
-        }
     }
 }
 

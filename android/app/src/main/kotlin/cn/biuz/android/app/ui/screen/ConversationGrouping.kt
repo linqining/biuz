@@ -36,10 +36,70 @@ internal data class ConversationSection(
         }
 }
 
-internal const val SECTION_PINNED = "置顶"
+internal const val SECTION_PINNED = "已置顶"
 internal const val SECTION_TODAY = "今天"
 internal const val SECTION_YESTERDAY = "昨天"
 internal const val SECTION_EARLIER = "更早"
+
+/**
+ * 列表视图四档 —— 对齐 web `ProjectSidebarListHeader.tsx:87-102`
+ * （按项目 / 按分组 / 最近更新 / 按未读）。
+ */
+internal enum class ListViewMode { PROJECTS, GROUPED, TIMELINE, UNREAD }
+
+/** 渲染用分区（标题 + 行；标题由调用方给已本地化文案）。 */
+internal data class ListSection(val title: String, val rows: List<Conversation>)
+
+/**
+ * 按项目分组：置顶恒在最前 → 项目组（组间按组内最新降序）→ 未归属「任务」组。
+ * web 口径：`project-sidebar/index.tsx:252-318`（pinned 先渲染；projects 视图按项目分，
+ * 无项目的任务落 conversation-section「任务」）。
+ */
+internal fun projectSections(
+    rows: List<Conversation>,
+    pinnedTitle: String,
+    ungroupedTitle: String,
+): List<ListSection> {
+    val pinned = rows.filter { it.isPinned }.sortedByDescending { it.updatedAt }
+    val rest = rows.filter { !it.isPinned }
+    val out = ArrayList<ListSection>()
+    if (pinned.isNotEmpty()) out.add(ListSection(pinnedTitle, pinned))
+    rest.filter { !it.projectName.isNullOrBlank() }
+        .groupBy { it.projectName!! }
+        .entries
+        .sortedByDescending { entry -> entry.value.maxOf { it.updatedAt } }
+        .forEach { entry ->
+            out.add(ListSection(entry.key, entry.value.sortedByDescending { it.updatedAt }))
+        }
+    val ungrouped = rest.filter { it.projectName.isNullOrBlank() }.sortedByDescending { it.updatedAt }
+    if (ungrouped.isNotEmpty()) out.add(ListSection(ungroupedTitle, ungrouped))
+    return out
+}
+
+/** 最近更新：单列倒序，不做日期分桶（web `ProjectTaskRows kind=timeline`）。 */
+internal fun timelineSections(rows: List<Conversation>, pinnedTitle: String, title: String): List<ListSection> {
+    val pinned = rows.filter { it.isPinned }.sortedByDescending { it.updatedAt }
+    val rest = rows.filter { !it.isPinned }.sortedByDescending { it.updatedAt }
+    val out = ArrayList<ListSection>()
+    if (pinned.isNotEmpty()) out.add(ListSection(pinnedTitle, pinned))
+    if (rest.isNotEmpty()) out.add(ListSection(title, rest))
+    return out
+}
+
+/** 按未读：只保留未读（置顶仍独立成区）。 */
+internal fun unreadSections(
+    rows: List<Conversation>,
+    pinnedTitle: String,
+    title: String,
+    emptyTitle: String,
+): List<ListSection> {
+    val pinned = rows.filter { it.isPinned }.sortedByDescending { it.updatedAt }
+    val unread = rows.filter { !it.isPinned && it.unreadCount > 0 }.sortedByDescending { it.updatedAt }
+    val out = ArrayList<ListSection>()
+    if (pinned.isNotEmpty()) out.add(ListSection(pinnedTitle, pinned))
+    out.add(ListSection(if (unread.isEmpty()) emptyTitle else title, unread))
+    return out
+}
 
 internal fun groupConversationsByRecency(
     rows: List<Conversation>,

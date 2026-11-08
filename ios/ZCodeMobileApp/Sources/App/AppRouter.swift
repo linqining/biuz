@@ -84,6 +84,45 @@ final class AppRouter {
         selectedTab = .settings
         settingsPath.append(route)
     }
+
+    /// 验收缝（web-to-app `bootstrap.md` §5）：冷启直达任意页面，供实拍/自动化用。
+    ///
+    /// 用法：`-acceptance-route <key>[:<arg>]`，key 取 `config/page-index.json` 的页面 key 或短别名。
+    /// 仅测试生效、零用户影响——未知 key 返回 false 由调用方告警，不猜测落点。
+    /// seam 只解决「到页即得」，交互链验收仍需补真实入口端到端（`acceptance.md`）。
+    @discardableResult
+    func applyAcceptanceRoute(_ raw: String) -> Bool {
+        // 中文 key 经 simctl/launchd 传入时可能是 NFD（macOS 文件名规范化口径），
+        // 与源码字面量的 NFC 不相等 → 统一规范化后再比较。
+        let normalized = raw.precomposedStringWithCanonicalMapping
+        let parts = normalized.split(separator: ":", maxSplits: 1).map(String.init)
+        guard let key = parts.first else { return false }
+        let arg = parts.count > 1 ? parts[1] : nil
+
+        switch key {
+        case "010-任务主页", "home":
+            selectedTab = .chat
+            chatPath = []
+        case "011-会话对话", "chat":
+            guard let id = arg, !id.isEmpty else { return false }
+            openChat(conversationID: id)
+        case "013-设置", "settings":
+            selectedTab = .settings
+            settingsPath = arg.flatMap(SettingsRoute.init(rawValue:)).map { [$0] } ?? []
+        case "029-Diff/Git 面板", "git":
+            selectedTab = .files
+            filePath = []
+        case "030-文件管理器", "files":
+            selectedTab = .files
+            filePath = [.tree]
+        case "038-模型轨迹", "tasks":
+            selectedTab = .tasks
+            taskPath = []
+        default:
+            return false
+        }
+        return true
+    }
 }
 
 // MARK: - Tab 角标数据（三色语义：任务蓝 / 会话橙 / 文件橙）

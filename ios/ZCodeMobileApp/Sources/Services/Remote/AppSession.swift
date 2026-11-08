@@ -202,6 +202,15 @@ final class AppSession {
     private(set) var mode: Mode = .demo
     let connection = ZCodeServerConnection()
 
+    /// 掉线自动重连状态（UI 横幅数据源；LAN 由 AppSession 重试，Relay 由传输层内部重试）
+    private(set) var isAutoReconnecting = false
+    private(set) var autoReconnectAttempt = 0
+    private(set) var autoReconnectMax = 0
+    private(set) var autoReconnectFailureDetail: String?
+    private var autoReconnectTask: Task<Void, Never>?
+    /// Relay 最近一次恢复时间：抑制「进度回调晚于成功回调」造成的回跳 connecting。
+    private var lastRelayReconnectAt: Date?
+
     // MARK: 全局流程唤起（登录主页 / 连接流程；由设置页、失败横幅等入口触发）
 
     enum PresentedFlow: Equatable {
@@ -296,8 +305,34 @@ final class AppSession {
         // 「已断开 · 显示断线前的数据 · 重连」）；重连动作走 reconnect()（横幅重试
         // 同入口）。手动断开/连接期失败不经此路径。
         connection.onConnectionDropped = { [weak self] detail in
-            guard let self, case .connected(let server) = self.mode else { return }
-            self.mode = .disconnected(server, detail)
+            guard let self else { return }
+            switch self.mode {
+            case .connected(let server):
+                if server.relay != nil {
+                    // 中继传输层已做过 6 次内部退避重连；这里只落断线态（保留快照）。
+                    self.lastRelayReconnectAt = nil
+                    self.mode = .disconnected(server, detail)
+                } else {
+                    // LAN 直连无传输层重连：AppSession 接管 6 次退避重试。
+                    self.startAutoReconnect(server: server, detail: detail)
+                }
+            case .connecting(let server) where self.isAutoReconnecting:
+                // Relay 内部重连最终失败（mode 已被进度回调置为 connecting）；
+                // LAN 的重复 drop 回调在自动重试期间忽略（首个回调已启动 loop）。
+                if server.relay != nil {
+                    self.cancelAutoReconnect()
+                    self.mode = .disconnected(server, detail)
+                }
+            default:
+                break
+            }
+        }
+        // Relay 传输层内部重连：只更新 UI 横幅（不重复跑 AppSession 的 LAN 重试循环）
+        connection.onRelayReconnecting = { [weak self] attempt, max in
+            self?.relayReconnecting(attempt: attempt, max: max)
+        }
+        connection.onRelayReconnected = { [weak self] in
+            self?.relayReconnected()
         }
         // 工作区清单推送（P3-10 workspace-list-updated）：清单本体已由 connection 回写
         // serverInfo（切换器菜单联动）；此处刷新任务聚合清单（键级整体替换口径）
@@ -438,21 +473,7 @@ final class AppSession {
         }
         switch result {
         case .success(let info):
-            // 先装配 Store 再切 mode（装配完成后 UI 才切换数据源）
-            assembleRemoteStores(info: info, workspace: connection.workspace)
-            mode = .connected(server)
-            // 连接成功即收起连接流程（L2 五步完成的落点 = 已连接主界面；冷启动自动重连时本就无流程在展示）
-            if presentedFlow != nil {
-                dismissFlow()
-            }
-            var updated = server
-            updated.lastConnectedAt = Date()
-            if updated.name == nil { updated.name = info.name }
-            ServerRegistry.upsert(updated)
-            ServerRegistry.selectedServerID = updated.id
-            UserDefaults.standard.set("connected: relay=\(server.relay != nil)", forKey: "diag.lastConnect")
-            // 桌面端只读信息（oauth 登录展示态 + Coding Plan 用量）后台拉取；失败各字段保持 nil
-            Task { await refreshDesktopReadonlyInfo() }
+            finishConnected(server: server, info: info)
             // 诊断探针（-ZCodeDiagQueueCASProbe new）：PTY 受限期间队列 CAS/模型选择
             // schema 的活体验证入口——连接就绪后一次性运行，ack 落 diag.qcas.N；
             // （-ZCodeDiagStopProbe new）stop 命令信封活体验证，ack 落 diag.stop.N
@@ -485,9 +506,36 @@ final class AppSession {
             }
         case .failure(let error):
             UserDefaults.standard.set("failed: relay=\(server.relay != nil) host=\(server.host):\(server.port) error=\(String(describing: error))", forKey: "diag.lastConnect")
-            teardownRemoteStores()
-            mode = .connectFailed(server, error)
+            // 断线重连失败保留最后快照（设计稿 §1.5）：曾连接过 → 回断线态；
+            // 从未连上 → 连接失败空数据态（旧行为）。
+            if remoteConversationStore != nil {
+                mode = .disconnected(server, error.headline)
+            } else {
+                teardownRemoteStores()
+                mode = .connectFailed(server, error)
+            }
         }
+    }
+
+    /// 连接成功的统一落点（首连/手动重连/自动重连共用）：装配 Store → connected →
+    /// 收起登录/连接流程 → 更新注册表。
+    private func finishConnected(server: ServerConfig, info: ServerRemoteInfo) {
+        cancelAutoReconnect()
+        // 先装配 Store 再切 mode（装配完成后 UI 才切换数据源）
+        assembleRemoteStores(info: info, workspace: connection.workspace)
+        mode = .connected(server)
+        // 连接成功即收起连接流程（L2 五步完成的落点 = 已连接主界面；冷启动自动重连时本就无流程在展示）
+        if presentedFlow != nil {
+            dismissFlow()
+        }
+        var updated = server
+        updated.lastConnectedAt = Date()
+        if updated.name == nil { updated.name = info.name }
+        ServerRegistry.upsert(updated)
+        ServerRegistry.selectedServerID = updated.id
+        UserDefaults.standard.set("connected: relay=\(server.relay != nil)", forKey: "diag.lastConnect")
+        // 桌面端只读信息（oauth 登录展示态 + Coding Plan 用量）后台拉取；失败各字段保持 nil
+        Task { await refreshDesktopReadonlyInfo() }
     }
 
     /// 连接态拉取桌面只读信息（oauth 三读 + usage-stats 两读 + 多 workspace 枚举探测）；
@@ -1095,11 +1143,13 @@ final class AppSession {
     // MARK: 配对流程（L1 → L2 → 成功/失败）
 
     func connect(server: ServerConfig) async {
+        cancelAutoReconnect()
         mode = .connecting(server)
         await connectToSaved(server)
     }
 
     func cancelConnecting() {
+        cancelAutoReconnect()
         connection.cancelConnecting()
         // 取消落态按场景分流（设计稿 §1.4，防快照丢失）：从未连上（remote Store 无
         // 实例）→ .demo（回连接引导页——无数据可保留）；断线重连中取消 →
@@ -1127,10 +1177,97 @@ final class AppSession {
         mode = .demo
     }
 
-    /// 断线重连（横幅「重试」）
+    /// 断线重连（横幅「重试」/自动重连失败后的手动入口）
     func reconnect() async {
+        cancelAutoReconnect()
         if let server = savedServer {
             await connect(server: server)
+        }
+    }
+
+    /// LAN 掉线后的自动重连：6 次退避（0/2/4/8/10/10s），期间 mode=.connecting
+    /// （RootView 横幅显示“正在自动重连 n/6”+取消），成功后恢复 connected；
+    /// 全部失败落 .disconnected（保留快照，可手动重连）。
+    private func startAutoReconnect(server: ServerConfig, detail: String) {
+        cancelAutoReconnect()
+        lastRelayReconnectAt = nil
+        isAutoReconnecting = true
+        autoReconnectMax = 6
+        autoReconnectAttempt = 0
+        autoReconnectFailureDetail = detail
+        mode = .connecting(server)
+        autoReconnectTask = Task { [weak self] in
+            guard let self else { return }
+            let delays: [UInt64] = [0, 2, 4, 8, 10, 10]
+            for (index, delay) in delays.enumerated() {
+                if Task.isCancelled { return }
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+                }
+                if Task.isCancelled { return }
+                self.autoReconnectAttempt = index + 1
+                self.mode = .connecting(server)
+                let result = await self.connectOnce(server)
+                if Task.isCancelled { return }
+                switch result {
+                case .success(let info):
+                    self.finishConnected(server: server, info: info)
+                    self.cancelAutoReconnect()
+                    return
+                case .failure(let error):
+                    self.autoReconnectFailureDetail = error.headline
+                }
+            }
+            self.isAutoReconnecting = false
+            self.autoReconnectTask = nil
+            self.mode = .disconnected(
+                server,
+                String(localized: "自动重连失败 · \(self.autoReconnectFailureDetail ?? detail)"))
+        }
+    }
+
+    /// 取消自动重连（用户点横幅取消 / 手动重连 / 连接流程接管）
+    func cancelAutoReconnect() {
+        autoReconnectTask?.cancel()
+        autoReconnectTask = nil
+        isAutoReconnecting = false
+        autoReconnectAttempt = 0
+        autoReconnectMax = 0
+    }
+
+    /// Relay 传输层内部重连进度（Attempt n/max）：横幅提示；成功后恢复 connected。
+    func relayReconnecting(attempt: Int, max: Int) {
+        if let last = lastRelayReconnectAt, Date().timeIntervalSince(last) < 3 {
+            return // 成功回调已先到，忽略迟到的进度回调
+        }
+        let server: ServerConfig
+        switch mode {
+        case .connected(let current):
+            server = current
+        case .connecting(let current) where isAutoReconnecting:
+            server = current
+        default:
+            return
+        }
+        guard server.relay != nil else { return }
+        isAutoReconnecting = true
+        autoReconnectAttempt = attempt
+        autoReconnectMax = max
+        mode = .connecting(server)
+    }
+
+    func relayReconnected() {
+        lastRelayReconnectAt = Date()
+        isAutoReconnecting = false
+        autoReconnectAttempt = 0
+        autoReconnectMax = 0
+        switch mode {
+        case .connecting(let server) where server.relay != nil:
+            mode = .connected(server)
+        case .connected:
+            break
+        default:
+            break
         }
     }
 
@@ -1149,21 +1286,64 @@ final class AppSession {
     enum AutoConnectOutcome: Equatable {
         case connected              // 已连上桌面端（cover 由 dismissFlow 收起，直达主界面）
         case noPairedDevice         // 无已配对设备、剪贴板亦无链接 → 引导粘贴链接
+        case needsSelection([RelayDeviceSummary]) // 多个在线设备 → 用户选一个
         case failed(String)         // 尝试了已知设备/链接但连接失败 → 引导 + 上次目标
+    }
+
+    /// Relay V2 账号设备目录条目（GET /api/v1/remote/device；字段与上游
+    /// web-remote-relay contract.ts `WebRemoteControlRelayV2Device` 逐字对应）。
+    struct RelayDeviceSummary: Identifiable, Equatable {
+        var deviceSid: String
+        var deviceMid: String
+        var online: Bool
+        var createdAt: Int?
+        var name: String?
+        var platform: String?
+        var version: String?
+
+        var id: String { deviceSid }
+        var displayName: String {
+            let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? deviceMid : trimmed
+        }
     }
 
     /// 登录成功后自动发现设备并连接（P0·登录直达会话）。
     ///
-    /// 绑定假设（调研 deviceListApi 结论）：**账号级设备列表云端 API 未上线**——登录态
-    /// （zcodeJwtToken）下没有任何可发现桌面设备的云端接口（web bundle 的远控登录页
-    /// 也停在「设备列表能力即将接入」），且中继模式无 server-info HTTP 面可探测在线态。
-    /// 因此"设备列表"取本机最贴近来源：
-    /// ① ServerRegistry 已配对的中继服务器（relay 凭据仅存 Keychain）——最近连接优先
-    ///   （"在线优先"的本地代理口径），直接走既有连接链路（内置 2s/4s 退避重试）；
-    /// ② 无已配对设备时回退剪贴板中的 remote/v4 配对链接（官方链接传递路径，
-    ///   ConnectHomeView 同源识别）→ connectRelayLink。
-    /// 失败/无设备均返回 outcome，由调用方给出可行动提示（引导粘贴链接，不静默）。
+    /// 官方 web（webRemoteControlEntry.ts）顺序：设备目录 → 最近 SID 在线优先 →
+    /// 最近 MID 唯一在线 → 唯一在线设备；多设备让用户选。移动端对齐：
+    /// ① 设备目录（Relay V2 GET /api/v1/remote/device，JWT）可用时按官方规则选；
+    /// ② 目录不可用（旧服务/网络）回退 ServerRegistry 已配对中继；
+    /// ③ 再回退剪贴板配对链接（E2E 禁用）。
     func autoConnectAfterLogin() async -> AutoConnectOutcome {
+        // 登录流程背后可能已完成已保存服务器的自动连接（bootstrap 与登录 cover 并行）
+        if case .connected = mode { return .connected }
+        if let devices = await fetchRelayDevices() {
+            let online = devices.filter(\.online)
+            // 最近成功连接过的中继设备（ServerRegistry）优先；等价官方 web 的 last SID。
+            let savedSid = ServerRegistry.servers
+                .filter { $0.relay != nil }
+                .sorted { ($0.lastConnectedAt ?? .distantPast) > ($1.lastConnectedAt ?? .distantPast) }
+                .compactMap { $0.relay?.deviceSid }
+                .first
+            let lastSid = UserDefaults.standard.string(forKey: Self.lastRelayDeviceSidKey)
+            let lastMid = UserDefaults.standard.string(forKey: Self.lastRelayDeviceMidKey)
+            if let match = Self.selectAutoConnectDevice(
+                devices: devices, savedSid: savedSid, lastSid: lastSid, lastMid: lastMid) {
+                return await connectAfterLogin(match)
+            }
+            if online.count > 1 {
+                UserDefaults.standard.set(
+                    "autoConnect: devices=\(devices.count) online=\(online.count) → selection",
+                    forKey: "diag.autoConnect")
+                return .needsSelection(online)
+            }
+            // 目录 0 台在线：继续走本地已配对中继/剪贴板兜底（可能目录刚刷新或账号不一致）
+            UserDefaults.standard.set(
+                "autoConnect: devices=\(devices.count) online=0 → local fallback",
+                forKey: "diag.autoConnect")
+        }
+
         let relayServers = ServerRegistry.servers
             .filter { $0.relay != nil }
             .sorted { ($0.lastConnectedAt ?? .distantPast) > ($1.lastConnectedAt ?? .distantPast) }
@@ -1172,7 +1352,10 @@ final class AppSession {
                 "autoConnect: relay \(target.displayName) sid=\(target.relay?.deviceSid ?? "?")",
                 forKey: "diag.autoConnect")
             await connect(server: target)
-            if case .connected = mode { return .connected }
+            if case .connected = mode {
+                rememberRelayDevice(sid: target.relay?.deviceSid, mid: target.relay?.deviceMid)
+                return .connected
+            }
             // 失败：清理失败覆盖态回引导底座（demo），交由引导 UI（不静默、不留半开连接）
             cancelConnecting()
             return .failed(target.displayName)
@@ -1190,6 +1373,136 @@ final class AppSession {
         if case .connected = mode { return .connected }
         cancelConnecting()
         return .failed("剪贴板配对链接")
+    }
+
+    /// 连接设备目录中的一台设备（OAuthSuccessView 多设备选择/自动落点共用）。
+    @discardableResult
+    func connectRelayDevice(_ device: RelayDeviceSummary) async -> AutoConnectOutcome {
+        await connectAfterLogin(device)
+    }
+
+    /// 官方 web `resolveAutoConnectSid` 的移动端等价：saved SID → last SID → last MID
+    /// 唯一在线 → 唯一在线设备；多设备无偏好返回 nil（由 UI 让用户选）。
+    nonisolated static func selectAutoConnectDevice(
+        devices: [RelayDeviceSummary],
+        savedSid: String?,
+        lastSid: String?,
+        lastMid: String?
+    ) -> RelayDeviceSummary? {
+        let online = devices.filter(\.online)
+        if let savedSid, let match = online.first(where: { $0.deviceSid == savedSid }) {
+            return match
+        }
+        if let lastSid, let match = online.first(where: { $0.deviceSid == lastSid }) {
+            return match
+        }
+        if let lastMid {
+            let sameMid = online.filter { $0.deviceMid == lastMid }
+            if sameMid.count == 1 { return sameMid[0] }
+        }
+        if online.count == 1 { return online[0] }
+        return nil
+    }
+
+    private func connectAfterLogin(_ device: RelayDeviceSummary) async -> AutoConnectOutcome {
+        let existing = ServerRegistry.servers.first { $0.relay?.deviceSid == device.deviceSid }
+        // 目录来自 Relay V2：已有 V1 hash 配置不能复用（端点/鉴权不同），统一合成 V2 链接。
+        let link = (existing?.relay?.isV2 == true ? existing?.relay : nil)
+            ?? Self.relayLink(for: device)
+        let server = ServerConfig(
+            id: existing?.id ?? UUID().uuidString,
+            name: existing?.name ?? device.name,
+            host: link.endpointHost ?? "zcode.z.ai",
+            port: URL(string: link.wssURL)?.port ?? (link.wssURL.lowercased().hasPrefix("ws://") ? 80 : 443),
+            useTLS: link.wssURL.lowercased().hasPrefix("wss://"),
+            token: "",
+            lastConnectedAt: existing?.lastConnectedAt,
+            preferredWorkspacePath: existing?.preferredWorkspacePath,
+            relay: link)
+        UserDefaults.standard.set(
+            "autoConnect: device \(device.displayName) sid=\(device.deviceSid)",
+            forKey: "diag.autoConnect")
+        await connect(server: server)
+        if case .connected = mode {
+            rememberRelayDevice(sid: device.deviceSid, mid: device.deviceMid)
+            return .connected
+        }
+        cancelConnecting()
+        return .failed(device.displayName)
+    }
+
+    private static func relayLink(for device: RelayDeviceSummary) -> RelayLinkConfig {
+        let origin = URL(string: OAuthConfig.resolve().tokenOrigin)
+        let host = origin?.host ?? "zcode.z.ai"
+        let scheme = origin?.scheme?.lowercased() == "http" ? "ws" : "wss"
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = origin?.port
+        components.path = "/api/v1/remote/ws2"
+        return RelayLinkConfig(
+            wssURL: components.url?.absoluteString ?? "wss://zcode.z.ai/api/v1/remote/ws2",
+            machineName: device.name,
+            deviceSid: device.deviceSid,
+            passHash: nil,
+            desktopAppVersion: device.version,
+            protocolVersion: 2,
+            deviceMid: device.deviceMid)
+    }
+
+    /// GET /api/v1/remote/device（Relay V2 账号设备目录）。失败/旧服务返回 nil，
+    /// 由调用方回退本地已配对中继（不把目录不可用误报为「没有设备」）。
+    private func fetchRelayDevices() async -> [RelayDeviceSummary]? {
+        // E2E reset 默认禁用目录探测，避免替身未实现该端点时改变既有登录用例轨迹；
+        // 新门禁显式 `-ZCodeE2EAutoConnectDevices` 打开。
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-ZCodeE2EResetState"),
+           !args.contains("-ZCodeE2EAutoConnectDevices") {
+            return nil
+        }
+        guard let jwt = OAuthCredentialStore.tokenSet?.zcodeJwtToken,
+              !jwt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let origin = OAuthConfig.resolve().tokenOrigin
+        let base = origin.hasSuffix("/") ? String(origin.dropLast()) : origin
+        guard let url = URL(string: base + "/api/v1/remote/device") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 12
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (json["code"] as? Int) == 0,
+              let rows = json["data"] as? [[String: Any]] else {
+            return nil
+        }
+        return rows.compactMap { row in
+            guard let sid = row["device_sid"] as? String, !sid.isEmpty,
+                  let mid = row["device_mid"] as? String, !mid.isEmpty else { return nil }
+            let meta = row["meta"] as? [String: Any] ?? [:]
+            return RelayDeviceSummary(
+                deviceSid: sid,
+                deviceMid: mid,
+                online: row["online"] as? Bool ?? false,
+                createdAt: row["created_at"] as? Int,
+                name: meta["name"] as? String,
+                platform: meta["platform"] as? String,
+                version: meta["version"] as? String)
+        }
+    }
+
+    private static let lastRelayDeviceSidKey = "relay.lastDeviceSid"
+    private static let lastRelayDeviceMidKey = "relay.lastDeviceMid"
+
+    private func rememberRelayDevice(sid: String?, mid: String?) {
+        if let sid, !sid.isEmpty {
+            UserDefaults.standard.set(sid, forKey: Self.lastRelayDeviceSidKey)
+        }
+        if let mid, !mid.isEmpty {
+            UserDefaults.standard.set(mid, forKey: Self.lastRelayDeviceMidKey)
+        }
     }
 
     /// 退出登录：仅清账户层 tokenSet，不动已保存服务器与连接令牌（9.5 两层凭据模型）

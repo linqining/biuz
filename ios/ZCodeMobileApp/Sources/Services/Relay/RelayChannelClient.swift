@@ -8,8 +8,16 @@ protocol RPCChannelTransport: Actor {
     func call(_ channel: String, _ command: String, _ arg: RPCValue,
               timeout: TimeInterval) async throws -> RPCValue
     func listen(_ channel: String, _ event: String, _ arg: RPCValue,
-                handler: @escaping @Sendable (RPCValue) -> Void) async -> EventSubscription
+                handler: @escaping @Sendable (RPCValue) -> Void,
+                onError: (@Sendable (RPCError) -> Void)?) async -> EventSubscription
     func disconnect() async
+}
+
+extension RPCChannelTransport {
+    func listen(_ channel: String, _ event: String, _ arg: RPCValue = .undefined,
+                handler: @escaping @Sendable (RPCValue) -> Void) async -> EventSubscription {
+        await listen(channel, event, arg, handler: handler, onError: nil)
+    }
 }
 
 // MARK: - 中继 RPC 通道（桥内标准 RPC；载荷无 13 字节 SocketProtocol 头）
@@ -78,6 +86,7 @@ actor RelayChannelClient: RPCChannelTransport {
     private var pendingResponses: [Int: CheckedContinuation<RPCValue, Error>] = [:]
     private var initializeWaiters: [CheckedContinuation<Void, Error>] = []
     private var eventHandlers: [Int: @Sendable (RPCValue) -> Void] = [:]
+    private var eventErrorHandlers: [Int: @Sendable (RPCError) -> Void] = [:]
     /// 活跃订阅参数表（桥重建后在新区重发，恢复 sessions-index/conversation 推流）
     private var activeEventListeners: [Int: (channel: String, event: String, arg: RPCValue)] = [:]
     private var onClosed: (@Sendable (Error?) -> Void)?
@@ -601,10 +610,12 @@ actor RelayChannelClient: RPCChannelTransport {
     /// proxy 经 requestEvent 直传 arg，不数组化——与 promise 面的参数数组不同，
     /// 探针 probe9 实测数组化 eventListen 后桌面快照帧不到）。
     func listen(_ channel: String, _ event: String, _ arg: RPCValue = .undefined,
-                handler: @escaping @Sendable (RPCValue) -> Void) -> EventSubscription {
+                handler: @escaping @Sendable (RPCValue) -> Void,
+                onError: (@Sendable (RPCError) -> Void)? = nil) -> EventSubscription {
         let id = lastRequestId
         lastRequestId += 1
         eventHandlers[id] = handler
+        if let onError { eventErrorHandlers[id] = onError }
         activeEventListeners[id] = (channel, event, arg)
 
         let header = RPCSerialization.serialize(.array([
@@ -627,6 +638,7 @@ actor RelayChannelClient: RPCChannelTransport {
     }
 
     private func disposeEvent(_ id: Int) {
+        eventErrorHandlers.removeValue(forKey: id)
         guard eventHandlers.removeValue(forKey: id) != nil else { return }
         activeEventListeners.removeValue(forKey: id)
         guard state == .idle else { return }
@@ -668,6 +680,12 @@ actor RelayChannelClient: RPCChannelTransport {
         case .eventFire:
             guard let id = headerItems[safe: 1]?.intValue else { return }
             eventHandlers[id]?(body)
+        case .eventError:
+            guard let id = headerItems[safe: 1]?.intValue else { return }
+            eventHandlers.removeValue(forKey: id)
+            activeEventListeners.removeValue(forKey: id)
+            let onError = eventErrorHandlers.removeValue(forKey: id)
+            onError?(decodeError(body))
         }
     }
 

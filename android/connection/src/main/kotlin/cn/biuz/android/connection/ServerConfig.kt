@@ -99,21 +99,25 @@ data class ServerConfig(
             fields["wssURL"] = JSONValue.Str(link.wssURL)
             link.machineName?.let { fields["machineName"] = JSONValue.Str(it) }
             fields["deviceSid"] = JSONValue.Str(link.deviceSid)
-            fields["passHash"] = JSONValue.Str(link.passHash)
+            // V2 无 passHash（null 不落盘），持久化面保持向后兼容
+            link.passHash?.let { fields["passHash"] = JSONValue.Str(it) }
             link.desktopAppVersion?.let { fields["desktopAppVersion"] = JSONValue.Str(it) }
+            link.protocolVersion?.let { fields["protocolVersion"] = JSONValue.Int(it) }
+            link.deviceMid?.let { fields["deviceMid"] = JSONValue.Str(it) }
             return JSONValue.Obj(fields)
         }
 
         private fun relayFromJson(dict: Map<String, JSONValue>): RelayLinkConfig? {
             val wssURL = dict["wssURL"]?.stringValue ?: return null
             val deviceSid = dict["deviceSid"]?.stringValue ?: return null
-            val passHash = dict["passHash"]?.stringValue ?: return null
             return RelayLinkConfig(
                 wssURL = wssURL,
                 machineName = dict["machineName"]?.stringValue,
                 deviceSid = deviceSid,
-                passHash = passHash,
+                passHash = dict["passHash"]?.stringValue,
                 desktopAppVersion = dict["desktopAppVersion"]?.stringValue,
+                protocolVersion = dict["protocolVersion"]?.intValue,
+                deviceMid = dict["deviceMid"]?.stringValue,
             )
         }
     }

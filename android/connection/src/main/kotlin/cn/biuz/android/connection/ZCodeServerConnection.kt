@@ -329,6 +329,12 @@ class ZCodeServerConnection(
     private val backgroundDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ConversationFrameSurface {
 
+    /**
+     * Relay V2 JWT 提供者（装配层注入；V1 不需要）。
+     * 每次中继（重）连都会调用它换一次性 token（iOS `RelayTransport.jwtProvider` 同口径）。
+     */
+    var relayJwtProvider: (suspend () -> String?)? = null
+
     sealed class ConnectionState {
         data object Idle : ConnectionState()
         data class Connecting(val progress: ConnectProgress) : ConnectionState()
@@ -764,6 +770,8 @@ class ZCodeServerConnection(
         val transport = RelayTransport(
             config = link,
             onLog = { kind, text -> log(kind.toConnectKind(), text) },
+            jwtProvider = relayJwtProvider,
+            clientAppVersion = appVersion,
         )
         // 工作区清单推送（P3-10）：transport 拆出的独立 case 在此接线（先于任何
         // 桥/订阅建立——推送可能在握手后任意时点到达）

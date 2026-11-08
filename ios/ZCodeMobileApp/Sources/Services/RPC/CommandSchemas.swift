@@ -132,8 +132,14 @@ enum CommandSchemas {
                 "interactionId": .required(.nonEmptyString),
                 "answer": .required(.object(answerShape())),
             ]))
-        case "pauseGoal", "resumeGoal", "compact":
+        case "pauseGoal", "resumeGoal":
             return .object(PObjectShape.empty())
+        case "compact":
+            // 3.17.2：compact 可选携 modelSelection（指定压缩用模型；缺省用会话当前）
+            // 【实证·上游仓 command.ts:169 z.object({ modelSelection: optional })】
+            return .object(PObjectShape(fields: [
+                "modelSelection": .optional(.object(modelSelectionShape())),
+            ]))
         case "snoozeInteractionAutoResolution":
             return .object(PObjectShape(fields: [
                 "interactionId": .required(.nonEmptyString),

@@ -40,32 +40,42 @@ extension Color {
     }
 }
 
-// MARK: - 设计令牌（design/design-spec.md §2）
+// MARK: - 设计令牌（qoder 参考： monochrome 主色 + 语义状态色）
+//
+// 设计参照 qoder app（2026-11-08 提炼）：极简近白/近黑中性色、monochrome 近黑主按钮，
+// 语义状态色独立保留——running #2FBF71 / completed #3B82F6 / error #EF4444 /
+// attention #F5A623。accent 收敛为 monochrome 主色（浅档近黑、深档近白），active/
+// selected/connected/主按钮统一走它；运行态绿另由 green 承担。圆角靠拢 ~16dp。
 
 enum T {
-    static let bg            = Color(light: "f4f5f7", dark: "0a0b0d")
-    static let bgCard        = Color(light: "ffffff", dark: "121316")
-    static let bgElevated    = Color(light: "ffffff", dark: "17181c")
-    static let bgInput       = Color(light: "eceef2", dark: "1a1c21")
-    static let bgCode        = Color(light: "f6f7f9", dark: "0d0e10")
-    static let bgTerm        = Color(light: "fbfbfc", dark: "050607")
-    static let border        = Color(light: "e3e5e9", dark: "26282e")
-    static let borderStrong  = Color(light: "d2d5db", dark: "34373f")
-    static let text          = Color(light: "17181c", dark: "f5f9fe")
-    static let text2         = Color(light: "4b5563", dark: "a6aab5")
-    static let text3         = Color(light: "5f6673", dark: "8a8f9b")
-    static let accent        = Color(light: "17b26a", dark: "32f08c")
-    static let accentText    = Color(light: "0a7f45", dark: "32f08c")
-    static let accentPress   = Color(light: "128a55", dark: "28c974")
-    static let accentDim     = Color(light: "17b26a", dark: "32f08c", lightAlpha: 0.10, darkAlpha: 0.12)
-    static let blue          = Color(light: "1a6fd4", dark: "4da3ff")
-    static let blueDim       = Color(light: "1a6fd4", dark: "4da3ff", lightAlpha: 0.10, darkAlpha: 0.14)
-    static let orange        = Color(light: "9a5200", dark: "ffb224")
-    static let orangeBright  = Color(light: "ffb224", dark: "ffb224")
-    static let orangeDim     = Color(light: "9a5200", dark: "ffb224", lightAlpha: 0.10, darkAlpha: 0.14)
-    static let red           = Color(light: "c53030", dark: "ff5d5d")
-    static let redDim        = Color(light: "c53030", dark: "ff5d5d", lightAlpha: 0.10, darkAlpha: 0.12)
-    static let redLine       = Color(light: "c53030", dark: "ff5d5d", lightAlpha: 0.65, darkAlpha: 0.55)
+    static let bg            = Color(light: "fdfdfd", dark: "080807")
+    static let bgCard        = Color(light: "ffffff", dark: "1c1c1e")
+    static let bgElevated    = Color(light: "ffffff", dark: "232326")
+    static let bgInput       = Color(light: "f4f4f5", dark: "2a2a2e")
+    static let bgCode        = Color(light: "f6f6f7", dark: "141416")
+    static let bgTerm        = Color(light: "fbfbfc", dark: "050505")
+    static let border        = Color(light: "000000", dark: "ffffff", lightAlpha: 0.12, darkAlpha: 0.20)
+    static let borderStrong  = Color(light: "000000", dark: "ffffff", lightAlpha: 0.20, darkAlpha: 0.30)
+    static let text          = Color(light: "111113", dark: "ffffff")
+    static let text2         = Color(light: "52525b", dark: "a1a1aa")
+    static let text3         = Color(light: "71717a", dark: "71717a")
+    // monochrome 主色（qoder 近黑主按钮）：浅档近黑/深档近白；onAccent 取反
+    static let accent        = Color(light: "18181b", dark: "fafafa")
+    static let accentText    = Color(light: "18181b", dark: "fafafa")
+    static let accentPress   = Color(light: "000000", dark: "e4e4e7")
+    static let accentDim     = Color(light: "18181b", dark: "fafafa", lightAlpha: 0.08, darkAlpha: 0.10)
+    // 语义状态色（qoder）：completed 蓝 / attention 琥珀 / error 红 / running 绿
+    static let blue          = Color(light: "3b82f6", dark: "60a5fa")
+    static let blueDim       = Color(light: "3b82f6", dark: "60a5fa", lightAlpha: 0.10, darkAlpha: 0.14)
+    static let orange        = Color(light: "b45309", dark: "f5a623")
+    static let orangeBright  = Color(light: "f5a623", dark: "f5a623")
+    static let orangeDim     = Color(light: "b45309", dark: "f5a623", lightAlpha: 0.10, darkAlpha: 0.14)
+    static let red           = Color(light: "ef4444", dark: "f87171")
+    static let redDim        = Color(light: "ef4444", dark: "f87171", lightAlpha: 0.10, darkAlpha: 0.12)
+    static let redLine       = Color(light: "ef4444", dark: "f87171", lightAlpha: 0.65, darkAlpha: 0.55)
+    static let green         = Color(light: "16a34a", dark: "2fbf71")
+    static let greenBright   = Color(light: "2fbf71", dark: "2fbf71")
+    static let greenDim      = Color(light: "16a34a", dark: "2fbf71", lightAlpha: 0.10, darkAlpha: 0.12)
     static let violet        = Color(light: "7c3aed", dark: "c792ff")
     static let violetDim     = Color(light: "7c3aed", dark: "c792ff", lightAlpha: 0.10, darkAlpha: 0.12)
     static let add           = Color(light: "0a7340", dark: "3ddc84")
@@ -75,28 +85,28 @@ enum T {
     static let codeKw        = Color(light: "7c3aed", dark: "c792ff")
     static let codeLab       = Color(light: "1a6fd4", dark: "8f9bdd")
     static let codeLabDim    = Color(light: "1a6fd4", dark: "7d8bdd", lightAlpha: 0.08, darkAlpha: 0.08)
-    static let badgeFg       = Color(light: "ffffff", dark: "0d1500")
-    static let onAccent      = Color(light: "04120a", dark: "04120a")
+    static let badgeFg       = Color(light: "ffffff", dark: "18181b")
+    static let onAccent      = Color(light: "ffffff", dark: "18181b")
     static let onOrange      = Color(light: "ffffff", dark: "1a0f00")
 
     static let tabbarBg      = Color(uiColor: UIColor { trait in
         trait.userInterfaceStyle == .dark
-            ? UIColor(hex: "0d0e10", alpha: 0.92)
+            ? UIColor(hex: "080807", alpha: 0.92)
             : UIColor(hex: "ffffff", alpha: 0.92)
     })
 
     static let gradAvatar = LinearGradient(
-        colors: [Color(light: "1a6fd4", dark: "4da3ff"), Color(light: "5f6673", dark: "7d8bdd")],
+        colors: [Color(light: "52525b", dark: "a1a1aa"), Color(light: "71717a", dark: "71717a")],
         startPoint: .topLeading, endPoint: .bottomTrailing)
     static let gradBubble = LinearGradient(
-        colors: [Color(light: "e3f6ec", dark: "1d2a23"), Color(light: "dcefe5", dark: "152019")],
+        colors: [Color(light: "f4f4f5", dark: "1c1c1e"), Color(light: "e4e4e7", dark: "232326")],
         startPoint: .topLeading, endPoint: .bottomTrailing)
     static let gradUserCard = LinearGradient(
-        colors: [Color(light: "eafaf1", dark: "131a16"), Color(light: "ffffff", dark: "121316")],
+        colors: [Color(light: "f4f4f5", dark: "1c1c1e"), Color(light: "ffffff", dark: "1c1c1e")],
         startPoint: .top, endPoint: .bottom)
 
     static let rS: CGFloat = 8
-    static let rM: CGFloat = 12
+    static let rM: CGFloat = 14
     static let rL: CGFloat = 16
     static let rPill: CGFloat = 999
 
@@ -115,7 +125,7 @@ enum T {
     }
 
     static let shadowCard = Color.black.opacity(0.45)
-    static let shadowFab = Color(hex: "32f08c").opacity(0.35)
+    static let shadowFab = Color(light: "000000", dark: "000000", lightAlpha: 0.18, darkAlpha: 0.50)
 }
 
 // MARK: - 外观偏好（跟随系统 / Zai Light / Zai Dark）

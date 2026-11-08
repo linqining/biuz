@@ -2921,6 +2921,48 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             message: raw["message"]?.stringValue)
     }
 
+    /// 3.17.2 输入预测（ghost hint）：只读、无状态查询，不改会话、不做 CAS。
+    /// 能力门 `hello.capabilities.inputPrediction === true` 才发（inputPredictionAvailable）；
+    /// 任何异常 / 非 show 决策一律 nil（无 hint），不提示用户、不重试
+    /// 【实证·上游仓 docs/web-remote-control/mobile-input-prediction.md +
+    /// zcode-protocol-v4/input-prediction/contract.ts strict schema +
+    /// zcodeAgentService.ts:7012 失败统一回 unavailable 不抛错】。
+    /// 请求 = 会话 target（workspace 寻址，A7）+ revision（当前 state 缓存，缓存键的一部分）
+    /// + draft（超 4000 截断；空 = 预测下一条完整输入）+ requestId（原样回声供调用方丢过期）。
+    /// 回包 requestId 由调用方核对最新值；revision 失配同样由调用方丢弃。
+    func inputPrediction(in conversationID: String, draft: String, requestId: String) async -> InputPredictionResult? {
+        guard let connection, await connection.inputPredictionAvailable() else { return nil }
+        let revision = conversationStateRevisions[conversationID] ?? 0
+        var builder = JSONObjectBuilder()
+        applySessionTarget(&builder, sessionID: conversationID)
+        builder.set("revision", revision)
+        let clampedDraft = String(draft.prefix(4000))
+        if !clampedDraft.isEmpty {
+            builder.set("draft", clampedDraft)
+        }
+        builder.set("requestId", String(requestId.prefix(128)))
+        do {
+            // 手机侧超时 25s 略长于 CLI 20s，让服务端降级结果先到达（spec 手机端建议④）
+            let result = try await connection.call(
+                "zcode-agent", "conversationInputPredictionV4", .json(.object(buildFields(builder))),
+                timeout: 25)
+            guard let dict = result.jsonValue?.objectValue,
+                  let decision = dict["decision"]?.stringValue else { return nil }
+            let candidates = (dict["candidates"]?.arrayValue ?? []).compactMap { item -> InputPredictionResult.Candidate? in
+                guard let text = item.objectValue?["text"]?.stringValue,
+                      let confidence = item.objectValue?["confidence"]?.doubleValue else { return nil }
+                return InputPredictionResult.Candidate(text: text, confidence: confidence)
+            }
+            return InputPredictionResult(
+                decision: decision,
+                candidates: candidates,
+                requestId: dict["requestId"]?.stringValue,
+                revision: revision)
+        } catch {
+            return nil
+        }
+    }
+
     /// 交互投影解析（宽容：id/interactionId 二选一；命令/路径/影响/title/options 就近取）
     nonisolated static func parseInteraction(_ json: JSONValue) -> RemotePendingInteraction? {
         guard let dict = json.objectValue else { return nil }
@@ -4643,220 +4685,178 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             ?? value?["result"]?.objectValue?["id"]?.stringValue
     }
 
-    // MARK: 会话分组管理写面（G-017；B-3/B-4/C-3/C-4 web 形状对齐 2026-10-06，
-    // 审查报告 §二/§三【移植·bundle 逆向】）。均为索引元数据写、桌面代执行合法。
+    // MARK: 会话分组管理写面（G-017；v1.39 重接上游 task-groups 频道真实 API）。
+    // 【实证·上游仓】channels.ts:124 频道名 `task-groups`；移动端 allowlist
+    // windowHostAttachmentRpcPolicy.ts:40 在位；服务面 task-groups/index.ts:46-131
+    // 五方法 read/save/ungroup/move/admit，参数 strict zod。旧 zcode-task.
+    // createTaskGroup/renameTaskGroup/updateTaskGroupColor/deleteTaskGroup/
+    // listGroupedTaskViewStructure/applyGroupedTaskViewOrder 六命令在上游源码
+    // 零命中（2026-11-07 取证）——旧链恒静默无效，整段撤除。
     // 返回值统一 nil=成功、非 nil=失败原因——写面禁止静默（失败必须回传 UI 如实提示）。
 
-    /// workspaceScopes 条目：web K3 形状（视图内任务工作区去重集 {workspacePath,
-    /// workspaceIdentity?}；identity 缺席省键 = web JSON.stringify 丢 undefined 同行为）。
-    private var taskGroupWorkspaceScopes: [[String: JSONValue]] {
-        [RemoteTaskStore.taskWorkspaceScopeJSON(workspace)]
+    /// 传输层错误原文（AGENTS §5-12：RPCError 非 LocalizedError，localizedDescription
+    /// 会丢服务端 fault message——写面失败一律取 message 原文上屏）
+    private static func rpcErrorText(_ error: Error) -> String {
+        (error as? RPCError)?.message ?? error.localizedDescription
     }
 
-    /// C-4：createTaskGroup 零参调用（web `createTaskGroup()` 同形；原 {name,color}
-    /// 形状为 app 臆测——组名/颜色不随建组下发）。回执即新组对象（web Ajt 直读
-    /// result.id）；宽容读 groupId / result.groupId / result.id / id。
-    private func createTaskGroupWire() async throws -> String {
-        guard let connection else {
-            throw RPCError(message: "未连接桌面端", name: "NotConnected")
+    /// 上游 identity → hostId（remote-workspace-identity.ts:166 镜像）：
+    /// 解析不出远程身份 → "local"；解析成功 = identity 去掉尾部 ":/path" 的
+    /// authority 段。服务端 taskSchema refine 要求 hostId 与 identity 派生值逐字
+    /// 相等（task-groups/index.ts:26-30），不一致整条 move 被
+    /// `task-group.host-identity-mismatch` 拒。
+    static func taskGroupHostID(identity rawIdentity: String?) -> String {
+        guard let rawIdentity, rawIdentity.hasPrefix("remote:") else { return "local" }
+        let identity = String(rawIdentity.dropFirst("remote:".count))
+        let kinds: [String: (segments: Int, slashTerminatedLast: Bool)] = [
+            "ssh": (3, true), "wsl": (1, false), "docker": (1, false), "server": (1, false),
+        ]
+        guard let kindEnd = identity.firstIndex(of: ":"),
+              let spec = kinds[String(identity[..<kindEnd])] else { return "local" }
+        var cursor = identity.index(after: kindEnd)
+        for i in 0..<spec.segments {
+            // ssh 第三段（username）以 ":/" 收口；上游 cursor = next + 1（停在 "/" 上）
+            let separator = (spec.slashTerminatedLast && i == spec.segments - 1) ? ":/" : ":"
+            guard let range = identity.range(of: separator, range: cursor..<identity.endIndex),
+                  range.lowerBound > cursor else { return "local" }
+            cursor = identity.index(after: range.lowerBound)
         }
-        let result = try await connection.call(
-            "zcode-task", "createTaskGroup", .json(.object([:])))
-        let value = result.jsonValue
-        let groupId = value?["groupId"]?.stringValue
-            ?? value?["result"]?.objectValue?["groupId"]?.stringValue
-            ?? value?["result"]?.objectValue?["id"]?.stringValue
-            ?? value?["id"]?.stringValue
-        guard let groupId, !groupId.isEmpty else {
-            throw RPCError(message: "建组回执缺 groupId", name: "MalformedResult")
+        // wsl 可选 user 段：路径必须以 "/" 开头，否则再消费一段（上游同判）
+        if identity.hasPrefix("wsl:"), cursor < identity.endIndex, identity[cursor] != "/" {
+            guard let userEnd = identity[cursor...].firstIndex(of: ":"), userEnd > cursor else {
+                return "local"
+            }
+            cursor = identity.index(after: userEnd)
         }
-        return groupId
+        guard cursor < identity.endIndex, identity[cursor] == "/" else { return "local" }
+        var authority = String(identity[..<cursor])
+        if authority.hasSuffix(":") { authority.removeLast() }
+        return "remote:" + authority
     }
 
-    /// B-4：renameTaskGroup `{groupId, title, workspaceScopes}`（web 键名 title——
-    /// 原 `name` 键恒无效；缺 workspaceScopes 同为必坏项）。回执为更新后组对象，
-    /// 本面只关心成败。
-    func renameTaskGroup(groupId: String, title: String) async -> String? {
-        guard let connection else { return String(localized: "未连接桌面端") }
-        var builder = JSONObjectBuilder()
-        builder.set("groupId", groupId)
-        builder.set("title", title)
-        builder.set("workspaceScopes", .array(taskGroupWorkspaceScopes.map { .object($0) }))
-        do {
-            _ = try await connection.call(
-                "zcode-task", "renameTaskGroup", .json(.object(builder.fields)))
-            return nil
-        } catch {
-            return String(localized: "重命名分组失败（\(error.localizedDescription)）")
-        }
-    }
-
-    /// C-3：updateTaskGroupColor 补 workspaceScopes（web 全带）。
-    func updateTaskGroupColor(groupId: String, color: String) async -> String? {
-        guard let connection else { return String(localized: "未连接桌面端") }
-        var builder = JSONObjectBuilder()
-        builder.set("groupId", groupId)
-        builder.set("color", color)
-        builder.set("workspaceScopes", .array(taskGroupWorkspaceScopes.map { .object($0) }))
-        do {
-            _ = try await connection.call(
-                "zcode-task", "updateTaskGroupColor", .json(.object(builder.fields)))
-            return nil
-        } catch {
-            return String(localized: "更新分组颜色失败（\(error.localizedDescription)）")
-        }
-    }
-
-    /// C-3：deleteTaskGroup 补 workspaceScopes（web 全带；取消分组 = 先 apply 整视图
-    /// 提组任务到顶层、再 delete，两步由调用方编排——本方法只做删除）。
-    func deleteTaskGroup(groupId: String) async -> String? {
-        guard let connection else { return String(localized: "未连接桌面端") }
-        var builder = JSONObjectBuilder()
-        builder.set("groupId", groupId)
-        builder.set("workspaceScopes", .array(taskGroupWorkspaceScopes.map { .object($0) }))
-        do {
-            _ = try await connection.call(
-                "zcode-task", "deleteTaskGroup", .json(.object(builder.fields)))
-            return nil
-        } catch {
-            return String(localized: "删除分组失败（\(error.localizedDescription)）")
-        }
-    }
-
-    /// B-3：applyGroupedTaskViewOrder 是**全量视图写** `{workspaceScopes,
-    /// topLevelNodes:[…], groups:[{groupId, taskRefs:[{workspacePath,
-    /// workspaceIdentity?, taskId}]}]}`（web Ijt）——旧 `{groupId?, order:[…]}`
-    /// 形状整体不存在于 web，恒静默无效。topLevelNodes 组条目 {type:'group',
-    /// groupId}、任务条目 {type:'task', task:{…}}（web Fjt 嵌套形态，与读面
-    /// topLevelOrders 的平铺形状不同）；请求不带 sortOrder，数组序即顺序。
-    private func applyGroupedTaskViewOrderWire(
-        workspaceScopes: [[String: JSONValue]],
-        topLevelNodes: [JSONValue],
-        groups: [JSONValue],
-    ) async throws {
-        guard let connection else {
-            throw RPCError(message: "未连接桌面端", name: "NotConnected")
-        }
-        var builder = JSONObjectBuilder()
-        builder.set("workspaceScopes", .array(workspaceScopes.map { .object($0) }))
-        builder.set("topLevelNodes", .array(topLevelNodes))
-        builder.set("groups", .array(groups))
-        _ = try await connection.call(
-            "zcode-task", "applyGroupedTaskViewOrder", .json(.object(builder.fields)))
-    }
-
-    /// G-017 移入分组全链（B-3 修复主入口；旧实现丢弃 createTaskGroup 回执、以组名
-    /// 字符串充当 groupId 下发 → apply 恒无效且无任何报错）：
-    /// ① 拉当前分组结构（全量视图写的基线；apply 是整视图提交，拿不到基线就写 =
-    /// 覆盖丢组，宁可如实失败）；
-    /// ② 定位目标组——同名组（title 精确相等）复用真实 groupId；不存在则
-    /// createTaskGroup 零参建组（C-4）→ renameTaskGroup 落名（B-4）；
-    /// ③ 重建视图提交：全部既有组与成员保真（跨组移动 = 从原组 taskRefs 移除、
-    /// 追加目标组——web 成员模型一任务至多一组），新组置于顶层首位（web Ajt 同
-    /// 语义 sortOrder-1000 置顶）；顶层散任务节点不重建（移动端任务索引非全量，
-    /// 【宽容】省略——组序与组内成员全量保真，顶层任务无显式序时桌面按 createdAt
-    /// 兜底排序，web vjt 同口径）。
+    /// G-017 移入分组（v1.39 task-groups 真实 API）：read 取结构（同名组复用真实
+    /// id + 本会话原组作 sourceGroupId）→ 无同名组则 save 建组（回执携规范 id）→
+    /// move 单节点搬移（无 anchor = 组首；sourceGroupId 不匹配表示另一客户端已整理，
+    /// 桌面回 `task-group.stale-source`，如实失败不自动重试）。
     /// 返回 nil=成功；非 nil=失败原因（UI 如实提示，禁止静默）。
     func moveConversationToGroup(_ conversationID: String, groupName: String) async -> String? {
         guard let connection else { return String(localized: "未连接桌面端") }
-        // ① 当前结构基线
-        var builder = JSONObjectBuilder()
-        builder.set("workspaceScopes", .array(taskGroupWorkspaceScopes.map { .object($0) }))
+        let title = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        // save schema：title trim().min(1).max(200)（task-groups/index.ts:50-56）
+        guard !title.isEmpty, title.count <= 200 else {
+            return String(localized: "分组名称需为 1–200 个字符")
+        }
+        // ① 当前结构（组定位 + 会话原组；read 无参、不写数据）
         let structure: DesktopTaskGrouping
         do {
-            let result = try await connection.call(
-                "zcode-task", "listGroupedTaskViewStructure", .json(.object(builder.fields)))
+            let result = try await connection.call("task-groups", "read", .undefined)
             guard let parsed = RemoteTaskStore.parseGroupedTaskView(result.jsonValue) else {
                 return String(localized: "桌面分组结构不可读，未移动（\(groupName)）")
             }
             structure = parsed
         } catch {
-            return String(localized: "获取桌面分组结构失败（\(error.localizedDescription)）")
+            return String(localized: "获取桌面分组结构失败（\(Self.rpcErrorText(error))）")
         }
-        // ② 定位/建组（幂等：同名复用；新建 = 零参 create + rename 落名，两步真实回执）
+        // ② 目标组：同名（title 精确相等）复用；不存在则 save 建组
         let targetGroupID: String
-        let isNewGroup: Bool
-        if let existing = structure.groups.first(where: { $0.name == groupName }) {
+        if let existing = structure.groups.first(where: { $0.name == title }) {
             targetGroupID = existing.id
-            isNewGroup = false
         } else {
             do {
-                targetGroupID = try await createTaskGroupWire()
+                targetGroupID = try await saveTaskGroup(title: title)
             } catch {
-                return String(localized: "创建分组失败（\(error.localizedDescription)）")
+                return String(localized: "创建分组失败（\(Self.rpcErrorText(error))）")
             }
-            if let failure = await renameTaskGroup(groupId: targetGroupID, title: groupName) {
-                // 补偿：删除刚建的组，防用户重试堆积桌面无名空组；补偿也失败时如实
-                // 拼进失败文案（不静默吞——写面纪律），桌面真态以桌面为准
-                var text = failure
-                if let cleanup = await deleteTaskGroup(groupId: targetGroupID) {
-                    text += String(localized: "；且清理新组失败（\(cleanup)）")
-                }
-                return text
-            }
-            isNewGroup = true
         }
-        // ③ 重建全量视图：目标会话引用（当前工作区；会话列表本身按工作区订阅）
-        let movedRef = DesktopTaskGrouping.TaskRef(
-            workspacePath: workspace.path,
-            workspaceIdentity: (workspace.workspaceIdentity?.isEmpty == false)
-                ? workspace.workspaceIdentity : nil,
-            taskId: conversationID)
-        func scopeKey(_ ref: DesktopTaskGrouping.TaskRef) -> String {
-            "\(ref.workspacePath)\u{0}\(ref.workspaceIdentity ?? "")"
+        // ③ 原组（members 里本会话所在组；不在任何组 = 顶层 null）
+        let sourceGroupID = structure.groups.first { $0.taskIDs.contains(conversationID) }?.id
+        // ④ 任务引用须与桌面任务事实逐字一致（hostId 由 identity 派生；
+        //    task-groups/index.ts:18-30 + 服务端 resolveTasks 校验）
+        let target = workspaceTarget(for: conversationID, overridePath: nil)
+        var taskEntry: [String: JSONValue] = [
+            "hostId": .string(Self.taskGroupHostID(identity: target.identity)),
+            "workspacePath": .string(target.path),
+            "taskId": .string(conversationID),
+        ]
+        if let identity = target.identity, !identity.isEmpty {
+            taskEntry["workspaceIdentity"] = .string(identity)
         }
-        var scopeSet: [String: [String: JSONValue]] = [:]
-        func recordScope(_ ref: DesktopTaskGrouping.TaskRef) {
-            scopeSet[scopeKey(ref)] = RemoteTaskStore.taskWorkspaceScopeJSON(
-                ServerWorkspaceInfo(path: ref.workspacePath, label: nil,
-                                    workspaceIdentity: ref.workspaceIdentity))
-        }
-        var groupsJSON: [JSONValue] = []
-        if isNewGroup {
-            // 新组置于组数组与顶层首位（web Ajt 置顶同语义）
-            recordScope(movedRef)
-            groupsJSON.append(.object([
-                "groupId": .string(targetGroupID),
-                "taskRefs": .array([Self.taskRefJSON(movedRef)]),
-            ]))
-        }
-        for group in structure.groups {
-            var refs = group.taskRefs.filter { $0.taskId != conversationID }
-            if group.id == targetGroupID, !refs.contains(where: { $0.taskId == movedRef.taskId }) {
-                refs.append(movedRef)
-            }
-            for ref in refs { recordScope(ref) }
-            groupsJSON.append(.object([
-                "groupId": .string(group.id),
-                "taskRefs": .array(refs.map(Self.taskRefJSON)),
-            ]))
-        }
-        // 顶层节点：组节点按结构序（新组已置首）；散任务节点【宽容】省略（见方法注释）
-        let topLevelNodes: [JSONValue] = groupsJSON.compactMap { group in
-            guard let id = group.objectValue?["groupId"]?.stringValue else { return nil }
-            return .object(["type": .string("group"), "groupId": .string(id)])
-        }
+        var builder = JSONObjectBuilder()
+        builder.set("node", .object(["type": .string("task"), "task": .object(taskEntry)]))
+        builder.set("sourceGroupId", sourceGroupID.map { JSONValue.string($0) } ?? .null)
+        builder.set("groupId", .string(targetGroupID))
         do {
-            try await applyGroupedTaskViewOrderWire(
-                workspaceScopes: Array(scopeSet.values),
-                topLevelNodes: topLevelNodes,
-                groups: groupsJSON)
+            _ = try await connection.call("task-groups", "move", .json(.object(builder.fields)))
             return nil
         } catch {
-            return String(localized: "移入分组失败（\(error.localizedDescription)）")
+            return String(localized: "移入分组失败（\(Self.rpcErrorText(error))）")
         }
     }
 
-    /// taskRef 写面条目 {workspacePath, workspaceIdentity?, taskId}（web Fjt 同形）
-    private static func taskRefJSON(_ ref: DesktopTaskGrouping.TaskRef) -> JSONValue {
-        var entry: [String: JSONValue] = [
-            "workspacePath": .string(ref.workspacePath),
-            "taskId": .string(ref.taskId),
-        ]
-        if let identity = ref.workspaceIdentity, !identity.isEmpty {
-            entry["workspaceIdentity"] = .string(identity)
+    /// task-groups.save 建组（input {title}，回执即 TaskGroup {id,title,…}）
+    private func saveTaskGroup(title: String) async throws -> String {
+        guard let connection else {
+            throw RPCError(message: String(localized: "未连接桌面端"), name: "NotConnected")
         }
-        return .object(entry)
+        var builder = JSONObjectBuilder()
+        builder.set("title", title)
+        let result = try await connection.call(
+            "task-groups", "save", .json(.object(builder.fields)))
+        let value = result.jsonValue
+        let groupId = value?["id"]?.stringValue
+            ?? value?["result"]?.objectValue?["id"]?.stringValue
+        guard let groupId, !groupId.isEmpty else {
+            throw RPCError(message: String(localized: "建组回执缺 id"), name: "MalformedResult")
+        }
+        return groupId
+    }
+
+    /// 重命名分组（save {id,title}；title trim 1–200）
+    func renameTaskGroup(groupId: String, title: String) async -> String? {
+        guard let connection else { return String(localized: "未连接桌面端") }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 200 else {
+            return String(localized: "分组名称需为 1–200 个字符")
+        }
+        var builder = JSONObjectBuilder()
+        builder.set("id", groupId)
+        builder.set("title", trimmed)
+        do {
+            _ = try await connection.call("task-groups", "save", .json(.object(builder.fields)))
+            return nil
+        } catch {
+            return String(localized: "重命名分组失败（\(Self.rpcErrorText(error))）")
+        }
+    }
+
+    /// 分组颜色（save {id,color}；色值域 7 档，与上游 zod enum 逐字同表）
+    func updateTaskGroupColor(groupId: String, color: String) async -> String? {
+        guard let connection else { return String(localized: "未连接桌面端") }
+        let palette: Set<String> = ["gray", "red", "orange", "yellow", "green", "blue", "purple"]
+        guard palette.contains(color) else {
+            return String(localized: "分组颜色不支持（\(color)）")
+        }
+        var builder = JSONObjectBuilder()
+        builder.set("id", groupId)
+        builder.set("color", color)
+        do {
+            _ = try await connection.call("task-groups", "save", .json(.object(builder.fields)))
+            return nil
+        } catch {
+            return String(localized: "更新分组颜色失败（\(Self.rpcErrorText(error))）")
+        }
+    }
+
+    /// 解散分组（ungroup 参数为裸 groupId 字符串；桌面把组内任务原位提升到顶层，
+    /// 幂等——组不存在也成功。语义是「取消分组」而非仅删空组）
+    func deleteTaskGroup(groupId: String) async -> String? {
+        guard let connection else { return String(localized: "未连接桌面端") }
+        do {
+            _ = try await connection.call("task-groups", "ungroup", .json(.string(groupId)))
+            return nil
+        } catch {
+            return String(localized: "取消分组失败（\(Self.rpcErrorText(error))）")
+        }
     }
 
     /// G-019 通路 C：历史 run 事件分页重建（实时表为空时兜底）——

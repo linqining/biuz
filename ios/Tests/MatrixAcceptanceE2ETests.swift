@@ -965,8 +965,10 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
 
     // MARK: - G-017 移动端→桌面任务组同步写
 
-    /// 长按会话行 → 移入分组 → 建组命名：createTaskGroup + applyGroupedTaskViewOrder
-    /// 真实到达替身（记录面断言）+ 列表出现新组且会话归组（UI 面）。
+    /// 长按会话行 → 移入分组 → 建组命名：task-groups save + move 真实到达替身
+    /// （记录面 + 服务端结构联动断言）+ 列表结果提示上屏（UI 面）。
+    /// v1.39 重接上游真实 API——旧 createTaskGroup/applyGroupedTaskViewOrder
+    /// 六命令在上游源码零命中，旧用例断言随之替换。
     /// 组名输入为 SwiftUI alert（identifier 不透传，test09 同款教训）——按 alert 容器定位
     func test21_taskGroupSyncWriteReachesStubAndRegroups() throws {
         let application = launchDemo()
@@ -983,18 +985,38 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         let groupField = groupAlert.textFields.firstMatch
         XCTAssertTrue(groupField.waitForExistence(timeout: 4), "组名输入框应在 alert 内")
         XCTAssertTrue(typeInto(application, groupField, text: "e2e-group-x"), "组名应可输入")
-        groupAlert.buttons.matching(NSPredicate(format: "label == '移入'")).firstMatch.tap()
+        // 坐标点按：Xcode 27 默认 interruption 监控会把 App 自身 alert 当「中断元素」
+        // 先点「取消」再点目标按钮（元素点按必经该扫描 → alert 已消失、hit point 失效）；
+        // 坐标点按不走该扫描（alert 按钮帧有效，见失败日志 {205,505,140,48}）。
+        let moveButton = groupAlert.buttons.matching(NSPredicate(format: "label == '移入'")).firstMatch
+        XCTAssertTrue(moveButton.waitForExistence(timeout: 4), "「移入」按钮应在 alert 内")
+        moveButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
-        // 同步写：两条命令真实到达替身（移动端→桌面方向）
-        XCTAssertTrue(waitUntil(timeout: 10, "createTaskGroup 应到达替身") {
-            stub.taskGroupWrites.contains { $0.command == "createTaskGroup" }
+        // 同步写：read→save→move 真实到达替身（移动端→桌面方向）
+        XCTAssertTrue(waitUntil(timeout: 10, "task-groups.save 应到达替身") {
+            stub.taskGroupWrites.contains { $0.command == "save" }
         }, "建组写应真实下发（G-017 同步）")
-        XCTAssertTrue(waitUntil(timeout: 10, "applyGroupedTaskViewOrder 应到达替身") {
-            stub.taskGroupWrites.contains { $0.command == "applyGroupedTaskViewOrder" }
-        }, "入组顺序写应真实下发（G-017 同步）")
-        // UI 面：新组头出现且会话归组
-        XCTAssertTrue(element(application, "04-group-e2e-group-x").waitForExistence(timeout: 8),
-                      "列表应出现新组头（会话归组 UI 面）")
+        let saveWrite = stub.taskGroupWrites.first { $0.command == "save" }
+        XCTAssertEqual(saveWrite?.args["title"]?.stringValue, "e2e-group-x",
+                       "建组标题应逐字上行（save {title}）")
+        XCTAssertTrue(waitUntil(timeout: 10, "task-groups.move 应到达替身") {
+            stub.taskGroupWrites.contains { $0.command == "move" }
+        }, "入组写应真实下发（G-017 同步）")
+        let moveWrite = stub.taskGroupWrites.first { $0.command == "move" }
+        XCTAssertEqual(moveWrite?.args["groupId"]?.stringValue, "group-e2e-1",
+                       "move 目标组应使用 save 回执的规范 groupId")
+        let movedTask = moveWrite?.args["node"]?.objectValue?["task"]?.objectValue
+        XCTAssertEqual(movedTask?["taskId"]?.stringValue, "sess-e2e-1",
+                       "move 任务引用应指向被移动会话")
+        XCTAssertEqual(movedTask?["workspacePath"]?.stringValue, "/Users/e2e/mtt_mobile",
+                       "任务引用应携会话归属工作区（非连接 workspace）")
+        XCTAssertNotNil(moveWrite?.args["sourceGroupId"], "sourceGroupId 键恒在场（null=顶层）")
+        XCTAssertTrue(stub.taskGroupMembersSnapshot.contains {
+            ($0["groupId"] as? String) == "group-e2e-1" && ($0["taskId"] as? String) == "sess-e2e-1"
+        }, "替身服务端结构应已归组（read 联动真态）")
+        // UI 面：结果提示上屏（列表按项目目录分组，桌面任务组不是列表分组轴）
+        XCTAssertTrue(element(application, "04-group-hint").waitForExistence(timeout: 8),
+                      "移入成功应上屏结果提示（写面不静默）")
         snap(application, "g017-task-group-sync")
     }
 
@@ -1339,5 +1361,40 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         }
         XCTAssertFalse(reportText.firstMatch.exists, "关闭后详情 sheet 应收起")
         snap(application, "matrix-g027-completion-card")
+    }
+
+    // MARK: - v1.39：输入预测 ghost hint（3.17.2 conversationInputPredictionV4）
+
+    /// 草稿变化 → 防抖 700ms 请求续写（hello.capabilities.inputPrediction 能力门）→
+    /// ghost 灰字上屏 → 点按采纳把 `draft + text` 拼到输入框（不 trim，spec 线格式）。
+    /// 替身回 show 决策 + 候选「 再跑一遍测试」（前置空格验证不 trim 语义）。
+    func test28_inputPredictionGhostHintAndAccept() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+
+        let row = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(row.waitForExistence(timeout: 30),
+                      "列表应呈现替身会话行（冷启自动重连+订阅在负载高时可达数十秒；" +
+                      "rpcTail=\(stub.rpcCallLog.suffix(8)) topics=\(stub.subscribedTopics)）")
+        row.tap()
+        let composer = element(application, "05-composer-input")
+        XCTAssertTrue(composer.waitForExistence(timeout: 12), "应进入会话详情")
+        XCTAssertTrue(typeInto(application, composer, text: "帮我"), "输入框应可输入")
+
+        // 防抖 700ms 后发起预测；hint 灰字行出现（无候选时整行不渲染）
+        let hint = element(application, "05-input-hint")
+        XCTAssertTrue(hint.waitForExistence(timeout: 10),
+                      "停顿后应出现续写 ghost hint（预测草稿=\(stub.inputPredictionDrafts)；" +
+                      "rpcTail=\(stub.rpcCallLog.suffix(8))）")
+        XCTAssertTrue(waitUntil(timeout: 5, "替身应收到 conversationInputPredictionV4") {
+            stub.inputPredictionDrafts.contains("帮我")
+        }, "预测请求应携当前草稿原文（实际=\(stub.inputPredictionDrafts)）")
+
+        hint.tap()
+        // 采纳 = draft + text 直接拼接（候选以空格开头，不 trim）
+        XCTAssertTrue(waitUntil(timeout: 5, "采纳后输入框应拼上续写") {
+            (composer.value as? String)?.contains("帮我 再跑一遍测试") == true
+        }, "点按采纳应把 draft+text 拼接（实际=\(String(describing: composer.value))）")
+        snap(application, "matrix-v139-input-prediction")
     }
 }

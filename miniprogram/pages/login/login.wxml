@@ -1,0 +1,24 @@
+<!-- 001-登录：居中卡片（品牌 + 标题 + 说明 + 双 provider 按钮） -->
+<view class="page login-page" style="padding-top: {{statusBarHeight}}px">
+  <view class="login-card">
+    <view class="login-head">
+      <view class="login-logo">Z</view>
+      <view class="login-head__text">
+        <text class="login-brand">{{copy.brand}}</text>
+        <text class="login-title">{{copy.loginTitle}}</text>
+      </view>
+    </view>
+    <text class="login-desc">{{copy.loginDescription}}</text>
+
+    <view
+      class="login-btn {{submitting ? 'login-btn--disabled' : ''}}"
+      wx:for="{{copy.providers}}"
+      wx:key="id"
+      data-provider="{{item.id}}"
+      bind:tap="onLogin">
+      <text class="login-btn__icon">{{item.icon}}</text>
+      <text class="login-btn__action">{{item.action}}</text>
+      <text class="login-btn__region">{{item.region}}</text>
+    </view>
+  </view>
+</view>

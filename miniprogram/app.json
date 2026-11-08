@@ -1,0 +1,23 @@
+{
+  "pages": [
+    "pages/sessions/sessions",
+    "pages/chat/chat",
+    "pages/settings/settings",
+    "pages/login/login",
+    "pages/devices/devices",
+    "pages/connecting/connecting",
+    "pages/share/share",
+    "pages/git/git",
+    "pages/files/files",
+    "pages/tasks/tasks"
+  ],
+  "window": {
+    "navigationStyle": "custom",
+    "backgroundColor": "#171717",
+    "backgroundTextStyle": "dark",
+    "enablePullDownRefresh": false
+  },
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json"
+}

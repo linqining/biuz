@@ -1,0 +1,293 @@
+/* 003-设备列表 —— 换算口径 1px ≈ 1.923rpx（web 390pt 视口 / 750rpx）。
+   web 类名对照见 webRemoteControlDeviceListPage.tsx。 */
+
+.page {
+  min-height: 100vh;
+  background-color: var(--color-background);
+}
+.devices {
+  padding-left: 32rpx;
+  padding-right: 32rpx;
+  padding-bottom: 77rpx;
+}
+
+/* 品牌：logo 20px + 「ZCode」12px medium */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 77rpx;
+}
+.brand__logo {
+  width: 38rpx;
+  height: 38rpx;
+  border-radius: 10rpx;
+  background-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand__name {
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--color-foreground);
+}
+
+/* 标题行：text-ui-xl semibold(18px) + 刷新按钮 40px */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: 46rpx;
+}
+.head__title {
+  font-size: var(--font-title);
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+.head__refresh {
+  width: 77rpx;
+  height: 77rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--color-muted);
+  font-size: var(--font-lg);
+}
+.head__refresh:active {
+  background-color: rgba(127, 127, 127, 0.12);
+}
+.head__refresh--spin {
+  animation: biuz-spin 0.8s linear infinite;
+}
+@keyframes biuz-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 账号行：头像 20px + 「名字 · Provider」12px + 切换 */
+.account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: 12rpx;
+}
+.account__avatar {
+  width: 38rpx;
+  height: 38rpx;
+  border-radius: 50%;
+  background-color: var(--color-input);
+  color: var(--color-foreground);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.account__text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.account__switch {
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+  padding: 6rpx 8rpx;
+}
+
+.devices__error {
+  margin-top: 38rpx;
+}
+
+/* 分区标题：pt-6 pb-2 px-1，12px medium + 计数 */
+.section {
+  margin-top: 46rpx;
+}
+.section__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6rpx;
+  padding: 0 4rpx 16rpx;
+}
+.section__label {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.section__count {
+  font-size: var(--font-sm);
+  color: var(--color-muted-2);
+}
+
+/* 设备行：36px 方块图标（在线绿点）+ 名称/描述 + chevron */
+.device {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 20rpx 0;
+}
+.device:active {
+  background-color: rgba(127, 127, 127, 0.08);
+}
+.device__tile {
+  position: relative;
+  width: 69rpx;
+  height: 69rpx;
+  border-radius: var(--radius-md);
+  background-color: var(--color-input);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.device__icon {
+  font-size: var(--font-base);
+}
+.device__dot {
+  position: absolute;
+  right: -2rpx;
+  bottom: -2rpx;
+  width: 19rpx;
+  height: 19rpx;
+  border-radius: 50%;
+  background-color: var(--color-success);
+  border: 3rpx solid var(--color-background);
+}
+.device__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+}
+.device__name {
+  font-size: var(--font-base);
+  color: var(--color-foreground);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.device__desc {
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.device__conns {
+  font-size: var(--font-xs);
+  color: var(--color-muted-2);
+}
+.device__chevron {
+  font-size: var(--font-lg);
+  color: var(--color-muted-2);
+}
+
+.devices__note {
+  display: block;
+  padding: 24rpx 4rpx 0;
+  font-size: var(--font-sm);
+  line-height: 38rpx;
+  color: var(--color-muted-2);
+}
+.devices__state {
+  padding-top: 120rpx;
+}
+
+/* ---- 006 多实例选择弹层（底部 sheet） ---- */
+.sheet-mask {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  z-index: 100;
+}
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 101;
+  background-color: var(--color-elevated);
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  box-sizing: border-box;
+}
+.sheet__grab {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 999rpx;
+  background-color: var(--color-border-strong);
+  margin: 0 auto var(--space-3);
+}
+.sheet__title {
+  display: block;
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+.sheet__desc {
+  display: block;
+  margin-top: 8rpx;
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+}
+.sheet__rows {
+  margin-top: var(--space-2);
+}
+.sheet__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 123rpx;
+  padding: var(--space-2) 0;
+  border-top: 2rpx solid var(--color-border);
+}
+.sheet__row:first-child {
+  border-top: none;
+}
+.sheet__row:active {
+  background-color: rgba(127, 127, 127, 0.08);
+}
+.sheet__row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+.sheet__row-title {
+  font-size: var(--font-base);
+  color: var(--color-foreground);
+}
+.sheet__row-sub {
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+}
+.sheet__row-chevron {
+  font-size: var(--font-lg);
+  color: var(--color-muted-2);
+}
+.sheet__cancel {
+  margin-top: var(--space-3);
+  height: 85rpx;
+  border-radius: var(--radius-md);
+  background-color: var(--color-input);
+  color: var(--color-foreground);
+  font-size: var(--font-base);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sheet__safe {
+  height: env(safe-area-inset-bottom);
+}

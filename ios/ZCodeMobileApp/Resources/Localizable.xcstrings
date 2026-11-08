@@ -12058,6 +12058,16 @@
         }
       }
     },
+    "点按采纳" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap to accept"
+          }
+        }
+      }
+    },
     "照片图库" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -15600,6 +15610,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Use default"
+          }
+        }
+      }
+    }
+,
+    "已自动连接桌面端" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connected to desktop automatically"
+          }
+        }
+      }
+    },
+    "发现多个在线桌面端，选择一个连接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multiple desktops online. Choose one to connect."
+          }
+        }
+      }
+    }
+,
+    "连接已断开 · 正在自动重连…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disconnected · Reconnecting automatically…"
+          }
+        }
+      }
+    }
+,
+    "自动重连失败 · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic reconnect failed: %@"
+          }
+        }
+      }
+    },
+    "分组名称需为 1–200 个字符" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group name must be 1–200 characters"
+          }
+        }
+      }
+    },
+    "分组颜色不支持（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unsupported group color (%@)"
+          }
+        }
+      }
+    },
+    "建组回执缺 id" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create-group response is missing id"
+          }
+        }
+      }
+    },
+    "取消分组失败（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to ungroup (%@)"
           }
         }
       }

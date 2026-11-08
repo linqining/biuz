@@ -1,0 +1,66 @@
+# ============================================================
+# web-to-app 配置样本
+#
+# 用法：复制到目标项目根 config/web-to-app.yaml 后按项目实际改值。
+#       web-to-app skill 的全部流程与 scripts/ 都从这里取值，
+#       改配置即生效，无需改文档或脚本。
+# 结构：多级嵌套 + 注释；值支持字符串/整数（未装 PyYAML 时用内置解析器）。
+#       列表一律写成逗号分隔字符串（如 platforms: ios,android,miniprogram）。
+# ============================================================
+
+# ---- 权威参照（web 源项目）----
+web:
+  repo: /path/to/web-project             # web 源码仓库：同步/分支对比流程 git diff/log 的对象（只读）
+  deployed_base: https://example.com     # 已部署站点（capture.py --base deployed 的目标）
+  local_dev_base: http://localhost:5173  # 本地 dev server（--base local 的目标，用户本地起服务）
+
+# ---- 页面索引（web 路由 ↔ 采集 key ↔ 各端路由的机器可读映射）----
+pages:
+  index: config/page-index.json          # 样本见 skill 的 assets/page-index.sample.json
+
+# ---- 浏览器采证（capture.py 的默认值，CLI 参数可覆盖）----
+capture:
+  chrome_debug_port: 9224                # 调试 Chrome 的 CDP 端口
+                                         # 本机已有其他项目的 9224 调试实例时改用别的端口（如 9225），
+                                         # 避免两个项目串用同一浏览器的登录态
+  chrome_profile_dir: .capture/chrome-profile  # 相对项目根；持久登录态 profile
+  output_dir: .capture/runs              # 相对项目根；采证输出目录（时间戳子目录）
+  viewport_width: 390                    # 仿真视口宽（逻辑像素）
+  viewport_height: 844                   # 仿真视口高
+  device_scale_factor: 3                 # 设备像素比
+  user_agent: ""                         # 留空用内置 iPhone UA；自填则覆盖
+  login_hints: ""                        # 未登录判定正则（如 "Log In|Sign In|登录"）；留空不做登录态判定
+
+# ---- 同步状态 / 脚手架（sync_state.py / sync_scaffold.py）----
+sync:
+  state_file: docs/parity-sync-state.json   # 上次同步 commit/branch/dirty/门禁
+  scaffold_dir: .capture/sync               # 每次同步的任务包/代码骨架
+  ledger_key: web-sync-base                 # 镜像到台账的字段名
+  required_gates: build,logic,ui,capture     # done 前必须 pass；logic 可标 skipped/n/a + 理由
+
+# ---- 差异标记语言 ----
+diff_language:
+  prefix: APP-DIFF                       # 代码内标记前缀：`APP-DIFF[D###] kind: 原因`
+                                         # 改前缀需全库替换旧标记，审计命令跟着换
+  ledger: docs/parity-diff-ledger.md     # 台账路径（相对项目根）
+  kinds:                                 # kind 集合：内置三类，可在下方追加自定义 kind
+    platform: 平台/基建差异——框架能力、系统组件、性能优化导致实现形态不同，视觉/交互规格已对齐
+    business: 业务原因刻意不同——产品决策、合规要求、移动端入口策略
+    pending: 暂时不同待对齐——必须挂 PARITY_BACKLOG 编号，修完删标记
+    # ---- 扩展示例：解开下行注释即可在代码里用 `APP-DIFF[D###] experiment: ...` ----
+    # experiment: 实验差异——web 侧 A/B 实验分组，端内固定对照实现
+
+# ---- 目标 App（脚手架/文档生成用；已有人工工程可只填 platforms 与目录）----
+app:
+  platforms: ios,android,miniprogram     # 参与移植的平台，逗号分隔；骨架按此生成。
+                                         # 内置：ios / android / miniprogram（微信小程序）；
+                                         # 其他平台（flutter 等）也可填，骨架给通用 TODO 模板
+  ios:
+    dir: ios/App                         # SwiftUI 源码根（相对项目根）
+    module: MyApp                        # 模块名（骨架 import/命名用）
+  android:
+    dir: android/app                     # Android 工程模块根
+    package: com.example.myapp           # 应用包名（骨架 package 用）
+  miniprogram:
+    dir: miniprogram                     # 微信小程序项目根（含 app.json / project.config.json）
+    appid: wx0000000000000000            # 小程序 appid（测试号可临时用；正式号由用户提供）

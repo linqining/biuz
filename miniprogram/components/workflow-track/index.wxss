@@ -1,0 +1,45 @@
+/* 站点灯配色对齐 web 实测（深色档）：运行/完成 #46BF72、待操作 #FF8A30。
+ * 未开始与连接线用 muted token + 透明度，保证浅色档同样可见。 */
+.track {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.track__dots {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.dot--done { background-color: #46bf72; }
+.dot--active { background-color: #46bf72; }
+.dot--attention { background-color: #ff8a30; }
+.dot--pending {
+  background-color: var(--color-muted-2);
+  opacity: 0.45;
+}
+.track__link {
+  width: 12rpx;
+  height: 2rpx;
+  background-color: var(--color-muted-2);
+  opacity: 0.45;
+  flex: 0 0 auto;
+}
+.track__extra {
+  margin-left: var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--color-muted);
+}
+.track__label {
+  font-size: var(--font-xs);
+  color: var(--color-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

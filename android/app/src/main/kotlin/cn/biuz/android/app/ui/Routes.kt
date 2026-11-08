@@ -7,6 +7,7 @@ package cn.biuz.android.app.ui
 object Routes {
     const val CONNECT = "connect"
     const val SCAN = "scan"
+    const val LOGIN = "login"
     const val SESSIONS = "sessions"
     const val SETTINGS = "settings"
     const val CHAT = "chat/{sessionId}"

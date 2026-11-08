@@ -74,12 +74,21 @@ class RelayTransport(
     private val socketFactory: RelayTextSocketFactory =
         RelayTextSocketFactory { url, timeoutMs -> OkHttpTextWebSocketTransport(url, timeoutMs) },
     private val backgroundDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /**
+     * V2 建连前获取 Z.ai JWT（每次重连都要重新换一次性 token）（iOS RelayTransport.swift:83-85）。
+     * V1 不需要（HMAC 挑战用 passHash）。
+     */
+    private val jwtProvider: (suspend () -> String?)? = null,
+    /** V2 `auth_init.meta.version` 上报值（装配层传 BuildConfig.VERSION_NAME）。 */
+    private val clientAppVersion: String = "android",
 ) {
 
     // MARK: 常量（bundle AN/jN/MN/NN + Mh）（:14-21）
-    val heartbeatIntervalSeconds: Double = 10.0
-    val heartbeatJitterMaxSeconds: Double = 2.0
-    val heartbeatAckTimeoutSeconds: Double = 30.0
+    // V2 心跳 5s ±1s / ACK 15s；V1 10s ±2s / 30s（iOS RelayTransport.swift:13-34 同口径）
+    private val heartbeatConfig = RelayV2.heartbeatSeconds(config.isV2)
+    val heartbeatIntervalSeconds: Double = heartbeatConfig.first
+    val heartbeatJitterMaxSeconds: Double = heartbeatConfig.second
+    val heartbeatAckTimeoutSeconds: Double = heartbeatConfig.third
     val waitingTimeoutSeconds: Double = 30.0
     val deviceOfflineGraceSeconds: Double = 15.0
     val reconnectBaseMillis: Long = 500
@@ -289,15 +298,47 @@ class RelayTransport(
 
     // MARK: WS + auth
 
+    /**
+     * 建连 URL：V1 用链接内 wssURL；V2 每次重连现换一次性 token 并追加 token/mid
+     * （iOS `relaySocketURL()` :262-284）。
+     *
+     * token 60s 有效、WS Upgrade 前原子消费——失败不恢复，重连必须重新申请。
+     */
+    private suspend fun resolveSocketUrl(): String {
+        if (!config.isV2) return config.wssURL
+        val provider = jwtProvider
+            ?: throw RPCError(message = "云中继需要登录 Z.ai 账号（缺少登录凭据）", name = "RelayAuthRequired")
+        val jwt = try {
+            provider()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw RPCError(message = "云中继需要登录 Z.ai 账号：${e.message ?: e.toString()}", name = "RelayAuthRequired")
+        }
+        if (jwt.isNullOrBlank()) {
+            throw RPCError(message = "云中继需要登录 Z.ai 账号（缺少登录凭据）", name = "RelayAuthRequired")
+        }
+        val origin = config.httpOrigin
+            ?: throw RPCError(message = "中继 token 端点无效", name = "RelayConfig")
+        val token = try {
+            RelayV2.fetchToken(httpOrigin = origin, jwt = jwt, httpClient = tokenHttpClient)
+        } catch (e: RelayTokenException) {
+            throw RPCError(message = e.message ?: "中继 token 获取失败", name = "RelayToken")
+        }
+        return RelayV2.buildSocketUrl(config.wssURL, token, config.deviceMid)
+    }
+
+    private val tokenHttpClient = RelayV2.defaultHttpClient()
+
     private suspend fun openSocketAndAuthenticate(timeout: Duration) {
-        // iOS URLComponents：scheme 缺省补 wss（:191-196）；解析不出 scheme/host 即 RelayConfig
-        val urlText = if (config.wssURL.contains("://")) config.wssURL else "wss://" + config.wssURL
+        // V1：链接内 wssURL 直接用；V2：现换一次性 token 后拼 ws2 URL（iOS :262-284）
+        val urlText = resolveSocketUrl()
         val scheme = urlText.substringBefore("://", "")
         if (scheme.isEmpty() || scheme != urlText.substringBefore(':')) {
             throw RPCError(message = "中继地址无效：${config.wssURL}", name = "RelayConfig")
         }
         socketGeneration += 1
-        log(RelayLogKind.working, "WS 升级 ${urlText.substringAfter("//").substringBefore('/')}…?mid=…")
+        log(RelayLogKind.working, "WS 升级 ${urlText.substringAfter("//").substringBefore('/')}… · ${if (config.isV2) "V2" else "V1"}")
         val socket = try {
             socketFactory.create(urlText, SOCKET_CONNECT_TIMEOUT_MS)
         } catch (e: CancellationException) {
@@ -309,24 +350,38 @@ class RelayTransport(
         }
         mutex.withLock {
             this.socket = socket
-            // WS open 即发 auth_init（_Vn connect() 的 open 监听；meta 照 bundle 原样：
-            // {platform:'web', version:<app_version|'web'>, name:'mobile-browser'}）（:205-218）
-            sendJSONLocked(
-                linkedMapOf(
-                    "type" to JSONValue.Str("auth_init"),
-                    "role" to JSONValue.Str("terminal"),
-                    "device_sid" to JSONValue.Str(config.deviceSid),
-                    "meta" to JSONValue.Obj(
-                        linkedMapOf(
-                            "platform" to JSONValue.Str("web"),
-                            "version" to JSONValue.Str(config.desktopAppVersion ?: "web"),
-                            "name" to JSONValue.Str("mobile-browser"),
-                        ),
+            if (config.isV2) {
+                // V2：auth_init 不带 role，meta 上报终端身份，client_ts 为秒（iOS :341-379）
+                sendJSONLocked(
+                    RelayV2.authInit(
+                        config = config,
+                        clientTsSeconds = System.currentTimeMillis() / 1000,
+                        platform = "android",
+                        appVersion = clientAppVersion,
+                        clientName = "BiuZ",
                     ),
-                    "client_ts" to jsonMillis(System.currentTimeMillis()),
-                ),
-            )
-            log(RelayLogKind.working, "auth_init · role=terminal · sid=${config.deviceSid.take(12)}…")
+                )
+                log(RelayLogKind.working, "auth_init · v2(ws2) · sid=${config.deviceSid.take(12)}…")
+            } else {
+                // V1：WS open 即发 auth_init（meta 照 bundle 原样：
+                // {platform:'web', version:<app_version|'web'>, name:'mobile-browser'}）（:205-218）
+                sendJSONLocked(
+                    linkedMapOf(
+                        "type" to JSONValue.Str("auth_init"),
+                        "role" to JSONValue.Str("terminal"),
+                        "device_sid" to JSONValue.Str(config.deviceSid),
+                        "meta" to JSONValue.Obj(
+                            linkedMapOf(
+                                "platform" to JSONValue.Str("web"),
+                                "version" to JSONValue.Str(config.desktopAppVersion ?: "web"),
+                                "name" to JSONValue.Str("mobile-browser"),
+                            ),
+                        ),
+                        "client_ts" to jsonMillis(System.currentTimeMillis()),
+                    ),
+                )
+                log(RelayLogKind.working, "auth_init · role=terminal · sid=${config.deviceSid.take(12)}…")
+            }
             // 读循环先行：auth_challenge 依赖它（:220-221）
             startReceiveLoopLocked(socket)
         }
@@ -430,13 +485,20 @@ class RelayTransport(
     // MARK: auth 握手
 
     private suspend fun handleAuthChallenge(message: JSONValue) {
+        // V2 用 JWT 换一次性 token 鉴权，服务端不会下发 HMAC 挑战；收到即协议不匹配
+        if (config.isV2) {
+            log(RelayLogKind.error, "auth_challenge · V2 链路不应出现挑战帧 → 判协议不匹配")
+            enterTerminalFailure(RelayCloseReason.InvalidMobileConnection)
+            return
+        }
         val nonce = message["nonce"]?.stringValue
-        if (nonce == null) {
+        val passHash = config.passHash
+        if (nonce == null || passHash == null) {
             enterTerminalFailure(RelayCloseReason.InvalidMobileConnection)
             return
         }
         val proof = RelayAuth.proof(
-            passHash = config.passHash,
+            passHash = passHash,
             nonce = nonce,
             role = "terminal",
             deviceSid = config.deviceSid,

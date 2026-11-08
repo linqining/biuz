@@ -1,0 +1,7 @@
+{
+  "usingComponents": {
+    "empty-state": "/components/empty-state/index",
+    "loading-state": "/components/loading-state/index",
+    "error-line": "/components/error-line/index"
+  }
+}

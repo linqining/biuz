@@ -111,6 +111,13 @@ struct ZCodeMobileApp: App {
             router.selectedTab = .chat
             router.chatPath = [.chat(conversationID)]
         }
+        // 验收缝：`-acceptance-route <key>[:<arg>]` 冷启直达页面（web-to-app bootstrap §5）。
+        // key 见 config/page-index.json 的 app.ios 字段；未知 key 显式告警，不猜测落点。
+        if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-acceptance-route"),
+           index + 1 < ProcessInfo.processInfo.arguments.count,
+           !router.applyAcceptanceRoute(ProcessInfo.processInfo.arguments[index + 1]) {
+            print("[BiuZ] unknown acceptance route: \(ProcessInfo.processInfo.arguments[index + 1])")
+        }
     }
 
     /// 装配换源（对齐修复，设计稿 §1.2）：

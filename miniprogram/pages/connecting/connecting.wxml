@@ -1,0 +1,54 @@
+<!-- 004-连接中 / 005-连接失败 -->
+<view class="page">
+  <view class="wrap" style="padding-top: {{statusBarHeight + 12}}px">
+
+    <!-- 004 连接中 -->
+    <block wx:if="{{mode === 'connecting'}}">
+      <view class="brand">
+        <view class="brand__logo">Z</view>
+        <text class="brand__name">ZCode</text>
+      </view>
+      <view class="connecting">
+        <view class="connecting__spinner"></view>
+        <text class="connecting__title">{{title}}</text>
+        <view class="steps">
+          <view class="step" wx:for="{{steps}}" wx:key="index">
+            <view class="step__dot step__dot--{{item.state}}">
+              <text wx:if="{{item.state === 'done'}}">✓</text>
+            </view>
+            <text class="step__label step__label--{{item.state}}">{{item.label}}</text>
+          </view>
+        </view>
+        <text class="connecting__stage">{{stageLabel}}</text>
+        <text class="connecting__desc" wx:if="{{stageDescription}}">{{stageDescription}}</text>
+      </view>
+    </block>
+
+    <!-- 005 连接失败 -->
+    <block wx:else>
+      <view class="failure">
+        <view class="failure__head">
+          <view class="failure__icon failure__icon--{{copy.tone}}">!</view>
+          <text class="failure__badge failure__badge--{{copy.tone}}">{{copy.badge}}</text>
+        </view>
+        <text class="failure__title">{{copy.title}}</text>
+        <text class="failure__description">{{copy.description}}</text>
+
+        <view class="failure__divider"></view>
+
+        <text class="failure__steps-title">{{nextStepsTitle}}</text>
+        <view class="failure__step" wx:for="{{copy.nextSteps}}" wx:key="index">
+          <text class="failure__step-index">{{index + 1}}</text>
+          <text class="failure__step-text">{{item}}</text>
+        </view>
+
+        <view class="failure__detail" wx:if="{{detail}}">
+          <text class="failure__detail-label">{{detailLabel}}</text>
+          <text class="failure__detail-text">{{detail}}</text>
+        </view>
+
+        <view class="failure__action" bind:tap="onPrimaryAction">{{copy.action}}</view>
+      </view>
+    </block>
+  </view>
+</view>

@@ -1,0 +1,293 @@
+{
+  "_comment": "web-to-app 页面索引 — BiuZ。web 权威源为 ZCode/packages/web + packages/ui 的「手机远控壳」：WebRemoteControlMobileShell（home/chat 两页 + 右侧覆盖抽屉）。route 字段里的 # 片段是壳内视图状态（web 无独立 path），采证时按 capture key 驱动。app 字段是各端直达该页的验收缝值；标注（待建）的是当前不存在的入口。canvas=true 的页面 DOM 采不到画面。",
+  "_source_evidence": {
+    "shell": "ZCode/packages/ui/src/WebRemoteControlMobileShell.tsx:12,167-246",
+    "route": "ZCode/packages/web/src/main.tsx:1792 bootstrapWebApp 顺序判定",
+    "settings": "ZCode/packages/ui/src/settings/settingsPageConfig.ts:62-207 + :259-266 DESKTOP_ONLY",
+    "side_pane": "ZCode/packages/ui/src/app-shell/AnimatedSidePanePanel.tsx:1240-1478"
+  },
+  "pages": [
+    {
+      "key": "001-登录",
+      "route": "/remote/v4",
+      "app": {
+        "ios": "login (LoginFlowView 全屏 cover)",
+        "android": "（待建）login",
+        "miniprogram": "pages/login/login"
+      },
+      "note": "无 JWT 时；web 为 Z.ai / BigModel 双 provider 按钮。iOS 有 OAuth 全链，Android 未移植"
+    },
+    {
+      "key": "002-登录回调",
+      "route": "/remote/v4?state=&code=",
+      "app": {
+        "ios": "OAuthResultView（ASWebAuthenticationSession 回调，无独立路由）",
+        "android": "（待建）",
+        "miniprogram": "pages/login/callback"
+      },
+      "note": "web 落地后 window.location.replace(app_return_to)；App 侧为系统回调，不是一屏"
+    },
+    {
+      "key": "003-设备列表",
+      "route": "/remote/v4#devices",
+      "app": {
+        "ios": "settings/devices (P2ExtrasViews.swift:709 DevicesPage)",
+        "android": "（待建）",
+        "miniprogram": "pages/devices/devices"
+      },
+      "note": "JWT 有、无 sid 时的落点；在线/离线分组 + 刷新 + 切换账号。web 版是独立一屏，iOS 放在设置内"
+    },
+    {
+      "key": "004-连接中",
+      "route": "/remote/v4?sid=&mid=",
+      "app": {
+        "ios": "ConnectView.connecting (ConnectingView.swift:5，五步进度)",
+        "android": "connect (ConnectScreen.kt:542 ConnectingSteps)",
+        "miniprogram": "pages/connecting/connecting"
+      },
+      "note": "web 四段：连接中转/设备鉴权/等待配对/同步工作区；iOS 五步"
+    },
+    {
+      "key": "005-连接失败",
+      "route": "/remote/v4#failure",
+      "app": {
+        "ios": "ConnectView.failure (ConnectingView.swift:255 ConnectFailureView)",
+        "android": "connect#failed (ConnectScreen.kt:696 ConnectFailedCard)",
+        "miniprogram": "pages/connecting/connecting#failed"
+      },
+      "note": "web 12 种 FailureReason 各有文案与主次按钮，需逐条对账"
+    },
+    {
+      "key": "006-多实例选择",
+      "route": "/remote/v4#connection-sheet",
+      "app": {
+        "ios": "（待建）",
+        "android": "（待建）",
+        "miniprogram": "pages/devices/devices#sheet"
+      },
+      "note": "同一台电脑多个在线实例时弹底部选择层（DeviceListPage > onlineConnections>1）。双端缺失"
+    },
+    {
+      "key": "007-切换账号",
+      "route": "/remote/v4#switch-account",
+      "app": {
+        "ios": "settings/account (ServerViews.swift:44 退出登录 sheet)",
+        "android": "（待建）",
+        "miniprogram": "pages/devices/devices#switch"
+      },
+      "note": "webSwitchAccountDialog 为确认对话框，包触发按钮"
+    },
+    {
+      "key": "008-版本提示",
+      "route": "/remote/v4#version-notice",
+      "app": {
+        "ios": "（待建）",
+        "android": "（待建）",
+        "miniprogram": "pages/devices/devices#version"
+      },
+      "note": "桌面版本不匹配时阻塞交互的原生 dialog；双端缺失"
+    },
+    {
+      "key": "009-分享落地",
+      "route": "/share/<code>",
+      "app": {
+        "ios": "zcode://share/<code> (App/ZCodeMobileApp.swift:43 → SharePreviewSheet)",
+        "android": "（待建）无 deeplink scheme",
+        "miniprogram": "pages/share/share?code=<code>"
+      },
+      "note": "web 4 态：loading/login_required/ready/error；私有分享需登录"
+    },
+    {
+      "key": "010-任务主页",
+      "route": "/remote/v4#home",
+      "app": {
+        "ios": "-acceptance-route 010-任务主页（ConversationListView.swift:10）",
+        "android": "sessions (SessionsScreen.kt:100)",
+        "miniprogram": "pages/sessions/sessions"
+      },
+      "note": "手机壳首页 = ProjectSidebar（项目树 + 任务行 + 底部账号/主题）。web 用 pushState 记页，原生应映射为返回栈"
+    },
+    {
+      "key": "011-会话对话",
+      "route": "/remote/v4#chat",
+      "app": {
+        "ios": "-acceptance-route chat:<sessionId>（ChatView.swift:8）",
+        "android": "chat/{sessionId} (ChatScreen.kt:124)",
+        "miniprogram": "pages/chat/chat?sessionId=<id>"
+      },
+      "note": "主体 V4ChatPane → SessionPane；含消息流/审批卡/队列/composer/工具块。Android 无 markdown 富渲染"
+    },
+    {
+      "key": "012-侧边抽屉",
+      "route": "/remote/v4#side-pane",
+      "app": {
+        "ios": "chat 内 sheet 组 (ChatView 产物/面板/附件)",
+        "android": "chat 内 ModalBottomSheet 组 (ChatScreen.kt:652/715)",
+        "miniprogram": "pages/chat/chat#side-pane"
+      },
+      "note": "web 手机壳把 side pane 改成右侧覆盖抽屉（宽 min(88vw,28rem)）；具体 pane 见 029-038"
+    },
+    {
+      "key": "013-设置",
+      "route": "/remote/v4#settings",
+      "app": {
+        "ios": "-acceptance-route 013-设置（SettingsView.swift:4）",
+        "android": "settings (SettingsScreen.kt:59)",
+        "miniprogram": "pages/settings/settings"
+      },
+      "note": "手机端有效 19 项（remoteDevices/dataSync/computerUse 为桌面专属，已排除）"
+    },
+    {
+      "key": "014-设置-通用",
+      "route": "/remote/v4#settings/general",
+      "app": { "ios": "settings/general", "android": "（待建）", "miniprogram": "pages/settings/general" },
+      "note": "SettingsPage.tsx:1798"
+    },
+    {
+      "key": "015-设置-外观",
+      "route": "/remote/v4#settings/appearance",
+      "app": { "ios": "settings/appearance (SettingsView.swift:939)", "android": "settings/language 内有语言无外观", "miniprogram": "pages/settings/appearance" },
+      "note": "Android 恒深色（BiuzTheme），外观设置未接"
+    },
+    {
+      "key": "016-设置-模型供应商",
+      "route": "/remote/v4#settings/modelProvider",
+      "app": { "ios": "settings/model (SettingsView.swift:616)", "android": "chat 内模型面板", "miniprogram": "pages/settings/model" },
+      "note": "SettingsPage.tsx:2083"
+    },
+    {
+      "key": "017-设置-用量",
+      "route": "/remote/v4#settings/usage",
+      "app": { "ios": "-acceptance-route 013-设置:usage（P2ExtrasViews.swift:13 UsageStatsView）", "android": "settings/usage (UsageStatsScreen.kt:78)", "miniprogram": "pages/settings/usage" },
+      "note": "含配额窗口/重置机会/趋势图；配额映射口径见协议文档 §9.10"
+    },
+    {
+      "key": "018-设置-项目",
+      "route": "/remote/v4#settings/projects",
+      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/settings/projects" },
+      "note": "SettingsPage.tsx:2172"
+    },
+    {
+      "key": "019-设置-归档",
+      "route": "/remote/v4#settings/archives",
+      "app": { "ios": "conversations#archived", "android": "（待建）", "miniprogram": "pages/settings/archives" },
+      "note": "SettingsPage.tsx:2174；iOS 以列表归档分区呈现"
+    },
+    {
+      "key": "020-设置-技能",
+      "route": "/remote/v4#settings/skill",
+      "app": { "ios": "settings/capabilities (P2ExtrasViews.swift:961)", "android": "（待建）", "miniprogram": "pages/settings/skill" },
+      "note": "SettingsPage.tsx:2152"
+    },
+    {
+      "key": "021-设置-MCP",
+      "route": "/remote/v4#settings/mcp",
+      "app": { "ios": "settings/capabilities", "android": "（待建）", "miniprogram": "pages/settings/mcp" },
+      "note": "SettingsPage.tsx:2137"
+    },
+    {
+      "key": "022-设置-插件",
+      "route": "/remote/v4#settings/plugin",
+      "app": { "ios": "settings/capabilities (含市场+安装)", "android": "（待建）", "miniprogram": "pages/settings/plugin" },
+      "note": "SettingsPage.tsx:2118"
+    },
+    {
+      "key": "023-设置-自动化",
+      "route": "/remote/v4#settings/automations",
+      "app": { "ios": "settings/automations (RemoteExtrasViews.swift:337)", "android": "（待建）", "miniprogram": "pages/settings/automations" },
+      "note": "SettingsPage.tsx:2200"
+    },
+    {
+      "key": "024-设置-钩子",
+      "route": "/remote/v4#settings/hooks",
+      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/settings/hooks" },
+      "note": "SettingsPage.tsx:2218"
+    },
+    {
+      "key": "025-设置-记忆",
+      "route": "/remote/v4#settings/memory",
+      "app": { "ios": "settings/capabilities", "android": "（待建）", "miniprogram": "pages/settings/memory" },
+      "note": "SettingsPage.tsx:2107"
+    },
+    {
+      "key": "026-设置-子代理",
+      "route": "/remote/v4#settings/subagents",
+      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/settings/subagents" },
+      "note": "SettingsPage.tsx:2194"
+    },
+    {
+      "key": "027-设置-个性化",
+      "route": "/remote/v4#settings/personalization",
+      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/settings/personalization" },
+      "note": "SettingsPage.tsx:2098"
+    },
+    {
+      "key": "028-设置-桌面设置同步",
+      "route": "/remote/v4#settings/desktop-sync",
+      "app": { "ios": "settings/desktop (P2ExtrasViews.swift:2232)", "android": "（待建）", "miniprogram": "pages/settings/desktop" },
+      "note": "setting 频道 get/update；频道名裁决见协议文档 §13"
+    },
+    {
+      "key": "029-Diff/Git 面板",
+      "route": "/remote/v4#pane/git",
+      "app": { "ios": "-acceptance-route 029-Diff/Git 面板（DiffReviewView.swift:155）", "android": "files (FilesScreen.kt:112)", "miniprogram": "pages/git/git" },
+      "note": "web GitPane 在 side pane；移动端提升为 tab。逐文件 stage/unstage"
+    },
+    {
+      "key": "030-文件管理器",
+      "route": "/remote/v4#pane/file-manager",
+      "app": { "ios": "-acceptance-route 030-文件管理器（FileTreeView.swift:5）", "android": "filesTree (FilesScreen.kt:781)", "miniprogram": "pages/files/files" },
+      "note": "只读边界：file 频道默认拒绝（ReadOnlyGate）"
+    },
+    {
+      "key": "031-文件预览",
+      "route": "/remote/v4#pane/code-viewer",
+      "app": { "ios": "files/preview (FileTreeView.swift:406)", "android": "filesPreview?path=&name=&size (FilesScreen.kt:1089)", "miniprogram": "pages/files/preview?path=<path>" },
+      "note": "web 支持代码/Markdown/图片/PDF/Office；Android 缺 PDF 与 markdown 富渲染"
+    },
+    {
+      "key": "032-计划详情",
+      "route": "/remote/v4#pane/plan-detail",
+      "app": { "ios": "chat#plan (ChatView.swift:929 PlanApprovalCard + PlanToolCallSheet)", "android": "chat#plan (ChatMessageViews.kt:719)", "miniprogram": "pages/chat/chat#plan" },
+      "note": "ExitPlanMode 工具行的计划预览卡"
+    },
+    {
+      "key": "033-子代理会话",
+      "route": "/remote/v4#pane/subagent-session",
+      "app": { "ios": "chat#subagent (ChatView.swift:492 ActorTranscriptSheet)", "android": "chat#subagent (SessionPanels.kt:1110)", "miniprogram": "pages/chat/chat#subagent" },
+      "note": "只读转录下钻"
+    },
+    {
+      "key": "034-后台命令输出",
+      "route": "/remote/v4#pane/bash-output",
+      "app": { "ios": "chat#works (SessionPanelsView.swift:1021)", "android": "chat#works (SessionPanels.kt:946)", "miniprogram": "pages/chat/chat#bash" },
+      "note": "BackgroundBashOutputSidePane"
+    },
+    {
+      "key": "035-工作流运行",
+      "route": "/remote/v4#pane/workflow-run",
+      "app": { "ios": "chat#workflow (SessionPanelsView.swift:551)", "android": "chat#workflow (SessionPanels.kt:486)", "miniprogram": "pages/chat/chat#workflow" },
+      "note": "含并发读 concurrency.limit 与 holes 展示"
+    },
+    {
+      "key": "036-白板",
+      "route": "/remote/v4#pane/whiteboard",
+      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/chat/chat#whiteboard" },
+      "canvas": true,
+      "note": "Canvas 2D 手绘（WhiteboardPane.tsx:47/:346）；DOM 采不到画面，只能截图。双端缺失"
+    },
+    {
+      "key": "037-终端",
+      "route": "/remote/v4#pane/terminal",
+      "app": { "ios": "（已删除）", "android": "（已删除）", "miniprogram": "（不可用）" },
+      "canvas": true,
+      "note": "xterm.js DOM 渲染器；终端的 create/write 属直写面被 ReadOnlyGate 拦，v1.39 已移除伪终端 UI。web 侧仅桌面窗口可用"
+    },
+    {
+      "key": "038-模型轨迹",
+      "route": "/remote/v4#pane/model-trajectory",
+      "app": { "ios": "-acceptance-route 038-模型轨迹（TaskOutputView.swift:22）", "android": "（待建）", "miniprogram": "pages/tasks/output?taskId=<id>" },
+      "note": "web ModelTrajectoryPane；iOS 放在任务输出页，Android 无任务域 UI"
+    }
+  ]
+}

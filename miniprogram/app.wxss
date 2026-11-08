@@ -1,0 +1,117 @@
+/* BiuZ 设计 token。
+ *
+ * APP-DIFF[D004] business: 三端统一使用 qoder 参考色板（近黑/近白 monochrome 主色 + 独立语义状态色），
+ * 而非 web 的 Tailwind token（ZCode/packages/ui/src/styles.css 的 .dark 块：背景 neutral-900、品牌 sky-500）。
+ * 裁决依据：用户指定「双端中立近黑/近白主色 + 状态色」（AGENTS.md v1.39 ⑦），iOS Theme.swift:50 与
+ * Android Color.kt 已是该口径。视觉规格与 web 对齐，色值刻意不同 → 已登记 docs/parity-diff-ledger.md。
+ *
+ * 换算口径：web 手机壳固定 390pt 宽视口；小程序 750rpx = 屏宽 → 1px ≈ 1.923rpx。
+ * 精确校准放在 W3 样板页（010-任务主页）。
+ */
+page {
+  /* 浅色档（默认，跟随系统） */
+  --color-background: #fdfdfd;
+  --color-card: #ffffff;
+  --color-elevated: #ffffff;
+  --color-input: #f4f4f5;
+  --color-code: #f6f6f7;
+  --color-border: rgba(0, 0, 0, 0.12);
+  --color-border-strong: rgba(0, 0, 0, 0.2);
+  --color-foreground: #111113;
+  --color-muted: #52525b;
+  --color-muted-2: #71717a;
+  --color-accent: #18181b;
+  --color-on-accent: #fafafa;
+  --color-accent-press: #000000;
+  /* 主按钮上的药丸（登录页 provider 区域标签）：相对 on-accent 的弱化描边/文字 */
+  --color-accent-pill-border: rgba(250, 250, 250, 0.3);
+  --color-accent-pill-text: rgba(250, 250, 250, 0.65);
+  --color-info: #3b82f6;
+  --color-warning: #b45309;
+  --color-destructive: #ef4444;
+  --color-success: #16a34a;
+  --color-violet: #7c3aed;
+
+  --space-1: 8rpx;
+  --space-2: 16rpx;
+  --space-3: 24rpx;
+  --space-4: 32rpx;
+  --space-6: 48rpx;
+
+  --radius-sm: 8rpx;
+  --radius-md: 16rpx;
+  --radius-lg: 24rpx;
+
+  --font-xs: 22rpx;
+  --font-sm: 24rpx;
+  --font-base: 28rpx;
+  --font-lg: 32rpx;
+  --font-title: 36rpx;
+
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-size: var(--font-base);
+  line-height: 1.5;
+}
+
+/* 深色档：与 iOS Theme.swift / Android Color.kt 的 dark 值逐字一致 */
+@media (prefers-color-scheme: dark) {
+  page {
+    --color-background: #080807;
+    --color-card: #1c1c1e;
+    --color-elevated: #232326;
+    --color-input: #2a2a2e;
+    --color-code: #141416;
+    --color-border: rgba(255, 255, 255, 0.2);
+    --color-border-strong: rgba(255, 255, 255, 0.3);
+    --color-foreground: #ffffff;
+    --color-muted: #a1a1aa;
+    --color-muted-2: #71717a;
+    --color-accent: #fafafa;
+    --color-on-accent: #18181b;
+    --color-accent-press: #e4e4e7;
+    --color-accent-pill-border: rgba(24, 24, 27, 0.3);
+    --color-accent-pill-text: rgba(24, 24, 27, 0.65);
+    --color-info: #60a5fa;
+    --color-warning: #f5a623;
+    --color-destructive: #f87171;
+    --color-success: #2fbf71;
+    --color-violet: #c792ff;
+  }
+}
+
+/* 安全区：web 用 dvh；小程序用环境变量，见 references/platform-differences.md §5 */
+.safe-top {
+  padding-top: constant(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.page-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: var(--space-6);
+  gap: var(--space-2);
+}
+.page-placeholder__title {
+  font-size: var(--font-title);
+  color: var(--color-foreground);
+}
+.page-placeholder__hint {
+  font-size: var(--font-sm);
+  color: var(--color-muted-2);
+  text-align: center;
+}

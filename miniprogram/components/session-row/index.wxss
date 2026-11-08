@@ -1,0 +1,52 @@
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 8rpx 8rpx 8rpx 19rpx;
+  border-radius: var(--radius-md);
+  background-color: transparent;
+}
+.row:active {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+.row__pin {
+  flex: 0 0 auto;
+  width: 31rpx;
+  padding-top: 4rpx;
+}
+.row__pin-glyph {
+  font-size: var(--font-xs);
+  color: var(--color-muted);
+}
+.row__main {
+  flex: 1;
+  min-width: 0;
+}
+.row__titleline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.row__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-base);
+  line-height: 40rpx;
+  color: var(--color-foreground);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.row__time {
+  flex: 0 0 auto;
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+}
+.row__unread {
+  flex: 0 0 auto;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background-color: var(--color-destructive);
+  margin-top: 12rpx;
+}

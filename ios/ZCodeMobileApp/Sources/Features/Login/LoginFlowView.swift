@@ -105,6 +105,13 @@ struct LoginFlowView: View {
         // 显式关闭：不想登录/不想连接时随时可退出（全屏 cover 无下滑手势）
         ToolbarItem(placement: .topBarTrailing) {
             Button {
+                // 授权 Sheet 打开时，右上角 ✕ 与 Sheet 的 ✕ 同语义：只关 Sheet，
+                // 回到 O1 登录主页；否则会直接 dismiss 整个登录 cover 落到连接页
+                //（2026-10-21 用户反馈「关掉之后应该回到有账号登录的那个页面」）。
+                if step == .authorizing {
+                    handleUserCancel()
+                    return
+                }
                 cancelFlowIfRunning()
                 dismiss()
             } label: {
@@ -273,10 +280,15 @@ struct LoginFlowView: View {
     }
 
     private func handleUserCancel() {
-        // ✕ / 下拉 / 页内取消三等价：中性结果非故障（O3-B 第一态）
-        exchangeError = .userCancelled
+        // ✕ / 下拉 / 页内取消：中性取消，直接回 O1 登录主页。
+        // 2026-10-21 用户反馈：此前落到 O3「登录未完成」，观感像报错；取消不该被当作故障。
+        exchangeError = nil
         exchangeStep = .callback
-        withAnimation { step = .failure }
+        authorizeURL = nil
+        callbackParams = nil
+        pendingState = ""
+        noCallbackFallback = false
+        withAnimation { step = .home }
     }
 
     private func cancelFlow() {

@@ -1,0 +1,87 @@
+<!-- 003-设备列表：品牌 + 标题/刷新 + 账号行 + 在线/离线分组 + 空态/加载/错误 -->
+<view class="page">
+  <view class="devices" style="padding-top: {{statusBarHeight + 12}}px">
+    <view class="brand">
+      <view class="brand__logo">Z</view>
+      <text class="brand__name">ZCode</text>
+    </view>
+
+    <view class="head">
+      <text class="head__title">{{copy.title}}</text>
+      <view class="head__refresh {{status === 'loading' ? 'head__refresh--spin' : ''}}" bind:tap="onRefresh">↻</view>
+    </view>
+
+    <view class="account" wx:if="{{accountText}}">
+      <view class="account__avatar">{{accountInitial}}</view>
+      <text class="account__text">{{accountText}}</text>
+      <text class="account__switch" bind:tap="onSwitchAccount">{{copy.switchAccount}}</text>
+    </view>
+    <view class="account" wx:else>
+      <text class="account__switch" bind:tap="onSwitchAccount">{{copy.switchAccountFallback}}</text>
+    </view>
+
+    <view class="devices__error" wx:if="{{error}}">
+      <error-line message="{{copy.error}}" retryable bind:retry="onRefresh" />
+    </view>
+
+    <block wx:if="{{sections.length}}">
+      <view class="section" wx:for="{{sections}}" wx:key="key">
+        <view class="section__head">
+          <text class="section__label">{{item.label}}</text>
+          <text class="section__count">{{item.count}}</text>
+        </view>
+        <view
+          class="device"
+          wx:for="{{item.devices}}"
+          wx:for-item="device"
+          wx:key="deviceMid"
+          data-mid="{{device.deviceMid}}"
+          bind:tap="onSelectDevice">
+          <view class="device__tile">
+            <text class="device__icon">💻</text>
+            <view class="device__dot" wx:if="{{device.online}}"></view>
+          </view>
+          <view class="device__main">
+            <text class="device__name">{{device.nameText}}</text>
+            <text class="device__desc">{{device.descText}}</text>
+            <text class="device__conns" wx:if="{{device.connectionsText}}">{{device.connectionsText}}</text>
+          </view>
+          <text class="device__chevron">›</text>
+        </view>
+      </view>
+      <text class="devices__note">{{copy.notFound}}</text>
+    </block>
+
+    <view class="devices__state" wx:elif="{{status === 'loading'}}">
+      <loading-state text="{{copy.loading}}" />
+    </view>
+
+    <view class="devices__state" wx:elif="{{!error}}">
+      <empty-state title="{{copy.emptyTitle}}" hint="{{copy.emptyDescription}}" />
+    </view>
+  </view>
+
+  <!-- 006 多实例选择：同组在线 > 1 时的底部弹层（web WebRemoteControlConnectionSheet） -->
+  <view class="sheet-mask" wx:if="{{sheetVisible}}" bind:tap="onCloseSheet"></view>
+  <view class="sheet" wx:if="{{sheetVisible}}">
+    <view class="sheet__grab"></view>
+    <text class="sheet__title">{{sheetTitle}}</text>
+    <text class="sheet__desc">{{sheetDescription}}</text>
+    <view class="sheet__rows">
+      <view
+        class="sheet__row"
+        wx:for="{{sheetRows}}"
+        wx:key="sid"
+        data-sid="{{item.sid}}"
+        bind:tap="onSelectConnection">
+        <view class="sheet__row-main">
+          <text class="sheet__row-title">{{item.title}}</text>
+          <text class="sheet__row-sub" wx:if="{{item.subtitle}}">{{item.subtitle}}</text>
+        </view>
+        <text class="sheet__row-chevron">›</text>
+      </view>
+    </view>
+    <view class="sheet__cancel" bind:tap="onCloseSheet">{{sheetCopy.cancel}}</view>
+    <view class="sheet__safe"></view>
+  </view>
+</view>

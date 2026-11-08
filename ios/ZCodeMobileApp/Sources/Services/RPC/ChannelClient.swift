@@ -70,6 +70,7 @@ enum ResponseType: Int {
     case promiseError = 202
     case promiseErrorObj = 203
     case eventFire = 204
+    case eventError = 205
 }
 
 /// RPC 层错误（PromiseError data.message/name 口径，channelClient.ts:96-117）
@@ -137,6 +138,7 @@ actor ChannelClient: RPCChannelTransport {
     private var pendingResponses: [Int: CheckedContinuation<RPCValue, Error>] = [:]
     private var initializeWaiters: [CheckedContinuation<Void, Error>] = []
     private var eventHandlers: [Int: @Sendable (RPCValue) -> Void] = [:]
+    private var eventErrorHandlers: [Int: @Sendable (RPCError) -> Void] = [:]
     private var onClosed: (@Sendable (Error?) -> Void)?
     private let urlSession: URLSession
 
@@ -263,11 +265,15 @@ actor ChannelClient: RPCChannelTransport {
     // MARK: 事件（EventListen / EventDispose）
 
     /// EventListen 一次，服务端按原 id 持续 EventFire（serialization：[102, id, channel, event] + arg）。
+    /// EventError(205)：订阅失败终态——移除 handler 并经 onError 上抛（channelClient.ts:176-185
+    /// 同构：不写入正常事件流、不保留旧请求；服务端已终结订阅，无需回 dispose）。
     func listen(_ channel: String, _ event: String, _ arg: RPCValue = .undefined,
-                handler: @escaping @Sendable (RPCValue) -> Void) -> EventSubscription {
+                handler: @escaping @Sendable (RPCValue) -> Void,
+                onError: (@Sendable (RPCError) -> Void)? = nil) -> EventSubscription {
         let id = lastRequestId
         lastRequestId += 1
         eventHandlers[id] = handler
+        if let onError { eventErrorHandlers[id] = onError }
 
         let header = RPCSerialization.serialize(.array([
             .int(RequestType.eventListen.rawValue), .int(id), .string(channel), .string(event),
@@ -282,6 +288,7 @@ actor ChannelClient: RPCChannelTransport {
     }
 
     private func disposeEvent(_ id: Int) {
+        eventErrorHandlers.removeValue(forKey: id)
         guard eventHandlers.removeValue(forKey: id) != nil, state == .idle else { return }
         let header = RPCSerialization.serialize(.array([
             .int(RequestType.eventDispose.rawValue), .int(id),
@@ -351,6 +358,11 @@ actor ChannelClient: RPCChannelTransport {
         case .eventFire:
             guard let id = headerItems[safe: 1]?.intValue else { return }
             eventHandlers[id]?(body)
+        case .eventError:
+            guard let id = headerItems[safe: 1]?.intValue else { return }
+            eventHandlers.removeValue(forKey: id)
+            let onError = eventErrorHandlers.removeValue(forKey: id)
+            onError?(decodeError(body))
         }
     }
 

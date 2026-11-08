@@ -132,7 +132,7 @@ struct PressableButtonStyle: ButtonStyle {
 // MARK: - spinner（2.7：1s 线性旋转）
 
 struct SpinnerView: View {
-    var color: Color = T.blue
+    var color: Color = T.greenBright
     var size: CGFloat = 18
     @State private var rotating = false
 
@@ -159,7 +159,7 @@ struct BlinkingCursor: View {
     @State private var visible = true
     var body: some View {
         RoundedRectangle(cornerRadius: 1.5)
-            .fill(T.accent)
+            .fill(T.green)
             .frame(width: 7, height: 14)
             .opacity(visible ? 1 : 0)
             .onAppear {

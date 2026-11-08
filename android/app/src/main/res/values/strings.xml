@@ -78,6 +78,33 @@
     <string name="chat_send_undelivered_reason">消息未送达 · %1$s</string>
     <string name="composer_retry">重试</string>
 
+    <!-- 公共件：行内提示 / 空态 / 加载态（ui/components/BiuzStateViews.kt） -->
+    <string name="state_action_retry">重试</string>
+
+    <!-- 010-任务主页（对齐 web home / ProjectSidebar） -->
+    <string name="sessions_title">任务列表</string>
+    <string name="sessions_no_device">未连接设备</string>
+    <string name="sessions_section_tasks">任务</string>
+    <string name="sessions_view_projects">按项目</string>
+    <string name="sessions_view_grouped">按分组</string>
+    <string name="sessions_view_timeline">最近更新</string>
+    <string name="sessions_view_unread">按未读</string>
+    <string name="sessions_view_unread_label">未读</string>
+    <string name="sessions_unread_empty">暂无未读会话</string>
+    <string name="sessions_view_grouped_pending">分组视图待接入：task-groups 数据源尚未接入移动端</string>
+
+    <!-- 001-登录（对齐 web WebLoginPage.tsx + webAuthLocale.ts:20-24） -->
+    <string name="login_brand">ZCode</string>
+    <string name="login_title">登录后继续使用 Web 远程控制</string>
+    <string name="login_description">请选择与电脑端相同的登录平台，并使用同一账号。</string>
+    <string name="login_action_zai">连接 Z.ai 继续使用</string>
+    <string name="login_action_bigmodel">连接 BigModel 继续使用</string>
+    <string name="login_region_global">全球</string>
+    <string name="login_region_cn">中国</string>
+    <string name="login_cancel">取消</string>
+    <string name="login_close">暂不登录</string>
+    <string name="login_entry">登录 Z.ai 账号</string>
+
     <!-- 协作模式 chips 与面板 -->
     <string name="composer_mode_plan">计划</string>
     <string name="composer_mode_build">构建</string>
@@ -175,7 +202,7 @@
     <string name="app_foot_boundary">凭据仅保存在本机 · 连接仅面向可信局域网 · 只读边界由桌面端强制</string>
 
     <!-- 会话列表分组标签（kind → 资源；ConversationGrouping.SectionKind 渲染面） -->
-    <string name="group_pinned">置顶</string>
+    <string name="group_pinned">已置顶</string>
     <string name="group_today">今天</string>
     <string name="group_yesterday">昨天</string>
     <string name="group_earlier">更早</string>

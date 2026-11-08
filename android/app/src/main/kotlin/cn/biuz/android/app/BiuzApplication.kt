@@ -33,6 +33,9 @@ class BiuzApplication : Application() {
     val appSession: AppSession by lazy {
         AppSession(
             registryPersistence = SharedPreferencesServerRegistryPersistence(this),
+            // OAuth 账户凭据（iOS Keychain 对应物）：Keystore 加密后落 SharedPreferences。
+            // 与服务器注册表是两套独立凭据，退出登录不互相清除。
+            oauthPersistence = KeystoreOAuthCredentialPersistence(this),
         )
     }
 }

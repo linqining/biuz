@@ -36,7 +36,7 @@ class ConversationGroupingTest {
             row("last-week", yesterdayStart - 1),
         )
         val sections = groupConversationsByRecency(rows, todayStart, yesterdayStart)
-        assertEquals(listOf("置顶", "今天", "昨天", "更早"), sections.map { it.label })
+        assertEquals(listOf("已置顶", "今天", "昨天", "更早"), sections.map { it.label })
         // 置顶组含过期行（置顶优先于时间分组）
         assertEquals(listOf("pinned-early"), sections[0].rows.map { it.id })
         assertEquals(listOf("newer", "older"), sections[1].rows.map { it.id })
@@ -73,6 +73,49 @@ class ConversationGroupingTest {
             conversationRowTimeLabel(yesterdayStart - 1, todayStart, yesterdayStart, java.text.SimpleDateFormat("HH:mm", Locale.CHINA))
                 .endsWith("日"),
         )
+    }
+
+    @Test
+    fun projectSectionsPlacePinnedFirstThenProjectsThenUngrouped() {
+        val rows = listOf(
+            row("pinned-1", todayStart - 10 * 24 * 60 * 60 * 1_000L, pinned = true),
+            Conversation("a-old", "A 旧", "", "/work/alpha", todayStart - 3 * 24 * 60 * 60 * 1_000L),
+            Conversation("a-new", "A 新", "", "/work/alpha", todayStart - 60_000L),
+            Conversation("b-1", "B 一", "", "/work/beta", todayStart - 24 * 60 * 60 * 1_000L),
+            Conversation("free-1", "无项目", "", "", todayStart - 30_000L),
+        )
+        val sections = projectSections(rows, "已置顶", "任务")
+        assertEquals(listOf("已置顶", "alpha", "beta", "任务"), sections.map { it.title })
+        assertEquals(listOf("pinned-1"), sections[0].rows.map { it.id })
+        assertEquals(listOf("a-new", "a-old"), sections[1].rows.map { it.id })
+        assertEquals(listOf("free-1"), sections[3].rows.map { it.id })
+    }
+
+    @Test
+    fun timelineSectionsDoNotBucketByDate() {
+        val rows = listOf(
+            row("early", todayStart - 10 * 24 * 60 * 60 * 1_000L),
+            row("late", todayStart + 100),
+        )
+        val sections = timelineSections(rows, "已置顶", "最近更新")
+        assertEquals(listOf("最近更新"), sections.map { it.title })
+        assertEquals(listOf("late", "early"), sections[0].rows.map { it.id })
+    }
+
+    @Test
+    fun unreadSectionsKeepPinnedAndFilterUnread() {
+        val rows = listOf(
+            row("pinned-1", todayStart, pinned = true),
+            Conversation("unread-1", "未读", "", "", todayStart, unreadCount = 2),
+            Conversation("read-1", "已读", "", "", todayStart),
+        )
+        val sections = unreadSections(rows, "已置顶", "未读", "暂无未读会话")
+        assertEquals(listOf("已置顶", "未读"), sections.map { it.title })
+        assertEquals(listOf("unread-1"), sections[1].rows.map { it.id })
+
+        val empty = unreadSections(listOf(Conversation("read", "已读", "", "", todayStart)), "已置顶", "未读", "暂无未读会话")
+        assertEquals(listOf("暂无未读会话"), empty.map { it.title })
+        assertTrue(empty[0].rows.isEmpty())
     }
 
     @Test

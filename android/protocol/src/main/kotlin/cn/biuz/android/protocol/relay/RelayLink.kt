@@ -25,21 +25,39 @@ import javax.crypto.spec.SecretKeySpec
  * （RelayLink.swift:9-24）
  */
 data class RelayLinkConfig(
-    /** wss 端点（query 原样保留 mid 参数语义） */
+    /** wss 端点（V1：`/ws?mid=…`；V2：`/api/v1/remote/ws2`，token 在建连时追加） */
     val wssURL: String,
     /** 配对链接 name 参数（桌面机器名，UI 展示用） */
     val machineName: String?,
     /** 配对链接 sid 参数（桌面会话凭据，auth 帧 device_sid） */
     val deviceSid: String,
-    /** 配对链接 hash 参数（URL 解码后的 base64 原字符串，HMAC-SHA256 密钥；iOS 仅存 Keychain，
-     *  Android 对应 Keystore/EncryptedSharedPreferences——装配层承接） */
-    val passHash: String,
+    /** V1 配对链接 hash（HMAC 密钥）；V2 无此字段（null） */
+    val passHash: String? = null,
     /** 配对链接 app_version 参数（桌面版本，诊断对照 bootstrap-response.desktopAppVersion） */
-    val desktopAppVersion: String?,
+    val desktopAppVersion: String? = null,
+    /** 1/nil = V1（兼容 3.16.2 之前桌面）；2 = V2（3.16.2 起，JWT + 一次性 token） */
+    val protocolVersion: Int? = null,
+    /** V2 网关路由提示 mid（ws2?mid=…） */
+    val deviceMid: String? = null,
 ) {
     /** URLComponents(string: wssURL)?.host 对应物（RelayLink.swift:21-23）。 */
     val endpointHost: String?
         get() = UrlComponents.parse(wssURL)?.host
+
+    /**
+     * V2 判定（iOS `RelayLinkConfig.isV2`：protocolVersion == 2）。
+     * V1 走 auth_challenge/auth_response 的 HMAC 挑战；V2 走 JWT 换一次性 token + auth_init。
+     */
+    val isV2: Boolean
+        get() = protocolVersion == 2
+
+    /** V2 HTTP 面 origin（`/api/v1/remote/token` 挂在同一 host；iOS `httpOrigin` 同口径）。 */
+    val httpOrigin: String?
+        get() {
+            val components = UrlComponents.parse(wssURL) ?: return null
+            val host = components.host ?: return null
+            return "https://$host"
+        }
 }
 
 // MARK: - 关闭/失败原因（src-D3H6NV7w.js TN close code 表 + error.code 表）

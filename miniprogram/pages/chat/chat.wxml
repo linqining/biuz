@@ -1,0 +1,7 @@
+<!-- 011-会话对话 —— 骨架页。按 web 源实现，禁止填假数据。 -->
+<view class="page safe-top" data-page="011-会话对话">
+  <view class="page-placeholder">
+    <text class="page-placeholder__title">011-会话对话</text>
+    <text class="page-placeholder__hint">TODO · web 源：packages/ui/src/WebRemoteControlMobileShell.tsx:172-246 + v4/V4ChatPane.tsx:92</text>
+  </view>
+</view>

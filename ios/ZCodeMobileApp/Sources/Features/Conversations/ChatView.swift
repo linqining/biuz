@@ -1681,6 +1681,30 @@ struct ComposerBar: View {
             if viewModel.isReadOnly, !slashMatches.isEmpty {
                 slashMenu
             }
+            // 3.17.2 输入预测 ghost hint（灰字续写，点按采纳拼到草稿尾部）。仅连接态 +
+            // Host 能力门开启时 store 才返候选；无 hint 不渲染整行（同附件条「无排队不渲染」）
+            if viewModel.isReadOnly, let hint = viewModel.inputHint {
+                Button {
+                    viewModel.acceptInputHint()
+                    UISelectionFeedbackGenerator().selectionChanged()
+                } label: {
+                    HStack(spacing: T.sp2) {
+                        Image(systemName: "text.insert")
+                            .font(.system(size: 11))
+                        Text(hint)
+                            .font(T.font(13))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                        Text(String(localized: "点按采纳"))
+                            .font(T.font(10.5))
+                    }
+                    .foregroundColor(T.text2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("05-input-hint")
+            }
             inputRow
         }
         .padding(.horizontal, T.sp4)
@@ -1698,6 +1722,13 @@ struct ComposerBar: View {
             if let restored = restoredDraftText, newDraft != restored {
                 sendFailure = nil
                 restoredDraftText = nil
+            }
+            // 3.17.2 输入预测：非空草稿停顿即预测续写；空草稿仅失焦+空闲时预测下一条
+            //（spec「输入框为空、失焦且会话空闲」——聚焦清空〔发送后〕不立即触发）
+            if !newDraft.isEmpty || !inputFocused.wrappedValue {
+                viewModel.scheduleInputPrediction()
+            } else {
+                viewModel.invalidateInputHint()
             }
         }
         // 添加附件来源选择（设计稿 1.3①）：自绘底部 sheet——confirmationDialog 在本

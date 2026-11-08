@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "last_synced": null,
+  "in_progress": {
+    "base_commit": "a9fe401eede6e6e5e01be9048679c206fe6f02d9",
+    "base_commit_short": "a9fe401eede6",
+    "branch": "main",
+    "dirty": true,
+    "dirty_count": 1,
+    "dirty_files": [
+      "M pnpm-lock.yaml"
+    ],
+    "started_at": "2026-11-07T23:50:40+00:00",
+    "scope": [
+      "ui",
+      "popup",
+      "animation"
+    ],
+    "note": "W3 样板页：010-任务主页（home/ProjectSidebar）",
+    "operator": "mac"
+  }
+}

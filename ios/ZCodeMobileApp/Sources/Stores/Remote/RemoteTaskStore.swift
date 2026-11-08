@@ -4,7 +4,9 @@ import Foundation
 
 /// 真实实现：TaskStore 协议按 mappingToApp 第 4 条落地。
 /// - tasks() ← zcodeTaskService.listTaskList（真相源 tasks-index.sqlite）
-/// - terminalStream/trajectoryLines ← conversation 行投影（toolCall/reasoning）
+/// - trajectoryLines ← conversation 行投影（toolCall/reasoning）；无 terminalStream
+///   （上游 terminal 频道需 create/write 自建 PTY，手机直写被 ReadOnlyGate 拦截、
+///   且无「读任务终端」方法——v1.39 死 UI 移除后协议面一并撤除）
 /// - 命令面（v3 纠偏口径）：approve/reject/stop 真实下发——审批经
 ///   conversationStore.currentPendingInteraction 解析真实 interactionId 后走 v4
 ///   resolveInteraction；stop 走 v4 stop 信封（sessionId=taskId）。均属「客户端发
@@ -19,7 +21,6 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
 
     private var cache: [TaskRecord] = []
     private var continuations: [UUID: AsyncStream<[TaskRecord]>.Continuation] = [:]
-    private var terminalContinuations: [String: [UUID: AsyncStream<TerminalLine>.Continuation]] = [:]
     /// onDynamicTaskEvent 订阅（任务活性服务端推送；named gap「状态变化只能手动下拉刷新」修复）
     private var taskEventsSubscription: EventSubscription?
     private var taskEventsEnsureTask: Task<Void, Never>?
@@ -311,21 +312,7 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
         }
     }
 
-    // MARK: 终端输出 / 轨迹投影
-
-    func terminalStream(taskID: String) -> AsyncStream<TerminalLine> {
-        AsyncStream { continuation in
-            let key = UUID()
-            terminalContinuations[taskID, default: [:]][key] = continuation
-            continuation.onTermination = { _ in
-                Task { await self.removeTerminalContinuation(taskID: taskID, key: key) }
-            }
-        }
-    }
-
-    private func removeTerminalContinuation(taskID: String, key: UUID) {
-        terminalContinuations[taskID]?.removeValue(forKey: key)
-    }
+    // MARK: 轨迹投影（v1.39：伪终端流已随死 UI 撤除）
 
     func trajectoryLines(taskID: String) async -> [TerminalLine] {
         // reasoning + toolCall 行投影（mappingToApp：trajectoryLines ← reasoning+toolCall）
@@ -418,22 +405,18 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
         }
     }
 
-    // MARK: 桌面分组视图结构（P2-6：listGroupedTaskViewStructure，任务看板对齐桌面分组）
+    // MARK: 桌面分组视图结构（task-groups.read，任务看板对齐桌面分组）
 
-    /// 桌面分组结构只读拉取。B-2 修正（web 实证 bundle，2026-10-06）：入参恒为
-    /// `{workspaceScopes:[{workspacePath, workspaceIdentity?}]}`（web 调用点
-    /// `listGroupedTaskViewStructure({workspaceScopes:i})`，条目含 workspaceIdentity）
-    /// ——原「先 workspaceScopes 后扁平 {workspacePath} 双形态探针」系零取证时期的
-    /// 猜测序，扁平形态不在 web 调用面，撤除。失败/解析不出 → nil（消费侧回退本地
-    /// 状态分组并轻提示）。
+    /// 桌面分组结构只读拉取。v1.39 重接上游真实 API【实证·上游仓
+    /// packages/services/src/task-groups/contract.ts:38 + index.ts:47】：
+    /// `task-groups.read()` **无参**（channels.ts:124；移动端 allowlist
+    /// windowHostAttachmentRpcPolicy.ts:40 在位）——旧 `zcode-task.
+    /// listGroupedTaskViewStructure` 在上游源码零命中，恒静默无效。
+    /// 失败/解析不出 → nil（消费侧回退本地状态分组并轻提示）。
     func groupedTaskViewStructure() async -> DesktopTaskGrouping? {
         guard let connection else { return nil }
-        var builder = JSONObjectBuilder()
-        builder.set("workspaceScopes", .array([.object(
-            Self.taskWorkspaceScopeJSON(workspace))]))
         do {
-            let result = try await connection.call(
-                "zcode-task", "listGroupedTaskViewStructure", .json(.object(builder.fields)))
+            let result = try await connection.call("task-groups", "read", .undefined)
             return Self.parseGroupedTaskView(result.jsonValue)
         } catch {
             // 保持 nil → TaskBoardView 回退本地状态分组（groupingUnavailable 轻提示）
@@ -441,108 +424,90 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
         }
     }
 
-    /// workspaceScopes 条目（B-2/B-3 共用；web K3 形状 `{workspacePath, workspaceIdentity?}`，
-    /// identity 缺席省键 = web JSON.stringify 丢 undefined 的同行为）
-    static func taskWorkspaceScopeJSON(_ workspace: ServerWorkspaceInfo) -> [String: JSONValue] {
-        var scope: [String: JSONValue] = ["workspacePath": .string(workspace.path)]
-        if let identity = workspace.workspaceIdentity, !identity.isEmpty {
-            scope["workspaceIdentity"] = .string(identity)
-        }
-        return scope
-    }
-
-    /// 回执解析（B-2 重写，web 实证【移植·bundle 逆向】2026-10-06）：形状
-    /// `{groups:[{id,title,color,…}], members:[{groupId,workspacePath,
-    /// workspaceIdentity,taskId}], topLevelOrders:[…]}`
-    /// ——成员在**顶层 members 数组**、按自带 groupId 归组（组对象内无任何成员键；
-    /// 旧解析在组内找 tasks/taskIds/items/order 恒空 → 每组 taskIDs 恒空 → 桌面
-    /// 分组恒回退本地四组，即审查报告 B-2「RPC 成功的静默假成功」）。
-    /// topLevelOrders 携带组排序（`{type:'group',groupId,sortOrder}`；任务条目
-    /// `{type:'task',workspaceKey,taskId,sortOrder}` 仅排序用，成员归属仍以 members
-    /// 为准）。回执无 groups 键/非对象 → nil（解析失败与「桌面无分组」区分：空
-    /// groups 数组是合法态，返回空 groups 的 grouping）。
+    /// 回执解析（v1.39 task-groups 重接，【实证·上游仓 contract.ts:19-23 +
+    /// repository.ts:52-79】）：形状
+    /// `{groups:[{id,title,color,createdAt,updatedAt}], members:[{groupId,
+    /// workspaceKey,taskId,sortOrder}], order:[{type:"group"|"task",key,sortOrder}]}`
+    /// ——成员在顶层 members、按自带 groupId 归组、组内序取 sortOrder；组排序取
+    /// order 中 type=="group" 的条目（key=groupId）sortOrder，无条目的组按回执序殿后。
+    /// members 只携 workspaceKey（= identity?.trim() || workspacePath，
+    /// task-realtime-core.ts:84-89）——不带 workspacePath/identity 拆解键。
+    /// 回执无 groups 键/非对象 → nil（空 groups 数组是合法态）。
     static func parseGroupedTaskView(_ value: JSONValue?) -> DesktopTaskGrouping? {
-        guard let dict = value?.objectValue, let rawGroups = dict["groups"]?.arrayValue else {
-            return nil
-        }
-        // 顶层 members 按 groupId 归组（保持 members 数组序 = web 组内任务序）
-        var membersByGroup: [String: [DesktopTaskGrouping.TaskRef]] = [:]
-        for member in dict["members"]?.arrayValue ?? [] {
+        let top = value?.objectValue ?? [:]
+        // 宽容：部分服务面把返回值包一层 {result:{…}}（v4 命令 ack 先例）；结构本体仍以顶层为准
+        let root = top["groups"] != nil ? top : (top["result"]?.objectValue ?? top)
+        guard let rawGroups = root["groups"]?.arrayValue else { return nil }
+        // 顶层 members 按 groupId 归组（sortOrder 升序 = 桌面组内序）
+        var membersByGroup: [String: [(order: Int, ref: DesktopTaskGrouping.TaskRef)]] = [:]
+        for member in root["members"]?.arrayValue ?? [] {
             guard let entry = member.objectValue,
                   let groupId = entry["groupId"]?.stringValue,
-                  let taskId = entry["taskId"]?.stringValue,
-                  let workspacePath = entry["workspacePath"]?.stringValue else { continue }
-            membersByGroup[groupId, default: []].append(DesktopTaskGrouping.TaskRef(
-                workspacePath: workspacePath,
-                workspaceIdentity: entry["workspaceIdentity"]?.stringValue,
-                taskId: taskId))
+                  let taskId = entry["taskId"]?.stringValue else { continue }
+            let ref = DesktopTaskGrouping.TaskRef(
+                workspaceKey: entry["workspaceKey"]?.stringValue ?? "",
+                taskId: taskId)
+            membersByGroup[groupId, default: []].append(
+                (entry["sortOrder"]?.intValue ?? Int.max, ref))
         }
-        // 组排序：topLevelOrders 组条目 sortOrder 升序；无排序条目的组按回执序殿后
+        // 组排序：order 组条目 sortOrder 升序；无排序条目的组按回执序殿后
         var groupOrder: [String: Int] = [:]
-        for order in dict["topLevelOrders"]?.arrayValue ?? [] {
-            guard let entry = order.objectValue,
+        for node in root["order"]?.arrayValue ?? [] {
+            guard let entry = node.objectValue,
                   entry["type"]?.stringValue == "group",
-                  let groupId = entry["groupId"]?.stringValue else { continue }
-            groupOrder[groupId] = entry["sortOrder"]?.intValue ?? 0
+                  let key = entry["key"]?.stringValue else { continue }
+            groupOrder[key] = entry["sortOrder"]?.intValue ?? 0
         }
         let groups = rawGroups.enumerated().compactMap { index, groupJSON -> (group: DesktopTaskGrouping.Group, sort: Int, fallback: Int)? in
             guard let group = parseGroupedTaskViewGroup(groupJSON) else { return nil }
-            let order = groupOrder[group.id].map { (sort: $0, fallback: index) }
-                ?? (sort: Int.max, fallback: index)
-            return (group: group, sort: order.sort, fallback: order.fallback)
+            return (group, groupOrder[group.id] ?? Int.max, index)
         }
         return DesktopTaskGrouping(groups: groups.sorted { lhs, rhs in
             lhs.sort != rhs.sort ? lhs.sort < rhs.sort : lhs.fallback < rhs.fallback
         }.map { entry in
-            // 成员归组：顶层 members 按自带 groupId 领取（组对象内无成员键——B-2）
             var group = entry.group
-            group.taskRefs = membersByGroup[group.id] ?? []
-            group.taskIDs = group.taskRefs.map(\.taskId)
+            let refs = (membersByGroup[group.id] ?? [])
+                .sorted { $0.order < $1.order }
+                .map(\.ref)
+            group.taskRefs = refs
+            group.taskIDs = refs.map(\.taskId)
             return group
         })
     }
 
-    /// 组条目：web 组对象 {id, title, color, …}（bundle 消费点 e.group.id/
-    /// group.title/group.color）。collapsed 不在 web 形状内，宽容读
-    /// collapsed/isCollapsed（未取证，仅作本地折叠初值）。
+    /// 组条目：{id, title, color, createdAt, updatedAt}（contract.ts:5-11；color
+    /// 不在移动端展示面，不投影）。
     private static func parseGroupedTaskViewGroup(_ json: JSONValue) -> DesktopTaskGrouping.Group? {
         guard let dict = json.objectValue else { return nil }
         guard let id = dict["id"]?.stringValue ?? dict["groupId"]?.stringValue, !id.isEmpty else {
             return nil
         }
-        let name = dict["title"]?.stringValue ?? id
-        let collapsed = dict["collapsed"]?.boolValue ?? dict["isCollapsed"]?.boolValue ?? false
         return DesktopTaskGrouping.Group(
             id: id,
-            name: name,
-            collapsed: collapsed,
+            name: dict["title"]?.stringValue ?? id,
             taskRefs: [],
             taskIDs: [])
     }
 }
 
-/// P2-6：桌面分组视图结构投影（zcode-task.listGroupedTaskViewStructure 回执）。
-/// B-2 重写（web 实证【移植·bundle 逆向】2026-10-06）：回执
-/// `{groups:[{id,title,color,…}], members:[{groupId,workspacePath,workspaceIdentity,
-/// taskId}], topLevelOrders:[…]}`——成员按自带 groupId 归组、组排序取 topLevelOrders
-/// 组条目 sortOrder。taskRefs 保留完整工作区引用（B-3 全量视图写回所需）。
+/// task-groups.read 回执投影（v1.39 重接上游真实 API；旧 zcode-task.
+/// listGroupedTaskViewStructure 形状已废弃——该命令上游源码零命中）。
 struct DesktopTaskGrouping: Equatable, Sendable {
-    /// 组成员/写回条目（web 形状 {workspacePath, workspaceIdentity?, taskId}）
+    /// 组成员条目（回执 members 只携 workspaceKey + taskId，不拆解路径/身份；
+    /// 写面 move 的任务引用由调用方按会话归属工作区构造）
     struct TaskRef: Equatable, Sendable {
-        let workspacePath: String
-        let workspaceIdentity: String?
+        let workspaceKey: String
         let taskId: String
     }
     struct Group: Equatable, Sendable {
-        /// groupId（web 组对象 id；真实组标识——写面禁止以组名充当，B-3）
+        /// groupId（TaskGroup.id——写面 save/move/ungroup 的真实定址键）
         let id: String
-        /// 组名（web title；title 缺席时以 id 兜底显示）
+        /// 组名（TaskGroup.title；title 缺席时以 id 兜底显示）
         let name: String
-        /// 桌面折叠标记（宽容读 collapsed/isCollapsed；未取证——仅作本地折叠初值）
-        let collapsed: Bool
-        /// 组成员完整引用（回执 members 序；B-3 全量视图写回的数据基线）
+        /// 组成员（回执 members 序；sortOrder 升序）
         var taskRefs: [TaskRef]
-        /// 成员 taskId（taskRefs 投影；消费侧 TaskBoardView 按 id 对齐缓存）
+        /// 成员 taskId（taskRefs 投影；消费侧 TaskBoardView 按 id 对齐缓存、
+        /// move 链按 id 定位 sourceGroupId）
         var taskIDs: [String]
     }
     let groups: [Group]

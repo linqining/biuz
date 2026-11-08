@@ -32,6 +32,7 @@ package cn.biuz.android.connection
 // - iOS P1 重连缓存迁移（exportCaches/adoptCaches）：Android RemoteConversationStore
 //   未移植该对方法，重连即重建行缓存（同批 iOS Task { adoptCaches } 面如实挂账）。
 
+import cn.biuz.android.protocol.relay.RelayLinkConfig
 import cn.biuz.android.protocol.ConnectURLParser
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.JSONObjectBuilder
@@ -284,6 +285,11 @@ class AppSession(
      * 客户端落位后由装配方回填；局域网直连恒 null = 不注水（iOS 非 中继连接为 nil 同口径）。
      */
     var bootstrapTasksProvider: (suspend () -> JSONValue?)? = null,
+    /**
+     * OAuth 账户凭据持久化后端（iOS Keychain 对应物；:app 注入 Keystore 加密实现，
+     * 测试注入内存实现）。与连接凭据（ServerRegistry）是两套独立存储。
+     */
+    oauthPersistence: OAuthCredentialPersistence = InMemoryOAuthCredentialPersistence(),
 ) {
 
     // MARK: 连接五态（iOS enum Mode 直译；Swift Equatable → Kotlin data class 值相等）
@@ -418,7 +424,197 @@ class AppSession(
 
     private val scope = CoroutineScope(SupervisorJob() + backgroundDispatcher)
 
+    // MARK: - OAuth 账户层（iOS AppSession.swift:1276-1514 同构）
+    //
+    // 与连接凭据（ServerRegistry）是两套独立凭据：退出登录只清账户层，不动已保存服务器。
+
+    private val oauthConfig = OAuthConfig.resolve(startupArguments)
+    val oauthCredentials: OAuthCredentialStore = OAuthCredentialStore(oauthPersistence)
+    private val oauthClient = ZaiOAuthClient(oauthConfig)
+    private val deviceCatalog = RelayDeviceCatalog()
+
+    private val _oauthSessionVersion = MutableStateFlow(0)
+    val oauthSessionVersion: StateFlow<Int> = _oauthSessionVersion
+
+    /** 进行中的授权（provider + nonce）：回调时必须与 state 里的 nonce 对上。 */
+    @Volatile
+    private var pendingOAuth: Pair<OAuthProviderId, String>? = null
+
+    @Volatile
+    private var lastRelayDeviceSid: String? = null
+
+    @Volatile
+    private var lastRelayDeviceMid: String? = null
+
+    val oauthTokenSet: OAuthTokenSet?
+        get() = oauthCredentials.tokenSet
+
+    val oauthUserInfo: OAuthUserInfo?
+        get() = oauthCredentials.userInfo
+
+    val isLoggedIn: Boolean
+        get() = oauthCredentials.tokenSet != null
+
+    val isOAuthExpired: Boolean
+        get() = oauthCredentials.tokenSet?.let { oauthCredentials.isExpired(it) } ?: false
+
+    /** 登录后设备直达结果（iOS `AutoConnectOutcome`；UI 据此渲染）。 */
+    sealed class AutoConnectOutcome {
+        data object Connected : AutoConnectOutcome()
+
+        data object NoPairedDevice : AutoConnectOutcome()
+
+        data class NeedsSelection(val devices: List<RelayDeviceSummary>) : AutoConnectOutcome()
+
+        data class Failed(val target: String) : AutoConnectOutcome()
+    }
+
+    /** ① 发起授权：返回授权 URL（UI 用 WebView 打开），并记下 nonce 供回调校验。 */
+    fun beginOAuth(provider: OAuthProviderId): String {
+        val nonce = UUID.randomUUID().toString()
+        pendingOAuth = provider to nonce
+        return oauthClient.buildAuthorizeUrl(provider, OAuthStateCodec.buildState(nonce))
+    }
+
+    /**
+     * ② 回调落地：校验 state → 用 code 换 token → 落凭据 → 推送登录态。
+     * 任一环节失败抛 [OAuthException]（调用方按五态呈现文案，不吞错）。
+     */
+    @Throws(OAuthException::class)
+    suspend fun completeOAuth(
+        callbackUrl: String,
+        cookieHeader: String? = null,
+    ): OAuthCredentialStore.Credentials {
+        val params = oauthClient.parseCallbackParams(callbackUrl)
+        val pending = pendingOAuth
+        val actualNonce = OAuthStateCodec.nonce(params.state)
+        if (pending == null || actualNonce == null || actualNonce != pending.second) {
+            throw OAuthException.StateMismatch()
+        }
+        params.error?.let { throw OAuthException.ServerError(it) }
+        val code = params.code ?: throw OAuthException.ServerError("授权回调缺少 code")
+        val credentials = oauthClient.exchangeToken(
+            provider = pending.first,
+            code = code,
+            state = params.state,
+            cookieHeader = cookieHeader,
+        )
+        oauthCredentials.save(credentials.tokenSet, credentials.userInfo)
+        pendingOAuth = null
+        _oauthSessionVersion.value += 1
+        return credentials
+    }
+
+    /** 凭据已由调用方落盘后的状态推送（iOS `handleOAuthSuccess`）。 */
+    fun handleOAuthSuccess(tokenSet: OAuthTokenSet, userInfo: OAuthUserInfo) {
+        oauthCredentials.save(tokenSet, userInfo)
+        _oauthSessionVersion.value += 1
+    }
+
+    /** 退出登录：仅清账户层 tokenSet，不动已保存服务器与连接令牌。 */
+    fun logout() {
+        oauthCredentials.clear()
+        pendingOAuth = null
+        _oauthSessionVersion.value += 1
+    }
+
+    /**
+     * 登录成功后自动发现设备并连接（iOS `autoConnectAfterLogin` :1318-1376）。
+     *
+     * 顺序：设备目录（JWT）按官方规则选 → 多在线设备让用户选 → 目录不可用则回退本地已配对中继。
+     */
+    suspend fun autoConnectAfterLogin(): AutoConnectOutcome {
+        if (_mode.value is Mode.Connected) return AutoConnectOutcome.Connected
+
+        val devices = fetchRelayDevices()
+        if (devices != null) {
+            val online = devices.filter { it.online }
+            val savedSid = registry.servers
+                .filter { it.relay != null }
+                .sortedByDescending { it.lastConnectedAt ?: Long.MIN_VALUE }
+                .mapNotNull { it.relay?.deviceSid }
+                .firstOrNull()
+            val match = RelayDeviceCatalog.selectAutoConnectDevice(
+                devices = devices,
+                savedSid = savedSid,
+                lastSid = lastRelayDeviceSid,
+                lastMid = lastRelayDeviceMid,
+            )
+            if (match != null) return connectRelayDevice(match)
+            if (online.size > 1) return AutoConnectOutcome.NeedsSelection(online)
+        }
+
+        val target = registry.servers
+            .filter { it.relay != null }
+            .sortedByDescending { it.lastConnectedAt ?: Long.MIN_VALUE }
+            .firstOrNull()
+            ?: return AutoConnectOutcome.NoPairedDevice
+        connect(target)
+        if (_mode.value is Mode.Connected) {
+            rememberRelayDevice(target.relay?.deviceSid, target.relay?.deviceMid)
+            return AutoConnectOutcome.Connected
+        }
+        cancelConnecting()
+        return AutoConnectOutcome.Failed(target.name ?: target.host)
+    }
+
+    /** 连接设备目录中的一台设备（自动落点与多设备选择共用）。 */
+    suspend fun connectRelayDevice(device: RelayDeviceSummary): AutoConnectOutcome {
+        val existing = registry.servers.firstOrNull { it.relay?.deviceSid == device.deviceSid }
+        // 目录来自 Relay V2：已有 V1 hash 配置不能复用（端点/鉴权不同），统一合成 V2 链接
+        val link = existing?.relay?.takeIf { it.isV2 } ?: relayLinkFor(device)
+        val server = ServerConfig(
+            id = existing?.id ?: UUID.randomUUID().toString(),
+            name = existing?.name ?: device.name,
+            host = link.endpointHost ?: "zcode.z.ai",
+            port = 443,
+            useTLS = link.wssURL.lowercase().startsWith("wss://"),
+            token = "",
+            lastConnectedAt = existing?.lastConnectedAt,
+            preferredWorkspacePath = existing?.preferredWorkspacePath,
+            relay = link,
+        )
+        connect(server)
+        if (_mode.value is Mode.Connected) {
+            rememberRelayDevice(device.deviceSid, device.deviceMid)
+            return AutoConnectOutcome.Connected
+        }
+        cancelConnecting()
+        return AutoConnectOutcome.Failed(device.displayName)
+    }
+
+    /** 由设备目录条目合成 V2 中继链接（iOS `relayLink(for:)` :1434-1451）。 */
+    private fun relayLinkFor(device: RelayDeviceSummary): RelayLinkConfig {
+        val origin = oauthConfig.tokenOrigin
+        val host = runCatching { java.net.URI(origin).host }.getOrNull() ?: "zcode.z.ai"
+        val scheme = if (origin.lowercase().startsWith("http://")) "ws" else "wss"
+        return RelayLinkConfig(
+            wssURL = "$scheme://$host/api/v1/remote/ws2",
+            machineName = device.name,
+            deviceSid = device.deviceSid,
+            passHash = null,
+            desktopAppVersion = device.version,
+            protocolVersion = 2,
+            deviceMid = device.deviceMid,
+        )
+    }
+
+    /** 拉设备目录；任何失败返回 null（不代表「没有设备」，调用方要回退本地）。 */
+    private suspend fun fetchRelayDevices(): List<RelayDeviceSummary>? {
+        val jwt = oauthCredentials.tokenSet?.zcodeJwtToken?.trim().orEmpty()
+        if (jwt.isEmpty()) return null
+        return deviceCatalog.fetch(oauthConfig.tokenOrigin, jwt)
+    }
+
+    private fun rememberRelayDevice(sid: String?, mid: String?) {
+        if (!sid.isNullOrEmpty()) lastRelayDeviceSid = sid
+        if (!mid.isNullOrEmpty()) lastRelayDeviceMid = mid
+    }
+
     init {
+        // Relay V2：每次（重）连现取 JWT（账号层凭据；未登录返回 null → V2 连接如实报
+        // 「需要登录 Z.ai 账号」，不静默降级）
+        connection.relayJwtProvider = { oauthCredentials.tokenSet?.zcodeJwtToken }
         // 断线回落（iOS 13-③ 黄色横幅）：曾连接后通道意外中断 → mode 切 Disconnected
         // （不 teardown——Store 与缓存快照保留，UI 展示「已断开 · 显示断线前的数据 · 重连」）；
         // 重连动作走 reconnect/connect（横幅重试同入口）。手动断开/连接期失败不经此路径。

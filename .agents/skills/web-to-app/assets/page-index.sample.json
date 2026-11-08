@@ -1,0 +1,9 @@
+{
+  "_comment": "web-to-app 页面索引：web 路由 ↔ 采集 key ↔ 各端验收路由。复制到 config/page-index.json 后按项目填写；新增页面时同步更新本文件与各端验收清单。app 字段是「平台 → 该端直达该页的验收缝值」：ios = 启动参数（tab 页 tab0），android = 深链 extra 值，miniprogram = 页面路径（pages/xx/xx，tab 页需 tabBar 配置）；canvas=true 的页面 DOM 采不到画面，只能截图+网络。采集目标地址见 config/web-to-app.yaml 的 web.*。",
+  "pages": [
+    { "key": "001-首页", "route": "/", "app": { "ios": "tab0", "android": "tab0", "miniprogram": "pages/index/index" }, "note": "tab0 = 首个 Tab 的验收缝值；小程序 tab 页需在 app.json tabBar 登记" },
+    { "key": "002-列表", "route": "/items", "app": { "ios": "items", "android": "items", "miniprogram": "pages/items/items" } },
+    { "key": "003-详情", "route": "/detail?id=1", "app": { "ios": "detail", "android": "detail", "miniprogram": "pages/detail/detail?id=1" }, "note": "带参路由：id 为动态参数，实拍前替换为真实可用值" },
+    { "key": "004-画布页", "route": "/canvas", "app": { "ios": "canvas", "android": "canvas", "miniprogram": "pages/canvas/canvas" }, "canvas": true, "note": "canvas/WebGL 页，DOM 采不到画面；小程序 canvas 为组件非 DOM，同理只能截图" }
+  ]
+}

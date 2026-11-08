@@ -38,12 +38,16 @@ struct FileTreeView: View {
         }
     }
 
-    /// G-031：连接态组头显示当前连接 workspace 真实路径；演示态保留演示路径
+    /// G-031：连接态组头显示当前连接 workspace 真实路径；演示态保留演示路径；
+    /// 正式未连接态不再臆造 ~/work/zcode 假路径（§5-13 禁 Mock），如实标未连接。
     private var headerPath: String {
         if case .connected = session.mode, let ws = session.connection.workspace {
             return String(localized: "工作区 \(ws.path)")
         }
-        return String(localized: "工作区 ~/work/zcode")
+        if AppSession.isDemoDataEnabled {
+            return String(localized: "工作区 ~/work/zcode")
+        }
+        return String(localized: "未连接桌面端")
     }
 
     /// 命中行：搜索回执优先（连接态），否则树内过滤（演示态 + 未命中时回退）

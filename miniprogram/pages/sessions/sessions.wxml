@@ -1,0 +1,69 @@
+<!-- 010-任务主页：设备行 + 新建任务 + 任务列表头 + 分区列表 + 底部账号 -->
+<view class="page">
+  <view class="nav" style="padding-top: {{statusBarHeight + 12}}px">
+    <view class="nav__device" bind:tap="onSwitchDevice">
+      <text class="nav__device-icon">💻</text>
+      <text class="nav__device-name">{{deviceName}}</text>
+      <text class="nav__chevron">⌄</text>
+    </view>
+    <view class="nav__new" bind:tap="onNewTask">
+      <text class="nav__new-icon">⊕</text>
+      <text class="nav__new-label">新建任务</text>
+    </view>
+  </view>
+
+  <view class="toolbar">
+    <text class="toolbar__title">任务列表</text>
+    <text class="toolbar__view">{{viewLabel}}</text>
+    <view class="toolbar__action" bind:tap="onOpenViewMenu">≣</view>
+  </view>
+
+  <scroll-view class="list" scroll-y>
+    <view wx:if="{{status === 'loading'}}" class="list__state">
+      <loading-state text="正在同步任务…" />
+    </view>
+
+    <view wx:elif="{{status === 'disconnected' || status === 'idle'}}" class="list__state">
+      <empty-state
+        title="未连接桌面端"
+        hint="连接后，桌面端的任务与会话会出现在这里" />
+    </view>
+
+    <block wx:elif="{{sections.length}}">
+      <view class="section" wx:for="{{sections}}" wx:key="key">
+        <section-header
+          title="{{item.title}}"
+          count="{{item.count}}"
+          collapsible="{{item.collapsible}}"
+          collapsed="{{item.collapsed}}"
+          sectionKey="{{item.key}}"
+          bind:toggle="onToggleSection" />
+        <block wx:if="{{!item.collapsed}}">
+          <session-row
+            wx:for="{{item.items}}"
+            wx:for-item="row"
+            wx:key="id"
+            row="{{row}}"
+            bind:open="onOpenRow"
+            bind:menu="onRowMenu" />
+        </block>
+      </view>
+    </block>
+
+    <view wx:else class="list__state">
+      <empty-state title="还没有任务" hint="点「新建任务」在桌面端开一个会话" />
+    </view>
+
+    <view class="list__error" wx:if="{{error}}">
+      <error-line message="{{error}}" retryable bind:retry="onRetry" />
+    </view>
+  </scroll-view>
+
+  <view class="footer safe-bottom">
+    <view class="footer__account" bind:tap="onAccount">
+      <view class="footer__avatar">{{accountInitial || '·'}}</view>
+      <text class="footer__name">{{accountName || '未登录'}}</text>
+    </view>
+    <view class="footer__settings" bind:tap="onSettings">⚙</view>
+  </view>
+</view>

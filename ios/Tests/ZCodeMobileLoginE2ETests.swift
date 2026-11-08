@@ -355,13 +355,25 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         })
         closeButton.tap()
 
-        let skipButton = element(application, "o3-btn-skip")
-        XCTAssertTrue(skipButton.waitForExistence(timeout: 10), "关闭授权 Sheet 应进入取消/失败页")
-        waitLabel(element(application, "o3-err-code"), contains: "未产生 code", timeout: 6,
-                  "用户取消应标记为「未产生 code」的中性结果")
-        skipButton.tap()
+        // 2026-10-21 用户反馈：取消应回 O1 登录主页，而不是停在 O3「登录未完成」
+        XCTAssertTrue(element(application, "o1-btn-oauth").waitForExistence(timeout: 10),
+                      "关闭授权 Sheet 应回到登录主页")
+        XCTAssertFalse(element(application, "o3-btn-retry").exists,
+                       "取消不应进入 O3 失败页")
+        XCTAssertEqual(stub.requestCount(method: "POST", path: "/api/v1/oauth/token"), 0,
+                       "取消不应发起 token 交换")
 
-        XCTAssertTrue(element(application, "04-tab-chat").waitForExistence(timeout: 10), "跳过后应回到主界面")
+        // 再开一次授权 Sheet：登录页右上角 ✕ 在授权中也应只回 O1，而不是 dismiss 到连接页
+        oauthButton.tap()
+        XCTAssertTrue(element(application, "o2-act-close").waitForExistence(timeout: 10),
+                      "授权 Sheet 应再次出现")
+        element(application, "o1-act-close").tap()
+        XCTAssertTrue(element(application, "o1-btn-oauth").waitForExistence(timeout: 10),
+                      "授权中点击登录页右上角 ✕ 应回到登录主页")
+
+        element(application, "o1-act-close").tap()
+
+        XCTAssertTrue(element(application, "04-tab-chat").waitForExistence(timeout: 10), "关闭登录流程后应回到主界面")
         element(application, "12-tab-me").tap()
         waitLabel(element(application, "l4-row-account"), contains: "未登录", timeout: 8,
                   "取消后应保持未登录态")
@@ -1061,7 +1073,9 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
                       诊断：getView 到达替身的通道=\(stub.rpcCallLog.filter { $0.1 == "getView" }.map { $0.0 })；
                       rpcCallLog 尾部=\(stub.rpcCallLog.suffix(10))；topics=\(stub.subscribedTopics)
                       """)
-        XCTAssertTrue(waitLabel(chips, contains: "GLM-5.3", timeout: 10, "chips 应显示替身绑定模型"))
+        XCTAssertTrue(waitLabel(element(application, "05-chip-model"), contains: "GLM-5.3",
+                                timeout: 10, "模型胶囊应显示替身绑定模型"),
+                      "chips 内模型胶囊应显示替身绑定模型（容器 label 不聚合子文本，§5-14 口径——target 落 05-chip-model）")
         XCTAssertTrue(waitUntil(timeout: 10, "替身应收到 model-selection.getView 读面命令") {
             stub.rpcCallLog.contains { $0.0 == "model-selection" && $0.1 == "getView" }
         })
@@ -1156,20 +1170,16 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
                 .firstMatch.exists,
             "配置行应显示替身 option 名/值")
         XCTAssertTrue(
-            metaTexts.matching(NSPredicate(format: "label CONTAINS '输入 100000'"))
-                .firstMatch.exists,
-            "用量行应显示替身 inputTokens 回执值")
+            metaTexts.matching(NSPredicate(format: "label CONTAINS '100,000'"))
+                .firstMatch.waitForExistence(timeout: 10),
+            "用量行应显示替身 inputTokens 回执值（String(localized:) 的 Int 插值走本地化数字分组=100,000）")
 
-        // ④b「模型轨迹」分段：07-seg 两段切换 + 轨迹卡 reasoning+toolCall 投影
-        // （stub task-e2e-1 同名会话行：assistantText → reasoning 标签、toolCall → BASH 标签）
-        let trajectorySeg = element(application, "07-seg-模型轨迹")
-        XCTAssertTrue(trajectorySeg.waitForExistence(timeout: 6),
-                      "任务详情应有「后台 Bash / 模型轨迹」两段分段（07-seg-*）")
-        trajectorySeg.tap()
+        // ④b 模型轨迹卡：reasoning+toolCall 行投影（v1.39 移除死「后台 Bash」分段，
+        // 轨迹为唯一输出面；stub task-e2e-1 同名会话行：assistantText → reasoning 标签、toolCall → BASH 标签）
         XCTAssertTrue(element(application, "07-toolcard-head-trajectory").waitForExistence(timeout: 6),
-                      "切到模型轨迹段应渲染轨迹卡（TRAJECTORY 头）")
+                      "任务详情应直接渲染轨迹卡（TRAJECTORY 头）")
         XCTAssertFalse(element(application, "07-terminal").exists,
-                       "轨迹段下后台 Bash 终端卡应收起（分段互斥）")
+                       "死「后台 Bash」终端卡应已移除（07-terminal 不再渲染）")
         XCTAssertTrue(waitStaticText(containing: "替身助手：轨迹投影链路检查中", in: application,
                                      timeout: 10, "轨迹卡应呈现 reasoning 投影行（会话 assistantText 投影）"))
         XCTAssertTrue(waitStaticText(containing: "swift test --filter SessionStoreTests", in: application,
@@ -1415,33 +1425,33 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertFalse(element(application, "13-banner-connection").exists,
                        "已连接态不应出现连接横幅")
 
-        // 替身侧掐断全部 WS 通道（传输层 cancel，无 close 帧）
+        // 替身侧掐断全部 WS 通道，并让前两次重连 Upgrade 失败——让自动重连横幅
+        // 有稳定可观测窗口（第三次在 ~6s 成功）。
+        stub.failNextWebSocketUpgrades(2)
+        let upgradesBefore = stub.websocketUpgrades
         stub.dropAllWebSocketChannels()
 
-        // 黄色断线横幅出现：标题 + 「重连」动作按钮（动作热区在横幅内、可点）。
-        // 横幅容器 label 不聚合子文本（同 12-usercard 口径），标题以全局 Text 观测：
-        // 黄色断线态标题「已断开 · 显示断线前的数据」（U-9：断线保留最后快照，无演示
-        // 回退语义）≠ 红色失败态「桌面端连接失败」，此断言同时验证断线路由
-        // （AppSession .disconnected）而非连接失败
-        let banner = element(application, "13-banner-connection")
-        XCTAssertTrue(banner.waitForExistence(timeout: 15),
-                      "WS 通道被掐断后应出现断线横幅（AppSession .disconnected 投影）")
-        XCTAssertTrue(application.staticTexts["已断开 · 显示断线前的数据"].waitForExistence(timeout: 8),
-                      "断线横幅应表明已断开并显示断线前数据（黄色断线态标题；若实际渲染红色失败态标题则断线路由错误）")
-        let reconnectButton = application.buttons["重连"].firstMatch
-        XCTAssertTrue(reconnectButton.waitForExistence(timeout: 6),
-                      "断线横幅应提供「重连」动作")
-        snap(application, "30-disconnected-banner")
+        // 2026-10-22：断线不再只给手动「重连」；AppSession 自动重连并显示 n/6 横幅。
+        let reconnecting = element(application, "13-banner-reconnecting")
+        XCTAssertTrue(reconnecting.waitForExistence(timeout: 15),
+                      "WS 通道被掐断后应出现自动重连横幅")
+        XCTAssertTrue(application.staticTexts["连接已断开 · 正在自动重连…"]
+            .waitForExistence(timeout: 8),
+                      "自动重连横幅应显示明确标题")
+        XCTAssertTrue(application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "/6")).firstMatch.exists,
+                      "自动重连横幅应显示第 n/6 次")
+        XCTAssertTrue(application.buttons["取消"].firstMatch.exists,
+                      "自动重连横幅应提供取消入口")
+        snap(application, "30-reconnecting-banner")
 
-        // 重连：替身应再次完成 WS 升级 → 横幅消失 → 列表恢复替身数据
-        let upgradesBefore = stub.websocketUpgrades
-        reconnectButton.tap()
-        XCTAssertTrue(waitUntil(timeout: 25, "重连应重新完成 server-info 探测与 WS 升级") {
+        // 不点任何按钮：自动重连应在退避后完成 WS 升级，横幅消失，快照列表保留。
+        XCTAssertTrue(waitUntil(timeout: 30, "自动重连应重新完成 WS 升级") {
             stub.websocketUpgrades >= upgradesBefore + 1
-        }, "重连应重新完成 WS 升级；实测 upgrades=\(stub.websocketUpgrades)")
-        XCTAssertTrue(waitDisappear(banner, timeout: 20, "重连成功后断线横幅应消失"))
+        }, "自动重连应重新完成 WS 升级；实测 upgrades=\(stub.websocketUpgrades)")
+        XCTAssertTrue(waitDisappear(reconnecting, timeout: 20, "自动重连成功后横幅应消失"))
         XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 10),
-                      "重连后列表应恢复替身数据（自愈完成）")
+                      "重连后列表应保留替身快照数据")
         XCTAssertEqual(stub.blockedWriteCommandCount, 0,
                        "断线/重连全程不应产生任何直写/配置写类命令")
     }

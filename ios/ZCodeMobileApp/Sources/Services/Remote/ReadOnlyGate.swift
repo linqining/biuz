@@ -123,12 +123,10 @@ enum ReadOnlyGate {
         // 页修改入口，UI 带 confirmationDialog 确认后下发；与 git 写族同分类）。
         // updateDataBaseDir（桌面数据库目录迁移写）不属远控面，维持拦截。
         "setting": ["updateDataBaseDir"],
-        // settingService：盘点报告 :54 记 `settingService.get/update`，gate 历史词表
-        // 只有 `setting` 频道——真实频道名未取证（本轮桌面端不在线），客户端 get/update
-        // 按两候选频道依次尝试（DesktopSettingsPage.settingCall）。本频道此前完全走
-        // default 放行（设计稿 §11C 指出的「写面静默绕过拦截面」），现按同裁决补词表：
-        // update 放行（同 setting.update）；updateDataBaseDir 维持拦截（宽容补拦，
-        // 该命令在 settingService 频道是否存在未取证，拦截面从严）。
+        // settingService：上游 channels.ts:106 实证真实频道为 `setting`（上一行），
+        // 「settingService」只是 web main.tsx 的 TS 服务对象名、从不是 wire 频道。
+        // 本条目保留为防御性补拦（若某桌面暴露同名频道，updateDataBaseDir 仍拦截，
+        // 拦截面从严）；客户端 DesktopSettingsPage.settingCall 已只探 `setting`。
         "settingService": ["updateDataBaseDir"],
         "onboarding-record": [
             "appendRecord", "dismissOnboarding", "claimAnonymousRecord",

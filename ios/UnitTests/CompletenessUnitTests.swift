@@ -506,3 +506,114 @@ final class UserInputQuestionParsingTests: XCTestCase {
         XCTAssertEqual(interaction?.questions.first?.options.first?.id, "glm")
     }
 }
+
+// MARK: - 登录后设备自动选择（官方 web resolveAutoConnectSid 等价）
+
+final class AutoConnectDeviceSelectionTests: XCTestCase {
+    private func device(_ sid: String, mid: String, online: Bool = true) -> AppSession.RelayDeviceSummary {
+        AppSession.RelayDeviceSummary(
+            deviceSid: sid, deviceMid: mid, online: online,
+            createdAt: nil, name: nil, platform: nil, version: nil)
+    }
+
+    func testSavedSidWins() {
+        let devices = [device("s1", mid: "m1"), device("s2", mid: "m2")]
+        let picked = AppSession.selectAutoConnectDevice(
+            devices: devices, savedSid: "s2", lastSid: "s1", lastMid: nil)
+        XCTAssertEqual(picked?.deviceSid, "s2")
+    }
+
+    func testLastSidThenLastMidThenOnlyOnline() {
+        let devices = [device("s1", mid: "m1"), device("s2", mid: "m2")]
+        XCTAssertEqual(
+            AppSession.selectAutoConnectDevice(
+                devices: devices, savedSid: nil, lastSid: "s1", lastMid: nil)?.deviceSid,
+            "s1")
+        XCTAssertEqual(
+            AppSession.selectAutoConnectDevice(
+                devices: devices, savedSid: nil, lastSid: nil, lastMid: "m2")?.deviceSid,
+            "s2")
+        XCTAssertEqual(
+            AppSession.selectAutoConnectDevice(
+                devices: [device("s3", mid: "m3")], savedSid: nil, lastSid: nil, lastMid: nil)?.deviceSid,
+            "s3")
+    }
+
+    func testAmbiguousOrOfflineReturnsNil() {
+        let twoOnline = [device("s1", mid: "m1"), device("s2", mid: "m2")]
+        XCTAssertNil(AppSession.selectAutoConnectDevice(
+            devices: twoOnline, savedSid: nil, lastSid: nil, lastMid: nil))
+        let offlineOnly = [device("s1", mid: "m1", online: false)]
+        XCTAssertNil(AppSession.selectAutoConnectDevice(
+            devices: offlineOnly, savedSid: "s1", lastSid: nil, lastMid: nil))
+    }
+}
+
+// MARK: - v1.39 task-groups 重接（上游 contract.ts / index.ts 的客户端镜像）
+
+/// `task-groups.read` 回执投影与 `GroupTaskRef.hostId` 派生（上游
+/// packages/services/src/task-groups/{contract,index}.ts + shared/
+/// remote-workspace-identity.ts 逐条镜像）。纯函数断言，不依赖桌面在线。
+final class TaskGroupsUnitTests: XCTestCase {
+    private func member(_ group: String, _ task: String, order: Int, key: String = "/w") -> JSONValue {
+        .object([
+            "groupId": .string(group), "workspaceKey": .string(key),
+            "taskId": .string(task), "sortOrder": .int(order),
+        ])
+    }
+
+    func testParseReadProjectsGroupsMembersAndOrder() {
+        let json: JSONValue = .object([
+            "groups": .array([
+                .object(["id": .string("g-b"), "title": .string("乙组"),
+                         "color": .string("blue"), "createdAt": .int(2), "updatedAt": .int(2)]),
+                .object(["id": .string("g-a"), "title": .string("甲组"),
+                         "color": .string("gray"), "createdAt": .int(1), "updatedAt": .int(1)]),
+            ]),
+            "members": .array([
+                member("g-a", "s2", order: 1),
+                member("g-a", "s1", order: 0),
+            ]),
+            "order": .array([
+                .object(["type": .string("group"), "key": .string("g-a"), "sortOrder": .int(0)]),
+                .object(["type": .string("group"), "key": .string("g-b"), "sortOrder": .int(1)]),
+            ]),
+        ])
+        let parsed = RemoteTaskStore.parseGroupedTaskView(json)
+        XCTAssertEqual(parsed?.groups.map(\.id), ["g-a", "g-b"], "组序取 order 组条目 sortOrder")
+        XCTAssertEqual(parsed?.groups.first?.name, "甲组", "组名取 title")
+        XCTAssertEqual(parsed?.groups.first?.taskIDs, ["s1", "s2"], "组内序取 members sortOrder")
+        XCTAssertEqual(parsed?.groups.first?.taskRefs.first?.workspaceKey, "/w",
+                       "成员只携 workspaceKey（read 形状无路径拆解键）")
+    }
+
+    func testParseEmptyStructureIsLegalAndMissingGroupsIsNil() {
+        let empty: JSONValue = .object([
+            "groups": .array([]), "members": .array([]), "order": .array([]),
+        ])
+        XCTAssertEqual(RemoteTaskStore.parseGroupedTaskView(empty)?.groups.count, 0,
+                       "空 groups 是合法态（桌面无分组）")
+        XCTAssertNil(RemoteTaskStore.parseGroupedTaskView(.object([:])),
+                     "无 groups 键 = 解析失败，消费侧回退本地分组")
+    }
+
+    func testTaskGroupHostIDMirrorsUpstreamIdentityParse() {
+        // 非远程 identity / 非法形态一律 "local"（上游 resolveHostId 同判）
+        XCTAssertEqual(RemoteConversationStore.taskGroupHostID(identity: nil), "local")
+        XCTAssertEqual(RemoteConversationStore.taskGroupHostID(identity: "/plain/path"), "local")
+        XCTAssertEqual(RemoteConversationStore.taskGroupHostID(identity: "remote:bogus:x:/w"), "local")
+        XCTAssertEqual(RemoteConversationStore.taskGroupHostID(identity: "remote:ssh:host:22:/w"), "local",
+                       "ssh 缺 username 段 = 非法")
+        // 合法远程 identity：hostId = 去掉尾部 ":/path" 的 authority 段
+        XCTAssertEqual(RemoteConversationStore.taskGroupHostID(identity: "remote:ssh:host:22:user:/w/x"),
+                       "remote:ssh:host:22:user")
+        XCTAssertEqual(RemoteConversationStore.taskGroupHostID(identity: "remote:wsl:distro:/home/u/w"),
+                       "remote:wsl:distro")
+        XCTAssertEqual(RemoteConversationStore.taskGroupHostID(identity: "remote:wsl:distro:user:/w"),
+                       "remote:wsl:distro:user")
+        XCTAssertEqual(RemoteConversationStore.taskGroupHostID(identity: "remote:docker:box:/w"),
+                       "remote:docker:box")
+        XCTAssertEqual(RemoteConversationStore.taskGroupHostID(identity: "remote:server:my-id:/w"),
+                       "remote:server:my-id")
+    }
+}

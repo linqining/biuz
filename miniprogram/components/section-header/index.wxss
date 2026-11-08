@@ -1,0 +1,20 @@
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 8rpx 19rpx;
+}
+.section-header__arrow {
+  font-size: var(--font-sm);
+  color: var(--color-muted-2);
+}
+.section-header__title {
+  font-size: var(--font-base);
+  font-weight: 500;
+  color: var(--color-muted-2);
+  flex: 1;
+}
+.section-header__count {
+  font-size: var(--font-sm);
+  color: var(--color-muted-2);
+}

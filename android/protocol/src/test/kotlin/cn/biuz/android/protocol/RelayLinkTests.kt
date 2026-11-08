@@ -62,7 +62,9 @@ class RelayLinkTests {
     fun testParseRelayLinkRejectsNonRelayInputs() {
         assertNull(ConnectURLParser.parseRelayLink("http://zcode.z.ai/remote/v4?sid=s&hash=h")) // 非 https
         assertNull(ConnectURLParser.parseRelayLink("https://zcode.z.ai/other?sid=s&hash=h")) // 非 /remote/
-        assertNull(ConnectURLParser.parseRelayLink("https://zcode.z.ai/remote/v4?sid=s")) // 缺 hash
+        // 缺 hash 不再是「非法」：3.16.2 起无 hash 的链接 = Relay V2（JWT 换一次性 token）
+        val v2 = ConnectURLParser.parseRelayLink("https://zcode.z.ai/remote/v4?sid=s")
+        assertEquals(true, v2?.isV2, "缺 hash 应判 V2 而非拒绝")
         assertNull(ConnectURLParser.parseRelayLink("https://zcode.z.ai/remote/v4?hash=h")) // 缺 sid
         assertNull(ConnectURLParser.parseRelayLink(""))
     }

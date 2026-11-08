@@ -1574,7 +1574,9 @@ struct RemoteCapabilityListPage: View {
             switch capability {
             case .memory:
                 // listProjectMemories → ProjectMemoryWorkspaceSummary[]{id,label,updatedAt,files[]}
-                let result = try await connection.call("zcode-agent", "listProjectMemories", .undefined)
+                // 频道为 memory（非 zcode-agent）【实证·上游仓 channels.ts:184 Memory="memory" +
+                // memory.ts:60 listProjectMemories()；windowHostAttachmentRpcPolicy 移动放行】
+                let result = try await connection.call("memory", "listProjectMemories", .undefined)
                 let items = result.jsonValue?.arrayValue
                     ?? result.jsonValue?["workspaces"]?.arrayValue
                     ?? result.jsonValue?["memories"]?.arrayValue
@@ -2247,8 +2249,10 @@ struct DesktopSettingsPage: View {
         var id: String { key }
     }
 
-    /// 频道候选序（真实频道名未取证；与 ReadOnlyGate setting/settingService 词表同源）
-    private static let settingChannels = ["settingService", "setting"]
+    /// 频道名【实证·上游仓 packages/shared/src/channels.ts:106 `Setting: "setting"`，
+    /// 且 windowHostAttachmentRpcPolicy.ts:28 将 ServiceChannels.Setting 列入移动放行面】。
+    /// 「settingService」只是 web main.tsx 的 TS 服务对象名，从不是 wire 频道，已剔除。
+    private static let settingChannels = ["setting"]
     /// 读回执可能的包裹键（宽容形态；整对象兜底见 parseEntries）
     private static let wrapperKeys = ["settings", "values", "data", "config", "items", "entries"]
 
@@ -2531,8 +2535,8 @@ struct DesktopSettingsPage: View {
         }
     }
 
-    /// settingService/setting 双候选依次尝试（真实频道名未取证）。
-    /// 已解析频道优先（get 命中后 update 走同频道）；全候选失败 → 1.2s 退避整轮
+    /// setting 频道（上游 channels.ts:106 实证）get/update 调用。
+    /// 已解析频道优先（get 命中后 update 走同频道）；失败 → 1.2s 退避整轮
     /// 重试一次（中继瞬断同口径），allowRetry=false 供写命令关闭防双写。
     private func settingCall(_ command: String, _ fields: [String: JSONValue],
                              allowRetry: Bool = true) async throws -> RPCValue {

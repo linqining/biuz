@@ -1,0 +1,9 @@
+{
+  "usingComponents": {
+    "empty-state": "/components/empty-state/index",
+    "loading-state": "/components/loading-state/index",
+    "error-line": "/components/error-line/index",
+    "section-header": "/components/section-header/index",
+    "session-row": "/components/session-row/index"
+  }
+}

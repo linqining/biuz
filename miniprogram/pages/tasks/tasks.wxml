@@ -1,0 +1,7 @@
+<!-- 038-模型轨迹 —— 骨架页。按 web 源实现，禁止填假数据。 -->
+<view class="page safe-top" data-page="038-模型轨迹">
+  <view class="page-placeholder">
+    <text class="page-placeholder__title">038-模型轨迹</text>
+    <text class="page-placeholder__hint">TODO · web 源：packages/ui/src/ModelTrajectoryPane.tsx</text>
+  </view>
+</view>

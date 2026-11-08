@@ -75,12 +75,16 @@ object ConnectURLParser {
         fun value(name: String): String? =
             query.firstOrNull { it.name.lowercase() == name }?.value?.takeIf { it.isNotEmpty() }
         val sid = value("sid") ?: return null
-        val hash = value("hash") ?: return null
+        val hash = value("hash")
         val mid = value("mid")
 
         val host = components.host ?: return null
-        var wss = "wss://$host/ws"
-        if (mid != null) {
+        // V1（有 hash）：wss://host/ws?mid=…
+        // V2（无 hash，3.16.2 起）：wss://host/api/v1/remote/ws2，token 在建连时追加
+        //   （iOS RelayLink.swift:9-24 / relay-v2-pairing.md §WebSocket）
+        val isV2 = hash == null
+        var wss = if (isV2) "wss://$host/api/v1/remote/ws2" else "wss://$host/ws"
+        if (mid != null && !isV2) {
             // Swift 经 URLComponents 重建 query（Foundation 按需重编码）；此处对解码值
             // 做 unreserved 全编码——服务端解码同值，含特殊字符 mid 反而更保守。
             wss += "?mid=" + percentEncodeQueryValue(mid)
@@ -90,7 +94,10 @@ object ConnectURLParser {
             machineName = value("name"),
             deviceSid = sid,
             passHash = hash,
-            desktopAppVersion = value("app_version"))
+            desktopAppVersion = value("app_version"),
+            protocolVersion = if (isV2) 2 else 1,
+            deviceMid = mid,
+        )
     }
 
     /** 剪贴板/输入框统一识别形态：中继链接优先，其次局域网直连链接（:75-99）。 */

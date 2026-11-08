@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -88,6 +89,7 @@ fun ConnectScreen(
     settings: AppSettingsStore,
     onOpenScan: () -> Unit,
     onOpenSessions: () -> Unit,
+    onOpenLogin: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val mode by session.mode.collectAsStateWithLifecycle()
@@ -268,7 +270,20 @@ fun ConnectScreen(
             }
             Spacer(Modifier.height(BiuZSpacing.xl))
 
-            // MARK: 连接生命周期五态呈现（L2 五步 / L3 失败对照 / 断线橙横幅）
+            // MARK: 登录入口（Relay V2 账户层：登录后可自动发现并连接已配对电脑）
+            Text(
+                text = stringResource(R.string.login_entry),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(BiuZRadius.medium)
+                    .clickable(onClick = onOpenLogin)
+                    .padding(vertical = BiuZSpacing.md)
+                    .testTag("01-entry-login"),
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(BiuZSpacing.lg))
             when (val m = mode) {
                 is AppSession.Mode.Connecting -> {
                     ConnectingSteps(

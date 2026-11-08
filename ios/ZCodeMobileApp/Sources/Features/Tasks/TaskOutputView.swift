@@ -1,35 +1,5 @@
 import SwiftUI
 
-@MainActor
-@Observable
-final class TerminalViewModel {
-    enum Segment: Hashable {
-        case bash, trajectory
-        var label: String { self == .bash ? String(localized: "后台 Bash") : String(localized: "模型轨迹") }
-        var id: String { self == .bash ? "bash" : "traj" }
-    }
-
-    var lines: [TerminalLine] = []
-    var segment: Segment = .bash
-    private var continuation: Task<Void, Never>?
-
-    func start(store: TaskStore, taskID: String) {
-        guard continuation == nil else { return }
-        continuation = Task {
-            // terminalStream 非 async（返回 AsyncStream）：多余 await 触发
-            // UnnecessaryEffectMarker 告警（门禁第 4 轮摘要），仅保留 for await
-            for await line in store.terminalStream(taskID: taskID) {
-                lines.append(line)
-            }
-        }
-    }
-
-    func stop() {
-        continuation?.cancel()
-        continuation = nil
-    }
-}
-
 /// 任务详情可观察模型：连接态只读元数据（三读）与当前任务态经此直绑渲染。
 /// 曾用 @State 在 .task 内 await 后赋值——赋值不触发重渲染（门禁修复轮实证），
 /// 与 TaskBoardModel/ChatViewModel 同模式迁移到 @Observable。
@@ -44,8 +14,11 @@ final class TaskOutputModel {
     var tokenUsage: TaskTokenUsage?
 }
 
-/// 屏 07 · 任务执行输出（Push L3）：分段 后台Bash/模型轨迹 + 终端卡（等宽 12px）
-/// v3 纠偏：「停止任务」连接态恢复（v4 stop 下发，桌面代执行）；演示态路径不变。
+/// 屏 07 · 任务执行输出（Push L3）：模型轨迹卡（reasoning+toolCall 行投影）+ 停止任务。
+/// v1.39 死 UI 移除：原「后台 Bash」分段是死控件——terminalStream 在 RemoteTaskStore
+/// 只注册 continuation 从无 yield（上游 terminal 频道需 create/write 自建 PTY，均被
+/// ReadOnlyGate 拦截，移动端无「读任务终端」接口），故撤分段与假终端卡，轨迹投影为唯一
+/// 真实输出面；停止任务（v4 stop 桌面代执行）保留。
 struct TaskOutputView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.taskStore) private var store
@@ -54,7 +27,6 @@ struct TaskOutputView: View {
     /// 连接态数据源标记（mock 演示恒为 false）：只读元数据三行仅连接态拉取
     private var isReadOnly: Bool { store.isReadOnly }
 
-    @State private var viewModel = TerminalViewModel()
     @State private var outputModel = TaskOutputModel()
     @State private var showStopConfirm = false
     @State private var copied = false
@@ -63,24 +35,12 @@ struct TaskOutputView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: T.sp4) {
-                ZSegmentedPicker(
-                    items: [TerminalViewModel.Segment.bash, .trajectory],
-                    label: \.label,
-                    selection: Binding(get: { viewModel.segment }, set: { viewModel.segment = $0 }),
-                    identifierPrefix: "07-seg")
-
                 statusBar
                 if isReadOnly {
                     readonlyMetaRows
                 }
-
-                switch viewModel.segment {
-                case .bash:
-                    terminalCard
-                    outputActions
-                case .trajectory:
-                    trajectoryCard
-                }
+                trajectoryCard
+                outputActions
                 // G-022：子智能体行移除——原为硬编码假数据（test-runner · 回归 46 用例）
                 // 且整行不可点；桌面 SubagentSession 读面接入前不渲染占位死控件。
             }
@@ -92,7 +52,6 @@ struct TaskOutputView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { outputModel.currentTask = task }
         .task {
-            viewModel.start(store: store, taskID: task.id)
             if outputModel.currentTask == nil { outputModel.currentTask = task }
             trajectoryLines = await store.trajectoryLines(taskID: task.id)
             if isReadOnly {
@@ -116,7 +75,6 @@ struct TaskOutputView: View {
                 }
             }
         }
-        .onDisappear { viewModel.stop() }
         .confirmationDialog(String(localized: "停止该任务？"), isPresented: $showStopConfirm, titleVisibility: .visible) {
             Button(String(localized: "停止任务"), role: .destructive) {
                 Task {
@@ -215,71 +173,8 @@ struct TaskOutputView: View {
         .accessibilityIdentifier(identifier)
     }
 
-    private var terminalCard: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: T.sp2) {
-                HStack(spacing: 5) {
-                    ForEach(0..<3, id: \.self) { dot in
-                        Circle().fill(dot == 0 ? T.red : dot == 1 ? T.orangeBright : T.accent)
-                            .frame(width: 8, height: 8)
-                    }
-                }
-                Text("bash — \(task.directory)")
-                    .font(T.mono(11))
-                    .foregroundColor(T.text3)
-                    .lineLimit(1)
-                Spacer()
-                Button {
-                    UIPasteboard.general.string = terminalText
-                    copied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
-                } label: {
-                    Label(copied ? String(localized: "已复制") : String(localized: "复制"), systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .font(T.font(11, .medium))
-                        .foregroundColor(copied ? T.accentText : T.text3)
-                        .frame(minWidth: 44, minHeight: 44)
-                }
-                .accessibilityIdentifier("07-act-copy")
-            }
-            .padding(.horizontal, T.sp3)
-            .frame(height: 44)
-            Divider().overlay(T.border)
-
-            ScrollViewReader { proxy in
-                ScrollView(.vertical) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(viewModel.lines) { line in
-                                TerminalLineView(line: line)
-                            }
-                            HStack(spacing: 0) {
-                                Text("$ ").font(T.mono(12)).foregroundColor(T.accent)
-                                BlinkingCursor()
-                                Spacer(minLength: 0)
-                            }
-                            .id("term-bottom")
-                        }
-                        .padding(T.sp3)
-                        .frame(minWidth: UIScreen.main.bounds.width - 64, alignment: .leading)
-                    }
-                }
-                .frame(height: 380)
-                .defaultScrollAnchor(.bottom)
-                .onChange(of: viewModel.lines.count) { _, _ in
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        proxy.scrollTo("term-bottom", anchor: .bottom)
-                    }
-                }
-            }
-        }
-        .background(T.bgTerm)
-        .clipShape(RoundedRectangle(cornerRadius: T.rM))
-        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
-        .accessibilityIdentifier("07-terminal")
-    }
-
     private var terminalText: String {
-        viewModel.lines.map { line in
+        trajectoryLines.map { line in
             (line.label.map { "\($0) " } ?? "") + line.text
         }.joined(separator: "\n")
     }
@@ -335,32 +230,4 @@ struct TaskOutputView: View {
         .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
     }
 
-}
-
-/// 终端单行：$ 绿提示符 / [label] code-lab / ✓ 绿结果
-struct TerminalLineView: View {
-    let line: TerminalLine
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            if line.isCommand {
-                Text("$ ")
-                    .font(T.mono(12))
-                    .foregroundColor(T.accent)
-            } else if let label = line.label {
-                Text("\(label) ")
-                    .font(T.mono(12))
-                    .foregroundColor(T.codeLab)
-            }
-            Text(line.text)
-                .font(T.mono(12))
-                .foregroundColor(line.isCommand ? T.text : T.text2)
-            if line.isSuccess {
-                Text(" ✓")
-                    .font(T.mono(12))
-                    .foregroundColor(T.accent)
-            }
-            Spacer(minLength: 0)
-        }
-    }
 }

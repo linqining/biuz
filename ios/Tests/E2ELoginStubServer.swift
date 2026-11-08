@@ -305,6 +305,13 @@ final class E2ELoginStubServer {
         }
     }
 
+    /// 让接下来 N 次 WS Upgrade 返回 503（自动重连横幅可观测窗口；门禁 test17）。
+    func failNextWebSocketUpgrades(_ count: Int) {
+        lock.lock()
+        _websocketUpgradeFailuresRemaining = max(0, count)
+        lock.unlock()
+    }
+
     /// 注入坏 checksum 的 fragment 物理帧（assembler dropped → 客户端 resync 断言）。
     /// payload 本体是合法 JSON，但 checksum 与实际 crc 不符 → 客户端必须丢弃整条逻辑帧。
     func fireBadChecksumFragment(topic: String) {
@@ -347,6 +354,7 @@ final class E2ELoginStubServer {
     private var _pairingAuthFailures = 0
     private var _lastAcceptedPairingToken: String?
     private var _websocketUpgrades = 0
+    private var _websocketUpgradeFailuresRemaining = 0
     private var _blockedWriteCommandCount = 0
     private var _sendTextCount = 0
     private var _resolveInteractionCount = 0
@@ -484,6 +492,23 @@ final class E2ELoginStubServer {
     private var _capabilityReads: [String] = []
     /// 任务组写命令记录（command + 参数字典；G-017 移动端→桌面同步写断言）
     private var _taskGroupWrites: [(command: String, args: [String: StubRPC])] = []
+    /// task-groups 内存结构（v1.39：read/save/move 状态联动——move 后再 read
+    /// 应反映新归组，验证客户端 read→save→move 组合链而非仅命令到达）
+    private var _taskGroups: [[String: Any]] = []
+    private var _taskGroupMembers: [[String: Any]] = []
+
+    /// 测试钩子：当前 task-groups 结构（save/move 联动后的服务端真态）
+    var taskGroupsSnapshot: [[String: Any]] {
+        lock.lock(); defer { lock.unlock() }; return _taskGroups
+    }
+    var taskGroupMembersSnapshot: [[String: Any]] {
+        lock.lock(); defer { lock.unlock() }; return _taskGroupMembers
+    }
+    /// 输入预测收到的草稿原文（v1.39 conversationInputPredictionV4；能力门在 hello 内）
+    private var _inputPredictionDrafts: [String] = []
+    var inputPredictionDrafts: [String] {
+        lock.lock(); defer { lock.unlock() }; return _inputPredictionDrafts
+    }
 
     private let queue = DispatchQueue(label: "e2e.login.stub.server")
     private var listener: NWListener?
@@ -609,7 +634,7 @@ final class E2ELoginStubServer {
                 ["rowId": 1, "kind": "userInput", "text": "跑一遍基线检查"],
                 ["rowId": 2, "kind": "assistantText", "text": "替身助手：基线检查完成。", "state": "complete"],
             ],
-            // task-e2e-1 同名会话行：任务详情「模型轨迹」分段（07-seg）的 reasoning+toolCall
+            // task-e2e-1 同名会话行：任务详情轨迹卡的 reasoning+toolCall
             // 投影数据源（RemoteTaskStore.trajectoryLines ← conversation 行投影）
             "task-e2e-1": [
                 ["rowId": 1, "kind": "userInput", "text": "把登录超时问题修掉"],
@@ -1021,6 +1046,16 @@ final class E2ELoginStubServer {
                                          body: toJSON(["error": "token mismatch"])), closeAfter: true)
             return
         }
+        lock.lock()
+        let rejectUpgrade = _websocketUpgradeFailuresRemaining > 0
+        if rejectUpgrade { _websocketUpgradeFailuresRemaining -= 1 }
+        lock.unlock()
+        if rejectUpgrade {
+            channel.sendRaw(httpResponse(status: "503 Service Unavailable",
+                                         headers: ["Content-Type": "text/plain"],
+                                         body: Data("upgrade rejected".utf8)), closeAfter: true)
+            return
+        }
         let accept = Self.sha1Base64(key + Self.wsGUID)
         channel.sendRaw(httpResponse(status: "101 Switching Protocols",
                                      headers: ["Upgrade": "websocket",
@@ -1092,6 +1127,19 @@ final class E2ELoginStubServer {
                 "nextOffset": NSNull(),
             ]
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(artifactBody)))
+        case "conversationInputPredictionV4" where channelName == "zcode-agent":
+            // v1.39 输入预测：记录草稿原文并回 show（能力位 hello.capabilities.inputPrediction）
+            let args = rpcArgDict(body)
+            lock.lock()
+            _inputPredictionDrafts.append(args["draft"]?.stringValue ?? "")
+            lock.unlock()
+            var prediction: [String: Any] = [
+                "decision": "show",
+                "candidates": [["text": " 再跑一遍测试", "confidence": 0.92]],
+                "topConfidence": 0.92,
+            ]
+            if let requestId = args["requestId"]?.stringValue { prediction["requestId"] = requestId }
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(prediction)))
         case "helloConversationV4":
             let hello: [String: Any] = [
                 "protocolVersion": 3, // V4_WIRE_PROTOCOL_VERSION
@@ -1099,7 +1147,7 @@ final class E2ELoginStubServer {
                 "clientMode": "web-remote-replayable",
                 "deliveryProfile": "web-remote-replayable",
                 "serverTime": Self.iso8601.string(from: Date()),
-                "capabilities": [String: Bool](),
+                "capabilities": ["inputPrediction": true],
                 "auth": ["userId": "user-e2e-1"],
             ]
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(hello)))
@@ -1419,11 +1467,15 @@ final class E2ELoginStubServer {
             ])))
         case "getCodingPlanUsageSnapshot" where channelName == "usage-stats":
             let nextReset = Date().addingTimeInterval(5 * 86_400).timeIntervalSince1970 * 1000
+            // v1 条数窗文档形状（协议文档 §9.10：TIME_LIMIT/unit:5/number:1 +
+            // usage 总量 / currentValue 已用 / remaining 剩余）——旧 credits/积分 形态
+            // 不在窗口选择器词表，generic 分支 used 恒 nil，用量行显示不出「已用/上限」
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
                 "range": "30d",
                 "generatedAt": Int(Date().timeIntervalSince1970 * 1000),
                 "quota": ["level": "coding-plan", "limits": [[
-                    "type": "credits", "unit": "积分", "number": 500, "usage": 340,
+                    "type": "TIME_LIMIT", "unit": 5, "number": 1,
+                    "usage": 500, "currentValue": 340, "remaining": 160,
                     "percentage": 68.0, "nextResetTime": Int(nextReset),
                 ]]],
             ])))
@@ -1695,24 +1747,66 @@ final class E2ELoginStubServer {
                 "items": [["ticketId": "ticket-e2e-1", "title": "E2E 工单 · stub",
                            "updatedAt": Int(Date().timeIntervalSince1970 * 1000), "status": "processing"]],
             ])))
-        // MARK: 任务组写（G-017）：移动端→桌面同步写命令记录（回执 ok）
-        case "createTaskGroup" where channelName == "zcode-task":
+        // MARK: 任务组（G-017；v1.39 上游 task-groups 频道 read/save/ungroup/move）
+        case "read" where channelName == "task-groups":
             lock.lock()
-            _taskGroupWrites.append((command: "createTaskGroup", args: self.rpcArgDict(body)))
+            let groups = _taskGroups
+            let members = _taskGroupMembers
+            let order = _taskGroups.enumerated().map { index, group -> [String: Any] in
+                ["type": "group", "key": group["id"] ?? "", "sortOrder": index]
+            }
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
-                "result": ["groupId": "group-e2e-1"]])))
-        case "listGroupedTaskViewStructure" where channelName == "zcode-task":
-            // B-2 web 实证回执形状 {groups, members, topLevelOrders}（空结构 = 桌面无分组态；
-            // 移入分组全链先拉结构作全量视图写基线，缺此应答流程会在 apply 前如实失败）
-            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
-                "groups": [] as [Any],
-                "members": [] as [Any],
-                "topLevelOrders": [] as [Any],
+                "groups": groups,
+                "members": members,
+                "order": order,
             ])))
-        case "applyGroupedTaskViewOrder" where channelName == "zcode-task":
+        case "save" where channelName == "task-groups":
+            let args = rpcArgDict(body)
             lock.lock()
-            _taskGroupWrites.append((command: "applyGroupedTaskViewOrder", args: self.rpcArgDict(body)))
+            _taskGroupWrites.append((command: "save", args: args))
+            let groupId = args["id"]?.stringValue ?? "group-e2e-\(_taskGroups.count + 1)"
+            let now = Int(Date().timeIntervalSince1970 * 1000)
+            let title = args["title"]?.stringValue ?? "New group"
+            let color = args["color"]?.stringValue ?? "gray"
+            if let index = _taskGroups.firstIndex(where: { ($0["id"] as? String) == groupId }) {
+                _taskGroups[index]["title"] = title
+                _taskGroups[index]["color"] = color
+                _taskGroups[index]["updatedAt"] = now
+            } else {
+                _taskGroups.append([
+                    "id": groupId, "title": title, "color": color,
+                    "createdAt": now, "updatedAt": now,
+                ])
+            }
+            let snapshot = _taskGroups.first { ($0["id"] as? String) == groupId } ?? [:]
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(snapshot)))
+        case "move" where channelName == "task-groups":
+            let args = rpcArgDict(body)
+            lock.lock()
+            _taskGroupWrites.append((command: "move", args: args))
+            if let node = args["node"]?.objectValue, node["type"]?.stringValue == "task",
+               let task = node["task"]?.objectValue, let taskId = task["taskId"]?.stringValue {
+                let workspaceKey = task["workspaceIdentity"]?.stringValue
+                    ?? task["workspacePath"]?.stringValue ?? ""
+                _taskGroupMembers.removeAll { ($0["taskId"] as? String) == taskId }
+                if let groupId = args["groupId"]?.stringValue {
+                    _taskGroupMembers.append([
+                        "groupId": groupId, "workspaceKey": workspaceKey,
+                        "taskId": taskId, "sortOrder": 0,
+                    ])
+                }
+            }
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
+        case "ungroup" where channelName == "task-groups":
+            lock.lock()
+            _taskGroupWrites.append((command: "ungroup", args: ["id": body]))
+            if let groupId = body.stringValue {
+                _taskGroups.removeAll { ($0["id"] as? String) == groupId }
+                _taskGroupMembers.removeAll { ($0["groupId"] as? String) == groupId }
+            }
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
         default:

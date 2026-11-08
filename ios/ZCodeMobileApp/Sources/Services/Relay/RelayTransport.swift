@@ -141,6 +141,9 @@ actor RelayTransport {
     /// 桥退化上抛（bridge-degraded / 无 requestId 的 workspace-bridge-error / replay 宽限超时，
     /// C-13）：RelayChannelClient 据此快速重建桥（对齐 web markDegraded → T(reason) 编排）
     private var bridgeDegradedHandler: (@Sendable (String) -> Void)?
+    /// 传输层内部重连进度/成功回调（UI 横幅数据源；V1/V2 通用）
+    private var reconnectProgressHandler: (@Sendable (Int, Int) -> Void)?
+    private var reconnectSucceededHandler: (@Sendable () -> Void)?
 
     init(config: RelayLinkConfig,
          onLog: @escaping @Sendable (ConnectLogLine.Kind, String) -> Void,
@@ -194,6 +197,15 @@ actor RelayTransport {
     /// 桥退化回调（C-13；RelayChannelClient 在 connectRelay 时接线，先于任何桥建立）
     func setBridgeDegradedHandler(_ handler: @escaping @Sendable (String) -> Void) {
         bridgeDegradedHandler = handler
+    }
+
+    /// 内部重连进度（attempt, max）与恢复成功（UI 横幅「正在自动重连 n/m」）。
+    func setReconnectHandlers(
+        progress: (@Sendable (Int, Int) -> Void)?,
+        succeeded: (@Sendable () -> Void)?
+    ) {
+        reconnectProgressHandler = progress
+        reconnectSucceededHandler = succeeded
     }
 
     var desktopTerminalSid: String? { terminalSid }
@@ -843,6 +855,7 @@ actor RelayTransport {
             }
             firstAttempt = false
             reconnectAttempt += 1
+            reconnectProgressHandler?(reconnectAttempt, Self.maxReconnectAttempts)
             log(.info, "第 \(reconnectAttempt) 次重连 · \(String(format: "%.1f", delay))s 后")
             do {
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -850,6 +863,7 @@ actor RelayTransport {
             do {
                 try await openSocketAndAuthenticate(timeout: 15)
                 if state == .paired || state == .waiting {
+                    reconnectSucceededHandler?()
                     return // 重连成功；桥重建由 RelayChannelClient.onPaired 编排
                 }
             } catch {

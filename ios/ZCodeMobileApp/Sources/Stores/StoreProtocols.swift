@@ -82,6 +82,8 @@ protocol ConversationStore: AnyObject, Sendable {
     func pendingInteractionList(in conversationID: String) async -> [RemotePendingInteraction]
     /// 运行时初始化态（3.16.2 snapshot.runtimeInitialization；nil = 旧桌面未投影）
     func runtimeInitialization(in conversationID: String) async -> RuntimeInitializationInfo?
+    /// 3.17.2 输入预测 ghost hint（只读无 CAS；能力位门控在实现内；任何异常 = nil 无 hint）
+    func inputPrediction(in conversationID: String, draft: String, requestId: String) async -> InputPredictionResult?
     /// 重命名会话（连接态 zcode-task.renameTask 双写；演示态本地改）
     func renameConversation(_ title: String, conversationID: String) async
     /// 标记未读（连接态 zcode-task.setTaskUnread unread:true；compare-and-clear 的反向）
@@ -103,13 +105,11 @@ protocol ConversationStore: AnyObject, Sendable {
     func retryTurn(_ conversationID: String, rowId: Int, entityId: String?) async -> JSONValue?
     /// 会话派生（G-018）：forkAssistant（session 类放行分支）；返回新会话 id（失败 nil）
     func forkConversation(_ conversationID: String) async -> String?
-    /// 会话分组管理写面（G-017，均为索引元数据写、桌面代执行合法）。B-3/B-4/C-3/C-4
-    /// 按 web bundle 实证形状重写（2026-10-06）：createTaskGroup 零参 + 回执 groupId、
-    /// 落名走 renameTaskGroup{groupId,title,workspaceScopes}；updateTaskGroupColor/
-    /// deleteTaskGroup 均补 workspaceScopes；applyGroupedTaskViewOrder 为全量视图写
-    /// {workspaceScopes, topLevelNodes, groups[{groupId, taskRefs}]}——由
-    /// moveConversationToGroup 全链组合（拉结构→定位/建组→整视图重建提交），UI 不
-    /// 直接拼视图。返回 nil=成功、非 nil=失败原因（写面禁止静默，UI 必须如实提示）。
+    /// 会话分组管理写面（G-017，均为索引元数据写、桌面代执行合法）。v1.39 重接
+    /// 上游 `task-groups` 频道真实 API【实证·上游仓 task-groups/contract.ts:37-47】：
+    /// moveConversationToGroup 全链 = read → save（无同名组时建组）→ move；rename/
+    /// color = save（id 在场即更新）；deleteTaskGroup = ungroup（组内任务原位提升到
+    /// 顶层，幂等）。返回 nil=成功、非 nil=失败原因（写面禁止静默，UI 必须如实提示）。
     func moveConversationToGroup(_ conversationID: String, groupName: String) async -> String?
     func renameTaskGroup(groupId: String, title: String) async -> String?
     func updateTaskGroupColor(groupId: String, color: String) async -> String?
@@ -373,6 +373,7 @@ extension ConversationStore {
 
     /// 运行时初始化态（演示态无 runtime，nil）
     func runtimeInitialization(in conversationID: String) async -> RuntimeInitializationInfo? { nil }
+    func inputPrediction(in conversationID: String, draft: String, requestId: String) async -> InputPredictionResult? { nil }
 
     /// 重命名会话（mock 默认本地改，连接态由远端实现双写覆写）
     func renameConversation(_ title: String, conversationID: String) async {}
@@ -644,9 +645,7 @@ protocol TaskStore: AnyObject, Sendable {
     @discardableResult
     func stop(taskID: String) async -> String?
     func retry(taskID: String) async
-    /// 模拟后台终端输出流（后台 Bash）
-    func terminalStream(taskID: String) -> AsyncStream<TerminalLine>
-    /// 模型轨迹行
+    /// 模型轨迹行（conversation 行投影；v1.39 起无 terminalStream——无只读终端协议面）
     func trajectoryLines(taskID: String) async -> [TerminalLine]
 
     // MARK: 本期接入面（必须声明为本体 requirement，同 ConversationStore 的分派约束）

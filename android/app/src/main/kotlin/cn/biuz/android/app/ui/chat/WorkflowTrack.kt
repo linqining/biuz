@@ -37,10 +37,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import cn.biuz.android.app.R
-import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZBlue
 import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
+import cn.biuz.android.app.ui.theme.BiuZGreen
 import cn.biuz.android.app.ui.theme.BiuZRed
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText3
@@ -175,7 +175,7 @@ private fun WorkflowRunRailRow(run: SessionWorkflowRunSummary) {
                     fontWeight = FontWeight.Medium,
                     fontFamily = FontFamily.Monospace,
                 ),
-                color = BiuZBlue,
+                color = BiuZGreen,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -187,8 +187,8 @@ private fun WorkflowRunRailRow(run: SessionWorkflowRunSummary) {
 @Composable
 private fun StationDot(status: WorkflowStepStatus) {
     val color = when (status) {
-        WorkflowStepStatus.running -> BiuZBlue
-        WorkflowStepStatus.done -> BiuZAccent
+        WorkflowStepStatus.running -> BiuZGreen
+        WorkflowStepStatus.done -> BiuZBlue
         WorkflowStepStatus.failed -> BiuZRed
         WorkflowStepStatus.pending -> BiuZBorderStrong
     }

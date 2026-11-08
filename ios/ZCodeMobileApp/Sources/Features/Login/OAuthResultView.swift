@@ -11,6 +11,7 @@ struct OAuthSuccessView: View {
         case idle
         case connecting(source: String?)
         case connected
+        case selecting([AppSession.RelayDeviceSummary])
         case noDevice
         case failed(source: String?, detail: String)
     }
@@ -67,6 +68,8 @@ struct OAuthSuccessView: View {
             switch outcome {
             case .connected:
                 autoPhase = .connected
+            case .needsSelection(let devices):
+                autoPhase = .selecting(devices)
             case .noPairedDevice:
                 autoPhase = .noDevice
             case .failed(let source):
@@ -80,8 +83,27 @@ struct OAuthSuccessView: View {
     @ViewBuilder
     private var autoLinkSection: some View {
         switch autoPhase {
-        case .idle, .connected:
+        case .idle:
             EmptyView()
+        case .connected:
+            HStack(spacing: T.sp3) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(T.accentText)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(String(localized: "已自动连接桌面端"))
+                        .font(T.font(12.5, .semibold))
+                        .foregroundColor(T.text)
+                    Text(session.savedServer?.displayName ?? String(localized: "我的 Mac"))
+                        .font(T.mono(10.5))
+                        .foregroundColor(T.text3)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            .card(padding: T.sp3)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("o3-card-autolink-connected")
         case .connecting(let source):
             HStack(spacing: T.sp3) {
                 SpinnerView(size: 16)
@@ -99,6 +121,43 @@ struct OAuthSuccessView: View {
             .card(padding: T.sp3)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("o3-card-autolink")
+        case .selecting(let devices):
+            VStack(alignment: .leading, spacing: T.sp2) {
+                Text(String(localized: "发现多个在线桌面端，选择一个连接"))
+                    .font(T.font(12.5, .semibold))
+                    .foregroundColor(T.text)
+                ForEach(devices) { device in
+                    Button {
+                        connectSelected(device)
+                    } label: {
+                        HStack(spacing: T.sp2) {
+                            Image(systemName: "desktopcomputer")
+                                .font(.system(size: 12))
+                                .foregroundColor(T.accentText)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(device.displayName)
+                                    .font(T.font(12.5, .medium))
+                                    .foregroundColor(T.text)
+                                Text([device.platform, device.version]
+                                    .compactMap { $0 }.joined(separator: " · "))
+                                    .font(T.mono(10))
+                                    .foregroundColor(T.text3)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(T.text3)
+                        }
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .card(padding: T.sp3)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("o3-card-autolink-devices")
         case .noDevice:
             autoLinkGuide(
                 icon: "desktopcomputer.and.arrow.down", tint: T.orange,
@@ -109,6 +168,27 @@ struct OAuthSuccessView: View {
                 icon: "exclamationmark.triangle", tint: T.orange,
                 title: String(localized: "连接 \(source ?? String(localized: "我的 Mac")) 失败"),
                 detail: String(localized: "\(detail)。可检查桌面端是否在线后重试，或重新复制配对链接粘贴。"))
+        }
+    }
+
+    /// 多设备选择：连接所选设备并切到连接中/失败态。
+    private func connectSelected(_ device: AppSession.RelayDeviceSummary) {
+        autoPhase = .connecting(source: device.displayName)
+        Task {
+            let outcome = await session.connectRelayDevice(device)
+            await MainActor.run {
+                switch outcome {
+                case .connected:
+                    autoPhase = .connected
+                case .needsSelection(let devices):
+                    autoPhase = .selecting(devices)
+                case .noPairedDevice:
+                    autoPhase = .noDevice
+                case .failed(let source):
+                    autoPhase = .failed(source: source,
+                                        detail: String(localized: "连接未成功，桌面端可能未在线"))
+                }
+            }
         }
     }
 

@@ -1,0 +1,10 @@
+<view class="track" wx:if="{{track}}">
+  <view class="track__dots">
+    <block wx:for="{{track.states}}" wx:key="index">
+      <view class="track__link" wx:if="{{index > 0}}"></view>
+      <view class="{{dotClass[item] || dotClass.pending}}"></view>
+    </block>
+    <text class="track__extra" wx:if="{{track.extra}}">{{track.extra}}</text>
+  </view>
+  <text class="track__label" wx:if="{{track.label}}">{{track.label}}</text>
+</view>

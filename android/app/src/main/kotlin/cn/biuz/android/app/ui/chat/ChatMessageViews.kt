@@ -71,6 +71,7 @@ import cn.biuz.android.app.ui.theme.BiuZBgInput
 import cn.biuz.android.app.ui.theme.BiuZBlue
 import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
+import cn.biuz.android.app.ui.theme.BiuZGreen
 import cn.biuz.android.app.ui.theme.BiuZOnAccent
 import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRadius
@@ -427,8 +428,8 @@ private fun AgentMessageRow(
                             TodoState.todo -> "○"
                         }
                         val color = when (todo.state) {
-                            TodoState.done -> BiuZAccent
-                            TodoState.now -> BiuZBlue
+                            TodoState.done -> BiuZBlue
+                            TodoState.now -> BiuZGreen
                             TodoState.failed -> BiuZOrange
                             TodoState.todo -> BiuZText3
                         }
@@ -622,9 +623,9 @@ private fun ToolCallCard(call: ToolCall, onRetry: () -> Unit) {
                 ToolCallStatus.running -> CircularProgressIndicator(
                     modifier = Modifier.size(14.dp),
                     strokeWidth = 2.dp,
-                    color = BiuZBlue,
+                    color = BiuZGreen,
                 )
-                ToolCallStatus.done -> Text("✓", color = BiuZAccent, fontSize = 12.sp)
+                ToolCallStatus.done -> Text("✓", color = BiuZBlue, fontSize = 12.sp)
                 ToolCallStatus.failed -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("✕", color = BiuZOrange, fontSize = 12.sp)
                     // G-015：失败且行元数据游标（entityId）在场才出现「重试」——无游标不渲染

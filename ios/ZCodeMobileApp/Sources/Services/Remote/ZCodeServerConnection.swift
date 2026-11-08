@@ -200,7 +200,11 @@ struct V4HelloMessage {
         var capabilities: [String: Bool] = [:]
         if let caps = dict["capabilities"]?.objectValue {
             for (key, value) in caps {
-                capabilities[key] = value.boolValue ?? false
+                // 真桌面按 hostCapabilitiesSchema 发 JSON 布尔；E2E 替身序列化器把
+                // 布尔写成数字（1/0）——宽容两形态（能力门 fail-closed，缺键仍 false）
+                capabilities[key] = value.boolValue
+                    ?? value.intValue.map { $0 != 0 }
+                    ?? false
             }
         }
         return V4HelloMessage(
@@ -242,6 +246,11 @@ final class ZCodeServerConnection {
     private(set) var serverInfo: ServerRemoteInfo?
     private(set) var workspace: ServerWorkspaceInfo?
     private var helloMessage: V4HelloMessage?
+
+    /// 3.17.2 输入预测能力位（hello.capabilities.inputPrediction === true 才发请求；
+    /// 旧 Host 缺席不得发起——mobile-input-prediction.md 能力探测口径）。async 供
+    /// store actor 跨隔离域读取（helloMessage 为 MainActor 态）。
+    func inputPredictionAvailable() async -> Bool { helloMessage?.capabilities["inputPrediction"] == true }
     private var frameSubscription: EventSubscription?
     private var frameAssemblers: [String: TopicWireFrameAssembler] = [:] // channel 名键控
     private var frameHandlers: [String: @Sendable (V4TopicFrame) -> Void] = [:]
@@ -267,6 +276,9 @@ final class ZCodeServerConnection {
     /// 仅「曾进入 .connected 后的真实传输中断」触发；手动 disconnect() 经
     /// manuallyCancelled 守卫先行返回，不会误触发。
     var onConnectionDropped: (@MainActor (String) -> Void)?
+    /// 中继传输层内部重连进度 / 恢复（UI 横幅「正在自动重连 n/6」）
+    var onRelayReconnecting: (@MainActor (Int, Int) -> Void)?
+    var onRelayReconnected: (@MainActor () -> Void)?
 
     /// 工作区清单推送回调（workspace-list-updated，P3-10）：AppSession 据此刷新
     /// 任务聚合清单（conversationStore.setAllWorkspaces）；清单本体已先行回写
@@ -520,6 +532,17 @@ final class ZCodeServerConnection {
                 self?.handleWorkspaceListUpdated(payload)
             }
         }
+        await transport.setReconnectHandlers(
+            progress: { [weak self] attempt, max in
+                Task { @MainActor [weak self] in
+                    self?.onRelayReconnecting?(attempt, max)
+                }
+            },
+            succeeded: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.onRelayReconnected?()
+                }
+            })
         let client = RelayChannelClient(transport: transport, link: link, appVersion: appVersion)
         // 桥(重)开即重握手（RelayChannelClient.setOnBridgeOpened 注）：首连/断线恢复/
         // degraded 重建/切换全部路径经 openBridge 汇入，握手在此单点接管——connectRelay
@@ -645,6 +668,7 @@ final class ZCodeServerConnection {
                 hello = try await attempt()
             }
             guard let hello else { return }
+            helloMessage = hello
             let clientHello = RPCValue.jsonObject { builder in
                 builder.set("kind", "clientHello")
                 builder.set("protocolVersion", V4HelloMessage.wireProtocolVersion)
@@ -981,10 +1005,18 @@ final class ZCodeServerConnection {
         // assemblerKey 按 workspace 分键：两路帧流各自重组（TopicWireFrameAssembler
         // 分片账本不跨流混用）；handler 仍按 frame.topic 精确匹配（routeFrame）
         let subscription = await client.listen(
-            "zcode-agent", "onDynamicConversationFrame", arg
-        ) { [weak self] payload in
-            self?.routeFrame(payload, assemblerKey: "conversation/\(streamKey)", handlerKey: nil)
-        }
+            "zcode-agent", "onDynamicConversationFrame", arg,
+            handler: { [weak self] payload in
+                self?.routeFrame(payload, assemblerKey: "conversation/\(streamKey)", handlerKey: nil)
+            },
+            onError: { [weak self] error in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.log(.error, "conversation 帧流 EventError · \(streamKey) · \(error.message)")
+                    // 服务端已终结该订阅；清记账使下次会话订阅前 ensure 幂等重挂
+                    self.conversationFrameStreams.removeValue(forKey: streamKey)
+                }
+            })
         conversationFrameStreams[streamKey] = subscription
         log(.ok, "conversation 帧流已挂 · \(streamKey)")
     }
@@ -1005,16 +1037,36 @@ final class ZCodeServerConnection {
                 builder.set("workspaceIdentity", identity)
             }
         }
-        let conversationSub = await client.listen("zcode-agent", "onDynamicConversationFrame", arg) { [weak self] payload in
-            self?.routeFrame(payload, assemblerKey: "conversation", handlerKey: nil)
-        }
+        let conversationSub = await client.listen("zcode-agent", "onDynamicConversationFrame", arg,
+            handler: { [weak self] payload in
+                self?.routeFrame(payload, assemblerKey: "conversation", handlerKey: nil)
+            },
+            onError: { [weak self] error in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.log(.error, "conversation 帧流 EventError · \(error.message)")
+                    self.conversationFrameStreams.removeValue(forKey: self.workspace?.path ?? "")
+                }
+            })
         conversationFrameStreams[workspace?.path ?? ""] = conversationSub
-        let sessionsSub = await client.listen("zcode-agent", "onDynamicSessionsIndexFrame", arg) { [weak self] payload in
-            self?.routeFrame(payload, assemblerKey: "sessions", handlerKey: "sessions-index")
-        }
-        let configSub = await client.listen("zcode-agent", "onDynamicWorkspaceConfigFrame", arg) { [weak self] payload in
-            self?.routeFrame(payload, assemblerKey: "workspace-config", handlerKey: "workspace-config")
-        }
+        let sessionsSub = await client.listen("zcode-agent", "onDynamicSessionsIndexFrame", arg,
+            handler: { [weak self] payload in
+                self?.routeFrame(payload, assemblerKey: "sessions", handlerKey: "sessions-index")
+            },
+            onError: { [weak self] error in
+                Task { @MainActor [weak self] in
+                    self?.log(.error, "sessions-index 帧流 EventError · \(error.message)")
+                }
+            })
+        let configSub = await client.listen("zcode-agent", "onDynamicWorkspaceConfigFrame", arg,
+            handler: { [weak self] payload in
+                self?.routeFrame(payload, assemblerKey: "workspace-config", handlerKey: "workspace-config")
+            },
+            onError: { [weak self] error in
+                Task { @MainActor [weak self] in
+                    self?.log(.error, "workspace-config 帧流 EventError · \(error.message)")
+                }
+            })
         // zcode-task.onError：固定事件（无参），错误文本进连接日志面板
         let taskErrorSub = await client.listen("zcode-task", "onError", .undefined) { [weak self] payload in
             let message = payload.jsonValue?["message"]?.stringValue
@@ -1192,9 +1244,10 @@ final class ZCodeServerConnection {
     }
 
     func listen(_ channel: String, _ event: String, _ arg: RPCValue = .undefined,
-                handler: @escaping @Sendable (RPCValue) -> Void) async -> EventSubscription? {
+                handler: @escaping @Sendable (RPCValue) -> Void,
+                onError: (@Sendable (RPCError) -> Void)? = nil) async -> EventSubscription? {
         guard let client, isActive else { return nil }
-        return await client.listen(channel, event, arg, handler: handler)
+        return await client.listen(channel, event, arg, handler: handler, onError: onError)
     }
 
     /// 曾连接后的真实传输中断 → 通知 AppSession 切 .disconnected（横幅）。

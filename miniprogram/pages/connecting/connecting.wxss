@@ -1,0 +1,241 @@
+/* 004-连接中 / 005-连接失败 —— 换算 1px ≈ 1.923rpx。
+   对齐线上基线 .capture/runs/20261108-095604-v4（校验失败态）。 */
+
+.page {
+  min-height: 100vh;
+  background-color: var(--color-background);
+}
+.wrap {
+  padding-left: 32rpx;
+  padding-right: 32rpx;
+  padding-bottom: 48rpx;
+}
+
+/* ---- 品牌 ---- */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 77rpx;
+}
+.brand__logo {
+  width: 38rpx;
+  height: 38rpx;
+  border-radius: 10rpx;
+  background-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand__name {
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--color-foreground);
+}
+
+/* ---- 004 连接中 ---- */
+.connecting {
+  margin-top: 200rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+.connecting__spinner {
+  width: 56rpx;
+  height: 56rpx;
+  border: 6rpx solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: biuz-spin 0.8s linear infinite;
+}
+@keyframes biuz-spin {
+  to { transform: rotate(360deg); }
+}
+.connecting__title {
+  margin-top: var(--space-2);
+  font-size: var(--font-title);
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+.steps {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0 32rpx;
+  box-sizing: border-box;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.step__dot {
+  width: 38rpx;
+  height: 38rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-xs);
+  flex: 0 0 auto;
+}
+.step__dot--pending {
+  border: 2rpx solid var(--color-border);
+  color: var(--color-muted-2);
+}
+.step__dot--active {
+  background-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.step__dot--done {
+  background-color: var(--color-success);
+  color: #ffffff;
+}
+.step__label {
+  font-size: var(--font-base);
+  color: var(--color-muted-2);
+}
+.step__label--active {
+  color: var(--color-foreground);
+  font-weight: 500;
+}
+.step__label--done {
+  color: var(--color-muted);
+}
+.connecting__stage {
+  margin-top: var(--space-4);
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+}
+.connecting__desc {
+  font-size: var(--font-xs);
+  color: var(--color-muted-2);
+  text-align: center;
+}
+
+/* ---- 005 连接失败（卡片） ---- */
+.failure {
+  margin-top: 120rpx;
+  border: 2rpx solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 32rpx;
+  background-color: var(--color-card);
+}
+.failure__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.failure__icon {
+  width: 85rpx;
+  height: 85rpx;
+  border-radius: var(--radius-md);
+  border: 2rpx solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-title);
+  font-weight: 700;
+}
+.failure__icon--warning { color: #ff8a30; border-color: rgba(255, 138, 48, 0.35); background-color: rgba(255, 138, 48, 0.10); }
+.failure__icon--danger { color: var(--color-destructive); border-color: var(--color-destructive); background-color: rgba(239, 68, 68, 0.10); }
+.failure__icon--neutral { color: var(--color-muted); }
+.failure__badge {
+  font-size: var(--font-sm);
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  border: 2rpx solid var(--color-border);
+  color: var(--color-muted);
+}
+.failure__badge--warning { color: #ff8a30; border-color: rgba(255, 138, 48, 0.35); background-color: rgba(255, 138, 48, 0.10); }
+.failure__badge--danger { color: var(--color-destructive); border-color: var(--color-destructive); background-color: rgba(239, 68, 68, 0.10); }
+.failure__title {
+  display: block;
+  margin-top: var(--space-3);
+  font-size: 40rpx;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+.failure__description {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: var(--font-base);
+  line-height: 44rpx;
+  color: var(--color-muted);
+}
+.failure__divider {
+  height: 2rpx;
+  background-color: var(--color-border);
+  margin: var(--space-4) 0;
+}
+.failure__steps-title {
+  display: block;
+  font-size: var(--font-base);
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+.failure__step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.failure__step-index {
+  width: 38rpx;
+  height: 38rpx;
+  border-radius: 50%;
+  background-color: var(--color-input);
+  color: var(--color-muted);
+  font-size: var(--font-xs);
+  text-align: center;
+  line-height: 38rpx;
+  flex: 0 0 auto;
+}
+.failure__step-text {
+  flex: 1;
+  font-size: var(--font-base);
+  line-height: 44rpx;
+  color: var(--color-muted);
+}
+.failure__detail {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-code);
+  border: 2rpx solid var(--color-border);
+}
+.failure__detail-label {
+  display: block;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+.failure__detail-text {
+  display: block;
+  margin-top: 8rpx;
+  font-size: var(--font-sm);
+  line-height: 38rpx;
+  color: var(--color-muted);
+  word-break: break-all;
+}
+.failure__action {
+  margin-top: var(--space-4);
+  height: 85rpx;
+  border-radius: var(--radius-md);
+  background-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-base);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.failure__action:active {
+  background-color: var(--color-accent-press);
+}
