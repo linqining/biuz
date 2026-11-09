@@ -1,1 +1,44 @@
-/* 页面私有样式。公共 token 在 app.wxss，公共件用 components/。 */
+/* 009-分享落地 —— 只读预览版式（对齐 iOS SharePreviewSheet） */
+
+.share-page { height: 100vh; display: flex; flex-direction: column; background-color: var(--color-background); }
+
+.share-header { flex: 0 0 auto; height: 85rpx; display: flex; align-items: center; gap: var(--space-2); padding: 0 32rpx; border-bottom: 2rpx solid var(--color-border); }
+.share-header__title { flex: 1; font-size: 34rpx; font-weight: 600; color: var(--color-foreground); }
+.share-header__close { width: 62rpx; text-align: center; font-size: var(--font-base); color: var(--color-muted); }
+
+.share-body { flex: 1; min-height: 0; padding: 24rpx 32rpx 0; box-sizing: border-box; }
+.share-body__pad { height: 48rpx; }
+.share-state { padding: 96rpx 0; display: flex; flex-direction: column; align-items: center; gap: var(--space-3); }
+
+.share-error__icon { font-size: 44rpx; }
+.share-error__text { font-size: var(--font-sm); color: var(--color-foreground); text-align: center; }
+.share-error__action {
+  padding: 0 var(--space-4);
+  height: 80rpx;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-md);
+  background-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-base);
+  font-weight: 600;
+}
+
+.share-meta { display: flex; flex-direction: column; gap: 4rpx; margin-bottom: var(--space-3); }
+.share-meta__title { font-size: 34rpx; font-weight: 600; color: var(--color-foreground); }
+.share-meta__owner { font-size: var(--font-xs); color: var(--color-muted-2); }
+
+.share-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-md);
+  background-color: var(--color-card);
+  border: 2rpx solid var(--color-border);
+}
+.share-row__role { font-size: var(--font-xs); color: var(--color-muted-2); }
+.share-row__text { font-size: var(--font-base); line-height: 44rpx; color: var(--color-foreground); word-break: break-word; }
+
+.share-unsupported { display: block; padding: var(--space-2) 0; font-size: var(--font-xs); color: var(--color-muted-2); }

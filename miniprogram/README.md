@@ -57,6 +57,12 @@ pages/
 5. **无系统级返回键语义**：web 用 `history.pushState` + `popstate` 表达 home↔chat，
    小程序对应 `navigateBack` / 自定义返回按钮，**不要**用页面栈隐式表达。
 
+## 开发期域名校验
+
+`project.config.json` 的 `setting.urlCheck = false`（等同开发者工具「不校验合法域名」勾选）——
+否则 `wx.request` 直连 `zcode.z.ai` 会被拦成 `request:fail url not in domain list`。
+**上线前必须**在公众平台后台登记 `request`/`socket` 合法域名，并把 `urlCheck` 改回 `true`。
+
 ## 测试缝
 
 ```js
