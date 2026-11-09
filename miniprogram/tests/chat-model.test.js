@@ -80,3 +80,47 @@ test('顶栏标题：空标题回落「任务会话」', () => {
 });
 
 console.log('\n' + passed + ' 项通过');
+
+// ---- Markdown 块/行内（与 iOS TinyMarkdown、Android MarkdownParser 同口径）----
+const md = require('../utils/chat-model.js');
+
+test('块级：标题/列表/段落/围栏代码（带语言）', () => {
+  const blocks = md.parseBlocks('## 现状\n- 第一项\n- 第二项\n\n正文一段\n```kotlin\nval a = 1\n```');
+  assert.deepStrictEqual(blocks.map((b) => b.type), ['heading', 'listItem', 'listItem', 'text', 'code']);
+  assert.strictEqual(blocks[0].level, 2);
+  assert.strictEqual(blocks[4].language, 'kotlin');
+  assert.strictEqual(blocks[4].content, 'val a = 1');
+});
+
+test('未闭合围栏：剩余内容按代码块（流式不丢字）', () => {
+  const blocks = md.parseBlocks('说明\n```js\nconsole.log(1)');
+  assert.deepStrictEqual(blocks.map((b) => b.type), ['text', 'code']);
+  assert.strictEqual(blocks[1].content, 'console.log(1)');
+});
+
+test('管道表格：表头 + 行，分隔行剔除', () => {
+  const blocks = md.parseBlocks('| 名称 | 值 |\n|---|:--:|\n| a | 1 |');
+  assert.strictEqual(blocks.length, 1);
+  assert.strictEqual(blocks[0].type, 'table');
+  assert.deepStrictEqual(blocks[0].header.map((c) => c.text), ['名称', '值']);
+  assert.deepStrictEqual(blocks[0].rows.map((r) => r.map((c) => c.text)), [['a', '1']]);
+});
+
+test('表格缺分隔行降级为段落', () => {
+  const blocks = md.parseBlocks('| a | b |');
+  assert.deepStrictEqual(blocks.map((b) => b.type), ['text']);
+});
+
+test('行内：粗体 / 斜体 / 行内代码分段', () => {
+  const segs = md.parseInline('前 **粗** 中 *斜* 后 `码` 尾');
+  assert.deepStrictEqual(segs.map((s) => s.text), ['前 ', '粗', ' 中 ', '斜', ' 后 ', '码', ' 尾']);
+  assert.strictEqual(segs[1].bold, true);
+  assert.strictEqual(segs[3].italic, true);
+  assert.strictEqual(segs[5].code, true);
+});
+
+test('行内：未闭合标记按字面量保留', () => {
+  assert.deepStrictEqual(md.parseInline('2 * 3 = 6').map((s) => s.text), ['2 * 3 = 6']);
+  assert.deepStrictEqual(md.parseInline('反引号 `未闭合').map((s) => s.text), ['反引号 `未闭合']);
+  assert.deepStrictEqual(md.parseInline('a**b').map((s) => s.text), ['a**b']);
+});

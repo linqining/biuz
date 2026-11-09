@@ -193,3 +193,26 @@
   text-align: center;
   line-height: 60rpx;
 }
+
+/* Markdown 行内标记 / 列表 / 表格 / 代码块语言标签（与 iOS TinyMarkdown、Android MarkdownText 同口径） */
+.md-bold { font-weight: 600; }
+.md-italic { font-style: italic; }
+.md-inline-code {
+  font-family: Menlo, Consolas, monospace;
+  font-size: var(--font-xs);
+  padding: 0 6rpx;
+  border-radius: 4rpx;
+  background-color: rgba(127, 127, 127, 0.16);
+}
+
+.md-list { display: flex; align-items: flex-start; gap: 12rpx; margin: 4rpx 0; }
+.md-list__dot { font-size: var(--font-sm); color: var(--color-muted-2); line-height: 44rpx; }
+.md-list__text { flex: 1; min-width: 0; }
+
+.md-code__lang { display: block; font-size: 18rpx; color: var(--color-muted-2); padding: 4rpx 0 2rpx; font-family: Menlo, Consolas, monospace; }
+
+.md-table { border: 2rpx solid var(--color-border); border-radius: var(--radius-md); background-color: var(--color-card); white-space: nowrap; }
+.md-table__head { display: flex; gap: 24rpx; padding: 10rpx 16rpx; background-color: rgba(127, 127, 127, 0.10); }
+.md-table__row { display: flex; gap: 24rpx; padding: 10rpx 16rpx; border-top: 2rpx solid var(--color-border); }
+.md-table__cell { font-family: Menlo, Consolas, monospace; font-size: var(--font-xs); color: var(--color-foreground); }
+.md-table__cell--head { font-weight: 600; }

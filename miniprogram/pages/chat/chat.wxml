@@ -34,11 +34,34 @@
 
         <view class="msg__assistant" wx:elif="{{item.kind === 'text'}}">
           <block wx:for="{{item.blocks}}" wx:for-item="block" wx:for-index="bi" wx:key="bi">
-            <text class="md-heading md-heading--{{block.level}}" wx:if="{{block.type === 'heading'}}">{{block.content}}</text>
+            <text class="md-heading md-heading--{{block.level}}" wx:if="{{block.type === 'heading'}}"><text
+                wx:for="{{block.segments}}" wx:for-item="seg" wx:for-index="si" wx:key="si"
+                class="{{seg.bold ? 'md-bold' : ''}}{{seg.italic ? ' md-italic' : ''}}{{seg.code ? ' md-inline-code' : ''}}">{{seg.text}}</text></text>
             <view class="md-code" wx:elif="{{block.type === 'code'}}">
+              <text class="md-code__lang" wx:if="{{block.language}}">{{block.language}}</text>
               <text class="md-code__text">{{block.content}}</text>
             </view>
-            <text class="md-text" wx:else user-select>{{block.content}}</text>
+            <view class="md-list" wx:elif="{{block.type === 'listItem'}}">
+              <text class="md-list__dot">•</text>
+              <text class="md-text md-list__text" user-select><text
+                  wx:for="{{block.segments}}" wx:for-item="seg" wx:for-index="si" wx:key="si"
+                  class="{{seg.bold ? 'md-bold' : ''}}{{seg.italic ? ' md-italic' : ''}}{{seg.code ? ' md-inline-code' : ''}}">{{seg.text}}</text></text>
+            </view>
+            <scroll-view class="md-table" wx:elif="{{block.type === 'table'}}" scroll-x>
+              <view class="md-table__head">
+                <text class="md-table__cell md-table__cell--head" wx:for="{{block.header}}" wx:for-item="cell" wx:for-index="ci" wx:key="ci"><text
+                    wx:for="{{cell.segments}}" wx:for-item="seg" wx:for-index="si" wx:key="si"
+                    class="{{seg.bold ? 'md-bold' : ''}}{{seg.italic ? ' md-italic' : ''}}{{seg.code ? ' md-inline-code' : ''}}">{{seg.text}}</text></text>
+              </view>
+              <view class="md-table__row" wx:for="{{block.rows}}" wx:for-item="row" wx:for-index="ri" wx:key="ri">
+                <text class="md-table__cell" wx:for="{{row}}" wx:for-item="cell" wx:for-index="ci" wx:key="ci"><text
+                    wx:for="{{cell.segments}}" wx:for-item="seg" wx:for-index="si" wx:key="si"
+                    class="{{seg.bold ? 'md-bold' : ''}}{{seg.italic ? ' md-italic' : ''}}{{seg.code ? ' md-inline-code' : ''}}">{{seg.text}}</text></text>
+              </view>
+            </scroll-view>
+            <text class="md-text" wx:else user-select><text
+                wx:for="{{block.segments}}" wx:for-item="seg" wx:for-index="si" wx:key="si"
+                class="{{seg.bold ? 'md-bold' : ''}}{{seg.italic ? ' md-italic' : ''}}{{seg.code ? ' md-inline-code' : ''}}">{{seg.text}}</text></text>
           </block>
         </view>
 

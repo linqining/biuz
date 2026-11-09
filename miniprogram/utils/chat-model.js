@@ -23,56 +23,166 @@ function normalizeMessage(raw) {
 }
 
 /**
- * 轻量块解析（顺序扫描，支持 ``` 围栏 / # 标题 / 空行分段）。
- * 返回 [{ type: 'code'|'heading'|'text', content: string, level?: number }]
+ * 轻量块解析 —— 与 iOS `TinyMarkdown.swift` / Android `MarkdownParser.kt` 同块集：
+ * 围栏代码块（带语言）/ 标题 1-6 / 列表项 / 管道表格 / 段落。
+ * 行内标记（**粗体** / *斜体* / `行内代码`）解析为 segments，供 WXML 嵌套 <text> 渲染。
+ * 返回 [{ type, ... }]，type ∈ heading|text|listItem|code|table
  */
 function parseBlocks(text) {
   const source = String(text == null ? '' : text);
   if (!source) return [];
   const lines = source.split('\n');
   const blocks = [];
-  let buffer = [];
-  let inFence = false;
-  let fenceLines = [];
+  let index = 0;
 
-  function flushText() {
-    const content = buffer.join('\n').replace(/\s+$/, '');
-    if (content.trim()) blocks.push({ type: 'text', content: content });
-    buffer = [];
+  function pushText(content) {
+    if (content.trim()) blocks.push({ type: 'text', content: content, segments: parseInline(content) });
   }
 
-  lines.forEach(function (line) {
+  while (index < lines.length) {
+    const line = lines[index];
+
     if (line.trim().startsWith('```')) {
-      if (inFence) {
-        blocks.push({ type: 'code', content: fenceLines.join('\n') });
-        fenceLines = [];
-        inFence = false;
-      } else {
-        flushText();
-        inFence = true;
+      const language = line.trim().slice(3).trim();
+      index += 1;
+      const code = [];
+      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+        code.push(lines[index]);
+        index += 1;
       }
-      return;
+      if (index < lines.length) index += 1;
+      blocks.push({ type: 'code', content: code.join('\n'), language: language });
+      continue;
     }
-    if (inFence) {
-      fenceLines.push(line);
-      return;
+
+    if (line.trim().startsWith('|')) {
+      const tableLines = [];
+      while (index < lines.length && lines[index].trim().startsWith('|')) {
+        tableLines.push(lines[index]);
+        index += 1;
+      }
+      const cellsOf = function (row) {
+        const parts = row.split('|').map(function (cell) { return cell.trim(); });
+        if (parts.length && parts[0] === '') parts.shift();
+        if (parts.length && parts[parts.length - 1] === '') parts.pop();
+        return parts;
+      };
+      if (tableLines.length < 2) {
+        tableLines.forEach(function (row) { pushText(row); });
+        continue;
+      }
+      const header = cellsOf(tableLines[0]).map(function (cell) {
+        return { text: cell, segments: parseInline(cell) };
+      });
+      const rows = [];
+      tableLines.slice(1).forEach(function (row) {
+        if (/^\|[\s:|-]+\|\s*$/.test(row.trim())) return;
+        rows.push(cellsOf(row).map(function (cell) {
+          return { text: cell, segments: parseInline(cell) };
+        }));
+      });
+      if (header.length) blocks.push({ type: 'table', header: header, rows: rows });
+      continue;
     }
+
     const heading = line.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
-      flushText();
-      blocks.push({ type: 'heading', content: heading[2], level: heading[1].length });
-      return;
+      blocks.push({ type: 'heading', level: heading[1].length, content: heading[2], segments: parseInline(heading[2]) });
+      index += 1;
+      continue;
     }
-    buffer.push(line);
-  });
 
-  if (inFence) {
-    // 围栏未闭合（流式中）：按代码块渲染，避免把半截代码当正文
-    blocks.push({ type: 'code', content: fenceLines.join('\n') });
-  } else {
-    flushText();
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) {
+      blocks.push({ type: 'listItem', content: bullet[1], segments: parseInline(bullet[1]) });
+      index += 1;
+      continue;
+    }
+
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    // 连续非空行合并为一段
+    const para = [line];
+    index += 1;
+    while (
+      index < lines.length &&
+      lines[index].trim() &&
+      !lines[index].trim().startsWith('```') &&
+      !lines[index].trim().startsWith('|') &&
+      !/^#{1,6}\s+/.test(lines[index]) &&
+      !/^\s*[-*]\s+/.test(lines[index])
+    ) {
+      para.push(lines[index]);
+      index += 1;
+    }
+    pushText(para.join('\n'));
   }
   return blocks;
+}
+
+/**
+ * 行内标记 → segments[{ text, bold, italic, code }]。
+ * 顺序与 Android `inlineAnnotated` 一致：先双星粗体，再单星斜体，再反引号行内代码；
+ * 未闭合标记按字面量保留（流式半截文本不吞字符）。
+ */
+function parseInline(text) {
+  const source = String(text == null ? '' : text);
+  const segments = [];
+  let buffer = '';
+  let index = 0;
+
+  function flush(flags) {
+    if (buffer) {
+      segments.push(Object.assign({ text: buffer }, flags || {}));
+      buffer = '';
+    }
+  }
+
+  while (index < source.length) {
+    if (source.startsWith('**', index)) {
+      const close = source.indexOf('**', index + 2);
+      if (close < 0 || close === index + 2) {
+        buffer += '*';
+        index += 1;
+      } else {
+        flush();
+        segments.push({ text: source.slice(index + 2, close), bold: true });
+        index = close + 2;
+      }
+      continue;
+    }
+    if (source[index] === '*') {
+      const close = source.indexOf('*', index + 1);
+      if (close < 0 || close === index + 1) {
+        buffer += '*';
+        index += 1;
+      } else {
+        flush();
+        segments.push({ text: source.slice(index + 1, close), italic: true });
+        index = close + 1;
+      }
+      continue;
+    }
+    if (source[index] === '`') {
+      const close = source.indexOf('`', index + 1);
+      if (close < 0) {
+        buffer += '`';
+        index += 1;
+      } else {
+        flush();
+        segments.push({ text: source.slice(index + 1, close), code: true });
+        index = close + 1;
+      }
+      continue;
+    }
+    buffer += source[index];
+    index += 1;
+  }
+  flush();
+  return segments;
 }
 
 /** 渲染前摊平：给每条消息挂 blocks / 时间文案 / 角色展示名。 */
@@ -110,6 +220,7 @@ function headerTitle(session) {
 }
 
 module.exports = {
+  parseInline: parseInline,
   normalizeMessage: normalizeMessage,
   parseBlocks: parseBlocks,
   decorateMessage: decorateMessage,
