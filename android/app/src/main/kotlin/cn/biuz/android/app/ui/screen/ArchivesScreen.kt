@@ -66,7 +66,18 @@ fun ArchivesScreen(
 ) {
     val scope = rememberCoroutineScope()
     val surface by session.storeSurface.collectAsStateWithLifecycle()
+    val mode by session.mode.collectAsStateWithLifecycle()
     val store = surface.conversation
+    // 未连接态不得显示「暂无归档会话」（会读成「桌面没有归档」——如实区分，§5-12）
+    val connected = mode is AppSession.Mode.Connected || mode is AppSession.Mode.Connecting
+    // 已连接但会话索引一行都没有 = v4 握手未完成（与 P-023 看门狗同判据）：
+    // 此时「暂无归档会话」是误导，改走「暂未返回会话列表 · 点按重试」
+    var indexEmpty by remember { mutableStateOf(false) }
+    LaunchedEffect(connected, surface.epoch) {
+        indexEmpty = connected && runCatching {
+            surface.sessionsIndex?.currentConversations()?.isEmpty() ?: true
+        }.getOrDefault(false)
+    }
 
     var loading by remember { mutableStateOf(true) }
     var items by remember { mutableStateOf<List<Conversation>>(emptyList()) }
@@ -189,12 +200,26 @@ fun ArchivesScreen(
             }
 
             filtered.isEmpty() -> BiuzEmptyState(
-                title = if (query.isBlank()) {
-                    stringResource(R.string.archives_empty)
-                } else {
-                    stringResource(R.string.archives_no_results)
+                title = when {
+                    !connected -> stringResource(R.string.archives_not_connected)
+                    indexEmpty && query.isBlank() -> stringResource(R.string.archives_index_pending)
+                    query.isNotBlank() -> stringResource(R.string.archives_no_results)
+                    else -> stringResource(R.string.archives_empty)
                 },
-                hint = stringResource(R.string.archives_empty_hint),
+                hint = when {
+                    !connected -> stringResource(R.string.archives_not_connected_hint)
+                    indexEmpty && query.isBlank() -> stringResource(R.string.archives_index_pending_hint)
+                    else -> stringResource(R.string.archives_empty_hint)
+                },
+                action = if (indexEmpty) {
+                    {
+                        TextButton(onClick = { scope.launch { reload() } }) {
+                            Text(stringResource(R.string.archives_retry))
+                        }
+                    }
+                } else {
+                    null
+                },
                 modifier = Modifier.testTag("19-empty"),
             )
 

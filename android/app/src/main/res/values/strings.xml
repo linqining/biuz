@@ -497,4 +497,9 @@
     <string name="row_action_archive">归档</string>
     <string name="row_action_mark_unread">标记未读</string>
     <string name="row_action_failed">操作失败</string>
+    <string name="archives_not_connected">未连接桌面端</string>
+    <string name="archives_not_connected_hint">归档列表来自桌面端任务索引；连接后自动读取</string>
+    <string name="archives_index_pending">桌面端暂未返回会话列表</string>
+    <string name="archives_index_pending_hint">会话初始化未完成 · 保持连接后点按重试</string>
+    <string name="archives_retry">重试</string>
 </resources>

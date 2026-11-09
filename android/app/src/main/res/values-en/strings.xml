@@ -419,4 +419,9 @@
     <string name="row_action_archive">Archive</string>
     <string name="row_action_mark_unread">Mark as unread</string>
     <string name="row_action_failed">Action failed</string>
+    <string name="archives_not_connected">Desktop not connected</string>
+    <string name="archives_not_connected_hint">The archive list comes from the desktop task index and loads once connected.</string>
+    <string name="archives_index_pending">Desktop has not returned the session list yet</string>
+    <string name="archives_index_pending_hint">Session initialization is incomplete · retry once the connection settles.</string>
+    <string name="archives_retry">Retry</string>
 </resources>
