@@ -594,11 +594,9 @@ private fun CollapsibleBodyText(text: String, streaming: Boolean) {
     var expanded by remember(text) { mutableStateOf(false) }
     val truncated = LongTextDisplay.shouldTruncate(text)
     Column {
-        Text(
-            text = LongTextDisplay.displayText(text, expanded, streaming),
-            style = TextStyle(fontSize = 14.sp, lineHeight = 22.sp),
-            color = BiuZText,
-        )
+        // P-001 markdown 渲染（标题/列表/代码块/表格 + 行内粗体与行内代码）；
+        // 长文折叠仍取 LongTextDisplay 的可见文本，折叠/展开语义不变
+        MarkdownText(text = LongTextDisplay.displayText(text, expanded, streaming))
         if (truncated && !streaming) {
             androidx.compose.material3.TextButton(
                 onClick = { expanded = !expanded },

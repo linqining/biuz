@@ -7,7 +7,7 @@
 
 | 编号 | 波次 | 页面 key | 平台 | 问题 | 证据 | 状态 |
 |---|---|---|---|---|---|---|
-| P-001 | W1 | — | android | 无 Markdown 渲染，Agent 正文原样 `Text`，与 web（shiki + 自研渲染）不等价 | `android/.../ui/screen/ChatScreen.kt:710` 自注偏差 | 待修 |
+| P-001 | W1 | — | android | ~~无 Markdown 渲染~~ **已修**：新增 `MarkdownParser.kt`（块级：标题1-3/段落/列表/代码块/管道表格，容错未闭合围栏）+ `MarkdownText.kt`（Compose 渲染，行内 `**粗体**`/`*斜体*`/`` `code` ``），接入 `CollapsibleBodyText`；11 项单测 + 真机会话目检（标题/列表/行内代码/斜体均正确） | `android/.../ui/chat/MarkdownParser.kt`、`MarkdownText.kt` | 已完成（代码高亮仍归 P-005 级） |
 | P-002 | W1 | — | android | 无统一空/加载/错误三态公共件，各屏各写（`UsageLoading` / `UsageEmptyError` / `NotConnectedEmpty`）。**公共件已落地** `ui/components/BiuzStateViews.kt`（EmptyState/LoadingState/InlineNotice，`compileDebugKotlin` 绿）；各屏尚未替换 | `android/.../ui/components/BiuzStateViews.kt`；各屏旧实现见 `ui/screen/` | 修复中 |
 | P-003 | W1→单列 | 015-设置-外观 | android | 恒深色（`BiuZTheme` 只挂 `darkColorScheme`），浅色主题未接。**实测：直接色常量引用 650 处 vs `MaterialTheme.colorScheme` 仅 68 处**——不是加个 light scheme 就行，需先把色常量改为随主题解析（CompositionLocal 或 token 对象），属独立重构波次 | `android/.../ui/theme/Theme.kt:50`、全模块 `BiuZ*` 引用统计 | 待修（已重新定级） |
 | P-004 | W1 | — | android | 无 Tab 层与 deeplink scheme，单 NavController 单栈 | `android/.../ui/BiuZApp.kt:88`、`AndroidManifest.xml:30` | 待修 |
