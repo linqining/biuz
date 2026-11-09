@@ -1,1 +1,69 @@
-/* 页面私有样式。公共 token 在 app.wxss，公共件用 components/。 */
+/* 030-文件管理器 —— 行高/字号对齐 web side pane 文件列表（14sp 行名 / 12sp 尺寸） */
+
+.files-page { height: 100vh; display: flex; flex-direction: column; background-color: var(--color-background); }
+
+.files-header {
+  flex: 0 0 auto;
+  height: 85rpx;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 16rpx;
+  border-bottom: 2rpx solid var(--color-border);
+}
+.files-header__back { width: 85rpx; text-align: center; font-size: 40rpx; color: var(--color-foreground); }
+.files-header__title { font-size: 40rpx; font-weight: 600; color: var(--color-foreground); }
+.files-header__spacer { flex: 1; }
+
+.files-workspace { padding: 16rpx 32rpx 8rpx; display: flex; gap: var(--space-2); align-items: baseline; }
+.files-workspace__label { font-size: var(--font-xs); color: var(--color-muted-2); }
+.files-workspace__path { font-size: var(--font-sm); color: var(--color-muted); word-break: break-all; }
+
+.files-list { flex: 1; min-height: 0; padding: 0 16rpx; box-sizing: border-box; }
+.files-list__pad { height: 48rpx; }
+.files-state { padding: 96rpx 0; }
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 85rpx;
+  padding-right: 16rpx;
+  border-radius: var(--radius-sm);
+}
+.tree-row:active { background-color: rgba(127, 127, 127, 0.08); }
+.tree-row__icon { font-size: var(--font-base); }
+.tree-row__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-base);
+  color: var(--color-foreground);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tree-row__size { font-size: var(--font-xs); color: var(--color-muted-2); }
+.tree-row__chevron { font-size: var(--font-lg); color: var(--color-muted-2); }
+
+/* 预览层 */
+.preview-mask { position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.45); z-index: 100; }
+.preview {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 101;
+  max-height: 72vh;
+  display: flex; flex-direction: column;
+  background-color: var(--color-elevated);
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  box-sizing: border-box;
+}
+.preview__grab { width: 72rpx; height: 8rpx; border-radius: 999rpx; background-color: var(--color-border-strong); margin: 0 auto var(--space-3); }
+.preview__head { display: flex; align-items: center; gap: var(--space-2); }
+.preview__name { flex: 1; min-width: 0; font-size: var(--font-lg); font-weight: 600; color: var(--color-foreground); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.preview__close { width: 62rpx; text-align: center; font-size: var(--font-base); color: var(--color-muted); }
+.preview__path { margin-top: 6rpx; font-size: var(--font-xs); color: var(--color-muted-2); word-break: break-all; }
+.preview__body { flex: 1; min-height: 0; margin-top: var(--space-3); overflow: auto; }
+.preview__text { font-family: Menlo, Consolas, monospace; font-size: var(--font-sm); line-height: 38rpx; color: var(--color-foreground); white-space: pre-wrap; word-break: break-all; }
+.preview__empty { padding: var(--space-6) 0; display: flex; align-items: center; justify-content: center; }
+.preview__hint { font-size: var(--font-sm); color: var(--color-muted); text-align: center; }
+.preview__safe { height: env(safe-area-inset-bottom); }

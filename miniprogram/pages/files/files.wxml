@@ -1,7 +1,64 @@
-<!-- 030-文件管理器 —— 骨架页。按 web 源实现，禁止填假数据。 -->
-<view class="page" style="padding-top: {{statusBarHeight}}px" data-page="030-文件管理器">
-  <view class="page-placeholder">
-    <text class="page-placeholder__title">030-文件管理器</text>
-    <text class="page-placeholder__hint">TODO · web 源：packages/ui/src/app-shell/AnimatedSidePanePanel.tsx:1333</text>
+<!-- 030-文件管理器：文件树（只读）；点文件出预览层（内容未接入时如实提示） -->
+<view class="page files-page" style="padding-top: {{statusBarHeight}}px">
+  <view class="files-header">
+    <text class="files-header__back" bind:tap="onBack">‹</text>
+    <text class="files-header__title">工作区文件</text>
+    <text class="files-header__spacer"></text>
+  </view>
+
+  <view class="files-workspace" wx:if="{{workspacePath}}">
+    <text class="files-workspace__label">工作区</text>
+    <text class="files-workspace__path">{{workspacePath}}</text>
+  </view>
+
+  <scroll-view class="files-list" scroll-y>
+    <view wx:if="{{status === 'loading' && rows.length === 0}}" class="files-state">
+      <loading-state text="正在读取文件树…" />
+    </view>
+
+    <view wx:elif="{{status === 'disconnected'}}" class="files-state">
+      <empty-state title="未连接桌面端" hint="文件树为只读视图，连接后按会话归属工作区读取" />
+    </view>
+
+    <view wx:elif="{{rows.length === 0}}" class="files-state">
+      <empty-state title="工作区暂无文件" hint="连接桌面端后读取会话归属工作区" />
+    </view>
+
+    <block wx:else>
+      <view
+        class="tree-row"
+        wx:for="{{rows}}"
+        wx:key="node.id"
+        data-path="{{item.node.path}}"
+        data-expandable="{{item.expandable}}"
+        bind:tap="onRowTap"
+        style="padding-left: {{32 + item.depth * 32}}rpx">
+        <text class="tree-row__icon">{{item.node.isDirectory ? (item.expanded ? '📂' : '📁') : '📄'}}</text>
+        <text class="tree-row__name">{{item.node.name}}</text>
+        <text class="tree-row__size">{{item.sizeText}}</text>
+        <text class="tree-row__chevron" wx:if="{{item.node.isDirectory}}">{{item.expanded ? '⌄' : '›'}}</text>
+      </view>
+    </block>
+
+    <error-line wx:if="{{error}}" message="{{error}}" retryable bind:retry="onBack" />
+    <view class="files-list__pad"></view>
+  </scroll-view>
+
+  <!-- 预览层（底部 sheet；内容未接入连接层时如实提示） -->
+  <view class="preview-mask" wx:if="{{preview}}" bind:tap="onClosePreview"></view>
+  <view class="preview" wx:if="{{preview}}">
+    <view class="preview__grab"></view>
+    <view class="preview__head">
+      <text class="preview__name">{{preview.name}}</text>
+      <text class="preview__close" bind:tap="onClosePreview">✕</text>
+    </view>
+    <text class="preview__path">{{preview.path}}</text>
+    <view class="preview__body" wx:if="{{previewContent}}">
+      <text class="preview__text">{{previewContent}}</text>
+    </view>
+    <view class="preview__empty" wx:else>
+      <text class="preview__hint">预览需要连接桌面端（文件只读，写操作由桌面端执行）</text>
+    </view>
+    <view class="preview__safe"></view>
   </view>
 </view>
