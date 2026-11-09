@@ -1,7 +1,35 @@
-<!-- 038-模型轨迹 —— 骨架页。按 web 源实现，禁止填假数据。 -->
-<view class="page" style="padding-top: {{statusBarHeight}}px" data-page="038-模型轨迹">
-  <view class="page-placeholder">
-    <text class="page-placeholder__title">038-模型轨迹</text>
-    <text class="page-placeholder__hint">TODO · web 源：packages/ui/src/ModelTrajectoryPane.tsx</text>
+<!-- 038-模型轨迹：只读时间线（reasoning / toolCall / assistant） -->
+<view class="page traj-page" style="padding-top: {{statusBarHeight}}px">
+  <view class="traj-header">
+    <text class="traj-header__back" bind:tap="onBack">‹</text>
+    <text class="traj-header__title">模型轨迹</text>
   </view>
+
+  <view class="traj-meta" wx:if="{{entries.length > 0}}">
+    <text class="traj-meta__title">{{taskTitle || '当前任务'}}</text>
+    <text class="traj-meta__stats">{{stats.steps}} 步 · 工具 {{stats.tools}} 次</text>
+  </view>
+
+  <scroll-view class="traj-list" scroll-y>
+    <view wx:if="{{status === 'loading' && entries.length === 0}}" class="traj-state">
+      <loading-state text="正在读取轨迹…" />
+    </view>
+
+    <view wx:elif="{{entries.length === 0}}" class="traj-state">
+      <empty-state title="暂无轨迹" hint="轨迹来自桌面端会话；连接后可选任务查看" />
+    </view>
+
+    <block wx:else>
+      <view class="entry" wx:for="{{entries}}" wx:key="id">
+        <view class="entry__head">
+          <text class="entry__badge" style="color: {{item.color}}">{{item.label}}</text>
+          <text class="entry__summary" wx:if="{{item.summary}}">{{item.summary}}</text>
+        </view>
+        <text class="entry__text" wx:if="{{item.text}}" user-select>{{item.text}}</text>
+      </view>
+    </block>
+
+    <error-line wx:if="{{error}}" message="{{error}}" retryable bind:retry="onBack" />
+    <view class="traj-list__pad"></view>
+  </scroll-view>
 </view>

@@ -1,1 +1,32 @@
-/* 页面私有样式。公共 token 在 app.wxss，公共件用 components/。 */
+/* 038-模型轨迹 —— 时间线版式（左侧色标 + 正文） */
+
+.traj-page { height: 100vh; display: flex; flex-direction: column; background-color: var(--color-background); }
+
+.traj-header { flex: 0 0 auto; height: 85rpx; display: flex; align-items: center; gap: var(--space-2); padding: 0 16rpx; border-bottom: 2rpx solid var(--color-border); }
+.traj-header__back { width: 85rpx; text-align: center; font-size: 40rpx; color: var(--color-foreground); }
+.traj-header__title { font-size: 40rpx; font-weight: 600; color: var(--color-foreground); }
+
+.traj-meta { display: flex; align-items: baseline; gap: var(--space-2); padding: 16rpx 32rpx 4rpx; }
+.traj-meta__title { flex: 1; min-width: 0; font-size: var(--font-base); color: var(--color-foreground); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.traj-meta__stats { font-size: var(--font-sm); color: var(--color-muted-2); }
+
+.traj-list { flex: 1; min-height: 0; padding: 0 32rpx; box-sizing: border-box; }
+.traj-list__pad { height: 48rpx; }
+.traj-state { padding: 96rpx 0; }
+
+.entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  padding: var(--space-3) 0;
+  border-bottom: 2rpx solid var(--color-border);
+}
+.entry__head { display: flex; align-items: baseline; gap: var(--space-2); }
+.entry__badge { font-size: var(--font-xs); font-weight: 600; }
+.entry__summary { font-size: var(--font-xs); color: var(--color-muted-2); }
+.entry__text {
+  font-size: var(--font-sm);
+  line-height: 40rpx;
+  color: var(--color-foreground);
+  word-break: break-word;
+}
