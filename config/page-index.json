@@ -12,7 +12,7 @@
       "route": "/remote/v4",
       "app": {
         "ios": "login (LoginFlowView 全屏 cover)",
-        "android": "（待建）login",
+        "android": "login (LoginScreen，WebView OAuth)",
         "miniprogram": "pages/login/login"
       },
       "note": "无 JWT 时；web 为 Z.ai / BigModel 双 provider 按钮。iOS 有 OAuth 全链，Android 未移植"
@@ -22,7 +22,7 @@
       "route": "/remote/v4?state=&code=",
       "app": {
         "ios": "OAuthResultView（ASWebAuthenticationSession 回调，无独立路由）",
-        "android": "（待建）",
+        "android": "WebView 内拦截 code 换 token（无独立页；同 iOS 口径）",
         "miniprogram": "pages/login/callback"
       },
       "note": "web 落地后 window.location.replace(app_return_to)；App 侧为系统回调，不是一屏"
@@ -32,7 +32,7 @@
       "route": "/remote/v4#devices",
       "app": {
         "ios": "settings/devices (P2ExtrasViews.swift:709 DevicesPage)",
-        "android": "（待建）",
+        "android": "devices (DevicesScreen)",
         "miniprogram": "pages/devices/devices"
       },
       "note": "JWT 有、无 sid 时的落点；在线/离线分组 + 刷新 + 切换账号。web 版是独立一屏，iOS 放在设置内"
@@ -72,7 +72,7 @@
       "route": "/remote/v4#switch-account",
       "app": {
         "ios": "settings/account (ServerViews.swift:44 退出登录 sheet)",
-        "android": "（待建）",
+        "android": "devices 账号行 + 切换确认弹层（AppSession.logout）",
         "miniprogram": "pages/devices/devices#switch"
       },
       "note": "webSwitchAccountDialog 为确认对话框，包触发按钮"
@@ -81,8 +81,8 @@
       "key": "008-版本提示",
       "route": "/remote/v4#version-notice",
       "app": {
-        "ios": "（待建）",
-        "android": "（待建）",
+        "ios": "RootView VersionNoticeOverlay（阻断层，仅重新加载）",
+        "android": "BiuZApp versionMismatch 阻断层",
         "miniprogram": "pages/devices/devices#version"
       },
       "note": "桌面版本不匹配时阻塞交互的原生 dialog；双端缺失"
@@ -92,7 +92,7 @@
       "route": "/share/<code>",
       "app": {
         "ios": "zcode://share/<code> (App/ZCodeMobileApp.swift:43 → SharePreviewSheet)",
-        "android": "（待建）无 deeplink scheme",
+        "android": "share/{code} (SharePreviewScreen) + https/zcode 深链",
         "miniprogram": "pages/share/share?code=<code>"
       },
       "note": "web 4 态：loading/login_required/ready/error；私有分享需登录"
@@ -384,7 +384,7 @@
       "route": "/remote/v4#pane/model-trajectory",
       "app": {
         "ios": "-acceptance-route 038-模型轨迹（TaskOutputView.swift:22）",
-        "android": "（待建）",
+        "android": "taskOutput/{sessionId} (TaskOutputScreen)",
         "miniprogram": "pages/tasks/output?taskId=<id>"
       },
       "note": "web ModelTrajectoryPane；iOS 放在任务输出页，Android 无任务域 UI"
