@@ -83,6 +83,7 @@
 
     <!-- 010-任务主页（对齐 web home / ProjectSidebar） -->
     <string name="sessions_title">任务列表</string>
+    <string name="sessions_new_task">新建任务</string>
     <string name="sessions_no_device">未连接设备</string>
     <string name="sessions_section_tasks">任务</string>
     <string name="sessions_view_projects">按项目</string>

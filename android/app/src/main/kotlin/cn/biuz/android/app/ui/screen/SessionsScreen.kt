@@ -202,24 +202,52 @@ fun SessionsScreen(
                 )
                 Text(text = "⌃⌄", fontSize = 10.sp, color = BiuZText3)
             }
-            Spacer(Modifier.height(BiuZSpacing.sm))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.height(4.dp))
+            // 新建任务行（web task-new-button：32dp 高 / padding 0 10 / gap 8 / 14sp）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(32.dp)
+                    .clip(BiuZRadius.medium)
+                    .clickable { showNewSheet = true }
+                    .padding(horizontal = 10.dp)
+                    .testTag("04-act-new"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(text = "⊕", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    text = stringResource(R.string.sessions_new_task),
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            // 列表头（web sidebar-search-toolbar：标题 14sp/500 α0.6 + 右侧视图菜单）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     text = stringResource(R.string.sessions_title),
-                    style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = BiuZText2,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 10.dp),
                 )
-                // 筛选视图四档（对齐 web sidebar-view-menu）
                 Box {
                     Text(
                         text = "≣",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp,
+                        color = BiuZText2,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
+                            .clip(BiuZRadius.small)
                             .clickable { showViewMenu = true }
-                            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
                             .testTag("04-view-menu"),
                     )
                     DropdownMenu(expanded = showViewMenu, onDismissRequest = { showViewMenu = false }) {
@@ -239,16 +267,6 @@ fun SessionsScreen(
                         }
                     }
                 }
-                // 新建会话入口（iOS 会话列表 + 新建 sheet 同位；提交门在 sheet 内）
-                Text(
-                    text = stringResource(R.string.new_session_entry),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .clickable { showNewSheet = true }
-                        .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
-                )
             }
             Spacer(Modifier.height(BiuZSpacing.md))
 
@@ -354,11 +372,13 @@ fun SessionsScreen(
                             item(key = "header-${section.title}-${section.rows.firstOrNull()?.id ?: ""}") {
                                 Text(
                                     text = section.title,
-                                    style = MaterialTheme.typography.labelMedium,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
                                     color = BiuZText3,
                                     modifier = Modifier.padding(
-                                        top = BiuZSpacing.md,
-                                        bottom = BiuZSpacing.xs,
+                                        start = 10.dp,
+                                        top = 12.dp,
+                                        bottom = 4.dp,
                                     ),
                                 )
                             }
@@ -710,7 +730,7 @@ private fun SessionRow(
         if (conversation.isPinned) {
             Text(
                 text = "📌",
-                fontSize = 10.sp,
+                fontSize = 9.sp,
                 modifier = Modifier.padding(end = BiuZSpacing.xs, top = 2.dp),
             )
         }
@@ -718,7 +738,7 @@ private fun SessionRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = conversation.title,
-                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -728,8 +748,8 @@ private fun SessionRow(
                 if (timeLabel.isNotEmpty()) {
                     Text(
                         text = timeLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = BiuZText3,
+                        fontSize = 12.sp,
+                        color = BiuZText2,
                     )
                 }
             }

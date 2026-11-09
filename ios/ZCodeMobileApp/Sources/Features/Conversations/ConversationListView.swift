@@ -200,9 +200,6 @@ struct ConversationListView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(String(localized: "任务列表")).font(T.font(17, .bold)).foregroundColor(T.text)
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 // 「筛选视图」四档：与 web `ProjectSidebarListHeader.tsx:87-102` 逐字同名
                 Menu {
@@ -334,6 +331,41 @@ struct ConversationListView: View {
         }
     }
 
+    /// 新建任务行（web `task-new-button`：32pt 高、padding 0 10、gap 8、14pt）
+    private var newTaskRow: some View {
+        Button {
+            showNewSheet = true
+        } label: {
+            HStack(spacing: T.sp2) {
+                Image(systemName: "plus.circle")
+                    .font(.system(size: 14))
+                    .foregroundColor(T.text)
+                Text(String(localized: "新建任务"))
+                    .font(T.font(14))
+                    .foregroundColor(T.text)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("04-act-new")
+    }
+
+    /// 列表头（web `sidebar-list-title`：14/500/α0.6，右侧视图菜单在工具栏）
+    private var listTitleRow: some View {
+        HStack(spacing: T.sp2) {
+            Text(String(localized: "任务列表"))
+                .font(T.font(14, .medium))
+                .foregroundColor(T.text2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+    }
+
     /// 设备切换行 —— 对齐 web home 顶部 `aria-label=切换设备` 行（图标 + 设备名 + 展开箭头）。
     /// 未配对时如实显示「未连接设备」；点击进入「服务器与账户」（L4-B）。
     private var deviceRow: some View {
@@ -370,6 +402,8 @@ struct ConversationListView: View {
         // 提为固定 VStack 头后元素帧稳定，identifier（04-search / 04-chip-source-*）全保留。
         VStack(spacing: 0) {
             deviceRow
+            newTaskRow
+            listTitleRow
             // 工作区切换器（P3-10）：连接态且桌面工作区清单非空时渲染在列表头部
             //（未连接/清单空不渲染，演示态布局零变化）
             workspaceSwitcher
@@ -778,7 +812,7 @@ struct ConversationListView: View {
         // 一条透底缝）+ listRowBackground 盖满整行（List 给 header 行分配的
         // 高度余量若露底，滚动内容会从横缝里穿出——「中间这么大的一条缝」）
         Text(title)
-            .font(T.font(11, .semibold))
+            .font(T.font(14, .medium))
             .foregroundColor(T.text3)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, T.sp4)
@@ -1037,8 +1071,8 @@ struct ConversationRowView: View {
     @ViewBuilder
     private var timeText: some View {
         let label = Text(timeTextValue)
-            .font(T.font(11))
-            .foregroundColor(T.text3)
+            .font(T.font(12))
+            .foregroundColor(T.text2)
         if conversation.isRunning {
             label.accessibilityIdentifier("04-row-running-\(conversation.id)")
         } else {
