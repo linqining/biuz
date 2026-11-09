@@ -13,6 +13,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.ui.screen.AboutScreen
+import cn.biuz.android.app.ui.screen.ArchivesScreen
 import cn.biuz.android.app.ui.screen.ChatScreen
 import cn.biuz.android.app.ui.screen.ConnectScreen
 import cn.biuz.android.app.ui.screen.DevicesScreen
@@ -177,6 +178,14 @@ fun BiuZApp(
                     onClose = { navController.popBackStack() },
                 )
             }
+            // 019 归档管理（web settings/archives；文案对齐 archives.* 键）
+            composable(Routes.ARCHIVES) {
+                ArchivesScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                    onOpenConversation = { sessionId -> navController.navigate(Routes.chat(sessionId)) },
+                )
+            }
             // 屏 07 执行输出（模型轨迹；iOS TaskOutputView 对位）
             composable(
                 route = Routes.TASK_OUTPUT,
@@ -254,6 +263,7 @@ fun BiuZApp(
                     onOpenLanguage = { navController.navigate(Routes.LANGUAGE) },
                     onOpenUsage = { navController.navigate(Routes.USAGE) },
                     onOpenAbout = { navController.navigate(Routes.ABOUT) },
+                    onOpenArchives = { navController.navigate(Routes.ARCHIVES) },
                 )
             }
             composable(Routes.LANGUAGE) {

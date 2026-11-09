@@ -3,6 +3,7 @@ package cn.biuz.android.app.ui.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -115,6 +116,8 @@ fun SessionsScreen(
     val mode by session.mode.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var showNewSheet by remember { mutableStateOf(false) }
+    // 行级动作（归档/标记未读）失败文案：常驻错误行，不静默吞（§5-12）
+    var rowActionError by remember(surface.epoch) { mutableStateOf<String?>(null) }
 
     // Store 换源重绑：列表态/失败文案均以 epoch 为 key（实例级重建，防抱旧 Store）
     var conversations by remember(surface.epoch) { mutableStateOf<List<Conversation>>(emptyList()) }
@@ -339,6 +342,12 @@ fun SessionsScreen(
                 Spacer(Modifier.height(BiuZSpacing.sm))
             }
 
+            // 行级动作（归档/标记未读）失败：原因原文上屏（§5-12，不静默吞）
+            rowActionError?.let { text ->
+                BiuzInlineNotice(message = text, tag = "04-row-action-error")
+                Spacer(Modifier.height(BiuZSpacing.sm))
+            }
+
             // P-023：看门狗超时行（常驻，点按重新订阅；首屏到达即清）
             subscribeWatchdog?.let { text ->
                 BiuzInlineNotice(
@@ -425,6 +434,30 @@ fun SessionsScreen(
                                         earlierPattern = stringResource(R.string.row_time_earlier_pattern),
                                     ),
                                     onOpen = { onOpenChat(conversation.id) },
+                                    onArchive = {
+                                        scope.launch {
+                                            rowActionError = null
+                                            // setArchived 失败不抛（store 设计：回滚 + lastArchiveFailureText 契约）
+                                            runCatching { surface.conversation.setArchived(true, conversation.id) }
+                                            val failure = surface.conversation.lastArchiveFailureText()
+                                            if (failure.isNotEmpty()) rowActionError = failure
+                                            conversations = runCatching {
+                                                surface.conversation.conversations()
+                                            }.getOrDefault(conversations)
+                                        }
+                                    },
+                                    onMarkUnread = {
+                                        scope.launch {
+                                            rowActionError = null
+                                            val error = runCatching {
+                                                surface.conversation.markUnread(conversation.id)
+                                            }.exceptionOrNull()?.message
+                                            if (error != null) rowActionError = error
+                                            else conversations = runCatching {
+                                                surface.conversation.conversations()
+                                            }.getOrDefault(conversations)
+                                        }
+                                    },
                                 )
                             }
                         }
@@ -745,16 +778,24 @@ private fun NewConversationSheet(
 // 2026-11-08 用户裁决：移除首字符圆徽、运行转圈、摘要、等待确认胶囊 —— 行只保留
 // 图钉/标题/时间/轨道四项。web 侧运行态由轨道点表达（`.capture/sync/.../compare-report.md`）。
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun SessionRow(
     conversation: Conversation,
     timeLabel: String,
     onOpen: () -> Unit,
+    onArchive: (() -> Unit)? = null,
+    onMarkUnread: (() -> Unit)? = null,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpen)
+            .combinedClickable(
+                onClick = onOpen,
+                onLongClick = { if (onArchive != null || onMarkUnread != null) menuOpen = true },
+            )
             .padding(vertical = BiuZSpacing.xs, horizontal = BiuZSpacing.xs),
         verticalAlignment = Alignment.Top,
     ) {
@@ -790,6 +831,28 @@ private fun SessionRow(
                 SessionWorkflowTrackView(activity = activity)
             }
         }
+    }
+    // 长按行菜单（web 会话行右键/⋯ 的同位动作）：归档 / 标记未读
+    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        onArchive?.let { archive ->
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.row_action_archive)) },
+                onClick = {
+                    menuOpen = false
+                    archive()
+                },
+            )
+        }
+        onMarkUnread?.let { markUnread ->
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.row_action_mark_unread)) },
+                onClick = {
+                    menuOpen = false
+                    markUnread()
+                },
+            )
+        }
+    }
     }
 }
 

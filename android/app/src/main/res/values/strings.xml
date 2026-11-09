@@ -477,4 +477,24 @@
     <string name="task_output_stop">停止任务</string>
     <string name="task_output_stop_confirm_title">停止该任务？</string>
     <string name="task_output_stop_confirm_body">停止指令由桌面端执行，已结算的工作不受影响。</string>
+    <string name="archives_title">归档管理</string>
+    <string name="archives_search">搜索已归档会话</string>
+    <string name="archives_unarchive">取消归档</string>
+    <string name="archives_unarchive_all">全部取消归档</string>
+    <string name="archives_delete">删除</string>
+    <string name="archives_delete_all">全部删除</string>
+    <string name="archives_delete_title">删除这 %1$d 个归档会话？</string>
+    <string name="archives_delete_description">只删除当前确认范围内的会话。删除后无法在应用中恢复。</string>
+    <string name="archives_working">正在处理…</string>
+    <string name="archives_load_failed">无法读取归档会话</string>
+    <string name="archives_loading">正在加载归档会话…</string>
+    <string name="archives_empty">暂无已归档会话</string>
+    <string name="archives_empty_hint">在会话上「归档」后出现在这里；归档不删除会话</string>
+    <string name="archives_no_results">没有匹配的归档会话</string>
+    <string name="archives_delete_failed">删除失败（桌面端未确认）</string>
+    <string name="settings_row_archives">归档管理</string>
+    <string name="settings_row_archives_sub">查看、取消归档或删除已归档会话</string>
+    <string name="row_action_archive">归档</string>
+    <string name="row_action_mark_unread">标记未读</string>
+    <string name="row_action_failed">操作失败</string>
 </resources>

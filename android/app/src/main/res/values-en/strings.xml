@@ -399,4 +399,24 @@
     <string name="task_output_stop">Stop task</string>
     <string name="task_output_stop_confirm_title">Stop this task?</string>
     <string name="task_output_stop_confirm_body">The stop command runs on the desktop; settled work is unaffected.</string>
+    <string name="archives_title">Archives</string>
+    <string name="archives_search">Search archived conversations</string>
+    <string name="archives_unarchive">Unarchive</string>
+    <string name="archives_unarchive_all">Unarchive all</string>
+    <string name="archives_delete">Delete</string>
+    <string name="archives_delete_all">Delete all</string>
+    <string name="archives_delete_title">Delete %1$d archived conversations?</string>
+    <string name="archives_delete_description">Only the conversations in the confirmed scope are deleted. This cannot be undone in the app.</string>
+    <string name="archives_working">Working…</string>
+    <string name="archives_load_failed">Could not read archived conversations</string>
+    <string name="archives_loading">Loading archived conversations…</string>
+    <string name="archives_empty">No archived conversations</string>
+    <string name="archives_empty_hint">Conversations you archive appear here; archiving does not delete them.</string>
+    <string name="archives_no_results">No matching archived conversations</string>
+    <string name="archives_delete_failed">Delete failed (desktop did not confirm)</string>
+    <string name="settings_row_archives">Archives</string>
+    <string name="settings_row_archives_sub">View, unarchive or delete archived conversations</string>
+    <string name="row_action_archive">Archive</string>
+    <string name="row_action_mark_unread">Mark as unread</string>
+    <string name="row_action_failed">Action failed</string>
 </resources>

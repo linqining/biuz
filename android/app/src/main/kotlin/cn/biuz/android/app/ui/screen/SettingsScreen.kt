@@ -63,6 +63,7 @@ fun SettingsScreen(
     onOpenLanguage: () -> Unit,
     onOpenUsage: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenArchives: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val developerMode by settings.developerMode.collectAsStateWithLifecycle()
@@ -95,6 +96,12 @@ fun SettingsScreen(
 
             // 数据与统计分组
             SettingsGroup(title = stringResource(R.string.settings_group_data)) {
+                SettingsNavRow(
+                    title = stringResource(R.string.settings_row_archives),
+                    subtitle = stringResource(R.string.settings_row_archives_sub),
+                    testTagId = "13-row-archives",
+                    onClick = onOpenArchives,
+                )
                 SettingsNavRow(
                     title = stringResource(R.string.settings_row_usage),
                     subtitle = stringResource(R.string.settings_row_usage_sub),

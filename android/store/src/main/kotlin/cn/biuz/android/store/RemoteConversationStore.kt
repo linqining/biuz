@@ -2326,6 +2326,16 @@ class RemoteConversationStore(
         return sessionsIndex?.conversations() ?: emptyList()
     }
 
+    /**
+     * 归档区读面（019）：先刷新 membership 权威组织态（listArchivedTasks 逐 scope 并发），
+     * 再从合并表取归档行。此前接口只有默认空实现 → 归档页恒空（2026-11-09 实测发现）。
+     */
+    override suspend fun archivedConversations(): List<Conversation> {
+        val index = sessionsIndex ?: return emptyList()
+        runCatching { refreshTaskMembership() }
+        return index.archivedConversations()
+    }
+
     override fun observeConversations(): Flow<ConversationEvent> = events.asSharedFlow()
 
     /** P0 缓存先行：纯内存会话摘要（无 RPC——首屏标题等元数据即时投影）。 */

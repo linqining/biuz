@@ -24,6 +24,9 @@ object Routes {
 
     fun chat(sessionId: String): String = "chat/$sessionId"
 
+    /** 019 归档管理 */
+    const val ARCHIVES = "archives"
+
     /** 屏 07 执行输出（模型轨迹） */
     const val TASK_OUTPUT = "taskOutput/{sessionId}"
 

@@ -479,6 +479,8 @@ class SessionMergeTable {
         pinnedIds: Set<String> = emptySet(),
         archivedIds: Set<String> = emptySet(),
         unreadFlags: Map<String, Boolean> = emptyMap(),
+        /** 归档区读面（019 归档管理）需要连归档行一起投影；主列表恒为 false。（§A15） */
+        includeArchived: Boolean = false,
     ): List<Conversation> {
         val current = mutex.withLock { sessions.values.toList() }
         val list = ArrayList<Conversation>(current.size)
@@ -534,7 +536,7 @@ class SessionMergeTable {
             list.add(conversation)
         }
         return list
-            .filter { !it.isArchived }
+            .filter { includeArchived || !it.isArchived }
             .sortedWith(
                 compareByDescending<Conversation> { it.isPinned }.thenByDescending { it.updatedAt },
             )

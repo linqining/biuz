@@ -293,6 +293,23 @@ class RemoteSessionsIndexStore(
             unreadFlags = unreadFlags,
         )
 
+    /**
+     * 归档区读面（019 归档管理）：与 [conversations] 同参数，但**保留**归档行
+     * （主列表 filter 掉归档；此处 includeArchived）。调用方自行按 isArchived 过滤。
+     */
+    suspend fun archivedConversations(): List<Conversation> {
+        ensureSubscribed()
+        return table.toConversations(
+            titleOverrides = titleOverrides,
+            pinnedOverrides = pinnedOverrides,
+            archivedOverrides = archivedOverrides,
+            pinnedIds = pinnedTaskIds,
+            archivedIds = archivedTaskIds,
+            unreadFlags = unreadFlags,
+            includeArchived = true,
+        ).filter { it.isArchived }
+    }
+
     /** 会话事件流：订阅者先收到一次全量替换事件（iOS AsyncStream 工厂 yield 同口径）。 */
     fun observeConversations(): Flow<ConversationEvent> = flow {
         emit(ConversationEvent.ConversationsReplaced(currentConversations()))
