@@ -121,6 +121,26 @@ function handleRpc(payload, socket) {
     reply({ entries: STUB_TREE[dirPath] || [] });
   } else if (command === 'getChanges') {
     reply({ changes: STUB_CHANGES });
+  } else if (command === 'listProjectMemories') {
+    reply({ workspaces: [
+      { id: 'ws-1', label: 'zcode-mobile', updatedAt: Date.now() - 3600000,
+        files: ['a.md', 'b.md', 'c.md'] },
+    ] });
+  } else if (command === 'getSkillReferenceCatalog') {
+    reply({ skills: [
+      { name: 'visual-judge', description: '视觉判定技能', enabled: true },
+      { name: 'web-reader', description: '网页读取', enabled: false },
+    ] });
+  } else if (command === 'listMcpServerStatuses') {
+    reply({ statuses: {
+      'plugin:documents:documents': { status: 'connected', transport: 'stdio', toolCount: 15 },
+      'filesystem': { status: 'connected', transport: 'stdio', toolCount: 6 },
+    } });
+  } else if (command === 'listPlugins') {
+    reply({ plugins: [
+      { name: 'documents', version: '1.4.0', marketplace: 'zcode-plugins-official' },
+      { name: 'visualize', version: '0.9.2' },
+    ] });
   } else {
     reply({ ok: true });
   }

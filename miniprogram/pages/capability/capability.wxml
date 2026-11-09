@@ -1,0 +1,35 @@
+<view class="page" style="padding-top: {{statusBarHeight}}px">
+  <view class="header">
+    <text class="back" bindtap="onBack" data-test="cap-back">‹</text>
+    <text class="title">{{title}}</text>
+  </view>
+  <view class="divider"></view>
+
+  <view wx:if="{{status === 'disconnected'}}" class="state">
+    <text class="state-title">未连接桌面端</text>
+    <text class="state-hint">清单来自桌面端；连接后自动读取</text>
+  </view>
+
+  <view wx:elif="{{status === 'loading'}}" class="state">
+    <text class="state-hint">正在读取…</text>
+  </view>
+
+  <view wx:elif="{{status === 'error'}}" class="state">
+    <text class="state-error">读取失败 · {{error}}</text>
+    <text class="retry" bindtap="onRetry" data-test="cap-retry">重试</text>
+  </view>
+
+  <view wx:elif="{{!rows.length}}" class="state">
+    <text class="state-title">桌面端暂无{{title}}条目</text>
+  </view>
+
+  <view wx:else class="list" data-test="cap-list">
+    <view class="row" wx:for="{{rows}}" wx:key="id" data-test="cap-row-{{item.id}}">
+      <view class="row-main">
+        <text class="row-title">{{item.title}}</text>
+        <text class="row-sub">{{item.subtitle}}</text>
+      </view>
+      <text wx:if="{{item.badge}}" class="badge">{{item.badge}}</text>
+    </view>
+  </view>
+</view>

@@ -9,7 +9,8 @@
     "pages/share/share",
     "pages/git/git",
     "pages/files/files",
-    "pages/tasks/tasks"
+    "pages/tasks/tasks",
+    "pages/capability/capability"
   ],
   "window": {
     "navigationStyle": "custom",

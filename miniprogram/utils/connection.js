@@ -17,6 +17,9 @@ const chatStore = require('./chat-store.js');
 const filesStore = require('./files-store.js');
 const diffStore = require('./diff-store.js');
 const trajectoryStore = require('./trajectory-store.js');
+const capabilityStore = require('./capability-store.js');
+const capability = require('./capability.js');
+const devicesStore = require('./devices-store.js');
 
 const STORAGE_KEY = 'biuz.desktop';
 
@@ -73,6 +76,16 @@ function connectDesktop(params) {
     wireFilesSource(result);
     wireGitSource(result);
     wireTrajectorySource(result);
+    // 片五：能力清单四页（memory/skills/mcp/plugins）共用参数化读面
+    capabilityStore.setSource(function (kind) {
+      return capability.loadCapability(result.client, result.workspace, kind);
+    });
+    // 设备页（003）：设备目录来自中继账号服务（GET /api/v1/remote/device，
+    // 需 OAuth 账号层）——LAN 直连如实拒绝（Mock 红线：不给假设备）；
+    // 真机路径 = 中继 V2 接入波次
+    devicesStore.setSource(function () {
+      return Promise.reject(new Error('设备列表来自中继账号服务；当前为局域网直连，请用中继链接接入后查看'));
+    });
     store.refresh();
     return result;
   });

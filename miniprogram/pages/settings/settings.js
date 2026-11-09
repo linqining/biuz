@@ -58,6 +58,11 @@ Page({
     wx.showToast({ title: '需要连接桌面端', icon: 'none' });
   },
 
+  onOpenCapability(event) {
+    const kind = (event.currentTarget && event.currentTarget.dataset.kind) || 'memory';
+    wx.navigateTo({ url: '/pages/capability/capability?kind=' + kind });
+  },
+
   onOpenAbout() {
     wx.showModal({
       title: 'BiuZ',
