@@ -141,6 +141,8 @@ fun ChatScreen(
     // 走 attach 重绑（同实例幂等短路）
     val viewModel = remember(sessionId) { ChatViewModel(conversationId = sessionId, scope = scope) }
     var overflowOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+    // 036 白板浮层（web 侧栏面板的移动对位；零 RPC 纯客户端——语义见 WhiteboardModel 头注）
+    var whiteboardOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
     DisposableEffect(sessionId) {
         onDispose { viewModel.detach() } // 离开会话：撤面板/提示行（真退订交 store 租约池）
     }
@@ -291,6 +293,13 @@ fun ChatScreen(
                         onClick = {
                             overflowOpen = false
                             onOpenTaskOutput()
+                        },
+                    )
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(stringResource(R.string.whiteboard_title)) },
+                        onClick = {
+                            overflowOpen = false
+                            whiteboardOpen = true
                         },
                     )
                 }
@@ -803,6 +812,26 @@ fun ChatScreen(
             onClose = { artifactSheet = null },
         )
     }
+
+        // 036 白板浮层（覆盖整屏；web 侧栏面板同位。零 RPC 纯客户端——进程内存活、
+        // workspace 键同 web buildWhiteboardWorkspaceKey 口径 identity||path）
+        if (whiteboardOpen) {
+            val ws = surface.workspace
+            val whiteboardKey = ws?.workspaceIdentity?.takeIf { it.isNotBlank() }
+                ?: ws?.path?.takeIf { it.isNotBlank() }
+                ?: "default"
+            cn.biuz.android.app.ui.whiteboard.WhiteboardPanel(
+                workspaceKey = whiteboardKey,
+                onAddToChat = { bytes ->
+                    viewModel.enqueueAttachment(
+                        name = "白板.png",
+                        mediaType = "image/png",
+                        data = bytes,
+                    )
+                },
+                onClose = { whiteboardOpen = false },
+            )
+        }
 }
 
 /** 产物详情 sheet 请求（完成卡产物点按；iOS WorkflowArtifactRequest 直译）。 */

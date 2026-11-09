@@ -362,7 +362,7 @@
       "route": "/remote/v4#pane/whiteboard",
       "app": {
         "ios": "（待建）",
-        "android": "（待建）",
+        "android": "chat#whiteboard (WhiteboardPanel.kt 浮层，⋯ 菜单入口；零 RPC 纯客户端)",
         "miniprogram": "pages/chat/chat#whiteboard"
       },
       "canvas": true,

@@ -536,6 +536,12 @@
     <string name="settings_row_subagents_sub">Subagent definitions (read-only)</string>
     <string name="settings_row_hooks_sub">Task lifecycle hooks (read-only)</string>
     <string name="settings_row_projects_sub">Sidebar and removed projects (read-only)</string>
+    <!-- ============ 036 Whiteboard (web side-pane counterpart; no RPC, client-only) ============ -->
+    <string name="whiteboard_title">Whiteboard</string>
+    <string name="whiteboard_add_to_chat">Add to chat</string>
+    <string name="whiteboard_added_to_chat">Added to chat attachments</string>
+    <string name="whiteboard_add_failed">Failed to add \u2014 attachment was rejected</string>
+    <string name="whiteboard_clear">Clear</string>
     <!-- ============ 027 Personalization (web LocalOnlyPersonalizationHint, no RPC) ============ -->
     <string name="personalization_title">Personalization</string>
     <string name="personalization_description">Add custom instructions to personalize the Agent\'s replies. Instructions apply to future sessions of the Agent on your machine; configure remote devices separately.</string>

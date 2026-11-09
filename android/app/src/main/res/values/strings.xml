@@ -614,6 +614,12 @@
     <string name="settings_row_subagents_sub">子智能体定义清单（只读）</string>
     <string name="settings_row_hooks_sub">任务生命周期钩子（只读）</string>
     <string name="settings_row_projects_sub">侧栏项目与已移除项目（只读）</string>
+    <!-- ============ 036 白板（web 侧栏面板同位；零 RPC 纯客户端） ============ -->
+    <string name="whiteboard_title">白板</string>
+    <string name="whiteboard_add_to_chat">添加到聊天</string>
+    <string name="whiteboard_added_to_chat">已添加到聊天附件</string>
+    <string name="whiteboard_add_failed">添加失败 · 附件被拒收</string>
+    <string name="whiteboard_clear">清空</string>
     <!-- ============ 027 个性化（web LocalOnlyPersonalizationHint 同口径，零服务调用） ============ -->
     <string name="personalization_title">个性化</string>
     <string name="personalization_description">添加自定义指令来个性化 Agent 的回复，指令会应用到你本机 Agent 的后续会话；远程设备需单独配置。</string>
