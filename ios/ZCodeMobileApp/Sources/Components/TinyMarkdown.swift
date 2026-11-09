@@ -226,7 +226,15 @@ struct CodeBlockView: View {
                 .frame(height: 44)
             }
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
+                // P-005 轻量语法高亮（关键词/字符串/注释/数字四类；未知语言原样）
+                Text(TinySyntax.highlight(code, language: language, color: { kind in
+                    switch kind {
+                    case .keyword: return T.codeKw
+                    case .string: return T.green
+                    case .comment: return T.text3
+                    case .number: return T.orange
+                    }
+                }))
                     .font(T.mono(fontSize))
                     .foregroundColor(T.text2)
                     .lineSpacing(4)

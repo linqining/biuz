@@ -11,7 +11,7 @@
 | P-002 | W1 | — | android | 无统一空/加载/错误三态公共件，各屏各写（`UsageLoading` / `UsageEmptyError` / `NotConnectedEmpty`）。**公共件已落地** `ui/components/BiuzStateViews.kt`（EmptyState/LoadingState/InlineNotice，`compileDebugKotlin` 绿）；各屏尚未替换 | `android/.../ui/components/BiuzStateViews.kt`；各屏旧实现见 `ui/screen/` | 修复中 |
 | P-003 | W1→单列 | 015-设置-外观 | android | 恒深色（`BiuZTheme` 只挂 `darkColorScheme`），浅色主题未接。**实测：直接色常量引用 650 处 vs `MaterialTheme.colorScheme` 仅 68 处**——不是加个 light scheme 就行，需先把色常量改为随主题解析（CompositionLocal 或 token 对象），属独立重构波次 | `android/.../ui/theme/Theme.kt:50`、全模块 `BiuZ*` 引用统计 | 待修（已重新定级） |
 | P-004 | W1 | — | android | 无 Tab 层与 deeplink scheme，单 NavController 单栈 | `android/.../ui/BiuZApp.kt:88`、`AndroidManifest.xml:30` | 待修 |
-| P-005 | W1 | — | ios | Markdown 为轻量实现（`TinyMarkdown`），无代码高亮，与 web shiki 不等价 | `ios/.../Components/TinyMarkdown.swift:4` | 待修 |
+| P-005 | W1 | — | ios | **已修（2026-11-09）**：新增 `TinySyntax.swift` 轻量词法高亮（关键词/字符串/注释/数字四类），语言归一 swift/kotlin/java/ts/js/python/go/rust/shell/json/yaml/sql（SQL 关键词大小写不敏感 + `--` 注释），未知语言原样不高亮（不猜语义）；接入 `CodeBlockView`。与 web shiki 的差异：不做 AST、无主题变体、仅单行字符串/注释扫描——阅读级对齐，登记为刻意简化。原描述：Markdown 为轻量实现（`TinyMarkdown`），无代码高亮 | `ios/.../Components/TinySyntax.swift`；单测 `UnitTests/TinySyntaxTests.swift`（8 例）；UI 目检 `MatrixAcceptanceE2ETests/test29_codeBlockHighlightedInFilePreview` | 已修+实拍验证 |
 | P-006 | W2 | 006-多实例选择 | ios/android | 同机多在线实例时无选择弹层 | web `webRemoteControlConnectionSheet.tsx:141`；双端无对应实现 | 待修 |
 | P-007 | W2 | 008-版本提示 | ios/android | 桌面版本不匹配时的阻塞提示缺失 | web `webRemoteControlVersionNotice.tsx:6`；双端无 | 待修 |
 | P-008 | W2 | 009-分享落地 | android | 无 deeplink scheme，分享链接无法唤起 | `AndroidManifest.xml:30`（仅 LAUNCHER） | 待修 |

@@ -1118,6 +1118,21 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
     /// provider-settings.getView 展示面：providerName 优先（桌面权威）、缺席走内置
     /// id 中文映射、拒因四值词表中文化（not-connected 等原词不得上屏）；只读模型行
     /// 点按出引导提示（上游 model-selection 无写面，切换入口在会话输入区）
+    /// P-005：代码块语法高亮渲染路径（演示态 DESIGN.md 含 ```sql 围栏）
+    /// —— 打开文件预览必须出代码块（09-code-copy 在场 = CodeBlockView 正常构建，
+    /// 高亮逻辑本身由 UnitTests/TinySyntaxTests 覆盖）。
+    func test29_codeBlockHighlightedInFilePreview() throws {
+        let application = launchDemo(extra: ["-acceptance-route", "files"])
+
+        let designRow = element(application, "09-row-file-DESIGN.md")
+        XCTAssertTrue(designRow.waitForExistence(timeout: 10), "文件树应出现 DESIGN.md（含 sql 围栏）")
+        designRow.tap()
+
+        XCTAssertTrue(element(application, "09-code-copy").waitForExistence(timeout: 10),
+                      "预览应渲染代码块（含复制按钮），说明 CodeBlockView 构建成功")
+        snap(application, "matrix-p005-code-block-preview")
+    }
+
     func test23_providerRowsTranslatedAndModelRowTapHint() throws {
         let application = launchDemo()
         connectAndEnterMain(application)
