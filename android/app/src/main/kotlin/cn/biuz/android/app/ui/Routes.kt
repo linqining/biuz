@@ -24,6 +24,11 @@ object Routes {
 
     fun chat(sessionId: String): String = "chat/$sessionId"
 
+    /** 屏 07 执行输出（模型轨迹） */
+    const val TASK_OUTPUT = "taskOutput/{sessionId}"
+
+    fun taskOutput(sessionId: String): String = "taskOutput/$sessionId"
+
     fun share(code: String): String = "share/" + android.net.Uri.encode(code)
 
     fun filesPreview(path: String, name: String, size: Long?): String =

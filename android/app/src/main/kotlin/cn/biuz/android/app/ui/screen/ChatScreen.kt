@@ -130,6 +130,7 @@ fun ChatScreen(
     sessionId: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenTaskOutput: () -> Unit = {},
 ) {
     val session = LocalAppSession.current
     val surface by session.storeSurface.collectAsStateWithLifecycle()
@@ -139,6 +140,7 @@ fun ChatScreen(
     // VM 宿主 = 路由会话；store 换源（StoreSurface.epoch 换装配世代 → conversation 新实例）
     // 走 attach 重绑（同实例幂等短路）
     val viewModel = remember(sessionId) { ChatViewModel(conversationId = sessionId, scope = scope) }
+    var overflowOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
     DisposableEffect(sessionId) {
         onDispose { viewModel.detach() } // 离开会话：撤面板/提示行（真退订交 store 租约池）
     }
@@ -268,6 +270,31 @@ fun ChatScreen(
                 color = BiuZText,
                 modifier = Modifier.weight(1f),
             )
+            // ⋯ 溢出菜单（常驻：项目行是条件渲染，无项目名时仍需入口）
+            androidx.compose.foundation.layout.Box {
+                Text(
+                    text = "⋯",
+                    fontSize = 16.sp,
+                    color = BiuZText3,
+                    modifier = Modifier
+                        .clip(BiuZRadius.small)
+                        .clickable { overflowOpen = true }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .testTag("05-chat-overflow"),
+                )
+                androidx.compose.material3.DropdownMenu(
+                    expanded = overflowOpen,
+                    onDismissRequest = { overflowOpen = false },
+                ) {
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(stringResource(R.string.task_output_title)) },
+                        onClick = {
+                            overflowOpen = false
+                            onOpenTaskOutput()
+                        },
+                    )
+                }
+            }
         }
         androidx.compose.material3.HorizontalDivider(color = BiuZBorder)
 
@@ -288,15 +315,6 @@ fun ChatScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = "⋯",
-                    fontSize = 16.sp,
-                    color = BiuZText3,
-                    modifier = Modifier
-                        .clip(BiuZRadius.small)
-                        .clickable { onBack() }
-                        .padding(horizontal = 6.dp),
                 )
             }
             androidx.compose.material3.HorizontalDivider(color = BiuZBorder)

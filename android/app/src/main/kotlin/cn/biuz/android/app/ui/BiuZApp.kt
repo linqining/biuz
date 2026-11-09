@@ -24,6 +24,7 @@ import cn.biuz.android.app.ui.screen.LanguageSettingsScreen
 import cn.biuz.android.app.ui.screen.LoginScreen
 import cn.biuz.android.app.ui.screen.ScanScreen
 import cn.biuz.android.app.ui.screen.SessionsScreen
+import cn.biuz.android.app.ui.screen.TaskOutputScreen
 import cn.biuz.android.app.ui.screen.SettingsScreen
 import cn.biuz.android.app.ui.screen.UsageStatsScreen
 import cn.biuz.android.connection.AppSession
@@ -176,6 +177,17 @@ fun BiuZApp(
                     onClose = { navController.popBackStack() },
                 )
             }
+            // 屏 07 执行输出（模型轨迹；iOS TaskOutputView 对位）
+            composable(
+                route = Routes.TASK_OUTPUT,
+                arguments = listOf(androidx.navigation.navArgument("sessionId") { type = androidx.navigation.NavType.StringType }),
+            ) { entry ->
+                TaskOutputScreen(
+                    session = session,
+                    sessionId = entry.arguments?.getString("sessionId").orEmpty(),
+                    onBack = { navController.popBackStack() },
+                )
+            }
             composable(Routes.SESSIONS) {
                 SessionsScreen(
                     session = session,
@@ -228,7 +240,11 @@ fun BiuZApp(
             }
             composable(Routes.CHAT) { backStackEntry ->
                 val sessionId = backStackEntry.arguments?.getString("sessionId").orEmpty()
-                ChatScreen(sessionId = sessionId, onBack = { navController.popBackStack() })
+                ChatScreen(
+                    sessionId = sessionId,
+                    onBack = { navController.popBackStack() },
+                    onOpenTaskOutput = { navController.navigate(Routes.taskOutput(sessionId)) },
+                )
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(

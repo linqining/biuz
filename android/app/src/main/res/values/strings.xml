@@ -468,4 +468,13 @@
     <string name="preview_binary_unsupported">当前桌面端未返回二进制预览数据，请在桌面端查看该文件。</string>
     <string name="preview_load_more">已截断 · 加载更多（%1$d / %2$d 字节）</string>
     <string name="preview_loading_more">加载中…</string>
+    <string name="task_output_title">执行输出</string>
+    <string name="task_output_untitled">当前任务</string>
+    <string name="task_output_model">模型 · %1$s</string>
+    <string name="task_output_tokens">用量 · %1$s</string>
+    <string name="task_output_empty_title">暂无轨迹</string>
+    <string name="task_output_empty_hint">轨迹来自桌面端会话行；连接后产生对话即有条目</string>
+    <string name="task_output_stop">停止任务</string>
+    <string name="task_output_stop_confirm_title">停止该任务？</string>
+    <string name="task_output_stop_confirm_body">停止指令由桌面端执行，已结算的工作不受影响。</string>
 </resources>

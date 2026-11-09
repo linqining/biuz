@@ -390,4 +390,13 @@
     <string name="works_act_cancel">Cancel</string>
     <string name="works_act_resume">Resume</string>
     <string name="works_blocked">Blocked</string>
+    <string name="task_output_title">Output</string>
+    <string name="task_output_untitled">Current task</string>
+    <string name="task_output_model">Model · %1$s</string>
+    <string name="task_output_tokens">Usage · %1$s</string>
+    <string name="task_output_empty_title">No trajectory yet</string>
+    <string name="task_output_empty_hint">Trajectory comes from desktop session rows; it appears once the conversation runs.</string>
+    <string name="task_output_stop">Stop task</string>
+    <string name="task_output_stop_confirm_title">Stop this task?</string>
+    <string name="task_output_stop_confirm_body">The stop command runs on the desktop; settled work is unaffected.</string>
 </resources>
