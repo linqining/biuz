@@ -29,7 +29,7 @@
 | P-020 | W4 | 011-会话对话 | android/miniprogram | **消息动作行**：web 为 复制 / 赞 / 踩 / 展开 / 锚点 / 时间；iOS 已有 `MessageFeedbackRow` + 「复制文本」（`MessageViews.swift:143,168`），Android/小程序无 | web 基线截图；`ios/.../MessageViews.swift:143` | 待修 |
 | P-021 | W4 | 011-会话对话 | ios/android/miniprogram | **会话页第二行**：`📁 项目名 ⋯ ⤡收起`（web 顶部第二行，用于切项目与收起侧栏）；三端均无 | web 基线截图 `web-011-chat.png` | 待修 |
 | P-022 | W4 | 011-会话对话 | android/miniprogram | **工作流运行大卡**：web「工作流运行中 工作流脚本 / 10 个阶段 · 1 个子代理工作中…」+ 站点灯 `+4 ●●◐ ○○○` + 子代理行（含「还有 78 个」）+ 「收敛循环发现流/收敛进度」按钮；Android 只有迷你轨道与折叠面板，无此卡 | web 基线截图；`packages/ui/src/v4/highspeed` 同源 | 待修 |
-| P-023 | W4 | 011/010 | android | **桌面 v4 握手超时时会话列表永久转圈**：实测 `[relay-log][info] 桥内 v4 握手不可用（降级继续）：RPC 超时：zcode-agent.helloConversationV4` 后列表停在「Syncing sessions…」60s+ 无错误行、无超时兜底（`SessionsScreen` 的空行 + loadFailure==null 分支恒转圈）。真桌面繁忙时可复现 | 模拟器日志 + `.capture` 截图；`SessionsScreen.kt` 空态分支 | 待修 |
-| P-024 | W4 | 010/011 | android | 中继桥退化帧被丢弃后订阅失败无自愈：实测 `[relay-log][info] 桥退化帧 bridgeSessionId 不匹配当前桥（忽略）` 连续出现 → 列表报「订阅会话列表失败 · NotInitialized」，force-stop 重启后恢复正常（说明是桥代际错配而非服务端拒绝） | 模拟器日志 07:30 段 | 待修 |
+| P-023 | W4 | 011/010 | android | **已修（2026-11-09）**：会话列表加订阅看门狗（15s 无首屏 → 常驻错误行 + 重试，与转圈互斥）。原描述：**桌面 v4 握手超时时会话列表永久转圈**：实测 `[relay-log][info] 桥内 v4 握手不可用（降级继续）：RPC 超时：zcode-agent.helloConversationV4` 后列表停在「Syncing sessions…」60s+ 无错误行、无超时兜底（`SessionsScreen` 的空行 + loadFailure==null 分支恒转圈）。真桌面繁忙时可复现 | 模拟器日志 + `.capture` 截图；`SessionsScreen.kt` 订阅看门狗 | 已修（超时分支待桌面繁忙时复现验证） |
+| P-024 | W4 | 010/011 | android | **已修（2026-11-09）**：同一 socket 连续 3 次身份不匹配 → 判「桥身份过期」触发重建（每连接上限 2 次防抖）。原描述：中继桥退化帧被丢弃后订阅失败无自愈：实测 `[relay-log][info] 桥退化帧 bridgeSessionId 不匹配当前桥（忽略）` 连续出现 → 列表报「订阅会话列表失败 · NotInitialized」，force-stop 重启后恢复正常（说明是桥代际错配而非服务端拒绝） | `RelayTransport.handleBridgeDegradedFrameLocked` 自愈分支 | 已修（设备侧难复现，编译+relay 单测通过） |
 
 

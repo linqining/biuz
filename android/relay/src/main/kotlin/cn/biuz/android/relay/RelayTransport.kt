@@ -191,6 +191,19 @@ class RelayTransport(
     // rpc-frame 发送队列（Vzn 口径）
     @Volatile
     private var frameIdentity: RelayFrameCodec.Identity? = null
+    /**
+     * P-024：桥身份不匹配的退化帧计数。
+     *
+     * web 对异桥帧一律忽略（防旧 socket 的迟到帧）；但**同一 socket 上**桌面持续用另一个
+     * bridgeSessionId 发退化帧，说明我方身份已过期（桌面重启了桥）——纯忽略会导致桥永久
+     * 不可用（实测：连续不匹配后订阅 NotInitialized，只能重启 App）。
+     * 因此连续 3 次即视为身份过期并触发一次桥重建；每连接最多 2 次，避免抖动循环。
+     */
+    @Volatile
+    private var degradedMismatchCount = 0
+
+    @Volatile
+    private var autoRebuildAttempts = 0
 
     private class OutboundBatch(
         val messageSeq: Int,
@@ -342,6 +355,8 @@ class RelayTransport(
             throw RPCError(message = "中继地址无效：${config.wssURL}", name = "RelayConfig")
         }
         socketGeneration += 1
+        degradedMismatchCount = 0
+        autoRebuildAttempts = 0
         log(RelayLogKind.working, "WS 升级 ${urlText.substringAfter("//").substringBefore('/')}… · ${if (config.isV2) "V2" else "V1"}")
         val socket = try {
             socketFactory.create(urlText, SOCKET_CONNECT_TIMEOUT_MS)
@@ -697,9 +712,20 @@ class RelayTransport(
     private fun handleBridgeDegradedFrameLocked(payload: JSONValue, message: String) {
         val identity = frameIdentity
         if (identity == null || payload["bridgeSessionId"]?.stringValue != identity.bridgeSessionId) {
-            log(RelayLogKind.info, "桥退化帧 bridgeSessionId 不匹配当前桥（忽略）")
+            degradedMismatchCount += 1
+            log(
+                RelayLogKind.info,
+                "桥退化帧 bridgeSessionId 不匹配当前桥（忽略 · 第 $degradedMismatchCount 次）",
+            )
+            if (degradedMismatchCount >= 3 && autoRebuildAttempts < 2) {
+                autoRebuildAttempts += 1
+                degradedMismatchCount = 0
+                log(RelayLogKind.error, "桥身份与桌面不一致 · 自动重建桥（第 $autoRebuildAttempts 次）")
+                bridgeDegradedHandler?.invoke("桥身份与桌面不一致 · 自动重建")
+            }
             return
         }
+        degradedMismatchCount = 0
         frameDegraded = true
         val reason = message.ifEmpty { "reason 未携带" }
         log(RelayLogKind.error, "bridge-degraded · $reason")
