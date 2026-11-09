@@ -27,6 +27,7 @@
       <empty-state
         title="未连接桌面端"
         hint="连接后，桌面端的任务与会话会出现在这里" />
+      <button class="list__connect-btn" bindtap="onConnectDesktop" data-test="00-act-connect">连接桌面端</button>
     </view>
 
     <block wx:elif="{{sections.length}}">

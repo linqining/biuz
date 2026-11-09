@@ -50,10 +50,53 @@ Page({
       });
       this.render(store.getState());
     }
+    // 测试缝（片三）：?acceptance=1&connect=<baseUrl> 直发连接（绕原生弹窗，
+    // 仅 automator 用途）——连接过程/结果态由 store 与 connecting/failure 页承载
+    if (this.acceptanceQuery.acceptance && this.acceptanceQuery.connect) {
+      const connection = require('../../utils/connection.js');
+      const self = this;
+      // 微信 onLoad query 不自动解码（实测 reLaunch 编码串原样到达）——显式 decode
+      const connectUrl = decodeURIComponent(this.acceptanceQuery.connect);
+      connection.connectDesktop({ baseUrl: connectUrl })
+        .then(function () { self.render(store.getState()); })
+        .catch(function (err) {
+          wx.navigateTo({
+            url: '/pages/connecting/connecting?mode=failure&reason=transport&detail=' +
+              encodeURIComponent((err && err.message) || '连接失败'),
+          });
+        });
+    }
   },
 
   onShow() {
     store.refresh();
+  },
+
+  // 片三：连接桌面端（地址弹窗输入 + connecting 页承载过程态 + 失败页如实上屏）
+  onConnectDesktop() {
+    const connection = require('../../utils/connection.js');
+    const last = connection.lastAddress();
+    wx.showModal({
+      title: '连接桌面端',
+      editable: true,
+      placeholderText: (last && last.baseUrl) || 'http://192.168.x.x:9100',
+      content: (last && last.baseUrl) || '',
+      success: (res) => {
+        if (!res.confirm) return;
+        const baseUrl = (res.content || '').trim();
+        if (!baseUrl) return;
+        connection.connectDesktop({ baseUrl: baseUrl }).then(() => {
+          // 连接成功：回会话页（本页即 tab 根，刷新由 store 数据驱动）
+          this.render(store.getState());
+        }).catch((err) => {
+          // 失败：005 失败页如实上屏（reason=transport 文案族；detail=原文）
+          wx.navigateTo({
+            url: '/pages/connecting/connecting?mode=failure&reason=transport&detail=' +
+              encodeURIComponent((err && err.message) || '连接失败'),
+          });
+        });
+      },
+    });
   },
 
   onUnload() {

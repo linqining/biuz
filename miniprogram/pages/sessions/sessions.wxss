@@ -206,3 +206,13 @@
   align-items: center;
   justify-content: center;
 }
+
+/* 片三：未连接态「连接桌面端」入口 */
+.list__connect-btn {
+  margin: 24rpx auto 0;
+  width: 320rpx;
+  background: #111827;
+  color: #ffffff;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+}
