@@ -67,6 +67,7 @@ fun SettingsScreen(
     onOpenArchives: () -> Unit = {},
     onOpenCapability: (String) -> Unit = {},
     onOpenAppearance: () -> Unit = {},
+    onOpenDesktopSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val developerMode by settings.developerMode.collectAsStateWithLifecycle()
@@ -168,6 +169,21 @@ fun SettingsScreen(
                     subtitle = stringResource(R.string.settings_row_plugins_sub),
                     testTagId = "13-row-plugins",
                     onClick = { onOpenCapability("plugins") },
+                )
+                // 028 桌面设置同步（iOS 12-row-desktop-settings 同位；连接态二分副标题）
+                val connectedForDesktopSettings =
+                    session.mode.collectAsStateWithLifecycle().value is AppSession.Mode.Connected
+                SettingsNavRow(
+                    title = stringResource(R.string.desktop_settings_title),
+                    subtitle = stringResource(
+                        if (connectedForDesktopSettings) {
+                            R.string.desktop_settings_sub_connected
+                        } else {
+                            R.string.desktop_settings_sub_disconnected
+                        },
+                    ),
+                    testTagId = "12-row-desktop-settings",
+                    onClick = onOpenDesktopSettings,
                 )
             }
 

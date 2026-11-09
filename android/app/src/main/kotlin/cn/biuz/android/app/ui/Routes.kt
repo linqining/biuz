@@ -35,6 +35,9 @@ object Routes {
     /** 019 归档管理 */
     const val ARCHIVES = "archives"
 
+    /** 028 桌面设置同步（setting.get 读 / setting.update 单键补丁写） */
+    const val DESKTOP_SETTINGS = "settings/desktop"
+
     /** 屏 07 执行输出（模型轨迹） */
     const val TASK_OUTPUT = "taskOutput/{sessionId}"
 

@@ -282,7 +282,7 @@
       "route": "/remote/v4#settings/desktop-sync",
       "app": {
         "ios": "settings/desktop (P2ExtrasViews.swift:2232)",
-        "android": "（待建）",
+        "android": "settings/desktop (DesktopSettingsScreen.kt)",
         "miniprogram": "pages/settings/desktop"
       },
       "note": "setting 频道 get/update；频道名裁决见协议文档 §13"

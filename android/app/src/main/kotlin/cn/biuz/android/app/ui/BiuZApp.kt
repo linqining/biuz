@@ -19,6 +19,7 @@ import cn.biuz.android.app.ui.screen.CapabilityListScreen
 import cn.biuz.android.app.ui.screen.ChatScreen
 import cn.biuz.android.app.ui.screen.ConnectScreen
 import cn.biuz.android.app.ui.screen.DevicesScreen
+import cn.biuz.android.app.ui.screen.DesktopSettingsScreen
 import cn.biuz.android.app.ui.screen.SharePreviewScreen
 import cn.biuz.android.app.ui.screen.FilePreviewScreen
 import cn.biuz.android.app.ui.screen.FileTreeScreen
@@ -289,6 +290,14 @@ fun BiuZApp(
                     onOpenArchives = { navController.navigate(Routes.ARCHIVES) },
                     onOpenCapability = { kind -> navController.navigate(Routes.capability(kind)) },
                     onOpenAppearance = { navController.navigate(Routes.APPEARANCE) },
+                    onOpenDesktopSettings = { navController.navigate(Routes.DESKTOP_SETTINGS) },
+                )
+            }
+            // 028 桌面设置同步（setting.get/update；iOS DesktopSettingsPage 对位）
+            composable(Routes.DESKTOP_SETTINGS) {
+                DesktopSettingsScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(Routes.LANGUAGE) {
