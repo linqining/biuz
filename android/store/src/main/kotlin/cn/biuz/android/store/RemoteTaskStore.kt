@@ -324,7 +324,27 @@ class RemoteTaskStore(
             val removed = it["removed"].longValue()?.toInt() ?: 0
             "文件 $fileCount · +$added/-$removed"
         }
-        return if (pendingImpact != null) record.copy(pendingImpact = pendingImpact) else record
+        // 结构化摘要（会话页变更条 P-019 数据源）：files 逐条宽容解析，缺键的行跳过
+        val summary = change?.let { obj ->
+            val files = (obj["files"]?.arrayValue ?: emptyList()).mapNotNull { item ->
+                val filePath = item["path"]?.stringValue ?: return@mapNotNull null
+                cn.biuz.android.protocol.TaskChangedFile(
+                    path = filePath,
+                    added = item["added"].longValue()?.toInt() ?: 0,
+                    removed = item["removed"].longValue()?.toInt() ?: 0,
+                )
+            }
+            cn.biuz.android.protocol.TaskChangeSummary(
+                fileCount = obj["fileCount"].longValue()?.toInt() ?: files.size,
+                added = obj["added"].longValue()?.toInt() ?: files.sumOf { it.added },
+                removed = obj["removed"].longValue()?.toInt() ?: files.sumOf { it.removed },
+                files = files,
+            )
+        }
+        return record.copy(
+            pendingImpact = pendingImpact,
+            changeSummary = summary,
+        )
     }
 
     // MARK: 动作面（v3 纠偏口径：客户端发命令、桌面代执行）

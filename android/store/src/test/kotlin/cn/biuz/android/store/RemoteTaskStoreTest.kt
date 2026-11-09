@@ -21,6 +21,66 @@ class RemoteTaskStoreTest {
 
     private val ws = "/Users/mac/zcode_mobile"
 
+    /** P-019：任务级 changeSummary 结构化解析（web MessageChangeSummaryPanel 数据源）。 */
+    @Test
+    fun mapTaskParsesStructuredChangeSummary() = runBlocking {
+        val row = testObj(
+            "taskId" to JSONValue.Str("sess-cs"),
+            "title" to JSONValue.Str("有改动的任务"),
+            "workspacePath" to JSONValue.Str(ws),
+            "status" to JSONValue.Str("completed"),
+            "updatedAt" to testNum(1_767_000_000_000L),
+            "changeSummary" to testObj(
+                "fileCount" to testNum(2),
+                "added" to testNum(7),
+                "removed" to testNum(4),
+                "files" to JSONValue.Arr(
+                    listOf(
+                        testObj(
+                            "path" to JSONValue.Str("a.ts"),
+                            "added" to testNum(5),
+                            "removed" to testNum(1),
+                            "writeCount" to testNum(1),
+                            "lastTurnIndex" to testNum(0),
+                        ),
+                        testObj(
+                            "path" to JSONValue.Str("b.ts"),
+                            "added" to testNum(2),
+                            "removed" to testNum(3),
+                            "writeCount" to testNum(2),
+                            "lastTurnIndex" to testNum(1),
+                        ),
+                        // 缺 path 的行跳过，不影响整份
+                        testObj("added" to testNum(9)),
+                    ),
+                ),
+            ),
+        )
+        val fake = FakeRemoteTransport().apply { listTaskListItems = listOf(row) }
+        val store = RemoteTaskStore(fake, StoreWorkspaceInfo(path = ws), conversationStore = null)
+        val task = store.tasks().single { it.id == "sess-cs" }
+        val summary = task.changeSummary
+        assertNotNull(summary, "changeSummary 必须解析出来")
+        assertEquals(2, summary.fileCount)
+        assertEquals(7, summary.added)
+        assertEquals(4, summary.removed)
+        assertEquals(listOf("a.ts", "b.ts"), summary.files.map { it.path }, "缺 path 的行丢弃")
+        assertEquals(5, summary.files[0].added)
+        assertEquals(3, summary.files[1].removed)
+        // 无 changeSummary 的行保持 null（会话页据此不渲染变更条）
+        assertNull(
+            store.mapTask(
+                testObj(
+                    "taskId" to JSONValue.Str("sess-plain"),
+                    "workspacePath" to JSONValue.Str(ws),
+                    "status" to JSONValue.Str("running"),
+                    "updatedAt" to testNum(1_767_000_000_000L),
+                ),
+            )?.changeSummary,
+        )
+    }
+
+
     private fun taskRow(taskId: String, status: String, updatedAt: Long = 1_767_000_000_000L): JSONValue =
         testObj(
             "taskId" to JSONValue.Str(taskId),
