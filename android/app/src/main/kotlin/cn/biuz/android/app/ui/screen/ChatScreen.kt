@@ -115,6 +115,7 @@ import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
+import cn.biuz.android.app.ui.theme.BiuZViolet
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -324,6 +325,52 @@ fun ChatScreen(
                     .padding(horizontal = BiuZSpacing.lg)
                     .padding(bottom = BiuZSpacing.xs),
             )
+        }
+
+        // MARK: 工作流运行摘要行（web「工作流运行中 工作流脚本 / N 个阶段 · M 个子代理工作中…」）
+        // 完整阶段/子代理明细仍在既有 WorkflowPanelCard；此行点按即展开该面板。
+        workflowRuns.firstOrNull { it.rawStatus == "running" }?.let { run ->
+            val phases = run.phaseCount ?: 0
+            val agents = run.actors.count { it.rawStatus == "running" || it.rawStatus == "active" }
+            val meta = buildString {
+                if (phases > 0) append("$phases 个阶段")
+                if (agents > 0) {
+                    if (isNotEmpty()) append(" · ")
+                    append("$agents 个子代理工作中…")
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = BiuZSpacing.lg)
+                    .padding(bottom = BiuZSpacing.sm)
+                    .clip(BiuZRadius.medium)
+                    .border(1.dp, BiuZBorder, BiuZRadius.medium)
+                    .background(BiuZBgCard)
+                    .clickable {
+                        expandedPanel = cn.biuz.android.app.ui.chat.SessionPanelKind.Workflow
+                    }
+                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
+                    .testTag("05-workflow-running"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+            ) {
+                Text(text = "⑂", fontSize = 13.sp, color = BiuZViolet)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "工作流运行中 · " + run.name,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = BiuZText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (meta.isNotEmpty()) {
+                        Text(text = meta, fontSize = 11.sp, color = BiuZText3)
+                    }
+                }
+                Text(text = "⤢", fontSize = 14.sp, color = BiuZText3)
+            }
         }
 
         // MARK: 变更摘要条（web MessageChangeSummaryPanel：折叠头 = 箭头 + N 个文件已更改 + +A/-D）
