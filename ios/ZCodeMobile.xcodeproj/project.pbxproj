@@ -80,6 +80,7 @@
 		D20BD58777A81EE4F3A1AED3 /* ReadOnlyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF38B6E9156CE1C268D0D8B6 /* ReadOnlyGate.swift */; };
 		D5425A5E93C49510D597780C /* ZCodeMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C27788290E06BF1989EF09A /* ZCodeMobileApp.swift */; };
 		D80F03C4B77FCE2B78327104 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48631105A3D61AB72E4809B1 /* AppSession.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* VersionGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* VersionGuard.swift */; };
 		DB8B93A52D6302E05E71E248 /* StoreEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4245B481AB769ADF05734962 /* StoreEnvironment.swift */; };
 		DC3575605ED80F31124CF750 /* UserDefaultsSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09FC90B4C2C1FF5129D9CE1A /* UserDefaultsSettingsStore.swift */; };
 		DD826C9C2543024D0FE39710 /* ZCodeServerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD723268C0BDC9B403E9C1D0 /* ZCodeServerConnection.swift */; };
@@ -154,6 +155,7 @@
 		449827792CD94C25C82C1927 /* StoreProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreProtocols.swift; sourceTree = "<group>"; };
 		4577956DAA867320EDEF1D80 /* RemoteFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteFileStore.swift; sourceTree = "<group>"; };
 		48631105A3D61AB72E4809B1 /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5D /* VersionGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionGuard.swift; sourceTree = "<group>"; };
 		4E3A14B63EB694487754EC04 /* ChannelClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelClient.swift; sourceTree = "<group>"; };
 		526D1D725C702380F055B0AA /* ContextPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextPicker.swift; sourceTree = "<group>"; };
 		53692FEEF92BB75CC70D0DF4 /* ConnectURLParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectURLParser.swift; sourceTree = "<group>"; };
@@ -270,6 +272,7 @@
 			isa = PBXGroup;
 			children = (
 				48631105A3D61AB72E4809B1 /* AppSession.swift */,
+				A1B2C3D4E5F60718293A4B5D /* VersionGuard.swift */,
 				53692FEEF92BB75CC70D0DF4 /* ConnectURLParser.swift */,
 				BF38B6E9156CE1C268D0D8B6 /* ReadOnlyGate.swift */,
 				AD723268C0BDC9B403E9C1D0 /* ZCodeServerConnection.swift */,
@@ -651,6 +654,7 @@
 				5080206B3376B34619E187C5 /* AppEnvironment.swift in Sources */,
 				5D5D800A62F99BA11946B1A2 /* AppRouter.swift in Sources */,
 				D80F03C4B77FCE2B78327104 /* AppSession.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* VersionGuard.swift in Sources */,
 				0FF26C3041A097354663BA12 /* ApprovalSheetView.swift in Sources */,
 				1B6C9058EFDDB56F599C6906 /* AttachmentUploadService.swift in Sources */,
 				2103A6AADB7612478388ED1E /* BotManagementView.swift in Sources */,

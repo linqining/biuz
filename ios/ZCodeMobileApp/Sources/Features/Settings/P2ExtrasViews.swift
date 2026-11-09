@@ -709,6 +709,8 @@ struct UsageStatsView: View {
 struct DevicesPage: View {
     @Environment(AppSession.self) private var session
     @State private var connectingID: String?
+    /// 007 切换账号确认层（web webRemoteControlSwitchAccountDialog.tsx 同文案）
+    @State private var showSwitchAccount = false
 
     private var connectedServerID: String? {
         switch session.mode {
@@ -724,6 +726,32 @@ struct DevicesPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: T.sp3) {
+                // 007 账号行（web 设备页同款：头像 + 名字 · Provider + 切换）
+                if let user = session.oauthUserInfo {
+                    HStack(spacing: T.sp2) {
+                        Text(String(user.displayName.prefix(1)))
+                            .font(T.font(11, .semibold))
+                            .foregroundColor(T.text)
+                            .frame(width: 20, height: 20)
+                            .background(T.bgInput)
+                            .clipShape(Circle())
+                        Text("\(user.displayName) · Z.ai")
+                            .font(T.font(12))
+                            .foregroundColor(T.text3)
+                            .lineLimit(1)
+                        Spacer()
+                        Button {
+                            showSwitchAccount = true
+                        } label: {
+                            Text("切换")
+                                .font(T.font(12))
+                                .foregroundColor(T.text3)
+                        }
+                        .accessibilityIdentifier("07-switch-account")
+                    }
+                    .accessibilityIdentifier("07-account-row")
+                }
+
                 // 汇总行（G-034 验收②：在线数与实际连接数一致——中继链路同一时刻至多 1 条）
                 Text(String(localized: "\(ServerRegistry.servers.count) 台已配对 · \(onlineCount) 台在线"))
                     .font(T.font(11))

@@ -5,6 +5,20 @@ import XCTest
 /// 关键向量全部来自主会话实地探针（/tmp/relay-js/ws_probe.py、ws_bridge_probe.py 实测）。
 final class RelayLinkTests: XCTestCase {
 
+    // MARK: 008 版本守卫（web webRemoteControlVersion.ts:26-52 同口径）
+
+    func testVersionGuardMismatch() {
+        XCTAssertEqual(VersionGuard.mismatch(linkVersion: "3.16.0", desktopVersion: "3.17.2"), "3.17.2")
+        XCTAssertNil(VersionGuard.mismatch(linkVersion: "3.17.2", desktopVersion: "3.17.2"))
+        XCTAssertNil(VersionGuard.mismatch(linkVersion: " 3.17.2 ", desktopVersion: "3.17.2"))
+        // 任一侧缺失不拦（旧桌面/手填链接）
+        XCTAssertNil(VersionGuard.mismatch(linkVersion: nil, desktopVersion: "3.17.2"))
+        XCTAssertNil(VersionGuard.mismatch(linkVersion: "", desktopVersion: "3.17.2"))
+        XCTAssertNil(VersionGuard.mismatch(linkVersion: "3.16.0", desktopVersion: nil))
+        XCTAssertNil(VersionGuard.mismatch(linkVersion: "3.16.0", desktopVersion: "   "))
+    }
+
+
     // MARK: 配对链接解析（ConnectURLParser.parseRelayLink）
 
     /// 真实配对链接形态（交接材料 §1，mid/name/app_version 语义保留）

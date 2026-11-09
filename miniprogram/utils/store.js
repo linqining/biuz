@@ -13,6 +13,11 @@ const state = {
   error: '',
   deviceName: '',
   accountName: '',
+  /**
+   * 008 版本提示：桌面实际版本与配对链接声明不一致时的「桌面当前版本」。
+   * web 口径 `webRemoteControlVersion.ts:26-52`；iOS `VersionGuard.swift` / Android `VersionGuard.kt` 同判据。
+   */
+  versionNotice: '',
 };
 
 const listeners = new Set();
@@ -80,6 +85,29 @@ function setRows(rows) {
   patch({ status: 'connected', rows: rows || [], error: '' });
 }
 
+/**
+ * 版本守卫（纯判据，供连接层在 bootstrap 回执到达时调用）：
+ * 链接声明版本 vs 实际桌面版本，任一侧为空不判（宁可放过不误拦）。
+ */
+function checkVersion(linkVersion, desktopVersion) {
+  const actual = String(desktopVersion == null ? '' : desktopVersion).trim();
+  const declared = String(linkVersion == null ? '' : linkVersion).trim();
+  if (!actual || !declared) {
+    patch({ versionNotice: '' });
+    return null;
+  }
+  const mismatch = declared === actual ? '' : actual;
+  patch({ versionNotice: mismatch });
+  return mismatch || null;
+}
+
+/** 用户确认「重新加载」：清提示（连接层随后用新版本重连，需同步回写链接版本，避免死循环）。 */
+function confirmVersionReload() {
+  const version = state.versionNotice;
+  patch({ versionNotice: '' });
+  return version;
+}
+
 function archive(id) {
   if (!source) {
     patch({ error: '归档需要连接桌面端' });
@@ -97,4 +125,6 @@ module.exports = {
   setRows: setRows,
   refresh: refresh,
   archive: archive,
+  checkVersion: checkVersion,
+  confirmVersionReload: confirmVersionReload,
 };

@@ -96,6 +96,10 @@ struct ZCodeMobileApp: App {
 
     /// 冷启动装配（未配置 → 连接引导页为根；E2E 演示开关下保持旧演示四 Tab）
     private func bootstrapIfNeeded() async {
+        #if DEBUG
+        session.applyDebugAccountIfNeeded(arguments: ProcessInfo.processInfo.arguments)
+        session.applyDebugVersionMismatchIfNeeded(arguments: ProcessInfo.processInfo.arguments)
+        #endif
         await session.bootstrap()
         await syncStoresWithSession()
         // G-015 验收钩子：`-ZCodeShareLink <code>` 冷启直开分享只读页（无 UI 驱动路径，

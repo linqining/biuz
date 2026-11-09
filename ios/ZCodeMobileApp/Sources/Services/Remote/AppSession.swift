@@ -180,6 +180,45 @@ final class AppSession {
         case disconnected(ServerConfig, String) // 曾连接后断线（保留最后快照 + 橙横幅）
     }
 
+    /// 008 版本提示：桌面实际版本与配对链接声明不一致时的「桌面当前版本」（nil = 无提示）。
+    /// web 同口径见 `webRemoteControlVersion.ts:26-52`；Android 对位 `VersionGuard.kt`。
+    private(set) var versionMismatch: String?
+
+    #if DEBUG
+    /// 调试缝：`-ZCodeDebugAccount <显示名>` 注入内存态账户（不落 Keychain），
+    /// 用于无真实登录时验证 007 账号行 / 切换账号闭环。
+    func applyDebugAccountIfNeeded(arguments: [String]) {
+        guard let index = arguments.firstIndex(of: "-ZCodeDebugAccount"),
+              index + 1 < arguments.count else { return }
+        let name = arguments[index + 1]
+        oauthTokenSet = OAuthTokenSet(accessToken: "debug", zcodeJwtToken: "debug", expiresAt: nil)
+        oauthUserInfo = OAuthUserInfo(id: "debug", username: name, displayName: name, avatarUrl: nil)
+    }
+    #endif
+
+    #if DEBUG
+    /// 调试缝：`-ZCodeDebugVersionMismatch <version>` 直接置版本提示（仅 DEBUG 生效）。
+    /// 用于无登录态/无旧链接时验证 008 阻断层的渲染与「重新加载」闭环。
+    func applyDebugVersionMismatchIfNeeded(arguments: [String]) {
+        guard let index = arguments.firstIndex(of: "-ZCodeDebugVersionMismatch"),
+              index + 1 < arguments.count else { return }
+        versionMismatch = arguments[index + 1]
+    }
+    #endif
+
+    /// 用户确认「重新加载」：把实际桌面版本回写进已保存链接，再重连。
+    /// （web 是把 app_version 改写进 URL；不回写会「旧链接重连必再次不一致」死循环）
+    func confirmVersionReload() {
+        guard let version = versionMismatch else { return }
+        if case .connected(let server) = mode, var relay = server.relay {
+            relay.desktopAppVersion = version
+            var updated = server
+            updated.relay = relay
+            ServerRegistry.upsert(updated)
+        }
+        versionMismatch = nil
+    }
+
     // MARK: 账户层（OAuth tokenSet）
 
     private(set) var oauthTokenSet: OAuthTokenSet?
@@ -524,6 +563,10 @@ final class AppSession {
         // 先装配 Store 再切 mode（装配完成后 UI 才切换数据源）
         assembleRemoteStores(info: info, workspace: connection.workspace)
         mode = .connected(server)
+        // 008 版本守卫：链接声明 vs 实际桌面版本（web webRemoteControlVersion 同口径）
+        versionMismatch = VersionGuard.mismatch(
+            linkVersion: server.relay?.desktopAppVersion,
+            desktopVersion: info.version)
         // 连接成功即收起连接流程（L2 五步完成的落点 = 已连接主界面；冷启动自动重连时本就无流程在展示）
         if presentedFlow != nil {
             dismissFlow()
@@ -1143,6 +1186,7 @@ final class AppSession {
     // MARK: 配对流程（L1 → L2 → 成功/失败）
 
     func connect(server: ServerConfig) async {
+        versionMismatch = nil
         cancelAutoReconnect()
         mode = .connecting(server)
         await connectToSaved(server)

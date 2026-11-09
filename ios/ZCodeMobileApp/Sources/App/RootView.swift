@@ -42,6 +42,14 @@ struct RootView: View {
                 }
             }
 
+            // 008-版本提示：桌面版本与配对链接声明不一致 → 阻断式（web 同口径，只能重新加载）
+            if let desktopVersion = session.versionMismatch {
+                VersionNoticeOverlay(desktopVersion: desktopVersion) {
+                    session.confirmVersionReload()
+                    Task { await session.reconnect() }
+                }
+            }
+
             VStack(spacing: 0) {
                 // 连接状态横幅（13-③ 离线/OAuth 失败：弱底 + 描边 + 图标 + 动作文）。
                 // push 详情态不在底部渲染（UI/UX 验收 P1 2026-10-07：overlay 恰好
@@ -494,5 +502,50 @@ struct DiffActionBar: View {
                 router.diffReloadToken += 1
             }
         }
+    }
+}
+
+
+// MARK: - 008 版本提示（web webRemoteControlVersionNotice.tsx 同构）
+
+/// 阻断式提示：遮罩吞掉背景点击，只有「重新加载」一个出口。
+private struct VersionNoticeOverlay: View {
+    let desktopVersion: String
+    let onReload: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { /* 阻断式：点遮罩不关闭 */ }
+            VStack(alignment: .leading, spacing: T.sp3) {
+                Text("桌面版本已更新")
+                    .font(T.font(17, .semibold))
+                    .foregroundColor(T.text)
+                Text("桌面当前版本为 \(desktopVersion)。任务操作已暂停，请重新加载以继续。未发送的附件不会保留。")
+                    .font(T.font(13))
+                    .foregroundColor(T.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Text("重新加载")
+                        .font(T.font(14, .semibold))
+                        .foregroundColor(T.onAccent)
+                        .padding(.horizontal, T.sp4)
+                        .frame(minHeight: 44)
+                        .background(T.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                        .onTapGesture(perform: onReload)
+                        .accessibilityIdentifier("08-version-reload")
+                }
+            }
+            .padding(T.sp6)
+            .frame(maxWidth: 340)
+            .background(T.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: T.rL))
+            .padding(.horizontal, T.sp4)
+        }
+        .accessibilityIdentifier("08-version-notice")
     }
 }

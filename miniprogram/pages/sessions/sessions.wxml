@@ -59,6 +59,15 @@
     </view>
   </scroll-view>
 
+  <!-- 008-版本提示：阻断式（web webRemoteControlVersionNotice 同文案），只能重新加载 -->
+  <view class="version-mask" wx:if="{{versionNotice}}">
+    <view class="version-card">
+      <text class="version-title">桌面版本已更新</text>
+      <text class="version-body">桌面当前版本为 {{versionNotice}}。任务操作已暂停，请重新加载以继续。未发送的附件不会保留。</text>
+      <view class="version-action" bind:tap="onVersionReload">重新加载</view>
+    </view>
+  </view>
+
   <view class="footer safe-bottom">
     <view class="footer__account" bind:tap="onAccount">
       <view class="footer__avatar">{{accountInitial || '·'}}</view>

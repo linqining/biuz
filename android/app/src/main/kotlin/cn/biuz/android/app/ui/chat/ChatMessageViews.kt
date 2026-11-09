@@ -10,6 +10,7 @@ package cn.biuz.android.app.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
@@ -364,6 +365,57 @@ private fun EditResendSheet(
 
 // MARK: - 助手行：正文 + 思考折叠块 + 工具卡（计划卡优先）+ todo
 
+/**
+ * 消息动作行（P-020）：复制正文 + 发送时间。
+ *
+ * web 权威源：会话页消息动作行（复制 / 赞 / 踩 / 展开 / 锚点 / 时间）。
+ * 本轮只落无副作用的只读项；赞踩属写面（store.setAssistantFeedback 已具备，VM 未接）。
+ */
+@Composable
+private fun MessageActionRow(message: ChatMessage) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var copied by remember(message.id) { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 32.dp)
+            .testTag("05-msg-actions-" + message.id),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.md),
+    ) {
+        Text(
+            text = if (copied) "已复制" else "复制",
+            fontSize = 11.sp,
+            color = BiuZText3,
+            modifier = Modifier
+                .clip(BiuZRadius.small)
+                .clickable {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(message.text))
+                    copied = true
+                }
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .testTag("05-msg-copy-" + message.id),
+        )
+        Text(
+            text = remember(message.timestamp) { formatMessageTime(message.timestamp) },
+            fontSize = 11.sp,
+            color = BiuZText3,
+        )
+    }
+}
+
+/** 时间口径：今天 HH:mm；否则 M月d日 HH:mm（会话页动作行同 web）。 */
+private fun formatMessageTime(timestampMs: Long): String {
+    if (timestampMs <= 0) return ""
+    val now = java.util.Calendar.getInstance()
+    val then = java.util.Calendar.getInstance().apply { timeInMillis = timestampMs }
+    val sameDay = now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR) &&
+        now.get(java.util.Calendar.DAY_OF_YEAR) == then.get(java.util.Calendar.DAY_OF_YEAR)
+    val hh = String.format(java.util.Locale.US, "%02d:%02d",
+        then.get(java.util.Calendar.HOUR_OF_DAY), then.get(java.util.Calendar.MINUTE))
+    return if (sameDay) hh else "${then.get(java.util.Calendar.MONTH) + 1}月${then.get(java.util.Calendar.DAY_OF_MONTH)}日 $hh"
+}
+
 @Composable
 private fun AgentMessageRow(
     message: ChatMessage,
@@ -389,6 +441,11 @@ private fun AgentMessageRow(
                     )
                 }
             }
+        }
+        // 消息动作行（web 会话页为 复制/赞/踩/展开/锚点/时间；本轮先落只读两项：
+        // 复制 + 时间。赞/踩需接 setAssistantFeedback 的 VM 写链路，单列后续。
+        if (message.text.isNotEmpty() && message.status != MessageStatus.streaming) {
+            MessageActionRow(message = message)
         }
         message.thinking?.let { ThinkingBlock(it.text, it.state) }
         // G-014 附件缩略图行（无附件数据不渲染任何占位块；iOS MessageViews.swift:91 同构）

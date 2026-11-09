@@ -25,6 +25,7 @@ Page({
     accountInitial: '',
     collapsedKeys: [],
     statusBarHeight: 0,
+    versionNotice: '',
   },
 
   onLoad(query) {
@@ -64,6 +65,7 @@ Page({
     this.setData({
       status: state.status,
       error: state.error || '',
+      versionNotice: state.versionNotice || '',
       sections: model.decorateSections(sections),
       deviceName: state.deviceName || '未连接设备',
       accountName: state.accountName || '',
@@ -134,5 +136,10 @@ Page({
 
   onRetry() {
     store.refresh();
+  },
+
+  /** 008：重新加载（连接层接入后用新版本重连；此处先清提示） */
+  onVersionReload() {
+    store.confirmVersionReload();
   },
 });
