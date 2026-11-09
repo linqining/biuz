@@ -1,7 +1,51 @@
-<!-- 029-Diff/Git 面板 —— 骨架页。按 web 源实现，禁止填假数据。 -->
-<view class="page" style="padding-top: {{statusBarHeight}}px" data-page="029-Diff/Git 面板">
-  <view class="page-placeholder">
-    <text class="page-placeholder__title">029-Diff/Git 面板</text>
-    <text class="page-placeholder__hint">TODO · web 源：packages/ui/src/GitPane.tsx</text>
+<!-- 029-Diff 审查：分段（未暂存/已暂存/本次会话）+ 文件卡（可展开逐行） -->
+<view class="page git-page" style="padding-top: {{statusBarHeight}}px">
+  <view class="git-header">
+    <text class="git-header__back" bind:tap="onBack">‹</text>
+    <text class="git-header__title">Diff 审查</text>
   </view>
+
+  <view class="git-summary" wx:if="{{totals.files > 0}}">
+    <text class="git-summary__text">{{totals.files}} 个文件</text>
+    <text class="git-summary__add">+{{totals.add}}</text>
+    <text class="git-summary__del">-{{totals.del}}</text>
+  </view>
+
+  <scroll-view class="git-list" scroll-y>
+    <view wx:if="{{status === 'loading' && sections.length === 0}}" class="git-state">
+      <loading-state text="正在读取改动…" />
+    </view>
+
+    <view wx:elif="{{sections.length === 0}}" class="git-state">
+      <empty-state title="没有待审查的改动" hint="改动来自桌面端工作区；连接后按会话归属读取" />
+    </view>
+
+    <block wx:else>
+      <view class="segment" wx:for="{{sections}}" wx:key="key">
+        <view class="segment__head">
+          <text class="segment__label">{{item.label}}</text>
+          <text class="segment__count">{{item.files.length}}</text>
+          <text class="segment__action" data-key="{{item.key}}" bind:tap="onSegmentAction">处理</text>
+        </view>
+
+        <view class="filecard" wx:for="{{item.files}}" wx:for-item="file" wx:key="id">
+          <view class="filecard__head" data-id="{{file.id}}" bind:tap="onToggleFile">
+            <text class="filecard__chevron">{{file.expanded ? '▾' : '▸'}}</text>
+            <text class="filecard__name">{{file.name}}</text>
+            <text class="filecard__add">+{{file.added}}</text>
+            <text class="filecard__del">-{{file.removed}}</text>
+          </view>
+          <view class="filecard__path">{{file.path}}</view>
+          <view class="filecard__lines" wx:if="{{file.expanded}}">
+            <view class="line line--{{line.kind}}" wx:for="{{file.visibleLines}}" wx:for-item="line" wx:key="id">
+              <text class="line__text">{{line.text}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <error-line wx:if="{{error}}" message="{{error}}" retryable bind:retry="onBack" />
+    <view class="git-list__pad"></view>
+  </scroll-view>
 </view>

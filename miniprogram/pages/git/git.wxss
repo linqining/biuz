@@ -1,1 +1,38 @@
-/* 页面私有样式。公共 token 在 app.wxss，公共件用 components/。 */
+/* 029-Diff 审查 —— 行色沿用 web diff 语义（add 绿 / del 红 / hunk 蓝 / ctx 常规） */
+
+.git-page { height: 100vh; display: flex; flex-direction: column; background-color: var(--color-background); }
+
+.git-header { flex: 0 0 auto; height: 85rpx; display: flex; align-items: center; gap: var(--space-2); padding: 0 16rpx; border-bottom: 2rpx solid var(--color-border); }
+.git-header__back { width: 85rpx; text-align: center; font-size: 40rpx; color: var(--color-foreground); }
+.git-header__title { font-size: 40rpx; font-weight: 600; color: var(--color-foreground); }
+
+.git-summary { display: flex; align-items: baseline; gap: var(--space-2); padding: 16rpx 32rpx 4rpx; }
+.git-summary__text { font-size: var(--font-sm); color: var(--color-muted); }
+.git-summary__add { font-size: var(--font-sm); color: var(--color-success); }
+.git-summary__del { font-size: var(--font-sm); color: var(--color-destructive); }
+
+.git-list { flex: 1; min-height: 0; padding: 0 32rpx; box-sizing: border-box; }
+.git-list__pad { height: 48rpx; }
+.git-state { padding: 96rpx 0; }
+
+.segment { margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
+.segment__head { display: flex; align-items: center; gap: var(--space-2); }
+.segment__label { flex: 1; font-size: var(--font-base); font-weight: 500; color: var(--color-muted); }
+.segment__count { font-size: var(--font-sm); color: var(--color-muted-2); }
+.segment__action { font-size: var(--font-sm); color: var(--color-accent); }
+
+.filecard { border: 2rpx solid var(--color-border); border-radius: var(--radius-md); background-color: var(--color-card); overflow: hidden; }
+.filecard__head { display: flex; align-items: center; gap: var(--space-2); height: 80rpx; padding: 0 20rpx; }
+.filecard__head:active { background-color: rgba(127, 127, 127, 0.08); }
+.filecard__chevron { font-size: var(--font-sm); color: var(--color-muted-2); }
+.filecard__name { flex: 1; min-width: 0; font-size: var(--font-base); color: var(--color-foreground); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.filecard__add { font-size: var(--font-sm); color: var(--color-success); }
+.filecard__del { font-size: var(--font-sm); color: var(--color-destructive); }
+.filecard__path { padding: 0 20rpx 12rpx 52rpx; font-size: var(--font-xs); color: var(--color-muted-2); word-break: break-all; }
+
+.filecard__lines { border-top: 2rpx solid var(--color-border); }
+.line { padding: 2rpx 20rpx; }
+.line--add { background-color: rgba(34, 197, 94, 0.12); }
+.line--del { background-color: rgba(255, 100, 103, 0.12); }
+.line--hunk { background-color: rgba(96, 165, 250, 0.10); }
+.line__text { font-family: Menlo, Consolas, monospace; font-size: var(--font-xs); line-height: 34rpx; color: var(--color-foreground); white-space: pre-wrap; word-break: break-all; }
