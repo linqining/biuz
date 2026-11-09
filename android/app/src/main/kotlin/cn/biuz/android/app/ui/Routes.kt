@@ -24,6 +24,11 @@ object Routes {
 
     fun chat(sessionId: String): String = "chat/$sessionId"
 
+    /** 能力清单（记忆 / 技能 / MCP / 插件）：{kind} ∈ memory|skills|mcp|plugins */
+    const val CAPABILITY = "capability/{kind}"
+
+    fun capability(kind: String): String = "capability/$kind"
+
     /** 019 归档管理 */
     const val ARCHIVES = "archives"
 

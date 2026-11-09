@@ -140,153 +140,253 @@
     {
       "key": "014-设置-通用",
       "route": "/remote/v4#settings/general",
-      "app": { "ios": "settings/general", "android": "（待建）", "miniprogram": "pages/settings/general" },
+      "app": {
+        "ios": "settings/general",
+        "android": "（待建）",
+        "miniprogram": "pages/settings/general"
+      },
       "note": "SettingsPage.tsx:1798"
     },
     {
       "key": "015-设置-外观",
       "route": "/remote/v4#settings/appearance",
-      "app": { "ios": "settings/appearance (SettingsView.swift:939)", "android": "settings/language 内有语言无外观", "miniprogram": "pages/settings/appearance" },
+      "app": {
+        "ios": "settings/appearance (SettingsView.swift:939)",
+        "android": "settings/language 内有语言无外观",
+        "miniprogram": "pages/settings/appearance"
+      },
       "note": "Android 恒深色（BiuzTheme），外观设置未接"
     },
     {
       "key": "016-设置-模型供应商",
       "route": "/remote/v4#settings/modelProvider",
-      "app": { "ios": "settings/model (SettingsView.swift:616)", "android": "chat 内模型面板", "miniprogram": "pages/settings/model" },
+      "app": {
+        "ios": "settings/model (SettingsView.swift:616)",
+        "android": "chat 内模型面板",
+        "miniprogram": "pages/settings/model"
+      },
       "note": "SettingsPage.tsx:2083"
     },
     {
       "key": "017-设置-用量",
       "route": "/remote/v4#settings/usage",
-      "app": { "ios": "-acceptance-route 013-设置:usage（P2ExtrasViews.swift:13 UsageStatsView）", "android": "settings/usage (UsageStatsScreen.kt:78)", "miniprogram": "pages/settings/usage" },
+      "app": {
+        "ios": "-acceptance-route 013-设置:usage（P2ExtrasViews.swift:13 UsageStatsView）",
+        "android": "settings/usage (UsageStatsScreen.kt:78)",
+        "miniprogram": "pages/settings/usage"
+      },
       "note": "含配额窗口/重置机会/趋势图；配额映射口径见协议文档 §9.10"
     },
     {
       "key": "018-设置-项目",
       "route": "/remote/v4#settings/projects",
-      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/settings/projects" },
+      "app": {
+        "ios": "（待建）",
+        "android": "（待建）",
+        "miniprogram": "pages/settings/projects"
+      },
       "note": "SettingsPage.tsx:2172"
     },
     {
       "key": "019-设置-归档",
       "route": "/remote/v4#settings/archives",
-      "app": { "ios": "conversations#archived", "android": "（待建）", "miniprogram": "pages/settings/archives" },
+      "app": {
+        "ios": "conversations#archived",
+        "android": "archives (ArchivesScreen)",
+        "miniprogram": "pages/settings/archives"
+      },
       "note": "SettingsPage.tsx:2174；iOS 以列表归档分区呈现"
     },
     {
       "key": "020-设置-技能",
       "route": "/remote/v4#settings/skill",
-      "app": { "ios": "settings/capabilities (P2ExtrasViews.swift:961)", "android": "（待建）", "miniprogram": "pages/settings/skill" },
+      "app": {
+        "ios": "settings/capabilities (P2ExtrasViews.swift:961)",
+        "android": "capability/skills (CapabilityListScreen)",
+        "miniprogram": "pages/settings/skill"
+      },
       "note": "SettingsPage.tsx:2152"
     },
     {
       "key": "021-设置-MCP",
       "route": "/remote/v4#settings/mcp",
-      "app": { "ios": "settings/capabilities", "android": "（待建）", "miniprogram": "pages/settings/mcp" },
+      "app": {
+        "ios": "settings/capabilities",
+        "android": "capability/mcp (CapabilityListScreen)",
+        "miniprogram": "pages/settings/mcp"
+      },
       "note": "SettingsPage.tsx:2137"
     },
     {
       "key": "022-设置-插件",
       "route": "/remote/v4#settings/plugin",
-      "app": { "ios": "settings/capabilities (含市场+安装)", "android": "（待建）", "miniprogram": "pages/settings/plugin" },
+      "app": {
+        "ios": "settings/capabilities (含市场+安装)",
+        "android": "capability/plugins (CapabilityListScreen)",
+        "miniprogram": "pages/settings/plugin"
+      },
       "note": "SettingsPage.tsx:2118"
     },
     {
       "key": "023-设置-自动化",
       "route": "/remote/v4#settings/automations",
-      "app": { "ios": "settings/automations (RemoteExtrasViews.swift:337)", "android": "（待建）", "miniprogram": "pages/settings/automations" },
+      "app": {
+        "ios": "settings/automations (RemoteExtrasViews.swift:337)",
+        "android": "（待建）",
+        "miniprogram": "pages/settings/automations"
+      },
       "note": "SettingsPage.tsx:2200"
     },
     {
       "key": "024-设置-钩子",
       "route": "/remote/v4#settings/hooks",
-      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/settings/hooks" },
+      "app": {
+        "ios": "（待建）",
+        "android": "（待建）",
+        "miniprogram": "pages/settings/hooks"
+      },
       "note": "SettingsPage.tsx:2218"
     },
     {
       "key": "025-设置-记忆",
       "route": "/remote/v4#settings/memory",
-      "app": { "ios": "settings/capabilities", "android": "（待建）", "miniprogram": "pages/settings/memory" },
+      "app": {
+        "ios": "settings/capabilities",
+        "android": "capability/memory (CapabilityListScreen)",
+        "miniprogram": "pages/settings/memory"
+      },
       "note": "SettingsPage.tsx:2107"
     },
     {
       "key": "026-设置-子代理",
       "route": "/remote/v4#settings/subagents",
-      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/settings/subagents" },
+      "app": {
+        "ios": "（待建）",
+        "android": "（待建）",
+        "miniprogram": "pages/settings/subagents"
+      },
       "note": "SettingsPage.tsx:2194"
     },
     {
       "key": "027-设置-个性化",
       "route": "/remote/v4#settings/personalization",
-      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/settings/personalization" },
+      "app": {
+        "ios": "（待建）",
+        "android": "（待建）",
+        "miniprogram": "pages/settings/personalization"
+      },
       "note": "SettingsPage.tsx:2098"
     },
     {
       "key": "028-设置-桌面设置同步",
       "route": "/remote/v4#settings/desktop-sync",
-      "app": { "ios": "settings/desktop (P2ExtrasViews.swift:2232)", "android": "（待建）", "miniprogram": "pages/settings/desktop" },
+      "app": {
+        "ios": "settings/desktop (P2ExtrasViews.swift:2232)",
+        "android": "（待建）",
+        "miniprogram": "pages/settings/desktop"
+      },
       "note": "setting 频道 get/update；频道名裁决见协议文档 §13"
     },
     {
       "key": "029-Diff/Git 面板",
       "route": "/remote/v4#pane/git",
-      "app": { "ios": "-acceptance-route 029-Diff/Git 面板（DiffReviewView.swift:155）", "android": "files (FilesScreen.kt:112)", "miniprogram": "pages/git/git" },
+      "app": {
+        "ios": "-acceptance-route 029-Diff/Git 面板（DiffReviewView.swift:155）",
+        "android": "files (FilesScreen.kt:112)",
+        "miniprogram": "pages/git/git"
+      },
       "note": "web GitPane 在 side pane；移动端提升为 tab。逐文件 stage/unstage"
     },
     {
       "key": "030-文件管理器",
       "route": "/remote/v4#pane/file-manager",
-      "app": { "ios": "-acceptance-route 030-文件管理器（FileTreeView.swift:5）", "android": "filesTree (FilesScreen.kt:781)", "miniprogram": "pages/files/files" },
+      "app": {
+        "ios": "-acceptance-route 030-文件管理器（FileTreeView.swift:5）",
+        "android": "filesTree (FilesScreen.kt:781)",
+        "miniprogram": "pages/files/files"
+      },
       "note": "只读边界：file 频道默认拒绝（ReadOnlyGate）"
     },
     {
       "key": "031-文件预览",
       "route": "/remote/v4#pane/code-viewer",
-      "app": { "ios": "files/preview (FileTreeView.swift:406)", "android": "filesPreview?path=&name=&size (FilesScreen.kt:1089)", "miniprogram": "pages/files/preview?path=<path>" },
+      "app": {
+        "ios": "files/preview (FileTreeView.swift:406)",
+        "android": "filesPreview?path=&name=&size (FilesScreen.kt:1089)",
+        "miniprogram": "pages/files/preview?path=<path>"
+      },
       "note": "web 支持代码/Markdown/图片/PDF/Office；Android 缺 PDF 与 markdown 富渲染"
     },
     {
       "key": "032-计划详情",
       "route": "/remote/v4#pane/plan-detail",
-      "app": { "ios": "chat#plan (ChatView.swift:929 PlanApprovalCard + PlanToolCallSheet)", "android": "chat#plan (ChatMessageViews.kt:719)", "miniprogram": "pages/chat/chat#plan" },
+      "app": {
+        "ios": "chat#plan (ChatView.swift:929 PlanApprovalCard + PlanToolCallSheet)",
+        "android": "chat#plan (ChatMessageViews.kt:719)",
+        "miniprogram": "pages/chat/chat#plan"
+      },
       "note": "ExitPlanMode 工具行的计划预览卡"
     },
     {
       "key": "033-子代理会话",
       "route": "/remote/v4#pane/subagent-session",
-      "app": { "ios": "chat#subagent (ChatView.swift:492 ActorTranscriptSheet)", "android": "chat#subagent (SessionPanels.kt:1110)", "miniprogram": "pages/chat/chat#subagent" },
+      "app": {
+        "ios": "chat#subagent (ChatView.swift:492 ActorTranscriptSheet)",
+        "android": "chat#subagent (SessionPanels.kt:1110)",
+        "miniprogram": "pages/chat/chat#subagent"
+      },
       "note": "只读转录下钻"
     },
     {
       "key": "034-后台命令输出",
       "route": "/remote/v4#pane/bash-output",
-      "app": { "ios": "chat#works (SessionPanelsView.swift:1021)", "android": "chat#works (SessionPanels.kt:946)", "miniprogram": "pages/chat/chat#bash" },
+      "app": {
+        "ios": "chat#works (SessionPanelsView.swift:1021)",
+        "android": "chat#works (SessionPanels.kt:946)",
+        "miniprogram": "pages/chat/chat#bash"
+      },
       "note": "BackgroundBashOutputSidePane"
     },
     {
       "key": "035-工作流运行",
       "route": "/remote/v4#pane/workflow-run",
-      "app": { "ios": "chat#workflow (SessionPanelsView.swift:551)", "android": "chat#workflow (SessionPanels.kt:486)", "miniprogram": "pages/chat/chat#workflow" },
+      "app": {
+        "ios": "chat#workflow (SessionPanelsView.swift:551)",
+        "android": "chat#workflow (SessionPanels.kt:486)",
+        "miniprogram": "pages/chat/chat#workflow"
+      },
       "note": "含并发读 concurrency.limit 与 holes 展示"
     },
     {
       "key": "036-白板",
       "route": "/remote/v4#pane/whiteboard",
-      "app": { "ios": "（待建）", "android": "（待建）", "miniprogram": "pages/chat/chat#whiteboard" },
+      "app": {
+        "ios": "（待建）",
+        "android": "（待建）",
+        "miniprogram": "pages/chat/chat#whiteboard"
+      },
       "canvas": true,
       "note": "Canvas 2D 手绘（WhiteboardPane.tsx:47/:346）；DOM 采不到画面，只能截图。双端缺失"
     },
     {
       "key": "037-终端",
       "route": "/remote/v4#pane/terminal",
-      "app": { "ios": "（已删除）", "android": "（已删除）", "miniprogram": "（不可用）" },
+      "app": {
+        "ios": "（已删除）",
+        "android": "（已删除）",
+        "miniprogram": "（不可用）"
+      },
       "canvas": true,
       "note": "xterm.js DOM 渲染器；终端的 create/write 属直写面被 ReadOnlyGate 拦，v1.39 已移除伪终端 UI。web 侧仅桌面窗口可用"
     },
     {
       "key": "038-模型轨迹",
       "route": "/remote/v4#pane/model-trajectory",
-      "app": { "ios": "-acceptance-route 038-模型轨迹（TaskOutputView.swift:22）", "android": "（待建）", "miniprogram": "pages/tasks/output?taskId=<id>" },
+      "app": {
+        "ios": "-acceptance-route 038-模型轨迹（TaskOutputView.swift:22）",
+        "android": "（待建）",
+        "miniprogram": "pages/tasks/output?taskId=<id>"
+      },
       "note": "web ModelTrajectoryPane；iOS 放在任务输出页，Android 无任务域 UI"
     }
   ]

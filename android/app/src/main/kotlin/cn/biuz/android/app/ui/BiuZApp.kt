@@ -14,6 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.ui.screen.AboutScreen
 import cn.biuz.android.app.ui.screen.ArchivesScreen
+import cn.biuz.android.app.ui.screen.CapabilityListScreen
 import cn.biuz.android.app.ui.screen.ChatScreen
 import cn.biuz.android.app.ui.screen.ConnectScreen
 import cn.biuz.android.app.ui.screen.DevicesScreen
@@ -178,6 +179,23 @@ fun BiuZApp(
                     onClose = { navController.popBackStack() },
                 )
             }
+            // 设置能力清单（记忆/技能/MCP/插件；iOS RemoteCapabilityListPage 对位，只读）
+            composable(
+                route = Routes.CAPABILITY,
+                arguments = listOf(androidx.navigation.navArgument("kind") { type = androidx.navigation.NavType.StringType }),
+            ) { entry ->
+                val kind = when (entry.arguments?.getString("kind").orEmpty()) {
+                    "skills" -> cn.biuz.android.connection.CapabilityKind.skills
+                    "mcp" -> cn.biuz.android.connection.CapabilityKind.mcp
+                    "plugins" -> cn.biuz.android.connection.CapabilityKind.plugins
+                    else -> cn.biuz.android.connection.CapabilityKind.memory
+                }
+                CapabilityListScreen(
+                    session = session,
+                    kind = kind,
+                    onBack = { navController.popBackStack() },
+                )
+            }
             // 019 归档管理（web settings/archives；文案对齐 archives.* 键）
             composable(Routes.ARCHIVES) {
                 ArchivesScreen(
@@ -264,6 +282,7 @@ fun BiuZApp(
                     onOpenUsage = { navController.navigate(Routes.USAGE) },
                     onOpenAbout = { navController.navigate(Routes.ABOUT) },
                     onOpenArchives = { navController.navigate(Routes.ARCHIVES) },
+                    onOpenCapability = { kind -> navController.navigate(Routes.capability(kind)) },
                 )
             }
             composable(Routes.LANGUAGE) {

@@ -502,4 +502,26 @@
     <string name="archives_index_pending">桌面端暂未返回会话列表</string>
     <string name="archives_index_pending_hint">会话初始化未完成 · 保持连接后点按重试</string>
     <string name="archives_retry">重试</string>
+    <string name="settings_group_capabilities">Agent 能力</string>
+    <string name="settings_row_memory_sub">桌面端项目记忆（只读）</string>
+    <string name="settings_row_skills_sub">桌面端技能目录（只读）</string>
+    <string name="settings_row_mcp_sub">MCP 服务器状态（只读）</string>
+    <string name="settings_row_plugins_sub">桌面端已装插件（只读）</string>
+    <string name="cap_memory_title">记忆</string>
+    <string name="cap_skills_title">技能</string>
+    <string name="cap_mcp_title">MCP</string>
+    <string name="cap_plugins_title">插件</string>
+    <string name="cap_loading">正在读取…</string>
+    <string name="cap_not_connected">未连接桌面端</string>
+    <string name="cap_not_connected_hint">清单来自桌面端；连接后自动读取</string>
+    <string name="cap_load_failed">读取失败</string>
+    <string name="cap_empty">暂无条目</string>
+    <string name="cap_empty_hint">桌面端未返回该清单条目</string>
+    <string name="cap_memory_empty">桌面端暂无项目记忆</string>
+    <string name="cap_memory_empty_hint">在桌面端为项目添加记忆后，这里会同步显示（移动端只读）</string>
+    <string name="cap_skills_empty">桌面端暂无技能</string>
+    <string name="cap_mcp_empty">桌面端暂无 MCP 服务器</string>
+    <string name="cap_mcp_empty_hint">在桌面端配置 MCP 服务器后，这里会显示连接状态</string>
+    <string name="cap_plugins_empty">桌面端未安装插件</string>
+    <string name="cap_plugins_empty_hint">在桌面端插件市场安装后，这里会列出已装插件</string>
 </resources>

@@ -64,6 +64,7 @@ fun SettingsScreen(
     onOpenUsage: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenArchives: () -> Unit = {},
+    onOpenCapability: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val developerMode by settings.developerMode.collectAsStateWithLifecycle()
@@ -128,6 +129,34 @@ fun SettingsScreen(
             Spacer(Modifier.height(BiuZSpacing.md))
 
             // 关于分组
+            // Agent 能力组（iOS 12-row-memory/skills/mcp/plugins 同位；连接态只读清单）
+            SettingsGroup(title = stringResource(R.string.settings_group_capabilities)) {
+                SettingsNavRow(
+                    title = stringResource(R.string.cap_memory_title),
+                    subtitle = stringResource(R.string.settings_row_memory_sub),
+                    testTagId = "13-row-memory",
+                    onClick = { onOpenCapability("memory") },
+                )
+                SettingsNavRow(
+                    title = stringResource(R.string.cap_skills_title),
+                    subtitle = stringResource(R.string.settings_row_skills_sub),
+                    testTagId = "13-row-skills",
+                    onClick = { onOpenCapability("skills") },
+                )
+                SettingsNavRow(
+                    title = stringResource(R.string.cap_mcp_title),
+                    subtitle = stringResource(R.string.settings_row_mcp_sub),
+                    testTagId = "13-row-mcp",
+                    onClick = { onOpenCapability("mcp") },
+                )
+                SettingsNavRow(
+                    title = stringResource(R.string.cap_plugins_title),
+                    subtitle = stringResource(R.string.settings_row_plugins_sub),
+                    testTagId = "13-row-plugins",
+                    onClick = { onOpenCapability("plugins") },
+                )
+            }
+
             SettingsGroup(title = stringResource(R.string.settings_group_about)) {
                 SettingsNavRow(
                     title = stringResource(R.string.settings_row_about),

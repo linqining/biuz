@@ -424,4 +424,26 @@
     <string name="archives_index_pending">Desktop has not returned the session list yet</string>
     <string name="archives_index_pending_hint">Session initialization is incomplete · retry once the connection settles.</string>
     <string name="archives_retry">Retry</string>
+    <string name="settings_group_capabilities">Agent capabilities</string>
+    <string name="settings_row_memory_sub">Desktop project memories (read-only)</string>
+    <string name="settings_row_skills_sub">Desktop skill catalog (read-only)</string>
+    <string name="settings_row_mcp_sub">MCP server status (read-only)</string>
+    <string name="settings_row_plugins_sub">Plugins installed on the desktop (read-only)</string>
+    <string name="cap_memory_title">Memory</string>
+    <string name="cap_skills_title">Skills</string>
+    <string name="cap_mcp_title">MCP</string>
+    <string name="cap_plugins_title">Plugins</string>
+    <string name="cap_loading">Reading…</string>
+    <string name="cap_not_connected">Desktop not connected</string>
+    <string name="cap_not_connected_hint">These lists come from the desktop and load once connected.</string>
+    <string name="cap_load_failed">Read failed</string>
+    <string name="cap_empty">No entries</string>
+    <string name="cap_empty_hint">The desktop returned no entries for this list.</string>
+    <string name="cap_memory_empty">No project memories on the desktop</string>
+    <string name="cap_memory_empty_hint">Add memories to a project on the desktop and they show up here (read-only on mobile).</string>
+    <string name="cap_skills_empty">No skills on the desktop</string>
+    <string name="cap_mcp_empty">No MCP servers on the desktop</string>
+    <string name="cap_mcp_empty_hint">Configure MCP servers on the desktop to see their connection status here.</string>
+    <string name="cap_plugins_empty">No plugins installed on the desktop</string>
+    <string name="cap_plugins_empty_hint">Plugins installed from the desktop marketplace are listed here.</string>
 </resources>
