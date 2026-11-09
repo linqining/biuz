@@ -181,7 +181,7 @@
       "key": "018-设置-项目",
       "route": "/remote/v4#settings/projects",
       "app": {
-        "ios": "（待建）",
+        "ios": "settings/projects (ProjectsPage, RemoteSettingsExtrasViews.swift, 只读第一波)",
         "android": "settings/projects (ProjectsScreen.kt, 只读第一波)",
         "miniprogram": "pages/settings/projects"
       },
@@ -241,7 +241,7 @@
       "key": "024-设置-钩子",
       "route": "/remote/v4#settings/hooks",
       "app": {
-        "ios": "（待建）",
+        "ios": "settings/hooks (HooksPage, 只读)",
         "android": "settings/hooks (HooksScreen.kt, 只读)",
         "miniprogram": "pages/settings/hooks"
       },
@@ -261,7 +261,7 @@
       "key": "026-设置-子代理",
       "route": "/remote/v4#settings/subagents",
       "app": {
-        "ios": "（待建）",
+        "ios": "settings/subagents (SubagentsPage, 只读)",
         "android": "settings/subagents (SubagentsScreen.kt, 只读)",
         "miniprogram": "pages/settings/subagents"
       },
@@ -271,7 +271,7 @@
       "key": "027-设置-个性化",
       "route": "/remote/v4#settings/personalization",
       "app": {
-        "ios": "（待建）",
+        "ios": "settings/personalization (PersonalizationGuidePage, web 同口径指引页)",
         "android": "settings/personalization (PersonalizationScreen.kt, web 同口径指引页)",
         "miniprogram": "pages/settings/personalization"
       },

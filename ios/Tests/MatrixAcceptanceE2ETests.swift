@@ -1412,4 +1412,56 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         }, "点按采纳应把 draft+text 拼接（实际=\(String(describing: composer.value))）")
         snap(application, "matrix-v139-input-prediction")
     }
+
+    // MARK: - 屏 027/024/026/018 设置四页（RemoteSettingsExtrasViews；替身 3 handler）
+
+    /// 四页冷启直达（验收缝 013-设置:<route>）+ 替身数据断言（只读第一波）。
+    /// 连接一次（手动配对）后逐页 relaunchKeepState；027 是零服务调用指引页。
+    func test30_settingsExtrasFourPagesReadOnly() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+
+        // 027 个性化：指引文案在场（web LocalOnlyPersonalizationHint 同口径，零 RPC）
+        relaunchKeepState(application, extra: ["-acceptance-route", "013-设置:personalization"])
+        waitStaticText(application, containing: "个性化指令仅支持在本地桌面端设置", timeout: 12,
+                       "个性化页应呈现「仅本地桌面端」指引（web 同口径）")
+        XCTAssertTrue(element(application, "27-local-only").waitForExistence(timeout: 6),
+                      "指引卡应在场")
+        snap(application, "matrix-027-personalization-guide")
+
+        // 024 钩子：替身 3 条（zcode 已安装 / claude 旧版 / 待信任 workspace 钩子）
+        relaunchKeepState(application, extra: ["-acceptance-route", "013-设置:hooks"])
+        waitStaticText(application, containing: "echo session-start", timeout: 15,
+                       "钩子页应呈现替身已安装钩子的命令行")
+        waitStaticText(application, containing: "待信任", timeout: 8,
+                       "workspaceHook.trustState != trusted_persistent 应带待信任徽标")
+        XCTAssertTrue(element(application, "24-row-stub-hook-installed").waitForExistence(timeout: 6),
+                      "已安装钩子行应在场")
+        snap(application, "matrix-024-hooks")
+
+        // 026 子智能体：agents 混入 plugin 代理（桌面真实形态）→ 滤 plugin + 拼 pluginAgents + 去重
+        relaunchKeepState(application, extra: ["-acceptance-route", "013-设置:subagents"])
+        waitStaticText(application, containing: "审查代码", timeout: 15,
+                       "子智能体页应呈现替身 user 代理（reviewer）")
+        waitStaticText(application, containing: "documents:visual-judge", timeout: 8,
+                       "插件 profile 分组应呈现（agents 混入的 plugin 代理不重复上屏）")
+        let pluginRows = application.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "documents:visual-judge")).count
+        XCTAssertTrue(pluginRows == 1, "plugin 代理去重后应只出现一次（实际 \(pluginRows)）")
+        XCTAssertTrue(element(application, "26-row-user:reviewer").waitForExistence(timeout: 6),
+                      "user 代理行应在场")
+        snap(application, "matrix-026-subagents")
+
+        // 018 项目：替身 2 活跃（1 置顶 1 目录缺失）+ 1 已移除；会话计数 = tasks 聚合
+        relaunchKeepState(application, extra: ["-acceptance-route", "013-设置:projects"])
+        waitStaticText(application, containing: "zcode_mobile", timeout: 15,
+                       "项目页应呈现替身项目（zcode_mobile）")
+        waitStaticText(application, containing: "已移除的项目（1）", timeout: 8,
+                       "deleted=true 项目应落已移除区（计数 1）")
+        waitStaticText(application, containing: "目录缺失", timeout: 8,
+                       "primaryRootStatus=missing 应带目录缺失徽标")
+        XCTAssertTrue(element(application, "18-row-proj-1").waitForExistence(timeout: 6),
+                      "活跃项目行应在场")
+        snap(application, "matrix-018-projects")
+    }
 }

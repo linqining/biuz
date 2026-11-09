@@ -15613,8 +15613,7 @@
           }
         }
       }
-    }
-,
+    },
     "已自动连接桌面端" : {
       "localizations" : {
         "en" : {
@@ -15634,8 +15633,7 @@
           }
         }
       }
-    }
-,
+    },
     "连接已断开 · 正在自动重连…" : {
       "localizations" : {
         "en" : {
@@ -15645,8 +15643,7 @@
           }
         }
       }
-    }
-,
+    },
     "自动重连失败 · %@" : {
       "localizations" : {
         "en" : {
@@ -15696,8 +15693,387 @@
           }
         }
       }
+    },
+    "添加自定义指令来个性化 Agent 的回复，指令会应用到你本机 Agent 的后续会话；远程设备需单独配置。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add custom instructions to personalize the Agent's replies. Instructions apply to future sessions of the Agent on your machine; configure remote devices separately."
+          }
+        }
+      }
+    },
+    "个性化指令仅支持在本地桌面端设置，请前往本地桌面端的「个性化」设置。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personalization instructions can only be set in the local desktop app. Open the “Personalization” settings on the desktop."
+          }
+        }
+      }
+    },
+    "个性化" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personalization"
+          }
+        }
+      }
+    },
+    "钩子" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks"
+          }
+        }
+      }
+    },
+    "钩子由桌面端管理；连接后此处同步清单" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks are managed on the desktop; connect to sync the list here"
+          }
+        }
+      }
+    },
+    "正在读取钩子…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading hooks…"
+          }
+        }
+      }
+    },
+    "暂无钩子" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hooks"
+          }
+        }
+      }
+    },
+    "在桌面端创建钩子后，此处同步显示事件与命令" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks created on the desktop appear here with their events and commands"
+          }
+        }
+      }
+    },
+    "检查桌面端是否在线后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check that the desktop is online and retry"
+          }
+        }
+      }
+    },
+    "共 %lld 个钩子 · 总开关已启用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld hooks · master switch enabled"
+          }
+        }
+      }
+    },
+    "共 %lld 个钩子 · 总开关已关闭" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld hooks · master switch disabled"
+          }
+        }
+      }
+    },
+    "插件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plugins"
+          }
+        }
+      }
+    },
+    "旧版" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Legacy"
+          }
+        }
+      }
+    },
+    "进程" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Process"
+          }
+        }
+      }
+    },
+    "Shell 命令" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shell command"
+          }
+        }
+      }
+    },
+    "子智能体定义存于桌面端；连接后此处同步清单" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagent definitions live on the desktop; connect to sync the list here"
+          }
+        }
+      }
+    },
+    "正在读取子智能体…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading subagents…"
+          }
+        }
+      }
+    },
+    "暂无子智能体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No subagents"
+          }
+        }
+      }
+    },
+    "在桌面端创建子智能体后，此处同步显示清单" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagents created on the desktop appear here"
+          }
+        }
+      }
+    },
+    "内置子智能体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Built-in subagents"
+          }
+        }
+      }
+    },
+    "插件 profile" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plugin profiles"
+          }
+        }
+      }
+    },
+    "全部工具" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All tools"
+          }
+        }
+      }
+    },
+    "%lld 个工具" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld tools"
+          }
+        }
+      }
+    },
+    "项目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projects"
+          }
+        }
+      }
+    },
+    "项目组织存于桌面端；连接后此处同步清单" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projects are organized on the desktop; connect to sync the list here"
+          }
+        }
+      }
+    },
+    "正在读取项目…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading projects…"
+          }
+        }
+      }
+    },
+    "移除项目只会把它从侧栏和项目选择器中拿掉。会话仍保留在最近和搜索中，磁盘上的文件不受影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removing a project only removes it from the sidebar and project picker. Sessions remain in recents and search; files on disk are not affected."
+          }
+        }
+      }
+    },
+    "暂无项目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No projects"
+          }
+        }
+      }
+    },
+    "桌面端的侧栏项目会同步显示在这里" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sidebar projects from the desktop appear here"
+          }
+        }
+      }
+    },
+    "已置顶" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pinned"
+          }
+        }
+      }
+    },
+    "目录缺失" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folder missing"
+          }
+        }
+      }
+    },
+    "%lld 个会话" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sessions"
+          }
+        }
+      }
+    },
+    "已移除的项目（%lld）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed projects (%lld)"
+          }
+        }
+      }
+    },
+    "已移除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed"
+          }
+        }
+      }
+    },
+    "侧栏项目与已移除项目（只读）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sidebar and removed projects (read-only)"
+          }
+        }
+      }
+    },
+    "仅本地桌面端可设置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set up in the local desktop app"
+          }
+        }
+      }
+    },
+    "子智能体定义清单（只读）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagent definitions (read-only)"
+          }
+        }
+      }
+    },
+    "读取失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to load"
+          }
+        }
+      }
     }
-
   },
   "version" : "1.0"
 }

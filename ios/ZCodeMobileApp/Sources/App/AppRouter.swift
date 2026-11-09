@@ -23,6 +23,8 @@ enum SettingsRoute: String, Hashable {
     // P2 批次只读页（G-022/G-024/G-025）
     case savedWorkflows, offPeakTasks, feedbackTickets
     case desktopSettings // P3-11C 桌面设置同步（settingService get/update）
+    // 027/024/026/018 四页（上游取证 2026-11-10；RemoteSettingsExtrasViews.swift）
+    case personalization, hooks, subagents, projects
     case diagnostics // G-061 导出诊断日志
 }
 

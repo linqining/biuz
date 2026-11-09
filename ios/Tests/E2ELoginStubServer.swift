@@ -1316,6 +1316,93 @@ final class E2ELoginStubServer {
             var usage = Self.stubTokenUsage
             usage["sessionId"] = body.objectValue?["taskId"]?.stringValue ?? ""
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(usage)))
+        // ---- 屏 024/026/018 设置只读页替身（test30；上游形状见 RemoteSettingsExtrasViews.swift）。
+        // 值一律走 [String: Any] 重载（Bool→int 1/0 线缆口径，与本文件既有 case 同惯例）----
+        case "loadHooks" where channelName == "hooks":
+            // {hooks:[…], hooksEnabled}：1 条 zcode 已安装 + 1 条 claude 旧版 + 1 条待信任 workspace 钩子
+            let hooks: [[String: Any]] = [
+                [
+                    "id": "stub-hook-installed", "event": "SessionStart",
+                    "type": "command", "command": "echo session-start",
+                    "enabled": true, "editable": true,
+                    "location": ["source": "zcode", "scope": "user"],
+                ],
+                [
+                    "id": "stub-hook-legacy", "event": "PreToolUse",
+                    "type": "process", "command": "legacy-tool",
+                    "enabled": false,
+                    "location": ["source": "claude", "scope": "project"],
+                ],
+                [
+                    "id": "stub-hook-trust", "event": "Stop",
+                    "type": "command", "command": "notify.sh",
+                    "enabled": true,
+                    "workspaceHook": ["trustState": "pending_trust"],
+                ],
+            ]
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
+                                         body: StubRPC.objectFaithfulBool(["hooks": hooks, "hooksEnabled": true])))
+        case "list" where channelName == "subagents":
+            // AgentsListResult：built-in 2 + user 1 + plugin 1（agents 混入 plugin 代理——
+            // 复刻桌面真实形态，锁「滤 plugin 后拼 pluginAgents + 去重」链路）
+            let generalPurpose: [String: Any] = [
+                "id": "built-in:general-purpose", "name": "general-purpose",
+                "description": "通用子代理", "scope": "built-in",
+                "source": "built-in", "enabled": true,
+                "tools": ["read", "bash"],
+            ]
+            let explore: [String: Any] = [
+                "id": "built-in:Explore", "name": "Explore",
+                "description": "只读搜索代理", "scope": "built-in",
+                "source": "built-in", "enabled": true, "tools": [String](),
+            ]
+            let userAgent: [String: Any] = [
+                "id": "user:reviewer", "name": "reviewer",
+                "description": "审查代码", "scope": "user",
+                "source": "user", "enabled": true,
+            ]
+            let pluginAgent: [String: Any] = [
+                "id": "plugin:documents@zcode-plugins-official:visual-judge",
+                "name": "documents:visual-judge", "description": "视觉判定",
+                "scope": "workspace", "source": "plugin", "enabled": true,
+                "pluginName": "documents",
+            ]
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
+                                         body: StubRPC.objectFaithfulBool([
+                                            "agents": [generalPurpose, explore, userAgent, pluginAgent],
+                                            "userAgents": [userAgent],
+                                            "pluginAgents": [pluginAgent],
+                                            "capability": ["userScopeAvailable": true],
+                                         ])))
+        case "readTree" where channelName == "project":
+            // ProjectTree：2 活跃（1 置顶 1 目录缺失）+ 1 已移除；tasks 聚合计数
+            let projects: [[String: Any]] = [
+                [
+                    "id": "proj-1", "name": "zcode_mobile", "hostId": "local",
+                    "pinned": true, "deleted": false, "position": 0,
+                    "roots": [["rootPath": "/Users/mac/projects/zcode_mobile", "isPrimary": true]],
+                    "primaryRootStatus": "available", "nameOverridden": false,
+                ],
+                [
+                    "id": "proj-2", "name": "gone-dir", "hostId": "local",
+                    "pinned": false, "deleted": false, "position": 1,
+                    "roots": [["rootPath": "/Users/mac/missing", "isPrimary": true]],
+                    "primaryRootStatus": "missing", "nameOverridden": false,
+                ],
+                [
+                    "id": "proj-3", "name": "removed-project", "hostId": "local",
+                    "pinned": false, "deleted": true, "position": 2,
+                    "roots": [[String: Any]](),
+                    "nameOverridden": false,
+                ],
+            ]
+            let tasks: [[String: Any]] = [
+                ["sessionId": "s1", "projectId": "proj-1"],
+                ["sessionId": "s2", "projectId": "proj-1"],
+                ["sessionId": "s3", "projectId": NSNull()],
+            ]
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)],
+                                         body: StubRPC.objectFaithfulBool(["projects": projects, "tasks": tasks])))
         case "setTaskPinned" where channelName == "zcode-task":
             let taskId = body.objectValue?["taskId"]?.stringValue ?? ""
             let pinned = body.objectValue?["pinned"]?.intValue == 1
@@ -3083,6 +3170,7 @@ final class ConnectionChannel {
 /// 仅覆盖替身所需类型：undefined(0) / string(1) / array(4) / object(5, JSON) / int(6, VQL)。
 enum StubRPC {
     case undefined
+    case bool(Bool)
     case int(Int)
     case string(String)
     case array([StubRPC])
@@ -3101,6 +3189,37 @@ enum StubRPC {
     var intValue: Int? {
         if case .int(let value) = self { return value }
         return nil
+    }
+
+    /// 便捷构造（保真 bool）：同 object(_:)，但 Bool 落 .bool 而非 .int(1/0)——
+    /// 线缆 tag5 对象内 JSON 布尔只有经此才能保真（屏 024/026/018 替身用；
+    /// 既有 case 的 Bool→int 行为不动，防回归既有断言）
+    static func objectFaithfulBool(_ dict: [String: Any]) -> StubRPC {
+        var result: [String: StubRPC] = [:]
+        for (key, value) in dict { result[key] = stubValueFaithfulBool(value) }
+        return .object(result)
+    }
+
+    private static func stubValueFaithfulBool(_ any: Any) -> StubRPC {
+        switch any {
+        case is NSNull:
+            return .undefined
+        case let number as NSNumber:
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return .bool(number.boolValue)
+            }
+            return .int(number.intValue)
+        case let string as String:
+            return .string(string)
+        case let array as [Any]:
+            return .array(array.map(stubValueFaithfulBool))
+        case let dict as [String: Any]:
+            var result: [String: StubRPC] = [:]
+            for (key, value) in dict { result[key] = stubValueFaithfulBool(value) }
+            return .object(result)
+        default:
+            return .undefined
+        }
     }
 
     /// 便捷构造：[String: Any] 字典（值为任意 JSON 兼容类型）
@@ -3151,6 +3270,11 @@ enum StubRPC {
         switch value {
         case .undefined:
             out.append(0)
+        case .bool(let b):
+            // 线缆无顶层 bool 标签；bool 只在 tag5 对象 JSON 内保真（jsonValue(of:)）。
+            // 顶层防御落 int 1/0（本仓替身不存在顶层 bool 用例）。
+            out.append(6)
+            out.append(writeIntVQL(b ? 1 : 0))
         case .int(let i):
             out.append(6)
             out.append(writeIntVQL(Int(UInt32(bitPattern: Int32(truncatingIfNeeded: i)))))
@@ -3176,6 +3300,7 @@ enum StubRPC {
     private static func jsonValue(of value: StubRPC) -> Any {
         switch value {
         case .undefined: return NSNull()
+        case .bool(let b): return NSNumber(value: b)
         case .int(let i): return i
         case .string(let s): return s
         case .array(let items): return items.map(jsonValue(of:))

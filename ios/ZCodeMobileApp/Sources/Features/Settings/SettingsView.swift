@@ -414,18 +414,33 @@ struct SettingsView: View {
                 navRow(route: .memory, icon: "brain", title: "记忆",
                        subtitle: String(localized: "连接后同步桌面记忆"),
                        value: nil, identifier: "12-row-memory")
+                // 018 项目管理（web「项目排在归档管理之前」同位；readTree 只读第一波）
+                navRow(route: .projects, icon: "folder", title: "项目",
+                       subtitle: String(localized: "侧栏项目与已移除项目（只读）"),
+                       value: nil, identifier: "18-row-projects")
             }
             group("Agent 能力") {
+                // 027 个性化（web Agent 能力组第一项同位；「仅本地桌面端」指引页）
+                navRow(route: .personalization, icon: "person.text.rectangle", title: "个性化",
+                       subtitle: String(localized: "仅本地桌面端可设置"),
+                       value: nil, identifier: "27-row-personalization")
                 navRow(route: .skills, icon: "wand.and.stars", title: "技能",
                        subtitle: String(localized: "连接后同步桌面技能"),
                        value: nil, identifier: "12-row-skills")
                 navRow(route: .mcp, icon: "server.rack", title: "MCP",
                        subtitle: String(localized: "连接后同步桌面 MCP"),
                        value: nil, identifier: "12-row-mcp")
+                navRow(route: .subagents, icon: "bot", title: "子智能体",
+                       subtitle: String(localized: "子智能体定义清单（只读）"),
+                       value: nil, identifier: "26-row-subagents")
                 navRow(route: .plugins, icon: "puzzlepiece.extension", title: "插件商店",
                        subtitle: nil, value: nil, badge: "New", identifier: "12-row-plugins")
                 navRow(route: .automation, icon: "clock.badge.checkmark", title: "自动化",
                        subtitle: "定时任务与触发器", value: nil, badge: "Beta", identifier: "12-row-automation")
+                // 024 钩子（web Agent 能力组同位；hooks.loadHooks 只读清单）
+                navRow(route: .hooks, icon: "anchor", title: "钩子",
+                       subtitle: String(localized: "任务生命周期钩子（只读）"),
+                       value: nil, identifier: "24-row-hooks")
                 // P2 批次只读页入口（G-022/G-024/G-025；写面均维持拦截）
                 navRow(route: .savedWorkflows, icon: "flowchart.fill", title: String(localized: "工作流库"),
                        subtitle: String(localized: "已保存工作流与最近运行"), value: nil, identifier: "12-row-workflows")
@@ -511,6 +526,11 @@ struct SettingsView: View {
             }
         case .automation: AutomationsView() // G-016：真实列表+运行历史（zcode-agent listAutomations），替换硬编码占位
         case .desktopSettings: DesktopSettingsPage() // P3-11C：settingService get/update（修改带确认弹层）
+        // 027/024/026/018 四页（上游取证 2026-11-10；RemoteSettingsExtrasViews.swift）
+        case .personalization: PersonalizationGuidePage() // web LocalOnlyPersonalizationHint 同口径，零服务调用
+        case .hooks: HooksPage() // hooks.loadHooks 只读清单（saveHooks 写面 gate 拦截）
+        case .subagents: SubagentsPage() // subagents.list 只读清单（写面 gate 拦截）
+        case .projects: ProjectsPage() // project.readTree 只读第一波（写面暂不接）
         case .diagnostics: DiagnosticsExportView() // G-061
         }
     }
