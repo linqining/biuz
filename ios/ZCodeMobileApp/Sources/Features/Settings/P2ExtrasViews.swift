@@ -1650,13 +1650,51 @@ struct RemoteCapabilityListPage: View {
                         badge: enabled == nil ? nil : (enabled! ? String(localized: "已启用") : String(localized: "已停用")))
                 }
             case .mcp:
-                // listMcpServerStatuses（{workspacePath} 界定范围）→ servers[]/mcpServers[]
+                // listMcpServerStatuses（{workspacePath} 界定范围）。
+                // 【实证 2026-11-10 真机回执·桌面 3.17.2】真实形状是 **map**：
+                //   { statuses: { "<serverId>": { status, transport, toolCount, updatedAt, protocolEra } } }
+                // 键形如 `plugin:documents:documents`（插件内建 MCP）。此前按 servers[]/mcpServers[]
+                // 数组链解析 → 恒读成空（同缺陷 Android 侧同轮修复）。数组分支保留作宽容兜底。
                 var builder = JSONObjectBuilder()
                 if let workspacePath = connection.workspace?.path {
                     builder.set("workspacePath", workspacePath)
                 }
                 let result = try await connection.call(
                     "zcode-agent", "listMcpServerStatuses", .json(.object(builder.fields)))
+                if let statuses = result.jsonValue?["statuses"]?.objectValue {
+                    rows = statuses.map { rawID, value in
+                        let d = value.objectValue
+                        let name: String = {
+                            let segments = rawID.split(separator: ":").map(String.init)
+                            if segments.first == "plugin", segments.count >= 3, let last = segments.last {
+                                return last
+                            }
+                            return rawID
+                        }()
+                        let status = d?["status"]?.stringValue
+                        let badge = status.map { raw in
+                            switch raw.lowercased() {
+                            case "connected", "ready", "ok": return String(localized: "已连接")
+                            case "disabled", "stopped": return String(localized: "已停用")
+                            case "failed", "error": return String(localized: "异常")
+                            default: return raw
+                            }
+                        }
+                        let subtitleParts = [d?["transport"]?.stringValue,
+                                             (d?["toolCount"]?.intValue).map { String(format: String(localized: "%lld 个工具"), $0) }]
+                            .compactMap { $0 }
+                        return Row(
+                            id: rawID,
+                            icon: "server.rack",
+                            title: name,
+                            subtitle: subtitleParts.isEmpty
+                                ? String(localized: "MCP 服务器")
+                                : subtitleParts.joined(separator: " · "),
+                            badge: badge)
+                    }
+                    phase = .loaded
+                    return
+                }
                 let items = result.jsonValue?["servers"]?.arrayValue
                     ?? result.jsonValue?["mcpServers"]?.arrayValue
                     ?? result.jsonValue?.arrayValue
