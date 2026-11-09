@@ -7,6 +7,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.settings.AppLanguagePreference
 import cn.biuz.android.app.ui.BiuZApp
 import cn.biuz.android.app.ui.theme.BiuZTheme
@@ -41,7 +43,15 @@ class MainActivity : ComponentActivity() {
         val settings = application.appSettings
         shareCodeState.value = SharePreviewClient.shareCodeFrom(intent?.dataString)
         setContent {
-            BiuZTheme {
+            val appearance by settings.appearance.collectAsStateWithLifecycle()
+            // system 档随系统深浅；固定档恒该档（iOS AppearanceMode.colorScheme 同构）
+            val darkTheme = when (appearance) {
+                cn.biuz.android.app.settings.AppAppearance.LIGHT -> false
+                cn.biuz.android.app.settings.AppAppearance.DARK -> true
+                cn.biuz.android.app.settings.AppAppearance.SYSTEM ->
+                    androidx.compose.foundation.isSystemInDarkTheme()
+            }
+            BiuZTheme(darkTheme = darkTheme) {
                 BiuZApp(
                     session = session,
                     settings = settings,

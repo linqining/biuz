@@ -446,4 +446,9 @@
     <string name="cap_mcp_empty_hint">Configure MCP servers on the desktop to see their connection status here.</string>
     <string name="cap_plugins_empty">No plugins installed on the desktop</string>
     <string name="cap_plugins_empty_hint">Plugins installed from the desktop marketplace are listed here.</string>
+    <string name="appearance_title">Appearance</string>
+    <string name="appearance_system">Follow system</string>
+    <string name="appearance_hint">Follows the system light/dark setting by default. A fixed option keeps that theme at all times.</string>
+    <string name="settings_row_appearance">Appearance</string>
+    <string name="settings_row_appearance_sub">Follow system / Light / Dark</string>
 </resources>

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -101,7 +102,7 @@ fun TaskOutputScreen(
     val trajectory = remember(messages) { trajectoryEntries(messages) }
     val taskTitle = taskTitleState
 
-    Column(modifier = Modifier.fillMaxWidth().background(BiuZBg)) {
+    Column(modifier = Modifier.fillMaxWidth().background(BiuZBg).statusBarsPadding()) {
         Row(
             modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,

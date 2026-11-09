@@ -13,6 +13,8 @@ interface AppSettingsPersistence {
     fun saveDeveloperMode(enabled: Boolean)
     fun loadLanguage(): String?
     fun saveLanguage(raw: String?)
+    fun loadAppearance(): String?
+    fun saveAppearance(raw: String?)
 }
 
 /**
@@ -39,6 +41,26 @@ enum class AppLanguagePreference(val stored: String) {
             language == null -> SYSTEM
             language.startsWith("zh", ignoreCase = true) -> CHINESE
             language.startsWith("en", ignoreCase = true) -> ENGLISH
+            else -> SYSTEM
+        }
+    }
+}
+
+/**
+ * 外观偏好（iOS `AppearanceMode`：system/light/dark 同词表，`Theme.swift:138-147`）。
+ * 生效面在 [cn.biuz.android.app.MainActivity] 的 BiuZTheme(darkTheme=…)；缺省 system。
+ */
+enum class AppAppearance(val stored: String) {
+    SYSTEM("system"),
+    LIGHT("light"),
+    DARK("dark"),
+    ;
+
+    companion object {
+        /** 存档词反解（未知词宽容回 system——存档残缺不崩）。 */
+        fun fromStored(raw: String?): AppAppearance = when (raw) {
+            LIGHT.stored -> LIGHT
+            DARK.stored -> DARK
             else -> SYSTEM
         }
     }
@@ -115,5 +137,16 @@ class AppSettingsStore(
     fun setLanguage(preference: AppLanguagePreference) {
         _language.value = preference
         persistence.saveLanguage(preference.stored)
+    }
+
+    private val _appearance = MutableStateFlow(AppAppearance.fromStored(persistence.loadAppearance()))
+
+    /** 外观偏好（外观页唯一写入点；即时生效 + 持久化）。 */
+    val appearance: StateFlow<AppAppearance>
+        get() = _appearance
+
+    fun setAppearance(value: AppAppearance) {
+        _appearance.value = value
+        persistence.saveAppearance(value.stored)
     }
 }

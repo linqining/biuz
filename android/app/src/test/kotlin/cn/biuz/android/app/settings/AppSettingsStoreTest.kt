@@ -24,6 +24,9 @@ class AppSettingsStoreTest {
         override fun saveLanguage(raw: String?) {
             language = raw
         }
+        var appearance: String? = null
+        override fun loadAppearance(): String? = appearance
+        override fun saveAppearance(raw: String?) { appearance = raw }
     }
 
     // MARK: 开发者模式
@@ -101,5 +104,49 @@ class AppSettingsStoreTest {
         assertEquals(AppLanguagePreference.ENGLISH, AppLanguagePreference.fromSystemLanguage("en-US"))
         assertEquals(AppLanguagePreference.SYSTEM, AppLanguagePreference.fromSystemLanguage("fr"))
         assertEquals(AppLanguagePreference.SYSTEM, AppLanguagePreference.fromSystemLanguage(null))
+    }
+}
+
+/** 外观偏好（P-003）：存档词反解 + 往返持久化。 */
+class AppearancePreferenceTest {
+
+    private class MemoryPersistence : AppSettingsPersistence {
+        var appearance: String? = null
+        var language: String? = null
+        var devMode = false
+        override fun loadDeveloperMode(): Boolean = devMode
+        override fun saveDeveloperMode(enabled: Boolean) { devMode = enabled }
+        override fun loadLanguage(): String? = language
+        override fun saveLanguage(raw: String?) { language = raw }
+        override fun loadAppearance(): String? = appearance
+        override fun saveAppearance(raw: String?) { appearance = raw }
+    }
+
+    @Test
+    fun fromStoredMapsKnownWordsAndFallsBackToSystem() {
+        assertEquals(AppAppearance.LIGHT, AppAppearance.fromStored("light"))
+        assertEquals(AppAppearance.DARK, AppAppearance.fromStored("dark"))
+        assertEquals(AppAppearance.SYSTEM, AppAppearance.fromStored("system"))
+        assertEquals(AppAppearance.SYSTEM, AppAppearance.fromStored(null))
+        assertEquals(AppAppearance.SYSTEM, AppAppearance.fromStored("sepia"), "未知词宽容回 system")
+    }
+
+    @Test
+    fun setAppearancePersistsAndReloads() {
+        val persistence = MemoryPersistence()
+        AppSettingsStore(persistence).setAppearance(AppAppearance.LIGHT)
+        assertEquals("light", persistence.appearance)
+        val reloaded = AppSettingsStore(persistence)
+        assertEquals(AppAppearance.LIGHT, reloaded.appearance.value, "重建后应读回存档档位")
+    }
+
+    @Test
+    fun appearanceIsIndependentFromLanguage() {
+        val persistence = MemoryPersistence().apply { language = "en" }
+        val store = AppSettingsStore(persistence)
+        assertEquals(AppLanguagePreference.ENGLISH, store.language.value)
+        assertEquals(AppAppearance.SYSTEM, store.appearance.value, "外观缺省 system 不受语言影响")
+        store.setAppearance(AppAppearance.DARK)
+        assertEquals("en", persistence.language, "改外观不得动语言存档")
     }
 }

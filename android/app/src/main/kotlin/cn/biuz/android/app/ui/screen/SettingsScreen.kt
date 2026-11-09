@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
 import cn.biuz.android.app.settings.AppSettingsStore
+import cn.biuz.android.app.settings.AppAppearance
 import cn.biuz.android.app.settings.AppLanguagePreference
 import cn.biuz.android.app.settings.BrandTapGate
 import cn.biuz.android.app.ui.theme.BiuZSpacing
@@ -65,10 +66,12 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit,
     onOpenArchives: () -> Unit = {},
     onOpenCapability: (String) -> Unit = {},
+    onOpenAppearance: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val developerMode by settings.developerMode.collectAsStateWithLifecycle()
     val language by settings.language.collectAsStateWithLifecycle()
+    val appearance by settings.appearance.collectAsStateWithLifecycle()
     val effectiveDeveloperMode = developerMode || settings.developerModeStartupArgument
 
     // 品牌行连点闸门（7 次翻转；无超时窗——iOS handleBrandTap 同契约）
@@ -112,8 +115,19 @@ fun SettingsScreen(
             }
             Spacer(Modifier.height(BiuZSpacing.md))
 
-            // 基础设置分组（语言；外观/通知随对应里程碑扩列）
+            // 基础设置分组（外观 / 语言）
             SettingsGroup(title = stringResource(R.string.settings_group_basic)) {
+                SettingsNavRow(
+                    title = stringResource(R.string.settings_row_appearance),
+                    subtitle = null,
+                    value = when (appearance) {
+                        AppAppearance.SYSTEM -> stringResource(R.string.appearance_system)
+                        AppAppearance.LIGHT -> "Zai Light"
+                        AppAppearance.DARK -> "Zai Dark"
+                    },
+                    testTagId = "13-row-appearance",
+                    onClick = onOpenAppearance,
+                )
                 SettingsNavRow(
                     title = stringResource(R.string.language_title),
                     subtitle = null,

@@ -14,6 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.ui.screen.AboutScreen
 import cn.biuz.android.app.ui.screen.ArchivesScreen
+import cn.biuz.android.app.ui.screen.AppearanceScreen
 import cn.biuz.android.app.ui.screen.CapabilityListScreen
 import cn.biuz.android.app.ui.screen.ChatScreen
 import cn.biuz.android.app.ui.screen.ConnectScreen
@@ -196,6 +197,10 @@ fun BiuZApp(
                     onBack = { navController.popBackStack() },
                 )
             }
+            // 015 外观（跟随系统 / 浅色 / 深色；即时生效 + 持久化）
+            composable(Routes.APPEARANCE) {
+                AppearanceScreen(settings = settings, onBack = { navController.popBackStack() })
+            }
             // 019 归档管理（web settings/archives；文案对齐 archives.* 键）
             composable(Routes.ARCHIVES) {
                 ArchivesScreen(
@@ -283,6 +288,7 @@ fun BiuZApp(
                     onOpenAbout = { navController.navigate(Routes.ABOUT) },
                     onOpenArchives = { navController.navigate(Routes.ARCHIVES) },
                     onOpenCapability = { kind -> navController.navigate(Routes.capability(kind)) },
+                    onOpenAppearance = { navController.navigate(Routes.APPEARANCE) },
                 )
             }
             composable(Routes.LANGUAGE) {

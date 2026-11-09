@@ -65,10 +65,17 @@ internal class SharedPreferencesAppSettingsPersistence(context: Application) :
         prefs.edit().putString(KEY_LANGUAGE, raw).apply()
     }
 
+    override fun loadAppearance(): String? = prefs.getString(KEY_APPEARANCE, null)
+
+    override fun saveAppearance(raw: String?) {
+        prefs.edit().putString(KEY_APPEARANCE, raw).apply()
+    }
+
     private companion object {
         const val PREFS_NAME = "cn.biuz.android.settings"
         const val KEY_DEVELOPER_MODE = "settings.developerMode"
         const val KEY_LANGUAGE = "settings.language"
+        const val KEY_APPEARANCE = "settings.appearance"
     }
 }
 

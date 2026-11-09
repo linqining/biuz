@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -108,7 +109,7 @@ fun ArchivesScreen(
         else items.filter { it.title.contains(key, ignoreCase = true) }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(BiuZBg)) {
+    Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
             modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,

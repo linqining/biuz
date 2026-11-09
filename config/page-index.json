@@ -152,7 +152,7 @@
       "route": "/remote/v4#settings/appearance",
       "app": {
         "ios": "settings/appearance (SettingsView.swift:939)",
-        "android": "settings/language 内有语言无外观",
+        "android": "appearance (AppearanceScreen)",
         "miniprogram": "pages/settings/appearance"
       },
       "note": "Android 恒深色（BiuzTheme），外观设置未接"

@@ -524,4 +524,9 @@
     <string name="cap_mcp_empty_hint">在桌面端配置 MCP 服务器后，这里会显示连接状态</string>
     <string name="cap_plugins_empty">桌面端未安装插件</string>
     <string name="cap_plugins_empty_hint">在桌面端插件市场安装后，这里会列出已装插件</string>
+    <string name="appearance_title">外观</string>
+    <string name="appearance_system">跟随系统</string>
+    <string name="appearance_hint">默认跟随系统深浅变化即时换肤；选择固定档后将始终保持该主题。</string>
+    <string name="settings_row_appearance">外观</string>
+    <string name="settings_row_appearance_sub">跟随系统 / 浅色 / 深色</string>
 </resources>

@@ -29,6 +29,9 @@ object Routes {
 
     fun capability(kind: String): String = "capability/$kind"
 
+    /** 015 外观设置 */
+    const val APPEARANCE = "appearance"
+
     /** 019 归档管理 */
     const val ARCHIVES = "archives"
 
