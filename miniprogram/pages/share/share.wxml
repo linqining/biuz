@@ -1,5 +1,5 @@
 <!-- 009-分享落地 —— 骨架页。按 web 源实现，禁止填假数据。 -->
-<view class="page safe-top" data-page="009-分享落地">
+<view class="page" style="padding-top: {{statusBarHeight}}px" data-page="009-分享落地">
   <view class="page-placeholder">
     <text class="page-placeholder__title">009-分享落地</text>
     <text class="page-placeholder__hint">TODO · web 源：packages/web/src/share/ConversationShareLandingPage.tsx:294</text>

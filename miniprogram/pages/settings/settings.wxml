@@ -1,5 +1,5 @@
 <!-- 013-设置 —— 骨架页。按 web 源实现，禁止填假数据。 -->
-<view class="page safe-top" data-page="013-设置">
+<view class="page" style="padding-top: {{statusBarHeight}}px" data-page="013-设置">
   <view class="page-placeholder">
     <text class="page-placeholder__title">013-设置</text>
     <text class="page-placeholder__hint">TODO · web 源：packages/ui/src/SettingsPage.tsx:1928-2242</text>
