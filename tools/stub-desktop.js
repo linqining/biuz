@@ -113,10 +113,52 @@ function handleRpc(payload, socket) {
   } else if (command === 'listTaskList') {
     seen.listTaskList += 1;
     reply(STUB_ROWS);
+  } else if (command === 'readSessionMessages') {
+    reply(STUB_MESSAGES);
+  } else if (command === 'readdir') {
+    const dirPath = (parsed.body && parsed.body[0] && parsed.body[0].path) || '';
+    console.error('[mp-stub] readdir path =', JSON.stringify(dirPath));
+    reply({ entries: STUB_TREE[dirPath] || [] });
+  } else if (command === 'getChanges') {
+    reply({ changes: STUB_CHANGES });
   } else {
     reply({ ok: true });
   }
 }
+
+// 片四替身载荷（形状 = 桌面真回执同构；zcode-protocol-legacy-types.ts:458-463）
+const STUB_MESSAGES = [
+  {
+    info: { role: 'user', messageId: 'm1' },
+    parts: [{ type: 'text', text: '帮我把白板功能补到小程序' }],
+  },
+  {
+    info: { role: 'assistant', messageId: 'm2' },
+    parts: [
+      { type: 'reasoning', text: '白板是 Canvas2D 自包含面' },
+      { type: 'text', text: '白板已按 1280×800 口径实现。' },
+    ],
+  },
+  {
+    info: { role: 'assistant', messageId: 'm3' },
+    parts: [{ type: 'tool', partId: 'p1', sessionId: 'sess-stub-1', messageId: 'm3', name: 'grep' }],
+  },
+];
+
+const STUB_TREE = {
+  '/Users/e2e/zcode-workspace': [
+    { name: 'src', path: '/Users/e2e/zcode-workspace/src', directory: true },
+    { name: 'README.md', path: '/Users/e2e/zcode-workspace/README.md', directory: false, size: 2048 },
+  ],
+  '/Users/e2e/zcode-workspace/src': [
+    { name: 'app.ts', path: '/Users/e2e/zcode-workspace/src/app.ts', directory: false, size: 512 },
+  ],
+};
+
+const STUB_CHANGES = [
+  { path: 'miniprogram/utils/connection.js', status: 'modified', additions: 120, deletions: 8 },
+  { path: 'tools/stub-desktop.js', status: 'added', additions: 96, deletions: 0 },
+];
 
 // ---- RFC6455 最小帧（服务端→客户端不掩码；客户端→服务端必掩码） ----
 

@@ -13,6 +13,10 @@
 const rpcConnection = require('./rpc-connection.js');
 const wxTransport = require('./wx-transport.js');
 const store = require('./store.js');
+const chatStore = require('./chat-store.js');
+const filesStore = require('./files-store.js');
+const diffStore = require('./diff-store.js');
+const trajectoryStore = require('./trajectory-store.js');
 
 const STORAGE_KEY = 'biuz.desktop';
 
@@ -64,6 +68,11 @@ function connectDesktop(params) {
         .call('zcode-task', 'listTaskList', [{ scope: 'all' }])
         .then(function (value) { return mapTaskRows(value); });
     });
+    // 片四：chat/files/diff/trajectory 各页数据源同构接线（全部走 client 唯一出口）
+    wireChatSource(result);
+    wireFilesSource(result);
+    wireGitSource(result);
+    wireTrajectorySource(result);
     store.refresh();
     return result;
   });
@@ -111,8 +120,150 @@ function mapTaskRows(value) {
     .filter(function (row) { return row !== null; });
 }
 
+// ---- 片四：各页数据源接线（形状证据见各映射函数头注） ----
+
+/**
+ * 会话页数据源：`zcode-agent.readSessionMessages {sessionId, limit?}` →
+ * ZCodeMessageWithParts[]（zcode-protocol-legacy-types.ts:458-463 strict：
+ * {info:{role: user|assistant,…}, parts:[{type: text|reasoning|tool…, text?}]})。
+ * 映射到 chat-store {title, messages:[{role, kind, text}]}（chat-model
+ * normalizeMessage 消费键：role user|agent、kind tool|thinking|text）。
+ */
+function wireChatSource(result) {
+  chatStore.setSource(function (sessionId) {
+    return result.client
+      .call('zcode-agent', 'readSessionMessages', [
+        { sessionId: sessionId, limit: 200 },
+      ])
+      .then(function (value) { return mapChatMessages(value, sessionId); });
+  });
+}
+
+function mapChatMessages(value, sessionId) {
+  const messages = (Array.isArray(value) ? value : [])
+    .map(function (msg) {
+      if (!msg || typeof msg !== 'object' || !msg.parts) return null;
+      const role = msg.info && msg.info.role === 'user' ? 'user' : 'agent';
+      const texts = { text: [], thinking: [] };
+      let toolText = null;
+      (msg.parts || []).forEach(function (part) {
+        if (!part || typeof part !== 'object') return;
+        if (part.type === 'text' && part.text) texts.text.push(part.text);
+        else if (part.type === 'reasoning' && part.text) texts.thinking.push(part.text);
+        else if (part.type === 'tool_use' || part.type === 'tool') {
+          toolText = part.name || part.toolName || '工具调用';
+        }
+      });
+      if (toolText) {
+        return { role: role, kind: 'tool', text: toolText };
+      }
+      if (texts.thinking.length) {
+        return { role: role, kind: 'thinking', text: texts.thinking.join('\n\n') };
+      }
+      if (!texts.text.length) return null; // 无可见内容的行不渲染（web 同口径）
+      return { role: role, kind: 'text', text: texts.text.join('\n\n') };
+    })
+    .filter(function (row) { return row !== null; });
+  return { title: sessionId, messages: messages };
+}
+
+/**
+ * 文件页数据源：`file.readdir {path, includeHidden?}` → FileEntry[] 递归
+ * （Android RemoteFileStore.fileTree 同法：深度限制 3 层、跳过隐藏目录）。
+ * FileEntry 字段宽容读取（name/path/directory|isDirectory/size）。
+ */
+function wireFilesSource(result) {
+  filesStore.setSource(function () {
+    const root = result.workspace.path;
+    return readDirRecursive(result, root, 0).then(function (tree) {
+      return { tree: tree, workspacePath: root };
+    });
+  });
+}
+
+function readDirRecursive(result, dirPath, depth) {
+  if (depth > 3) return Promise.resolve([]);
+  return result.client
+    .call('file', 'readdir', [{ path: dirPath }])
+    .then(function (value) {
+      const entries = (value && (value.entries || value)) || [];
+      if (!Array.isArray(entries)) return [];
+      return Promise.all(
+        entries.map(function (entry) {
+          if (!entry || typeof entry !== 'object') return null;
+          const name = entry.name || entry.fileName || '';
+          if (!name) return null;
+          const entryPath = entry.path || dirPath + '/' + name;
+          const isDirectory = entry.isDirectory === true || entry.directory === true
+            || entry.kind === 'directory';
+          const node = {
+            id: entryPath,
+            name: name,
+            path: entryPath,
+            isDirectory: isDirectory,
+            size: entry.size == null ? null : Number(entry.size),
+            children: null,
+          };
+          if (!isDirectory) return node;
+          return readDirRecursive(result, entryPath, depth + 1)
+            .then(function (children) { node.children = children; return node; });
+        }),
+      ).then(function (nodes) { return nodes.filter(function (n) { return n !== null; }); });
+    })
+    // 读失败如实上抛（files-store last-good + 页面重试面承接——读面失败
+    // 不折叠成空态，§5-12 同口径）；depth 递归上限见函数头。
+}
+
+/**
+ * Diff 页数据源：`git.getChanges {workspacePath}`（Android RemoteFileStore:449
+ * 同参同命令）→ 变更条目 {path, status} 映射 diff-store files。
+ */
+function wireGitSource(result) {
+  diffStore.setSource(function () {
+    return result.client
+      .call('git', 'getChanges', [{ workspacePath: result.workspace.path }])
+      .then(function (value) { return mapGitChanges(value); });
+  });
+}
+
+function mapGitChanges(value) {
+  const items = (value && (value.changes || value.files || value)) || [];
+  if (!Array.isArray(items)) return [];
+  return items
+    .map(function (item) {
+      if (!item || typeof item !== 'object') return null;
+      const path = item.path || item.filePath || item.file;
+      if (!path) return null;
+      return {
+        path: String(path),
+        status: item.status || item.state || 'modified',
+        additions: item.additions == null ? null : Number(item.additions),
+        deletions: item.deletions == null ? null : Number(item.deletions),
+      };
+    })
+    .filter(function (row) { return row !== null; });
+}
+
+/**
+ * 任务轨迹页数据源：readSessionMessages 复用（思考/工具/回复三分类——
+ * Android TaskOutputScreen 行投影同口径），taskTitle 由调用方（会话行）持有，
+ * 此处回传 sessionId。
+ */
+function wireTrajectorySource(result) {
+  trajectoryStore.setSource(function (sessionId) {
+    return result.client
+      .call('zcode-agent', 'readSessionMessages', [{ sessionId: sessionId, limit: 200 }])
+      .then(function (value) {
+        const mapped = mapChatMessages(value, sessionId);
+        return { entries: mapped.messages, taskTitle: sessionId };
+      });
+  });
+}
+
 module.exports = {
   connectDesktop: connectDesktop,
+  mapChatMessages: mapChatMessages,
+  mapGitChanges: mapGitChanges,
   disconnect: disconnect,
   getState: getState,
   lastAddress: lastAddress,
