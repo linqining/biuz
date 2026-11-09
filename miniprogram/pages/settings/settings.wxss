@@ -1,1 +1,79 @@
-/* 页面私有样式。公共 token 在 app.wxss，公共件用 components/。 */
+/* 013-设置 —— 版式对齐 web 设置页（分组标题 12sp α0.6 / 行 48dp / 卡片圆角 12） */
+
+.settings-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-background);
+}
+.settings-header {
+  flex: 0 0 auto;
+  padding: 24rpx 32rpx 16rpx;
+}
+.settings-header__title {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 32rpx;
+  box-sizing: border-box;
+}
+
+.group {
+  margin-bottom: var(--space-4);
+  background-color: var(--color-card);
+  border-radius: var(--radius-md);
+  border: 2rpx solid var(--color-border);
+  overflow: hidden;
+}
+.group__title {
+  display: block;
+  padding: 20rpx 24rpx 8rpx;
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 24rpx;
+  height: 92rpx;
+  border-top: 2rpx solid var(--color-border);
+}
+.row:first-of-type { border-top: none; }
+.row:active { background-color: rgba(127, 127, 127, 0.08); }
+.row__label {
+  flex: 1;
+  font-size: var(--font-base);
+  color: var(--color-foreground);
+}
+.row__value {
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+}
+.row__chevron {
+  font-size: var(--font-lg);
+  color: var(--color-muted-2);
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+  padding: 48rpx 0 96rpx;
+}
+.brand__name {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+.brand__meta {
+  font-size: var(--font-xs);
+  color: var(--color-muted-2);
+}

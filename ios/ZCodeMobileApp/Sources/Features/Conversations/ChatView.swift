@@ -211,13 +211,19 @@ struct ChatView: View {
     /// 头部（标题 + 运行中胶囊 + todo 摘要 + 3px 进度条）
     private func header(_ viewModel: ChatViewModel) -> some View {
         VStack(spacing: T.sp2) {
+            // web 第二行：📁 项目名 + ⋯（会话标题在 web 只出现在侧栏，聊天页不重复大标题）
             HStack(spacing: T.sp2) {
-                Text(viewModel.conversation?.title ?? "会话")
-                    .font(T.font(17, .bold))
+                Image(systemName: "folder")
+                    .font(.system(size: 13))
+                    .foregroundColor(T.text3)
+                Text(viewModel.conversation?.projectName
+                    ?? viewModel.conversation?.title
+                    ?? String(localized: "任务会话"))
+                    .font(T.font(14, .medium))
                     .foregroundColor(T.text)
                     .lineLimit(1)
                 if viewModel.conversation?.isRunning == true {
-                    StatusPill(text: "运行中", kind: .run, compact: true)
+                    StatusPill(text: String(localized: "运行中"), kind: .run, compact: true)
                 }
                 Spacer(minLength: 0)
                 if let summary = viewModel.conversation?.todoSummary {
@@ -225,6 +231,9 @@ struct ChatView: View {
                         .font(T.mono(11))
                         .foregroundColor(T.text3)
                 }
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14))
+                    .foregroundColor(T.text3)
             }
             if let progress = viewModel.conversation?.taskProgress {
                 ThinProgressBar(progress: progress)

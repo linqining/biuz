@@ -1,7 +1,53 @@
-<!-- 013-设置 —— 骨架页。按 web 源实现，禁止填假数据。 -->
-<view class="page" style="padding-top: {{statusBarHeight}}px" data-page="013-设置">
-  <view class="page-placeholder">
-    <text class="page-placeholder__title">013-设置</text>
-    <text class="page-placeholder__hint">TODO · web 源：packages/ui/src/SettingsPage.tsx:1928-2242</text>
+<!-- 013-设置：基础设置 / 数据与统计 / 关于（品牌行连点 7 次出开发者组） -->
+<view class="page settings-page" style="padding-top: {{statusBarHeight}}px">
+  <view class="settings-header">
+    <text class="settings-header__title">设置</text>
   </view>
+
+  <scroll-view class="settings-body" scroll-y>
+    <view class="group">
+      <text class="group__title">基础设置</text>
+      <view class="row" bind:tap="onChooseLanguage">
+        <text class="row__label">语言</text>
+        <text class="row__value">{{languageLabel}}</text>
+        <text class="row__chevron">›</text>
+      </view>
+      <view class="row" bind:tap="onChooseAppearance">
+        <text class="row__label">外观</text>
+        <text class="row__value">{{appearanceLabel}}</text>
+        <text class="row__chevron">›</text>
+      </view>
+    </view>
+
+    <view class="group">
+      <text class="group__title">数据与统计</text>
+      <view class="row" bind:tap="onOpenUsage">
+        <text class="row__label">用量统计</text>
+        <text class="row__value">需要连接桌面端</text>
+        <text class="row__chevron">›</text>
+      </view>
+    </view>
+
+    <view class="group">
+      <text class="group__title">关于</text>
+      <view class="row" bind:tap="onOpenAbout">
+        <text class="row__label">版本</text>
+        <text class="row__value">{{version}}</text>
+        <text class="row__chevron">›</text>
+      </view>
+    </view>
+
+    <view class="group" wx:if="{{showDeveloper}}">
+      <text class="group__title">开发者</text>
+      <view class="row">
+        <text class="row__label">远控地址</text>
+        <text class="row__value">未连接</text>
+      </view>
+    </view>
+
+    <view class="brand" bind:tap="onBrandTap">
+      <text class="brand__name">BiuZ</text>
+      <text class="brand__meta">ZCode 桌面端 · 移动遥控台</text>
+    </view>
+  </scroll-view>
 </view>
