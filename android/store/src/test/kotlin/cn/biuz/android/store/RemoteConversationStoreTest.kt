@@ -879,6 +879,48 @@ class RemoteConversationStoreTest {
         assertEquals(1, f.transport.readSessionCalls.size)
     }
 
+    /** P-019 per-turn：turnHeader.fileChanges 挂到该轮助手消息上（web 位置） */
+    @Test
+    fun turnHeaderFileChangesAttachedToAssistantMessagePerTurn() = runTest {
+        val f = Fixture(this)
+        f.store.messages("sess-1")
+        advanceTimeBy(1_000)
+        runCurrent()
+        f.frameSurface.emit(
+            "conversation/sess-1",
+            frame(
+                topic = "conversation/sess-1", subscriptionId = "sub-c-1",
+                fromSeq = 1, toSeq = 3,
+                snapshot = testObj(
+                    "logEpoch" to JSONValue.Str("epoch-1"),
+                    "rows" to JSONValue.Arr(
+                        listOf(
+                            row(
+                                1, "turnHeader",
+                                "state" to JSONValue.Str("completedSuccess"),
+                                "fileChanges" to testObj(
+                                    "additions" to testNum(7),
+                                    "deletions" to testNum(4),
+                                    "files" to testNum(1),
+                                ),
+                            ),
+                            row(2, "assistantText", "text" to JSONValue.Str("改完了"), "state" to JSONValue.Str("complete")),
+                            // 第二轮：无 fileChanges → 该轮助手消息不得继承上一轮
+                            row(3, "turnHeader", "state" to JSONValue.Str("running")),
+                            row(4, "assistantText", "text" to JSONValue.Str("第二轮"), "state" to JSONValue.Str("complete")),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        runCurrent()
+        val messages = f.store.messages("sess-1")
+        val first = messages.first { it.text == "改完了" }
+        val second = messages.first { it.text == "第二轮" }
+        assertEquals(cn.biuz.android.protocol.TurnFileChanges(1, 7, 4, false), first.turnChanges)
+        assertNull(second.turnChanges, "下一轮没有 fileChanges 不得继承上一轮")
+    }
+
     // MARK: 行模型映射
 
     @Test

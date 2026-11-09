@@ -1232,11 +1232,21 @@ class RemoteConversationStore(
         // turnHeader（轮首），卡在轮尾——缓存到下一个轮边界（任一 turnHeader 行）或行
         // 序列末尾再落，digest 文本在前、卡在后
         var pendingWorkflowCompletion: Pair<Int, WorkflowCompletionCard>? = null
+        // 当前轮的 fileChanges（turnHeader 行投影，随该轮助手消息落到 UI）
+        var currentTurnChanges: cn.biuz.android.protocol.TurnFileChanges? = null
         for (rowId in table.keys.sorted()) {
             val record = table[rowId] ?: continue
             val row = record.json.objectValue ?: continue
             val kind = row["kind"]?.stringValue ?: continue
             if (kind == "turnHeader") {
+                currentTurnChanges = row["fileChanges"]?.objectValue?.let { ch ->
+                    cn.biuz.android.protocol.TurnFileChanges(
+                        files = ch["files"].longValue()?.toInt() ?: 0,
+                        additions = ch["additions"].longValue()?.toInt() ?: 0,
+                        deletions = ch["deletions"].longValue()?.toInt() ?: 0,
+                        reverted = ch["state"]?.stringValue == "reverted",
+                    )
+                }
                 pendingWorkflowCompletion?.let { pending ->
                     result.add(
                         ChatMessage(
@@ -1286,6 +1296,7 @@ class RemoteConversationStore(
                             timestamp = System.currentTimeMillis(),
                             entityId = rowEntityId(row),
                             rowKind = "assistantText",
+                            turnChanges = currentTurnChanges,
                             feedback = feedback,
                         ),
                     )

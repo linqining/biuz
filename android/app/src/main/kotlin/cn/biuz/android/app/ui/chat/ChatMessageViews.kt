@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.biuz.android.app.R
+import cn.biuz.android.app.ui.theme.BiuZRed
 import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZAccentDim
 import cn.biuz.android.app.ui.theme.BiuZBgCard
@@ -486,6 +487,10 @@ private fun AgentMessageRow(
         // 复制 + 时间。赞/踩需接 setAssistantFeedback 的 VM 写链路，单列后续。
         if (message.text.isNotEmpty() && message.status != MessageStatus.streaming) {
             MessageActionRow(message = message, onFeedback = onFeedback)
+        }
+        // P-019 per-turn 变更条（web 位置：该轮助手消息下方；数据 = turnHeader.fileChanges）
+        message.turnChanges?.takeIf { it.files > 0 }?.let { changes ->
+            MessageChangeSummaryBar(turnChanges = changes)
         }
         message.thinking?.let { ThinkingBlock(it.text, it.state) }
         // G-014 附件缩略图行（无附件数据不渲染任何占位块；iOS MessageViews.swift:91 同构）
@@ -1747,4 +1752,40 @@ fun kindLabel(kind: String): String = when (kind) {
     "metrics" -> "指标"
     "board" -> "看板"
     else -> "文件"
+}
+
+
+/**
+ * P-019 变更摘要条（web `MessageChangeSummaryPanel.tsx:73-140` 折叠头）：
+ * 箭头 + `N 个文件已更改` + `+A`(绿) / `-D`(红)。数据来自 turnHeader 行 fileChanges
+ * （逐文件明细在持久化快照里，行流不带 → 不渲染展开；`reverted` 轮显「已撤销」）。
+ */
+@Composable
+private fun MessageChangeSummaryBar(turnChanges: cn.biuz.android.protocol.TurnFileChanges) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 32.dp)
+            .clip(BiuZRadius.medium)
+            .border(1.dp, BiuZBorder, BiuZRadius.medium)
+            .background(BiuZBgCard)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .testTag("05-change-summary"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(text = "▸", fontSize = 12.sp, color = BiuZText3)
+        Text(
+            text = turnChanges.files.toString() + " 个文件已更改",
+            fontSize = 13.sp,
+            color = BiuZText,
+            modifier = Modifier.weight(1f),
+        )
+        if (turnChanges.reverted) {
+            Text(text = "已撤销", fontSize = 12.sp, color = BiuZText3)
+        } else {
+            Text(text = "+" + turnChanges.additions, fontSize = 13.sp, color = BiuZGreen)
+            Text(text = "-" + turnChanges.deletions, fontSize = 13.sp, color = BiuZRed)
+        }
+    }
 }

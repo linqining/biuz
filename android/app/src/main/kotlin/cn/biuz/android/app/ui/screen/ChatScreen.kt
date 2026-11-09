@@ -167,18 +167,6 @@ fun ChatScreen(
     val workflowRuns by viewModel.workflowRuns.collectAsStateWithLifecycle()
     val currentConversation by viewModel.currentConversation.collectAsStateWithLifecycle()
     val readOnly = viewModel.isReadOnly
-    // P-019 变更摘要条数据源：任务级 changeSummary（上游 ZCodeTaskChangeSummary）。
-    // web 为「每条助手消息一条」（per-turn snapshots），移动端数据粒度是任务级 → 置顶常驻条，
-    // 差异登记在 BACKLOG。消息数变化时重取（桌面写回摘要会随任务更新）。
-    var changeSummary by remember(surface.epoch, sessionId) {
-        mutableStateOf<cn.biuz.android.protocol.TaskChangeSummary?>(null)
-    }
-    LaunchedEffect(surface.epoch, sessionId, messages.size) {
-        changeSummary = runCatching {
-            surface.task.tasks().firstOrNull { it.id == sessionId }?.changeSummary
-        }.getOrNull()
-    }
-
     // 会话面板展开态（SessionPanelsSection 绑定；iOS ChatView expandedPanel 同位——
     // 键盘弹出即收起的正向联动在 iOS 由 FocusState 承担，Compose 输入框聚焦不冲突，
     // 面板体自身滚动即收键盘，此处保留显式收起单路径）
@@ -371,16 +359,6 @@ fun ChatScreen(
                 }
                 Text(text = "⤢", fontSize = 14.sp, color = BiuZText3)
             }
-        }
-
-        // MARK: 变更摘要条（web MessageChangeSummaryPanel：折叠头 = 箭头 + N 个文件已更改 + +A/-D）
-        changeSummary?.takeIf { it.fileCount > 0 }?.let { summary ->
-            MessageChangeSummaryBar(
-                summary = summary,
-                modifier = Modifier
-                    .padding(horizontal = BiuZSpacing.lg)
-                    .padding(bottom = BiuZSpacing.sm),
-            )
         }
 
         // MARK: 会话面板区（goal/plan/工作流/后台/子代理 chips + 单开面板；iOS ChatView
@@ -1286,75 +1264,3 @@ private fun ComposerErrorRow(
 
 /** 输入框/panel 行描边（BiuZBorderStrong 1dp + 卡片圆角）。 */
 private fun Modifier.border1(): Modifier = this.border(1.dp, BiuZBorderStrong, BiuZRadius.medium)
-
-
-/**
- * P-019 变更摘要条（对齐 web `MessageChangeSummaryPanel.tsx:73-140` 的折叠头与文案）：
- * 箭头 + `N 个文件已更改` + `+A`(绿) / `-D`(红)；展开列逐文件。
- * 未接「撤销」：web 的 rewind 走 `previewFileRewind/applyFileRewind`，上游已删除该词，
- * 移动端无写面 → 不渲染死按钮（prop 缺省即不渲染）。
- */
-@Composable
-private fun MessageChangeSummaryBar(
-    summary: cn.biuz.android.protocol.TaskChangeSummary,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember(summary) { mutableStateOf(false) }
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(BiuZRadius.medium)
-            .border(1.dp, BiuZBorder, BiuZRadius.medium)
-            .background(BiuZBgCard)
-            .testTag("05-change-summary"),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(40.dp)
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = if (expanded) "▾" else "▸",
-                fontSize = 12.sp,
-                color = BiuZText3,
-            )
-            Text(
-                text = "${summary.fileCount} 个文件已更改",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = BiuZText,
-                modifier = Modifier.weight(1f),
-            )
-            Text(text = "+${summary.added}", fontSize = 14.sp, color = BiuZGreen)
-            Text(text = "-${summary.removed}", fontSize = 14.sp, color = BiuZRed)
-        }
-        if (expanded && summary.files.isNotEmpty()) {
-            Column(modifier = Modifier.padding(start = 24.dp, end = 8.dp, bottom = 8.dp)) {
-                summary.files.forEach { file ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            text = file.path,
-                            fontSize = 12.sp,
-                            color = BiuZText2,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(text = "+${file.added}", fontSize = 12.sp, color = BiuZGreen)
-                        Text(text = "-${file.removed}", fontSize = 12.sp, color = BiuZRed)
-                    }
-                }
-            }
-        }
-    }
-}

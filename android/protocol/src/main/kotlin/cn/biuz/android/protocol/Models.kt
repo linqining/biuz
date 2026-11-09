@@ -480,6 +480,19 @@ data class WorkflowCompletionCard(
  * 工作流完成卡（turnHeader 行合成；null = 非完成通知行。桌面轮尾落卡同款，
  * 四格数字由 ChatView 以 workflowRuns 活投影 join 后经 MessageView 注入）
  */
+/**
+ * 单轮文件改动摘要（上游 `TurnHeaderRow.fileChanges`，
+ * packages/shared/src/zcode-protocol-v4/rows.ts:105-112）：
+ * `{additions, deletions, files, state?: "active"|"reverted"}`。
+ * web 会话页的「N 个文件已更改 +A -D」按轮渲染在助手消息下方（`MessageChangeSummaryPanel.tsx`）。
+ */
+data class TurnFileChanges(
+    val files: Int,
+    val additions: Int,
+    val deletions: Int,
+    val reverted: Boolean = false,
+)
+
 data class ChatMessage(
     val id: String,
     val role: MessageRole,
@@ -500,6 +513,8 @@ data class ChatMessage(
      * 助手反馈行仅对 assistantText 渲染——reasoning/subagent/artifact/state-todos
      * 等合成消息（rowKind 为 null）天然排除，不做字符串前缀判断的脆弱门槛 */
     val rowKind: String? = null,
+    /** 本轮文件改动摘要（turnHeader 行 fileChanges 投影；null = 该轮无改动） */
+    val turnChanges: TurnFileChanges? = null,
     /** P1-3 反馈态服务端回读（用户实测 2026-10-06「点赞后重载丢失」：此前仅本地
      * write-through 字典，重进会话即空白。web 实证 bundle bX(row) 读行上
      * `feedback: "like"|"dislike"` 渲染——本字段即该回读落点；null = 无反馈态） */
@@ -561,24 +576,6 @@ data class DeviceOption(
 
 enum class TaskStatus { waiting, running, done, failed }
 
-/**
- * 任务级文件改动摘要（上游 `ZCodeTaskChangeSummary`，packages/shared/src/zcode-task-types-core.ts:370）：
- * `{fileCount, added, removed, files:[{path, added, removed, writeCount, lastTurnIndex}]}`。
- * web 会话页的「N 个文件已更改 +A -D」即此数据（`MessageChangeSummaryPanel.tsx:73-140` 文案）。
- */
-data class TaskChangedFile(
-    val path: String,
-    val added: Int,
-    val removed: Int,
-)
-
-data class TaskChangeSummary(
-    val fileCount: Int,
-    val added: Int,
-    val removed: Int,
-    val files: List<TaskChangedFile> = emptyList(),
-)
-
 data class TaskRecord(
     val id: String,
     val title: String,
@@ -594,8 +591,6 @@ data class TaskRecord(
     val lastLog: String? = null,
     val pendingCommand: String? = null,
     val pendingImpact: String? = null,
-    /** 任务级文件改动摘要（会话页变更条数据源；null = 无改动） */
-    val changeSummary: TaskChangeSummary? = null,
 )
 
 data class FileNode(
