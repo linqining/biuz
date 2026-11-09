@@ -16123,6 +16123,66 @@
           }
         }
       }
+    },
+    "移除项目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Project"
+          }
+        }
+      }
+    },
+    "移除项目「%@」？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove project “%@”?"
+          }
+        }
+      }
+    },
+    "它会从侧栏和项目选择器中移除，会话仍保留在最近和搜索中，磁盘上的文件不受影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It will be removed from the sidebar and project picker. Sessions remain in recents and search; files on disk are not affected."
+          }
+        }
+      }
+    },
+    "移除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove"
+          }
+        }
+      }
+    },
+    "已移除 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed %@"
+          }
+        }
+      }
+    },
+    "已恢复 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restored %@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

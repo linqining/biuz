@@ -522,6 +522,40 @@ struct ProjectEntry: Equatable {
     let nameOverridden: Bool
 }
 
+// MARK: 018 写面（P-009 写面波次①：移除/恢复；gate 默认放行 project 频道）
+
+extension ZCodeServerConnection {
+    /// 移除项目（软删；web useProjectManagement.ts:222-225 同参 `deleteProject(id, hostId)`）。
+    /// 多参服务按位置数组透传（web toService `channel.call(name, args)` 同形；
+    /// 中继传输对 .array arg 原样发——RelayChannelClient 2026-11-10 约定注记）。
+    /// 返回 nil=成功；非 nil=可上屏错误文案（写面禁静默；CancellationError 亦归错误——
+    /// 任务取消时宿主视图已退场，notice 无消费方）。
+    func deleteProject(id: String, hostId: String) async -> String? {
+        guard isActive else { return String(localized: "未连接桌面端") }
+        do {
+            _ = try await call(
+                "project", "deleteProject",
+                .json(.array([.string(id), .string(hostId)])))
+            return nil
+        } catch {
+            return String(localized: "移除失败 · \(error.localizedDescription)")
+        }
+    }
+
+    /// 恢复项目（撤销移除；web useProjectManagement.ts:341-344 同参）。返回 nil=成功。
+    func restoreProject(id: String, hostId: String) async -> String? {
+        guard isActive else { return String(localized: "未连接桌面端") }
+        do {
+            _ = try await call(
+                "project", "restoreProject",
+                .json(.array([.string(id), .string(hostId)])))
+            return nil
+        } catch {
+            return String(localized: "恢复失败 · \(error.localizedDescription)")
+        }
+    }
+}
+
 struct ProjectsTreeData: Equatable {
     var projects: [ProjectEntry]
     var taskCountByProject: [String: Int]
@@ -532,6 +566,11 @@ struct ProjectsPage: View {
     @State private var tree: ProjectsTreeData?
     @State private var phase: Phase = .loading
     @State private var errorText: String?
+    // 写面（P-009 写面波次①）：移除/恢复——nil=成功；写面禁静默（成功/失败都上屏）
+    @State private var actionNotice: String?
+    @State private var actionNoticeIsError = false
+    @State private var pendingDelete: ProjectEntry?
+    @State private var actionBusy = false
 
     enum Phase: Equatable { case loading, loaded, failed, notConnected }
 
@@ -602,6 +641,29 @@ struct ProjectsPage: View {
         .accessibilityIdentifier("18-projects-page")
         .task { await load() }
         .refreshable { await load() }
+        // 移除确认（软删可撤销——web ProjectRemovalDialog 的「删数据」选项未接：
+        // v1 只做侧栏移除，measureProjectData/deleteProjectData 登记后续波次）
+        .confirmationDialog(
+            String(format: String(localized: "移除项目「%@」？"), pendingDelete?.name ?? ""),
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible) {
+            Button(String(localized: "移除"), role: .destructive) {
+                guard let target = pendingDelete else { return }
+                pendingDelete = nil
+                Task {
+                    let error = await session.connection.deleteProject(id: target.id, hostId: target.hostId)
+                    actionNotice = error ?? String(format: String(localized: "已移除 %@"), target.name)
+                    actionNoticeIsError = error != nil
+                    await load()
+                }
+            }
+            .accessibilityIdentifier("18-act-remove-confirm")
+            Button(String(localized: "取消"), role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text(String(localized: "它会从侧栏和项目选择器中移除，会话仍保留在最近和搜索中，磁盘上的文件不受影响。"))
+        }
     }
 
     private var list: some View {
@@ -611,6 +673,13 @@ struct ProjectsPage: View {
         let counts = tree?.taskCountByProject ?? [:]
         return ScrollView {
             VStack(alignment: .leading, spacing: T.sp2) {
+                if let actionNotice {
+                    Text(actionNotice)
+                        .font(T.font(11.5, .semibold))
+                        .foregroundColor(actionNoticeIsError ? T.red : T.accentText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("18-action-notice")
+                }
                 Text(String(localized: "移除项目只会把它从侧栏和项目选择器中拿掉。会话仍保留在最近和搜索中，磁盘上的文件不受影响。"))
                     .font(T.font(11))
                     .foregroundColor(T.text3)
@@ -623,6 +692,13 @@ struct ProjectsPage: View {
                 }
                 ForEach(active, id: \.id) { project in
                     projectRow(project, taskCount: counts[project.id] ?? 0)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                pendingDelete = project
+                            } label: {
+                                Label(String(localized: "移除项目"), systemImage: "folder.badge.minus")
+                            }
+                        }
                 }
                 if !removed.isEmpty {
                     Text(String(format: String(localized: "已移除的项目（%lld）"), removed.count))
@@ -630,7 +706,16 @@ struct ProjectsPage: View {
                         .foregroundColor(T.text3)
                     VStack(spacing: 0) {
                         ForEach(removed, id: \.id) { project in
-                            removedRow(project)
+                            removedRow(project) {
+                                guard !actionBusy else { return }
+                                actionBusy = true
+                                let name = project.name
+                                let error = await session.connection.restoreProject(id: project.id, hostId: project.hostId)
+                                actionBusy = false
+                                actionNotice = error ?? String(format: String(localized: "已恢复 %@"), name)
+                                actionNoticeIsError = error != nil
+                                await load()
+                            }
                         }
                     }
                     .background(T.bgCard)
@@ -680,7 +765,7 @@ struct ProjectsPage: View {
         .accessibilityIdentifier("18-row-\(project.id)")
     }
 
-    private func removedRow(_ project: ProjectEntry) -> some View {
+    private func removedRow(_ project: ProjectEntry, onRestore: @escaping () async -> Void) -> some View {
         HStack {
             Text(project.name)
                 .font(T.font(13))
@@ -690,6 +775,17 @@ struct ProjectsPage: View {
             Text(String(localized: "已移除"))
                 .font(T.font(10))
                 .foregroundColor(T.text3)
+            Button {
+                Task { await onRestore() }
+            } label: {
+                Text(String(localized: "恢复"))
+                    .font(T.font(12, .medium))
+                    .foregroundColor(T.accentText)
+                    .padding(.horizontal, T.sp2)
+                    .padding(.vertical, 4)
+            }
+            .disabled(actionBusy)
+            .accessibilityIdentifier("18-act-restore-\(project.id)")
         }
         .padding(.horizontal, T.sp3)
         .padding(.vertical, 10)

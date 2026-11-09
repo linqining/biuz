@@ -573,7 +573,16 @@ actor RelayChannelClient: RPCChannelTransport {
         let header = RPCSerialization.serialize(.array([
             .int(RequestType.promise.rawValue), .int(id), .string(channel), .string(command),
         ]))
-        let body = RPCSerialization.serialize(.array([arg]))
+        // arg 约定（2026-11-10 实证，与 Android RelayChannelClient 同口径）：
+        // arg=.array = 完整位置参数数组（web toService 同形）原样作 body——多参服务
+        // （project.deleteProject(id, hostId) 等）靠它表达；否则视为单个位置参数
+        // 包一层成 [arg]（既有全部调用形态不变）。
+        let body: Data
+        if case .array = arg {
+            body = RPCSerialization.serialize(arg)
+        } else {
+            body = RPCSerialization.serialize(.array([arg]))
+        }
 
         let timeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
