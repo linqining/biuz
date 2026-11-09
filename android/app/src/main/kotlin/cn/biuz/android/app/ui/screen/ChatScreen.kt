@@ -100,7 +100,9 @@ import cn.biuz.android.store.ModelSelectionInfo
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.ToolCall
 import cn.biuz.android.app.ui.theme.BiuZAccent
+import cn.biuz.android.app.ui.theme.BiuZBg
 import cn.biuz.android.app.ui.theme.BiuZBgCard
+import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZBgElevated
 import cn.biuz.android.app.ui.theme.BiuZBgInput
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
@@ -240,12 +242,15 @@ fun ChatScreen(
             .statusBarsPadding()
             .imePadding(), // 键盘避让：composer 与其上方 chips/交互卡整体升到键盘上方
     ) {
-        // MARK: 顶栏
+        // MARK: 顶栏（web 手机壳 h-11 + border-b：返回 44dp / 标题 14sp medium）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.sm),
+                .height(44.dp)
+                .background(BiuZBg)
+                .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             IconButton(onClick = onBack) {
                 Icon(
@@ -256,9 +261,43 @@ fun ChatScreen(
             }
             Text(
                 text = stringResource(R.string.chat_title),
-                style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
                 color = BiuZText,
+                modifier = Modifier.weight(1f),
             )
+        }
+        androidx.compose.material3.HorizontalDivider(color = BiuZBorder)
+
+        // MARK: 项目行（web 第二行：📁 项目名 ⋯ ⤡；无项目整行不渲染）
+        currentConversation?.projectName?.takeIf { it.isNotBlank() }?.let { projectName ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(text = "📁", fontSize = 14.sp)
+                Text(
+                    text = projectName,
+                    fontSize = 14.sp,
+                    color = BiuZText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "⋯",
+                    fontSize = 16.sp,
+                    color = BiuZText3,
+                    modifier = Modifier
+                        .clip(BiuZRadius.small)
+                        .clickable { onBack() }
+                        .padding(horizontal = 6.dp),
+                )
+            }
+            androidx.compose.material3.HorizontalDivider(color = BiuZBorder)
         }
 
         // MARK: 聊天页顶会话迷你轨道（G-007；行自带 workflowActivity 活 run 投影——

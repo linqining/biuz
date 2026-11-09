@@ -10,7 +10,7 @@
        其返回串被 :store 单测锁定，UI 不改写只拼模板）。 -->
 <resources>
     <!-- 顶栏 -->
-    <string name="chat_title">会话</string>
+    <string name="chat_title">任务会话</string>
     <string name="chat_back">返回</string>
     <string name="chat_running">运行中</string>
     <string name="chat_load_retry">重新加载</string>
