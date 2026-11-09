@@ -21,6 +21,10 @@ import cn.biuz.android.app.ui.screen.ChatScreen
 import cn.biuz.android.app.ui.screen.ConnectScreen
 import cn.biuz.android.app.ui.screen.DevicesScreen
 import cn.biuz.android.app.ui.screen.DesktopSettingsScreen
+import cn.biuz.android.app.ui.screen.HooksScreen
+import cn.biuz.android.app.ui.screen.PersonalizationScreen
+import cn.biuz.android.app.ui.screen.ProjectsScreen
+import cn.biuz.android.app.ui.screen.SubagentsScreen
 import cn.biuz.android.app.ui.screen.SharePreviewScreen
 import cn.biuz.android.app.ui.screen.FilePreviewScreen
 import cn.biuz.android.app.ui.screen.FileTreeScreen
@@ -293,7 +297,27 @@ fun BiuZApp(
                     onOpenAppearance = { navController.navigate(Routes.APPEARANCE) },
                     onOpenDesktopSettings = { navController.navigate(Routes.DESKTOP_SETTINGS) },
                     onOpenAutomations = { navController.navigate(Routes.AUTOMATIONS) },
+                    onOpenPersonalization = { navController.navigate(Routes.PERSONALIZATION) },
+                    onOpenSubagents = { navController.navigate(Routes.SUBAGENTS) },
+                    onOpenHooks = { navController.navigate(Routes.HOOKS) },
+                    onOpenProjects = { navController.navigate(Routes.PROJECTS) },
                 )
+            }
+            // 027 个性化（web 同口径「仅本地桌面端」指引页，零服务调用）
+            composable(Routes.PERSONALIZATION) {
+                PersonalizationScreen(onBack = { navController.popBackStack() })
+            }
+            // 024 钩子（hooks.loadHooks 只读清单）
+            composable(Routes.HOOKS) {
+                HooksScreen(session = session, onBack = { navController.popBackStack() })
+            }
+            // 026 子智能体（subagents.list 只读清单）
+            composable(Routes.SUBAGENTS) {
+                SubagentsScreen(session = session, onBack = { navController.popBackStack() })
+            }
+            // 018 项目管理（project.readTree 只读清单第一波）
+            composable(Routes.PROJECTS) {
+                ProjectsScreen(session = session, onBack = { navController.popBackStack() })
             }
             // 028 桌面设置同步（setting.get/update；iOS DesktopSettingsPage 对位）
             composable(Routes.DESKTOP_SETTINGS) {

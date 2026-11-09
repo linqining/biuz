@@ -1,0 +1,279 @@
+package cn.biuz.android.app.ui.screen
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cn.biuz.android.app.R
+import cn.biuz.android.app.ui.components.BiuzEmptyState
+import cn.biuz.android.app.ui.components.BiuzInlineNotice
+import cn.biuz.android.app.ui.components.BiuzLoadingState
+import cn.biuz.android.app.ui.theme.BiuZAccent
+import cn.biuz.android.app.ui.theme.BiuZBg
+import cn.biuz.android.app.ui.theme.BiuZBgCard
+import cn.biuz.android.app.ui.theme.BiuZBorder
+import cn.biuz.android.app.ui.theme.BiuZOrange
+import cn.biuz.android.app.ui.theme.BiuZRadius
+import cn.biuz.android.app.ui.theme.BiuZSpacing
+import cn.biuz.android.app.ui.theme.BiuZText
+import cn.biuz.android.app.ui.theme.BiuZText3
+import cn.biuz.android.connection.AppSession
+import cn.biuz.android.connection.ProjectRow
+import cn.biuz.android.connection.ProjectsError
+import cn.biuz.android.connection.ProjectsTree
+import cn.biuz.android.connection.loadProjectTree
+import kotlinx.coroutines.launch
+
+/**
+ * 屏 018 · 项目管理——只读清单第一波（web ProjectManagement 的移动对位）。
+ *
+ * 数据面：`project.readTree` {includeDeleted:true, includeDeletedTasks:true}
+ * 【实证·上游仓 project-tree-reader.ts:19-25 + repository-contract.ts:35-41】。
+ * 上区 = 活跃项目（名称 · 根路径 · 任务计数 · 置顶/目录缺失徽标）；
+ * 下区 = 已移除的项目（deleted=true，web「已移除的项目」区同源）；
+ * 页首 intro 摘自 web projectManagement.intro 原文。
+ * 写面（deleteProject/restoreProject/measureProjectData/deleteProjectData）
+ * 第一波不接（登记 backlog）；已移除区的「恢复」随写面波次接线。
+ */
+@Composable
+fun ProjectsScreen(
+    session: AppSession,
+    onBack: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var loading by remember { mutableStateOf(true) }
+    var tree by remember { mutableStateOf<ProjectsTree?>(null) }
+    var notConnected by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf<String?>(null) }
+
+    suspend fun reload() {
+        loading = true
+        failure = null
+        notConnected = false
+        try {
+            tree = session.loadProjectTree()
+        } catch (e: ProjectsError.NotConnected) {
+            notConnected = true
+            tree = null
+        } catch (e: ProjectsError.Failed) {
+            failure = e.message
+        } catch (e: Throwable) {
+            failure = e.message ?: e::class.simpleName ?: ""
+        } finally {
+            loading = false
+        }
+    }
+
+    val mode by session.mode.collectAsStateWithLifecycle()
+    val connected = mode is AppSession.Mode.Connected
+    LaunchedEffect(connected) { if (connected) reload() }
+
+    Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "‹",
+                fontSize = 26.sp,
+                color = BiuZText,
+                modifier = Modifier
+                    .clip(BiuZRadius.small)
+                    .clickable { onBack() }
+                    .padding(horizontal = 10.dp),
+            )
+            Text(
+                text = stringResource(R.string.projects_title),
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = BiuZText,
+            )
+        }
+        HorizontalDivider(color = BiuZBorder)
+
+        when {
+            notConnected -> BiuzEmptyState(
+                title = stringResource(R.string.desktop_not_connected),
+                hint = stringResource(R.string.projects_not_connected_hint),
+                modifier = Modifier.testTag("18-not-connected"),
+            )
+
+            loading && tree == null -> BiuzLoadingState(
+                text = stringResource(R.string.projects_loading),
+                tag = "18-loading",
+            )
+
+            failure != null && tree == null -> Column(
+                modifier = Modifier.fillMaxWidth().padding(BiuZSpacing.md),
+            ) {
+                BiuzInlineNotice(
+                    message = stringResource(R.string.desktop_load_failed) + " · " + failure,
+                    onRetry = { scope.launch { reload() } },
+                    tag = "18-load-error",
+                )
+            }
+
+            tree != null -> {
+                val projects = tree?.projects.orEmpty()
+                val active = projects.filter { !it.deleted }
+                val removed = projects.filter { it.deleted }
+                val counts = tree?.taskCountByProject ?: emptyMap()
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        start = BiuZSpacing.md, end = BiuZSpacing.md,
+                        top = BiuZSpacing.sm, bottom = BiuZSpacing.xl,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+                ) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.projects_intro),
+                            fontSize = 11.sp,
+                            color = BiuZText3,
+                            modifier = Modifier.padding(horizontal = 2.dp).testTag("18-intro"),
+                        )
+                    }
+                    if (active.isEmpty() && removed.isEmpty()) {
+                        item {
+                            BiuzEmptyState(
+                                title = stringResource(R.string.projects_none),
+                                hint = stringResource(R.string.projects_none_hint),
+                                modifier = Modifier.testTag("18-empty"),
+                            )
+                        }
+                    }
+                    items(active, key = { it.id }) { project ->
+                        ProjectRowView(project, counts[project.id] ?: 0)
+                    }
+                    if (removed.isNotEmpty()) {
+                        item(key = "removed-header") {
+                            Text(
+                                text = stringResource(R.string.projects_removed_title, removed.size),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = BiuZText3,
+                                modifier = Modifier.padding(top = BiuZSpacing.xs),
+                            )
+                        }
+                        items(removed, key = { "removed-${it.id}" }) { project ->
+                            RemovedProjectRowView(project)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectRowView(project: ProjectRow, taskCount: Int) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(BiuZRadius.medium)
+            .background(BiuZBgCard)
+            .border(1.dp, BiuZBorder, BiuZRadius.medium)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("18-row-${project.id}"),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = project.name,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = BiuZText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (project.pinned) {
+                Text(
+                    text = stringResource(R.string.projects_pinned),
+                    fontSize = 10.sp,
+                    color = BiuZAccent,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+            if (project.primaryRootStatus == "missing") {
+                Text(
+                    text = stringResource(R.string.projects_missing),
+                    fontSize = 10.sp,
+                    color = BiuZOrange,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+        if (project.roots.isNotEmpty()) {
+            Text(
+                text = project.roots.joinToString(" · "),
+                fontSize = 10.5.sp,
+                color = BiuZText3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = stringResource(R.string.projects_task_count, taskCount),
+            fontSize = 10.sp,
+            color = BiuZText3,
+        )
+    }
+}
+
+@Composable
+private fun RemovedProjectRowView(project: ProjectRow) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(BiuZRadius.medium)
+            .background(BiuZBgCard)
+            .border(1.dp, BiuZBorder, BiuZRadius.medium)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("18-removed-${project.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = project.name,
+            fontSize = 13.sp,
+            color = BiuZText3,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = stringResource(R.string.projects_removed_badge),
+            fontSize = 10.sp,
+            color = BiuZText3,
+        )
+    }
+}

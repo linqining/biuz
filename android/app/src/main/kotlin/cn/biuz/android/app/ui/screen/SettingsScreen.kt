@@ -69,6 +69,10 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit = {},
     onOpenDesktopSettings: () -> Unit = {},
     onOpenAutomations: () -> Unit = {},
+    onOpenPersonalization: () -> Unit = {},
+    onOpenSubagents: () -> Unit = {},
+    onOpenHooks: () -> Unit = {},
+    onOpenProjects: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val developerMode by settings.developerMode.collectAsStateWithLifecycle()
@@ -102,6 +106,13 @@ fun SettingsScreen(
 
             // 数据与统计分组
             SettingsGroup(title = stringResource(R.string.settings_group_data)) {
+                // 018 项目管理（web「项目排在归档管理之前」同位；readTree 只读第一波）
+                SettingsNavRow(
+                    title = stringResource(R.string.projects_title),
+                    subtitle = stringResource(R.string.settings_row_projects_sub),
+                    testTagId = "13-row-projects",
+                    onClick = onOpenProjects,
+                )
                 SettingsNavRow(
                     title = stringResource(R.string.settings_row_archives),
                     subtitle = stringResource(R.string.settings_row_archives_sub),
@@ -147,11 +158,25 @@ fun SettingsScreen(
             // 关于分组
             // Agent 能力组（iOS 12-row-memory/skills/mcp/plugins 同位；连接态只读清单）
             SettingsGroup(title = stringResource(R.string.settings_group_capabilities)) {
+                // 027 个性化（web Agent 能力组第一项同位；「仅本地桌面端」指引页）
+                SettingsNavRow(
+                    title = stringResource(R.string.personalization_title),
+                    subtitle = stringResource(R.string.settings_row_personalization_sub),
+                    testTagId = "13-row-personalization",
+                    onClick = onOpenPersonalization,
+                )
                 SettingsNavRow(
                     title = stringResource(R.string.cap_memory_title),
                     subtitle = stringResource(R.string.settings_row_memory_sub),
                     testTagId = "13-row-memory",
                     onClick = { onOpenCapability("memory") },
+                )
+                // 026 子智能体（web Agent 能力组同位；subagents.list 只读清单）
+                SettingsNavRow(
+                    title = stringResource(R.string.subagents_title),
+                    subtitle = stringResource(R.string.settings_row_subagents_sub),
+                    testTagId = "13-row-subagents",
+                    onClick = onOpenSubagents,
                 )
                 SettingsNavRow(
                     title = stringResource(R.string.cap_skills_title),
@@ -177,6 +202,13 @@ fun SettingsScreen(
                     subtitle = stringResource(R.string.settings_row_automation_sub),
                     testTagId = "12-row-automation",
                     onClick = onOpenAutomations,
+                )
+                // 024 钩子（web Agent 能力组同位；hooks.loadHooks 只读清单）
+                SettingsNavRow(
+                    title = stringResource(R.string.hooks_title),
+                    subtitle = stringResource(R.string.settings_row_hooks_sub),
+                    testTagId = "13-row-hooks",
+                    onClick = onOpenHooks,
                 )
                 // 028 桌面设置同步（iOS 12-row-desktop-settings 同位；连接态二分副标题）
                 val connectedForDesktopSettings =

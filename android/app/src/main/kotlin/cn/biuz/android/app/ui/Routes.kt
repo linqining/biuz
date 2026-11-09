@@ -41,6 +41,18 @@ object Routes {
     /** 023 自动化（定时任务 + 运行历史；zcode-agent.listAutomations 只读） */
     const val AUTOMATIONS = "settings/automations"
 
+    /** 027 个性化（web LocalOnlyPersonalizationHint 同口径，零服务调用指引页） */
+    const val PERSONALIZATION = "settings/personalization"
+
+    /** 024 钩子（hooks.loadHooks 只读清单） */
+    const val HOOKS = "settings/hooks"
+
+    /** 026 子智能体（subagents.list 只读清单） */
+    const val SUBAGENTS = "settings/subagents"
+
+    /** 018 项目管理（project.readTree 只读清单第一波） */
+    const val PROJECTS = "settings/projects"
+
     /** 屏 07 执行输出（模型轨迹） */
     const val TASK_OUTPUT = "taskOutput/{sessionId}"
 

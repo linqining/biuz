@@ -532,4 +532,50 @@
     <string name="automation_status_failed">Failed</string>
     <string name="automation_status_running">Running</string>
     <string name="settings_row_automation_sub">Scheduled tasks and triggers</string>
+    <string name="settings_row_personalization_sub">Set up in the local desktop app</string>
+    <string name="settings_row_subagents_sub">Subagent definitions (read-only)</string>
+    <string name="settings_row_hooks_sub">Task lifecycle hooks (read-only)</string>
+    <string name="settings_row_projects_sub">Sidebar and removed projects (read-only)</string>
+    <!-- ============ 027 Personalization (web LocalOnlyPersonalizationHint, no RPC) ============ -->
+    <string name="personalization_title">Personalization</string>
+    <string name="personalization_description">Add custom instructions to personalize the Agent\'s replies. Instructions apply to future sessions of the Agent on your machine; configure remote devices separately.</string>
+    <string name="personalization_local_only">Personalization instructions can only be set in the local desktop app. Open the “Personalization” settings on the desktop.</string>
+    <!-- ============ 024 Hooks (hooks.loadHooks read-only) ============ -->
+    <string name="hooks_title">Hooks</string>
+    <string name="hooks_not_connected_hint">Hooks are managed on the desktop; connect to sync the list here</string>
+    <string name="hooks_loading">Loading hooks…</string>
+    <string name="hooks_none">No hooks</string>
+    <string name="hooks_none_hint">Hooks created on the desktop appear here with their events and commands</string>
+    <string name="hooks_summary_enabled">%1$d hooks · master switch enabled</string>
+    <string name="hooks_summary_disabled">%1$d hooks · master switch disabled</string>
+    <string name="hooks_group_installed">Installed (%1$d)</string>
+    <string name="hooks_group_plugin">Plugins (%1$d)</string>
+    <string name="hooks_group_legacy">Legacy (%1$d)</string>
+    <string name="hooks_type_process">Process</string>
+    <string name="hooks_type_command">Shell command</string>
+    <string name="hooks_no_command">(no command)</string>
+    <string name="hooks_needs_trust">Trust required</string>
+    <!-- ============ 026 Subagents (subagents.list read-only) ============ -->
+    <string name="subagents_title">Subagents</string>
+    <string name="subagents_not_connected_hint">Subagent definitions live on the desktop; connect to sync the list here</string>
+    <string name="subagents_loading">Loading subagents…</string>
+    <string name="subagents_none">No subagents</string>
+    <string name="subagents_none_hint">Subagents created on the desktop appear here</string>
+    <string name="subagents_group_user">Installed (%1$d)</string>
+    <string name="subagents_group_builtIn">Built-in subagents (%1$d)</string>
+    <string name="subagents_group_plugin">Plugin profiles (%1$d)</string>
+    <string name="subagents_tools_all">All tools</string>
+    <string name="subagents_tools_count">%1$d tools</string>
+    <!-- ============ 018 Projects (project.readTree read-only first wave) ============ -->
+    <string name="projects_title">Projects</string>
+    <string name="projects_not_connected_hint">Projects are organized on the desktop; connect to sync the list here</string>
+    <string name="projects_loading">Loading projects…</string>
+    <string name="projects_intro">Removing a project only removes it from the sidebar and project picker. Sessions remain in recents and search; files on disk are not affected.</string>
+    <string name="projects_none">No projects</string>
+    <string name="projects_none_hint">Sidebar projects from the desktop appear here</string>
+    <string name="projects_pinned">Pinned</string>
+    <string name="projects_missing">Folder missing</string>
+    <string name="projects_task_count">%1$d sessions</string>
+    <string name="projects_removed_title">Removed projects (%1$d)</string>
+    <string name="projects_removed_badge">Removed</string>
 </resources>

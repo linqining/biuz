@@ -182,7 +182,7 @@
       "route": "/remote/v4#settings/projects",
       "app": {
         "ios": "（待建）",
-        "android": "（待建）",
+        "android": "settings/projects (ProjectsScreen.kt, 只读第一波)",
         "miniprogram": "pages/settings/projects"
       },
       "note": "SettingsPage.tsx:2172"
@@ -242,7 +242,7 @@
       "route": "/remote/v4#settings/hooks",
       "app": {
         "ios": "（待建）",
-        "android": "（待建）",
+        "android": "settings/hooks (HooksScreen.kt, 只读)",
         "miniprogram": "pages/settings/hooks"
       },
       "note": "SettingsPage.tsx:2218"
@@ -262,7 +262,7 @@
       "route": "/remote/v4#settings/subagents",
       "app": {
         "ios": "（待建）",
-        "android": "（待建）",
+        "android": "settings/subagents (SubagentsScreen.kt, 只读)",
         "miniprogram": "pages/settings/subagents"
       },
       "note": "SettingsPage.tsx:2194"
@@ -272,7 +272,7 @@
       "route": "/remote/v4#settings/personalization",
       "app": {
         "ios": "（待建）",
-        "android": "（待建）",
+        "android": "settings/personalization (PersonalizationScreen.kt, web 同口径指引页)",
         "miniprogram": "pages/settings/personalization"
       },
       "note": "SettingsPage.tsx:2098"
