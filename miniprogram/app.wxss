@@ -1,34 +1,36 @@
-/* BiuZ 设计 token。
+/* BiuZ 设计 token —— **完全对齐 ZCode web**（用户裁决 2026-11-09「整个 app 与 ZCode web 设计样式保持一致，
+ * 先不用之前设计的 UI，完全复刻」；作废原 qoder 色板）。
  *
- * APP-DIFF[D004] business: 三端统一使用 qoder 参考色板（近黑/近白 monochrome 主色 + 独立语义状态色），
- * 而非 web 的 Tailwind token（ZCode/packages/ui/src/styles.css 的 .dark 块：背景 neutral-900、品牌 sky-500）。
- * 裁决依据：用户指定「双端中立近黑/近白主色 + 状态色」（AGENTS.md v1.39 ⑦），iOS Theme.swift:50 与
- * Android Color.kt 已是该口径。视觉规格与 web 对齐，色值刻意不同 → 已登记 docs/parity-diff-ledger.md。
+ * 取值来源：线上手机壳实测（`zcode.z.ai/remote/v4`，390×844，测量 body/侧栏/行/分区标题的计算样式）
+ * + `packages/ui/src/styles.css` 的 :root / .dark 块：
+ *   dark : bg #161616 · card/popover #171717 · surface #262626 · 正文 #d4d4d4(oklch .87)
+ *          次级 = 正文 60% alpha · 最弱 = 正文 30% alpha · brand #e5e5e5(oklch .922) · destructive #ff6467
+ *   分隔线 = 白 10% alpha · 输入/强边 = 白 15% alpha
+ *   light: bg neutral-50 #fafafa · card #ffffff · 正文 neutral-700 #404040 · 次级 60% · 最弱 40%
+ *          destructive red-600 #dc2626 · success green-600 #16a34a · warning yellow-600 #ca8a04
  *
- * 换算口径：web 手机壳固定 390pt 宽视口；小程序 750rpx = 屏宽 → 1px ≈ 1.923rpx。
- * 精确校准放在 W3 样板页（010-任务主页）。
+ * 换算口径：web 手机壳固定 390pt 视口；小程序 750rpx = 屏宽 → 1px ≈ 1.923rpx。
  */
 page {
-  /* 浅色档（默认，跟随系统） */
-  --color-background: #fdfdfd;
+  /* 浅色档（默认，跟随系统）—— 对齐 web :root */
+  --color-background: #fafafa;
   --color-card: #ffffff;
   --color-elevated: #ffffff;
-  --color-input: #f4f4f5;
-  --color-code: #f6f6f7;
-  --color-border: rgba(0, 0, 0, 0.12);
-  --color-border-strong: rgba(0, 0, 0, 0.2);
-  --color-foreground: #111113;
-  --color-muted: #52525b;
-  --color-muted-2: #71717a;
-  --color-accent: #18181b;
-  --color-on-accent: #fafafa;
-  --color-accent-press: #000000;
-  /* 主按钮上的药丸（登录页 provider 区域标签）：相对 on-accent 的弱化描边/文字 */
-  --color-accent-pill-border: rgba(250, 250, 250, 0.3);
-  --color-accent-pill-text: rgba(250, 250, 250, 0.65);
-  --color-info: #3b82f6;
-  --color-warning: #b45309;
-  --color-destructive: #ef4444;
+  --color-input: rgba(0, 0, 0, 0.06);
+  --color-code: #f5f5f5;
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-border-strong: rgba(0, 0, 0, 0.15);
+  --color-foreground: #404040;
+  --color-muted: rgba(64, 64, 64, 0.6);
+  --color-muted-2: rgba(64, 64, 64, 0.4);
+  --color-accent: #e5e5e5;
+  --color-on-accent: #171717;
+  --color-accent-press: #d4d4d4;
+  --color-accent-pill-border: rgba(23, 23, 23, 0.3);
+  --color-accent-pill-text: rgba(23, 23, 23, 0.65);
+  --color-info: #0ea5e9;
+  --color-warning: #ca8a04;
+  --color-destructive: #dc2626;
   --color-success: #16a34a;
   --color-violet: #7c3aed;
 
@@ -57,25 +59,25 @@ page {
 /* 深色档：与 iOS Theme.swift / Android Color.kt 的 dark 值逐字一致 */
 @media (prefers-color-scheme: dark) {
   page {
-    --color-background: #080807;
-    --color-card: #1c1c1e;
-    --color-elevated: #232326;
-    --color-input: #2a2a2e;
-    --color-code: #141416;
-    --color-border: rgba(255, 255, 255, 0.2);
-    --color-border-strong: rgba(255, 255, 255, 0.3);
-    --color-foreground: #ffffff;
-    --color-muted: #a1a1aa;
-    --color-muted-2: #71717a;
-    --color-accent: #fafafa;
-    --color-on-accent: #18181b;
-    --color-accent-press: #e4e4e7;
-    --color-accent-pill-border: rgba(24, 24, 27, 0.3);
-    --color-accent-pill-text: rgba(24, 24, 27, 0.65);
-    --color-info: #60a5fa;
-    --color-warning: #f5a623;
-    --color-destructive: #f87171;
-    --color-success: #2fbf71;
+    --color-background: #161616;
+    --color-card: #171717;
+    --color-elevated: #262626;
+    --color-input: rgba(255, 255, 255, 0.15);
+    --color-code: #171717;
+    --color-border: rgba(255, 255, 255, 0.1);
+    --color-border-strong: rgba(255, 255, 255, 0.15);
+    --color-foreground: #d4d4d4;
+    --color-muted: rgba(212, 212, 212, 0.6);
+    --color-muted-2: rgba(212, 212, 212, 0.3);
+    --color-accent: #e5e5e5;
+    --color-on-accent: #171717;
+    --color-accent-press: #d4d4d4;
+    --color-accent-pill-border: rgba(23, 23, 23, 0.3);
+    --color-accent-pill-text: rgba(23, 23, 23, 0.65);
+    --color-info: #38bdf8;
+    --color-warning: #eab308;
+    --color-destructive: #ff6467;
+    --color-success: #22c55e;
     --color-violet: #c792ff;
   }
 }

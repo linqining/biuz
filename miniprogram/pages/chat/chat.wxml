@@ -1,7 +1,86 @@
-<!-- 011-会话对话 —— 骨架页。按 web 源实现，禁止填假数据。 -->
-<view class="page safe-top" data-page="011-会话对话">
-  <view class="page-placeholder">
-    <text class="page-placeholder__title">011-会话对话</text>
-    <text class="page-placeholder__hint">TODO · web 源：packages/ui/src/WebRemoteControlMobileShell.tsx:172-246 + v4/V4ChatPane.tsx:92</text>
+<!-- 011-会话对话：顶栏 + 项目行 + 消息流 + composer（web V4ChatPane 手机壳同构） -->
+<view class="page chat-page">
+  <!-- 顶栏（web: h-11 + border-b，左返回 / 标题 / 主题图标） -->
+  <view class="chat-header" style="padding-top: {{statusBarHeight}}px">
+    <view class="chat-header__bar">
+      <text class="chat-header__back" bind:tap="onBack">‹</text>
+      <text class="chat-header__title">{{title}}</text>
+      <text class="chat-header__theme">🎨</text>
+    </view>
+  </view>
+
+  <!-- 项目行（web 第二行：📁 项目名 ⋯ ⤡） -->
+  <view class="chat-project" wx:if="{{projectName}}">
+    <text class="chat-project__icon">📁</text>
+    <text class="chat-project__name">{{projectName}}</text>
+    <text class="chat-project__more">⋯</text>
+  </view>
+
+  <!-- 消息流 -->
+  <scroll-view class="chat-list" scroll-y scroll-into-view="{{scrollTarget}}">
+    <view wx:if="{{status === 'loading' && rows.length === 0}}" class="chat-state">
+      <loading-state text="正在加载会话…" />
+    </view>
+
+    <view wx:elif="{{rows.length === 0}}" class="chat-state">
+      <empty-state title="还没有消息" hint="在桌面端或本机输入框发送第一条消息" />
+    </view>
+
+    <block wx:else>
+      <view class="msg msg--{{item.role}}" wx:for="{{rows}}" wx:key="id" id="msg-{{item.id}}">
+        <view class="msg__bubble" wx:if="{{item.kind === 'text' && item.role === 'user'}}">
+          <text class="msg__text" user-select>{{item.text}}</text>
+        </view>
+
+        <view class="msg__assistant" wx:elif="{{item.kind === 'text'}}">
+          <block wx:for="{{item.blocks}}" wx:for-item="block" wx:for-index="bi" wx:key="bi">
+            <text class="md-heading md-heading--{{block.level}}" wx:if="{{block.type === 'heading'}}">{{block.content}}</text>
+            <view class="md-code" wx:elif="{{block.type === 'code'}}">
+              <text class="md-code__text">{{block.content}}</text>
+            </view>
+            <text class="md-text" wx:else user-select>{{block.content}}</text>
+          </block>
+        </view>
+
+        <view class="msg__tool" wx:elif="{{item.kind === 'tool'}}">
+          <text class="msg__tool-name">{{item.toolName || '工具调用'}}</text>
+          <text class="msg__tool-status">{{item.toolStatus}}</text>
+        </view>
+
+        <view class="msg__thinking" wx:elif="{{item.kind === 'thinking'}}">
+          <text class="msg__thinking-label">思考</text>
+          <text class="msg__thinking-text">{{item.text}}</text>
+        </view>
+
+        <!-- 动作行（web：复制 / 赞 / 踩 / 时间；本轮先只读两项） -->
+        <view class="msg__actions" wx:if="{{item.kind === 'text' && item.role === 'agent'}}">
+          <text class="msg__action" data-id="{{item.id}}" bind:tap="onCopy">复制</text>
+          <text class="msg__time">{{item.timeText}}</text>
+        </view>
+      </view>
+    </block>
+
+    <error-line wx:if="{{error}}" message="{{error}}" retryable bind:retry="onBack" />
+    <view class="chat-list__pad"></view>
+  </scroll-view>
+
+  <!-- composer（web：圆角输入区 + 工具行；未连接如实禁用） -->
+  <view class="composer">
+    <view class="composer__box">
+      <textarea
+        class="composer__input"
+        value="{{draft}}"
+        placeholder="提出后续修改要求"
+        placeholder-class="composer__ph"
+        auto-height
+        maxlength="8000"
+        bindinput="onDraftInput" />
+      <view class="composer__tools">
+        <text class="composer__tool">＋</text>
+        <text class="composer__tool">🛡</text>
+        <text class="composer__spacer"></text>
+        <text class="composer__send" bind:tap="onSend">↑</text>
+      </view>
+    </view>
   </view>
 </view>

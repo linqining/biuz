@@ -2,34 +2,41 @@ package cn.biuz.android.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// qoder 参考深色色板（2026-11-08 提炼）：近黑 #080807 + monochrome 近白主色 #FAFAFA，
-// 语义状态色独立——running #2FBF71 / completed #3B82F6 / error #EF4444 / attention #F5A623。
-// 「叠底实算」= rgba 弱底令牌按背景逐通道实算的不透明近似值。
-val BiuZBg = Color(0xFF080807) // --bg 页面背景（qoder 近黑）
-val BiuZBgCard = Color(0xFF1C1C1E) // --bg-card 卡片/表面（qoder surface）
-val BiuZBgElevated = Color(0xFF232326) // --bg-elevated 浮层/Sheet
-val BiuZBgInput = Color(0xFF2A2A2E) // --bg-input 输入框/分段底
-val BiuZBgCode = Color(0xFF141416) // --bg-code 代码块底
-val BiuZBgTerm = Color(0xFF050505) // --bg-term 终端底
-val BiuZBorder = Color(0xFF393939) // --border 常规描边（白 20% 叠底实算）
-val BiuZBorderStrong = Color(0xFF525252) // --border-strong 输入框/分段描边（白 30%）
-val BiuZText = Color(0xFFFFFFFF) // --text 主文字
-val BiuZText2 = Color(0xFFA1A1AA) // --text-2 次级文字
-val BiuZText3 = Color(0xFF71717A) // --text-3 说明/占位/时间戳
-val BiuZAccent = Color(0xFFFAFAFA) // --accent monochrome 主色（qoder 近白主按钮）
-val BiuZAccentPress = Color(0xFFE4E4E7) // --accent-press 按压态
-val BiuZAccentDim = Color(0xFF212121) // --accent-dim 叠底实算（白 10%）
-val BiuZOnAccent = Color(0xFF18181B) // --accent 上的深字
-val BiuZGreen = Color(0xFF2FBF71) // --green 状态「运行中」（qoder running）
-val BiuZGreenDim = Color(0xFF13291D) // --green-dim 叠底实算
-val BiuZBlue = Color(0xFF60A5FA) // --blue 状态「已完成」（qoder completed #3B82F6 深档）
-val BiuZBlueDim = Color(0xFF1E293B) // --blue-dim 叠底实算
-val BiuZOrange = Color(0xFFF5A623) // --orange 状态「待操作/待批准」（qoder attention）
-val BiuZOnOrange = Color(0xFF1A0F00) // --on-orange
-val BiuZOrangeDim = Color(0xFF291E0B) // --orange-dim 叠底实算（f5a623 14% over 080807，对位 iOS T.orangeDim）
-val BiuZRed = Color(0xFFF87171) // --red 危险操作/失败（qoder error #EF4444 深档）
-val BiuZRedDim = Color(0xFF2A1818) // --red-dim 叠底实算
-val BiuZViolet = Color(0xFFC792FF) // --violet 能力/生态标签与工作流语义（非任务状态）
-val BiuZAdd = Color(0xFF3DDC84) // --add diff 新增
-val BiuZDel = Color(0xFFFF7A7A) // --del diff 删除
-val BiuZLightAccent = Color(0xFF18181B) // Light 档 --accent（monochrome 近黑，作 inversePrimary）
+// 色板 —— **完全对齐 ZCode web**（用户裁决 2026-11-09「整个 app 与 ZCode web 设计样式保持一致，
+// 先不用之前设计的 UI，完全复刻」；原 qoder 色板作废）。
+//
+// 取值来源：线上手机壳实测（`zcode.z.ai/remote/v4` 390×844 计算样式）+ web `packages/ui/src/styles.css`
+// 的 :root / .dark 块：
+//   dark : bg #161616 · card/popover #171717 · surface #262626 · 正文 #d4d4d4(oklch .87)
+//          次级 = 正文 60% alpha · 最弱 = 正文 30% alpha · brand #e5e5e5(oklch .922) · destructive #ff6467
+//   分隔线 = 白 10% alpha · 输入/强边 = 白 15% alpha
+//   任务轨道实测：running #46bf72 / attention #ff8a30（web task-item 站点灯）
+// 变量名保持不变（250+ 引用点零改动），只换值。
+val BiuZBg = Color(0xFF161616) // --color-background
+val BiuZBgCard = Color(0xFF171717) // --color-card / --color-popover
+val BiuZBgElevated = Color(0xFF262626) // --color-surface（浮层/Sheet）
+val BiuZBgInput = Color(0x26FFFFFF) // --color-input = 白 15% alpha
+val BiuZBgCode = Color(0xFF171717) // 代码块底（同 card）
+val BiuZBgTerm = Color(0xFF0F0F0F) // 终端底（更暗一档，web --color-terminal-bg）
+val BiuZBorder = Color(0x1AFFFFFF) // --color-border = 白 10% alpha
+val BiuZBorderStrong = Color(0x26FFFFFF) // 输入/分段描边 = 白 15% alpha
+val BiuZText = Color(0xFFD4D4D4) // --color-foreground（oklch .87）
+val BiuZText2 = Color(0x99D4D4D4) // --color-foreground-subtle（60% alpha）
+val BiuZText3 = Color(0x4DD4D4D4) // --color-foreground-subtlest（30% alpha）
+val BiuZAccent = Color(0xFFE5E5E5) // --color-brand（oklch .922，monochrome 近白）
+val BiuZAccentPress = Color(0xFFD4D4D4) // 按压态（brand 降一档）
+val BiuZAccentDim = Color(0x1AFFFFFF) // --color-accent（白 10% alpha）
+val BiuZOnAccent = Color(0xFF171717) // brand 上的深字
+val BiuZGreen = Color(0xFF46BF72) // 任务轨道「运行中」（web 实测）
+val BiuZGreenDim = Color(0x2446BF72) // 叠底实算（14% alpha）
+val BiuZBlue = Color(0xFF60A5FA) // 「已完成」语义（web --color-progress 深档）
+val BiuZBlueDim = Color(0x2460A5FA)
+val BiuZOrange = Color(0xFFFF8A30) // 「待操作/待批准」（web 实测 attention）
+val BiuZOnOrange = Color(0xFF1A0F00)
+val BiuZOrangeDim = Color(0x24FF8A30)
+val BiuZRed = Color(0xFFFF6467) // --color-destructive（web 实测 oklch .704 .191 22.216）
+val BiuZRedDim = Color(0x24FF6467)
+val BiuZViolet = Color(0xFFC792FF) // 能力/生态标签（非任务状态）
+val BiuZAdd = Color(0xFF22C55E) // diff 新增 = web --color-diff-added（green-500）
+val BiuZDel = Color(0xFFFF6467) // diff 删除 = web --color-diff-removed
+val BiuZLightAccent = Color(0xFF171717) // Light 档 accent（作 inversePrimary）

@@ -1,1 +1,195 @@
-/* 页面私有样式。公共 token 在 app.wxss，公共件用 components/。 */
+/* 011-会话对话 —— 尺寸换算 1px ≈ 1.923rpx（web 手机壳 390pt 视口）。
+   颜色全部来自 app.wxss 的 web 对齐 token。 */
+
+.chat-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-background);
+}
+
+/* 顶栏：web h-11（44px）+ border-b + px-2 */
+.chat-header {
+  flex: 0 0 auto;
+  border-bottom: 2rpx solid var(--color-border);
+  background-color: var(--color-background);
+}
+.chat-header__bar {
+  height: 85rpx;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 16rpx;
+}
+.chat-header__back {
+  width: 85rpx;
+  text-align: center;
+  font-size: 40rpx;
+  color: var(--color-foreground);
+}
+.chat-header__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-base);
+  font-weight: 500;
+  color: var(--color-foreground);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.chat-header__theme {
+  width: 62rpx;
+  text-align: center;
+  font-size: var(--font-base);
+}
+
+/* 项目行：web px-2 py-1.5 + 13px */
+.chat-project {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 12rpx 32rpx;
+  border-bottom: 2rpx solid var(--color-border);
+}
+.chat-project__icon { font-size: var(--font-base); }
+.chat-project__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-base);
+  color: var(--color-foreground);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.chat-project__more { color: var(--color-muted-2); font-size: var(--font-lg); }
+
+/* 消息流 */
+.chat-list {
+  flex: 1;
+  min-height: 0;
+  padding: 24rpx 32rpx 0;
+  box-sizing: border-box;
+}
+.chat-list__pad { height: 48rpx; }
+.chat-state { padding: 96rpx 0; }
+
+.msg { display: flex; flex-direction: column; gap: 8rpx; margin-bottom: var(--space-4); }
+.msg--user { align-items: flex-end; }
+
+/* 用户气泡：web --color-user-message-bubble = 白 8% */
+.msg__bubble {
+  max-width: 88%;
+  padding: 20rpx 24rpx;
+  border-radius: var(--radius-md);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.msg__text {
+  font-size: var(--font-base);
+  line-height: 44rpx;
+  color: var(--color-foreground);
+  word-break: break-word;
+}
+
+/* 助手正文 */
+.msg__assistant { display: flex; flex-direction: column; gap: 12rpx; }
+.md-text {
+  font-size: var(--font-base);
+  line-height: 46rpx;
+  color: var(--color-foreground);
+  word-break: break-word;
+}
+.md-heading {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  line-height: 48rpx;
+  color: var(--color-foreground);
+  margin-top: 8rpx;
+}
+.md-heading--1 { font-size: 38rpx; }
+.md-heading--2 { font-size: var(--font-lg); }
+.md-code {
+  padding: 20rpx;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-card);
+  border: 2rpx solid var(--color-border);
+}
+.md-code__text {
+  font-family: Menlo, Consolas, monospace;
+  font-size: var(--font-sm);
+  line-height: 38rpx;
+  color: var(--color-foreground);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 工具卡 / 思考块 */
+.msg__tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 16rpx 20rpx;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-card);
+  border: 2rpx solid var(--color-border);
+}
+.msg__tool-name { flex: 1; font-size: var(--font-sm); color: var(--color-foreground); }
+.msg__tool-status { font-size: var(--font-xs); color: var(--color-muted); }
+.msg__thinking {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  padding: 16rpx 20rpx;
+  border-left: 4rpx solid var(--color-border-strong);
+}
+.msg__thinking-label { font-size: var(--font-xs); color: var(--color-muted-2); }
+.msg__thinking-text { font-size: var(--font-sm); line-height: 40rpx; color: var(--color-muted); }
+
+/* 动作行（复制 + 时间，对齐 web 消息底部动作行） */
+.msg__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: 4rpx;
+}
+.msg__action { font-size: var(--font-xs); color: var(--color-muted); }
+.msg__time { font-size: var(--font-xs); color: var(--color-muted-2); }
+
+/* composer：web 圆角输入区 + 工具行 */
+.composer {
+  flex: 0 0 auto;
+  padding: 8rpx 24rpx 24rpx;
+  background-color: var(--color-background);
+}
+.composer__box {
+  border: 2rpx solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-card);
+  padding: 16rpx 20rpx;
+}
+.composer__input {
+  width: 100%;
+  min-height: 60rpx;
+  font-size: var(--font-base);
+  line-height: 44rpx;
+  color: var(--color-foreground);
+}
+.composer__ph { color: var(--color-muted-2); }
+.composer__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: 8rpx;
+}
+.composer__tool { font-size: var(--font-lg); color: var(--color-muted); }
+.composer__spacer { flex: 1; }
+.composer__send {
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: 50%;
+  background-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-lg);
+  text-align: center;
+  line-height: 60rpx;
+}
