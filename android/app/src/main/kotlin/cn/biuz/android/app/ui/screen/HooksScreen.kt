@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -51,6 +52,8 @@ import cn.biuz.android.connection.HookRow
 import cn.biuz.android.connection.HooksError
 import cn.biuz.android.connection.HooksSnapshot
 import cn.biuz.android.connection.loadHooks
+import cn.biuz.android.connection.saveHooks
+import cn.biuz.android.protocol.JSONValue
 import kotlinx.coroutines.launch
 
 /**
@@ -72,6 +75,11 @@ fun HooksScreen(
     var snapshot by remember { mutableStateOf<HooksSnapshot?>(null) }
     var notConnected by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
+    // 写面波次②：启停/删除（saveHooks 整表覆盖，gate 已放行；失败 reload 回弹 + 原文上屏）
+    var actionNotice by remember { mutableStateOf<String?>(null) }
+    var actionNoticeIsError by remember { mutableStateOf(false) }
+    var busyHookId by remember { mutableStateOf<String?>(null) }
+    var pendingDelete by remember { mutableStateOf<HookRow?>(null) }
 
     suspend fun reload() {
         loading = true
@@ -95,6 +103,24 @@ fun HooksScreen(
     val mode by session.mode.collectAsStateWithLifecycle()
     val connected = mode is AppSession.Mode.Connected
     LaunchedEffect(connected) { if (connected) reload() }
+
+    val workspace = session.storeSurface.value.workspace
+    fun persist(mutated: List<HookRow>, successText: String) {
+        if (busyHookId != null) return
+        scope.launch {
+            val snapshot = snapshot
+            if (snapshot == null) {
+                busyHookId = null
+                return@launch
+            }
+            busyHookId = successText
+            val error = session.saveHooks(workspace?.path, workspace?.workspaceIdentity, mutated)
+            busyHookId = null
+            actionNotice = error ?: successText
+            actionNoticeIsError = error != null
+            if (error != null) reload()
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
@@ -149,6 +175,15 @@ fun HooksScreen(
 
             else -> {
                 val hooks = snapshot?.hooks.orEmpty()
+                if (actionNotice != null) {
+                    BiuzInlineNotice(
+                        message = actionNotice.orEmpty(),
+                        kind = if (actionNoticeIsError) cn.biuz.android.app.ui.components.BiuzNoticeKind.Error
+                        else cn.biuz.android.app.ui.components.BiuzNoticeKind.Info,
+                        modifier = Modifier.padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.xs),
+                        tag = "24-action-notice",
+                    )
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -189,17 +224,75 @@ fun HooksScreen(
                             )
                         }
                         items(groupHooks, key = { "${group.name}-${it.id}" }) { hook ->
-                            HookRowView(hook)
+                            HookRowView(
+                                hook = hook,
+                                busy = busyHookId == hook.id,
+                                onToggle = { newValue ->
+                                    val mutated = hooks.map {
+                                        if (it.id == hook.id) {
+                                            HookRow(
+                                                id = it.id, event = it.event, matcher = it.matcher,
+                                                type = it.type, command = it.command, args = it.args,
+                                                enabled = newValue, editable = it.editable,
+                                                source = it.source, scope = it.scope,
+                                                trustState = it.trustState,
+                                                raw = it.raw?.let { r -> toggleRawEnabled(r, newValue) },
+                                            )
+                                        } else {
+                                            it
+                                        }
+                                    }
+                                    persist(mutated, "已${if (newValue) "启用" else "停用"} ${hook.event}")
+                                },
+                                onDelete = { pendingDelete = hook },
+                            )
                         }
                     }
                 }
             }
         }
     }
+
+    // 删除确认（saveHooks 整表覆盖 = 数组过滤后保存，web handleDelete 同语义）
+    pendingDelete?.let { hook ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.hooks_delete_title)) },
+            text = { Text(stringResource(R.string.hooks_delete_message, hook.event)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    val target = hook
+                    pendingDelete = null
+                    val snapshotHooks = snapshot?.hooks.orEmpty()
+                    persist(
+                        snapshotHooks.filter { it.id != target.id },
+                        "已删除 ${target.event}",
+                    )
+                }) { Text(stringResource(R.string.projects_remove_confirm)) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.desktop_act_cancel))
+                }
+            },
+        )
+    }
+}
+
+/** raw 条目的 enabled 原位翻转（saveHooks 整表回传用，其余字段不动）。 */
+private fun toggleRawEnabled(raw: JSONValue, enabled: Boolean): JSONValue {
+    val fields = LinkedHashMap(raw.objectValue ?: emptyMap())
+    fields["enabled"] = JSONValue.Bool(enabled)
+    return JSONValue.Obj(fields)
 }
 
 @Composable
-private fun HookRowView(hook: HookRow) {
+private fun HookRowView(
+    hook: HookRow,
+    busy: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -229,14 +322,42 @@ private fun HookRowView(hook: HookRow) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(
-                text = stringResource(
-                    if (hook.enabled) R.string.automation_enabled else R.string.automation_disabled,
-                ),
-                fontSize = 10.sp,
-                color = if (hook.enabled) BiuZAccent else BiuZText3,
-                modifier = Modifier.padding(start = 8.dp),
-            )
+            if (hook.group == HookGroup.installed) {
+                // 已安装钩子：启停开关 + 长按删除（写面波次②；legacy/plugin 只读——
+                // 桌面侧 saveHooks 过滤不落非 zcode 条目，UI 不给入口）
+                if (busy) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = BiuZAccent,
+                    )
+                } else {
+                    androidx.compose.material3.Switch(
+                        checked = hook.enabled,
+                        onCheckedChange = { onToggle(it) },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = BiuZAccent),
+                        modifier = Modifier.padding(start = 8.dp).testTag("24-toggle-${hook.id}"),
+                    )
+                    Text(
+                        text = "🗑",
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clip(BiuZRadius.small)
+                            .clickable { onDelete() }
+                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                            .testTag("24-delete-${hook.id}"),
+                    )
+                }
+            } else {
+                Text(
+                    text = stringResource(
+                        if (hook.enabled) R.string.automation_enabled else R.string.automation_disabled,
+                    ),
+                    fontSize = 10.sp,
+                    color = if (hook.enabled) BiuZAccent else BiuZText3,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
         }
         Text(
             text = hook.command.ifEmpty { stringResource(R.string.hooks_no_command) },

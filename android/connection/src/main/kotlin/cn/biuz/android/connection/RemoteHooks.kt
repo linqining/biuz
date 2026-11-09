@@ -24,7 +24,11 @@ import kotlinx.coroutines.CancellationException
  * （已安装 = zcode 可编辑 / 插件 = plugin source / 旧版 = 其余）。
  */
 
-/** 一条钩子行（只读投影；原始词表外的 event/type 原样透传不吞信息）。 */
+/**
+ * 一条钩子行；`raw` = 回执原条目（写面波次②：saveHooks 整表覆盖按 raw 回传，
+ * 只翻转目标行 enabled——桌面侧只落 editable!==false 且 source==="zcode" 的条目，
+ * 其余原样不动，故 raw 保真是安全整表保存的前提）。
+ */
 data class HookRow(
     val id: String,
     val event: String,
@@ -40,6 +44,7 @@ data class HookRow(
     val scope: String?,
     /** workspaceHook.trustState 原词（缺席 null = 非 workspace 钩子） */
     val trustState: String?,
+    val raw: JSONValue? = null,
 ) {
     /** web requiresWorkspaceHookTrust 口径（WorkspaceHookTrustNotice.tsx:6-7）。 */
     val needsTrust: Boolean get() = trustState != null && trustState != "trusted_persistent"
@@ -95,6 +100,34 @@ suspend fun AppSession.loadHooks(
     }
 }
 
+/**
+ * 钩子整表保存（写面波次②，gate 已放行；web hooksStore.persistHooks 同参）：
+ * `hooks.saveHooks {workspacePath, workspaceIdentity?, hooks: Hook[]}`——hooks 按
+ * 读面 raw 整条回传（仅翻转目标行 enabled/删除目标行）；服务端过滤 editable!==false
+ * 且 location.source==="zcode" 的 user/project 钩子后原子写 config.json
+ * （hooksService.ts:309-333），非可编辑条目不受影响。写命令不做时间性自动重试
+ * （防双写）。返回 null=成功；非 null=可上屏错误文案。
+ */
+suspend fun AppSession.saveHooks(
+    workspacePath: String?,
+    workspaceIdentity: String?,
+    hooks: List<HookRow>,
+): String? {
+    if (!isConnected) return "未连接桌面端"
+    val fields = LinkedHashMap<String, JSONValue>()
+    if (!workspacePath.isNullOrEmpty()) fields["workspacePath"] = JSONValue.Str(workspacePath)
+    if (!workspaceIdentity.isNullOrEmpty()) fields["workspaceIdentity"] = JSONValue.Str(workspaceIdentity)
+    fields["hooks"] = JSONValue.Arr(hooks.mapNotNull { it.raw })
+    return try {
+        connection.call("hooks", "saveHooks", RPCValue.json(JSONValue.Obj(fields)))
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "保存失败 · ${e.toString().take(160)}"
+    }
+}
+
 /** 钩子条目解析（纯函数；id/event/type/command 缺席的行丢弃）。 */
 fun parseHookRows(json: JSONValue?): List<HookRow> {
     val items = json?.arrayValue ?: return emptyList()
@@ -115,6 +148,7 @@ fun parseHookRows(json: JSONValue?): List<HookRow> {
             source = d["location"]?.objectValue?.get("source")?.stringValue,
             scope = d["location"]?.objectValue?.get("scope")?.stringValue,
             trustState = d["workspaceHook"]?.objectValue?.get("trustState")?.stringValue,
+            raw = item,
         )
     }
 }

@@ -639,6 +639,8 @@
     <string name="hooks_type_command">Shell 命令</string>
     <string name="hooks_no_command">（无命令）</string>
     <string name="hooks_needs_trust">待信任</string>
+    <string name="hooks_delete_title">删除钩子？</string>
+    <string name="hooks_delete_message">确定删除「%1$s」钩子吗？删除会写入桌面端配置（可重新创建）。</string>
     <!-- ============ 026 子智能体（subagents.list 只读） ============ -->
     <string name="subagents_title">子智能体</string>
     <string name="subagents_not_connected_hint">子智能体定义存于桌面端；连接后此处同步清单</string>

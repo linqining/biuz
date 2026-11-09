@@ -16183,6 +16183,56 @@
           }
         }
       }
+    },
+    "已%@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$@ %1$@"
+          }
+        }
+      }
+    },
+    "删除钩子？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete hook?"
+          }
+        }
+      }
+    },
+    "确定删除「%@」钩子吗？删除会写入桌面端配置（可重新创建）。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the “%@” hook? This writes to the desktop config (it can be recreated)."
+          }
+        }
+      }
+    },
+    "删除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        }
+      }
+    },
+    "已删除 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted %@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

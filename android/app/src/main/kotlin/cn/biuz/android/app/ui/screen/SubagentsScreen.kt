@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -49,6 +50,7 @@ import cn.biuz.android.connection.SubagentRow
 import cn.biuz.android.connection.SubagentsError
 import cn.biuz.android.connection.SubagentsList
 import cn.biuz.android.connection.loadSubagents
+import cn.biuz.android.connection.setSubagentEnabled
 import kotlinx.coroutines.launch
 
 /**
@@ -71,6 +73,10 @@ fun SubagentsScreen(
     var list by remember { mutableStateOf<SubagentsList?>(null) }
     var notConnected by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
+    // 写面波次②：启停开关（仅 user scope 可编辑 agent——web supportsEnabledToggle 同口径）
+    var actionNotice by remember { mutableStateOf<String?>(null) }
+    var actionNoticeIsError by remember { mutableStateOf(false) }
+    var busyAgentId by remember { mutableStateOf<String?>(null) }
 
     suspend fun reload() {
         loading = true
@@ -148,6 +154,15 @@ fun SubagentsScreen(
 
             else -> {
                 val agents = list?.agents.orEmpty()
+                if (actionNotice != null) {
+                    BiuzInlineNotice(
+                        message = actionNotice.orEmpty(),
+                        kind = if (actionNoticeIsError) cn.biuz.android.app.ui.components.BiuzNoticeKind.Error
+                        else cn.biuz.android.app.ui.components.BiuzNoticeKind.Info,
+                        modifier = Modifier.padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.xs),
+                        tag = "26-action-notice",
+                    )
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -176,7 +191,21 @@ fun SubagentsScreen(
                             )
                         }
                         items(rows, key = { "$key-${it.id}" }) { agent ->
-                            SubagentRowView(agent)
+                            SubagentRowView(
+                                agent = agent,
+                                busy = busyAgentId == agent.id,
+                                onToggle = { newValue ->
+                                    if (busyAgentId != null) return@SubagentRowView
+                                    busyAgentId = agent.id
+                                    scope.launch {
+                                        val error = session.setSubagentEnabled(agent.id, newValue)
+                                        busyAgentId = null
+                                        actionNotice = error ?: "已${if (newValue) "启用" else "停用"} ${agent.name}"
+                                        actionNoticeIsError = error != null
+                                        if (error != null) reload()
+                                    }
+                                },
+                            )
                         }
                     }
                 }
@@ -186,7 +215,11 @@ fun SubagentsScreen(
 }
 
 @Composable
-private fun SubagentRowView(agent: SubagentRow) {
+private fun SubagentRowView(
+    agent: SubagentRow,
+    busy: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -207,14 +240,33 @@ private fun SubagentRowView(agent: SubagentRow) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
-            Text(
-                text = stringResource(
-                    if (agent.enabled) R.string.automation_enabled else R.string.automation_disabled,
-                ),
-                fontSize = 10.sp,
-                color = if (agent.enabled) BiuZAccent else BiuZText3,
-                modifier = Modifier.padding(start = 8.dp),
-            )
+            // 启停开关（仅 user scope；web supportsEnabledToggle 同口径——
+            // built-in/workspace/plugin 行不给开关）。开关不即时落本地：失败走 reload 回弹。
+            if (agent.source == "user") {
+                if (busy) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = BiuZAccent,
+                    )
+                } else {
+                    androidx.compose.material3.Switch(
+                        checked = agent.enabled,
+                        onCheckedChange = { onToggle(it) },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = BiuZAccent),
+                        modifier = Modifier.padding(start = 8.dp).testTag("26-toggle-${agent.id}"),
+                    )
+                }
+            } else {
+                Text(
+                    text = stringResource(
+                        if (agent.enabled) R.string.automation_enabled else R.string.automation_disabled,
+                    ),
+                    fontSize = 10.sp,
+                    color = if (agent.enabled) BiuZAccent else BiuZText3,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
         }
         if (agent.description.isNotEmpty()) {
             Text(

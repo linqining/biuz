@@ -252,8 +252,13 @@ class ReadOnlyGateTest {
             "feedback" to "create", "feedback" to "uploadAttachment",
             "provider-settings" to "createPersonalProvider", "provider-settings" to "testModelConnectivity",
             "provider-provisioning-target" to "apply",
-            "skills" to "setEnabled", "hooks" to "saveHooks", "commands" to "writeCommandFile",
-            "subagents" to "deleteAgent", "mcp-sync" to "saveMcpToUserDirectory",
+            "skills" to "setEnabled",
+            // 写面波次②（2026-11-10）：hooks.saveHooks / subagents.setEnabled 移入放行面
+            // （testWriteFaceWave2Released，反向回归：加回黑名单即误杀启停/删除入口）
+            "commands" to "writeCommandFile",
+            "subagents" to "deleteAgent", "subagents" to "createAgent",
+            "subagents" to "setBuiltInModelOverride", "hooks" to "grantWorkspaceHookTrust",
+            "mcp-sync" to "saveMcpToUserDirectory",
             "plugin-sync" to "importPluginsArchive", "plugins" to "installPlugin",
             "plugin-management" to "setPluginEnabled",
             "bots" to "handleInboundMessage", "bots" to "beginFeishuRegistration",
@@ -455,5 +460,21 @@ class ReadOnlyGateTest {
                 )
             )
         )
+    }
+
+    // MARK: 写面波次② 放行（2026-11-10，web 同参同面裁决）：钩子启停/删除（saveHooks
+    // 整表，桌面侧过滤非可编辑条目）+ 子智能体启停（setEnabled，agents-state.json）。
+
+    @Test
+    fun testWriteFaceWave2Released() {
+        val cases: List<Pair<String, String>> = listOf(
+            "hooks" to "saveHooks",
+            "subagents" to "setEnabled",
+        )
+        for ((channel, command) in cases) {
+            val verdict = ReadOnlyGate.inspect(
+                channel = channel, command = command, arg = RPCValue.Undefined)
+            assertFalse(verdict.isBlocked, "$channel.$command 已放行（桌面代执行写），不应拦截")
+        }
     }
 }

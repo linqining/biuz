@@ -378,7 +378,12 @@ final class E2ELoginStubServer {
     private var _fileWatcherUnwatchCount = 0
     private var _fileWatcherDisposeAllCount = 0
     private var _lastWatchRequest: (path: String, recursive: Bool)?
-    private var _recordedPinned: [String: Bool] = [:]
+        /// 写面波次② 捕获（test32）：saveHooks / setEnabled 请求体（原始 StubRPC）
+    private var _saveHooksBodies: [StubRPC] = []
+    private var _setEnabledBodies: [StubRPC] = []
+    func saveHooksBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _saveHooksBodies }
+    func setEnabledBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _setEnabledBodies }
+private var _recordedPinned: [String: Bool] = [:]
     private var _setTaskUnreadCount = 0
     private var _archiveTaskCount = 0
     private var _promoteDeferredDraftCount = 0
@@ -1316,6 +1321,16 @@ final class E2ELoginStubServer {
             var usage = Self.stubTokenUsage
             usage["sessionId"] = body.objectValue?["taskId"]?.stringValue ?? ""
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(usage)))
+        case "saveHooks" where channelName == "hooks":
+            lock.lock()
+            _saveHooksBodies.append(body)
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
+        case "setEnabled" where channelName == "subagents":
+            lock.lock()
+            _setEnabledBodies.append(body)
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
         // ---- 屏 024/026/018 设置只读页替身（test30；上游形状见 RemoteSettingsExtrasViews.swift）。
         // 值一律走 [String: Any] 重载（Bool→int 1/0 线缆口径，与本文件既有 case 同惯例）----
         case "loadHooks" where channelName == "hooks":
@@ -3178,6 +3193,11 @@ enum StubRPC {
 
     var objectValue: [String: StubRPC]? {
         if case .object(let dict) = self { return dict }
+        return nil
+    }
+
+    var arrayValue: [StubRPC]? {
+        if case .array(let items) = self { return items }
         return nil
     }
 

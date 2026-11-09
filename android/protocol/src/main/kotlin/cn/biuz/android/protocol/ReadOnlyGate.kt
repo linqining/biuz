@@ -217,12 +217,21 @@ object ReadOnlyGate {
             "restoreBuiltinPlugin", "configurePlugin", "resetPluginConfig",
             "validatePlugin", "setPluginEnabled",
         ),
+        // setEnabled 放行（写面波次② 2026-11-10，web 同参同面裁决先例=git 写族/setting.update）：
+        // 手机「子智能体」页启停开关 = subagents.setEnabled({agentId, enabled})，桌面代执行
+        // （写 agents-state.json，服务端 fs）；createAgent/updateAgent/deleteAgent/
+        // set*ModelOverride（完整编辑器面）未接 UI，维持拦截。
         "subagents" to setOf(
-            "setEnabled", "setBuiltInModelOverride", "setPluginAgentModelOverride",
+            "setBuiltInModelOverride", "setPluginAgentModelOverride",
             "createAgent", "updateAgent", "deleteAgent",
         ),
         "commands" to setOf("writeCommandFile", "updateCommandFile", "deleteCommandFile", "setCommandEnabled"),
-        "hooks" to setOf("saveHooks", "grantWorkspaceHookTrust"),
+        // saveHooks 放行（写面波次② 2026-11-10，同上裁决）：手机「钩子」页启停/删除 =
+        // saveHooks 整表覆盖（服务端只落 editable!==false 且 location.source==="zcode" 的
+        // user/project 钩子——hooksService.ts:309-333 过滤在桌面侧，非可编辑条目不动）；
+        // UI 一律确认/开关直发+失败原文上屏。grantWorkspaceHookTrust 维持拦截（trust 走
+        // v4 审核交互流，未接）。
+        "hooks" to setOf("grantWorkspaceHookTrust"),
         "feedback" to setOf(
             "create", "cancelCreate", "comment", "uploadAttachment",
             "uploadAttachmentWithProgress", "cancelUpload", "uploadAttachmentData",

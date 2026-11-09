@@ -1515,4 +1515,76 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         XCTAssertTrue(waitStaticText(application, containing: "白板.png", timeout: 8,
                                      "composer 应出现白板导出附件 chip（uploads.add 同效 web）"))
     }
+
+    // MARK: - 写面波次②（gate 放行 saveHooks/setEnabled）：钩子启停/删除 + 子代理启停
+
+    /// 024 钩子：toggle 已安装钩子 → saveHooks 捕获体 enabled 翻转 → 删除 → hooks=[]；
+    /// 026 子智能体：user 代理开关 → setEnabled 捕获体 {agentId, enabled:false}。
+    /// （Android 同形代码已随波次①约定测试 + 真桌面无 user 钩子/代理故真机路径
+    /// 数据缺席——替身是本波次的可达验证面，形状与 web 同参。）
+    func test32_writeFaceWave2HooksAndSubagents() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+
+        // ---- 024 钩子：启停 → saveHooks 翻转 ----
+        openSettingsPage(application, rowIdentifier: "24-row-hooks")
+        let hookToggle = element(application, "24-toggle-stub-hook-installed")
+        XCTAssertTrue(hookToggle.waitForExistence(timeout: 15), "已安装钩子行应有启停开关（installed 分组）")
+        hookToggle.tap()
+        XCTAssertTrue(waitStaticText(application, containing: "已停用 SessionStart", timeout: 10,
+                                     "启停成功应出回执（saveHooks 返回后）"))
+        var hookBodies = stub.saveHooksBodies()
+        XCTAssertTrue(waitUntil(timeout: 8, "替身应收到 saveHooks") {
+            stub.saveHooksBodies().count >= 1
+        })
+        hookBodies = stub.saveHooksBodies()
+        if let first = hookBodies.last?.objectValue?["hooks"]?.arrayValue?.first,
+           let entry = first.objectValue {
+            XCTAssertEqual(entry["id"]?.stringValue, "stub-hook-installed", "整表回传应含目标行 id")
+            XCTAssertEqual(entry["enabled"]?.intValue, 0, "翻转后 enabled=false（替身 bool→int 线缆口径）")
+        } else {
+            XCTFail("saveHooks 捕获体应含 hooks 数组（实际=\(hookBodies.last)）")
+        }
+
+        // ---- 024 钩子：删除 → saveHooks 过滤该行 ----
+        element(application, "24-delete-stub-hook-installed").tap()
+        let deleteConfirm = element(application, "24-act-delete-confirm")
+        XCTAssertTrue(deleteConfirm.waitForExistence(timeout: 6), "删除确认弹层应出现")
+        deleteConfirm.tap()
+        XCTAssertTrue(waitStaticText(application, containing: "已删除 SessionStart", timeout: 10,
+                                     "删除成功应出回执"))
+        XCTAssertTrue(waitUntil(timeout: 8, "第二次 saveHooks 应抵达") {
+            stub.saveHooksBodies().count >= 2
+        })
+        if let lastBody = stub.saveHooksBodies().last?.objectValue?["hooks"]?.arrayValue {
+            // 整表语义：remaining = 全量 - 被删行（legacy/trust 两条仍回传——桌面侧
+            // hooksService 过滤非可编辑条目，落盘只含 zcode 已安装行）
+            XCTAssertEqual(lastBody.count, 2, "整表回传应含其余 2 条（实际=\(lastBody.count)）")
+            let ids = lastBody.compactMap { $0.objectValue?["id"]?.stringValue }
+            XCTAssertFalse(ids.contains("stub-hook-installed"), "被删行不应在整表内")
+        } else {
+            XCTFail("第二次 saveHooks 捕获体应含 hooks 数组")
+        }
+
+        // ---- 026 子智能体：user 代理开关 → setEnabled ----
+        // 先 pop 回设置根（当前 push 在钩子页——Tab 栏在 push 态隐藏，
+        // openSettingsPage 第一步查 Tab 栏会失败）
+        application.navigationBars.buttons.element(boundBy: 0).tap()
+        openSettingsPage(application, rowIdentifier: "26-row-subagents")
+        let agentToggle = element(application, "26-toggle-user:reviewer")
+        XCTAssertTrue(agentToggle.waitForExistence(timeout: 15), "user 代理行应有启停开关")
+        agentToggle.tap()
+        XCTAssertTrue(waitStaticText(application, containing: "已停用 reviewer", timeout: 10,
+                                     "启停成功应出回执"))
+        XCTAssertTrue(waitUntil(timeout: 8, "替身应收到 setEnabled") {
+            stub.setEnabledBodies().count >= 1
+        })
+        if let body = stub.setEnabledBodies().last?.objectValue {
+            XCTAssertEqual(body["agentId"]?.stringValue, "user:reviewer", "setEnabled 应携 agentId")
+            XCTAssertEqual(body["enabled"]?.intValue, 0, "翻转后 enabled=false")
+        } else {
+            XCTFail("setEnabled 捕获体应为对象")
+        }
+        snap(application, "matrix-wave2-write-faces")
+    }
 }

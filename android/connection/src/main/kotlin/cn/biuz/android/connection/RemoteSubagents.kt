@@ -102,6 +102,28 @@ suspend fun AppSession.loadSubagents(
     }
 }
 
+/**
+ * 子智能体启停（写面波次②，gate 已放行；web hooksStore 同族 subagentsStore
+ * `setEnabled` 同参）：`subagents.setEnabled {agentId, enabled}`——服务端写
+ * agents-state.json 的 disabledAgentIds（subagentsService.ts:678-692）。
+ * web 仅 user scope 可编辑 agent 出开关（supportsEnabledToggle :152-154）。
+ * 返回 null=成功；非 null=可上屏错误文案。
+ */
+suspend fun AppSession.setSubagentEnabled(agentId: String, enabled: Boolean): String? {
+    if (!isConnected) return "未连接桌面端"
+    val fields = LinkedHashMap<String, JSONValue>()
+    fields["agentId"] = JSONValue.Str(agentId)
+    fields["enabled"] = JSONValue.Bool(enabled)
+    return try {
+        connection.call("subagents", "setEnabled", RPCValue.json(JSONValue.Obj(fields)))
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "操作失败 · ${e.toString().take(160)}"
+    }
+}
+
 /** 子代理条目解析（纯函数；id/name 缺席丢弃）。 */
 fun parseSubagent(json: JSONValue): SubagentRow? {
     val d = json.objectValue ?: return null

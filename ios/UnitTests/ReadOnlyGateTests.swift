@@ -176,8 +176,13 @@ final class ReadOnlyGateTests: XCTestCase {
             ("feedback", "create"), ("feedback", "uploadAttachment"),
             ("provider-settings", "createPersonalProvider"), ("provider-settings", "testModelConnectivity"),
             ("provider-provisioning-target", "apply"),
-            ("skills", "setEnabled"), ("hooks", "saveHooks"), ("commands", "writeCommandFile"),
-            ("subagents", "deleteAgent"), ("mcp-sync", "saveMcpToUserDirectory"),
+            ("skills", "setEnabled"),
+            // 写面波次②（2026-11-10）：hooks.saveHooks / subagents.setEnabled 移入放行面
+            // （testWriteFaceWave2Released；反向回归：加回黑名单即误杀启停/删除入口）
+            ("commands", "writeCommandFile"),
+            ("subagents", "deleteAgent"), ("subagents", "createAgent"),
+            ("subagents", "setBuiltInModelOverride"), ("hooks", "grantWorkspaceHookTrust"),
+            ("mcp-sync", "saveMcpToUserDirectory"),
             ("plugin-sync", "importPluginsArchive"), ("plugins", "installPlugin"),
             ("plugin-management", "setPluginEnabled"),
             ("bots", "handleInboundMessage"), ("bots", "beginFeishuRegistration"),
@@ -353,5 +358,19 @@ final class ReadOnlyGateTests: XCTestCase {
             "envelope": envelope,
             "workspacePath": .string("/tmp/ws"),
         ]))
+    }
+
+    // MARK: 写面波次② 放行（2026-11-10，web 同参同面裁决）：钩子启停/删除（saveHooks
+    // 整表，桌面侧过滤非可编辑条目）+ 子智能体启停（setEnabled，agents-state.json）。
+
+    func testWriteFaceWave2Released() {
+        let cases: [(String, String)] = [
+            ("hooks", "saveHooks"),
+            ("subagents", "setEnabled"),
+        ]
+        for (channel, command) in cases {
+            let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: .undefined)
+            XCTAssertFalse(verdict.isBlocked, "\(channel).\(command) 已放行（桌面代执行写），不应拦截")
+        }
     }
 }

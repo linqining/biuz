@@ -561,6 +561,8 @@
     <string name="hooks_type_command">Shell command</string>
     <string name="hooks_no_command">(no command)</string>
     <string name="hooks_needs_trust">Trust required</string>
+    <string name="hooks_delete_title">Delete hook?</string>
+    <string name="hooks_delete_message">Delete the "%1$s" hook? This writes to the desktop config (it can be recreated).</string>
     <!-- ============ 026 Subagents (subagents.list read-only) ============ -->
     <string name="subagents_title">Subagents</string>
     <string name="subagents_not_connected_hint">Subagent definitions live on the desktop; connect to sync the list here</string>

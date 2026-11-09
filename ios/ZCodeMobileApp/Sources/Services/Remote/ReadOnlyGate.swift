@@ -185,12 +185,18 @@ enum ReadOnlyGate {
             "restoreBuiltinPlugin", "configurePlugin", "resetPluginConfig",
             "validatePlugin", "setPluginEnabled",
         ],
+        // setEnabled 放行（写面波次② 2026-11-10，web 同参同面裁决先例=git 写族/setting.update）：
+        // 手机「子智能体」页启停开关 = subagents.setEnabled({agentId, enabled})，桌面代执行；
+        // createAgent/updateAgent/deleteAgent/set*ModelOverride 未接 UI，维持拦截。
         "subagents": [
-            "setEnabled", "setBuiltInModelOverride", "setPluginAgentModelOverride",
+            "setBuiltInModelOverride", "setPluginAgentModelOverride",
             "createAgent", "updateAgent", "deleteAgent",
         ],
         "commands": ["writeCommandFile", "updateCommandFile", "deleteCommandFile", "setCommandEnabled"],
-        "hooks": ["saveHooks", "grantWorkspaceHookTrust"],
+        // saveHooks 放行（写面波次② 2026-11-10，同上裁决）：手机「钩子」页启停/删除 =
+        // saveHooks 整表覆盖（服务端只落 editable!==false 且 source==="zcode" 的条目，
+        // hooksService.ts:309-333 过滤在桌面侧）；grantWorkspaceHookTrust 维持拦截。
+        "hooks": ["grantWorkspaceHookTrust"],
         "feedback": [
             "create", "cancelCreate", "comment", "uploadAttachment",
             "uploadAttachmentWithProgress", "cancelUpload", "uploadAttachmentData",
