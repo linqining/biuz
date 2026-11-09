@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
+import kotlinx.coroutines.delay
+import cn.biuz.android.app.ui.components.BiuzInlineNotice
 import cn.biuz.android.app.ui.chat.ChatViewModel
 import cn.biuz.android.app.ui.chat.ModelOptionSection
 import cn.biuz.android.app.ui.chat.ModelRefetchRow
@@ -117,6 +119,9 @@ fun SessionsScreen(
     // Store 换源重绑：列表态/失败文案均以 epoch 为 key（实例级重建，防抱旧 Store）
     var conversations by remember(surface.epoch) { mutableStateOf<List<Conversation>>(emptyList()) }
     var loadFailure by remember(surface.epoch) { mutableStateOf<String?>(null) }
+    // P-023 订阅看门狗：桌面 v4 握手超时（helloConversationV4 RPC 超时）时连接层只「降级继续」，
+    // 列表会永久停在「正在同步」且无错误行/无重试入口。15s 无首屏 → 如实报错并给重试。
+    var subscribeWatchdog by remember(surface.epoch) { mutableStateOf<String?>(null) }
     LaunchedEffect(surface.epoch) {
         // conversations() 触发 sessions-index 订阅（帧 handler 先于 subscribe 注册由
         // Store 内部保证）并取首屏投影；随后按事件流增量维护列表
@@ -132,6 +137,18 @@ fun SessionsScreen(
                 }
                 else -> Unit
             }
+        }
+    }
+    // 看门狗：连接态且一直没有首屏、也没有既有失败文案 → 超时上屏（可重试）
+    LaunchedEffect(surface.epoch, conversations.size, loadFailure, mode) {
+        if (mode !is AppSession.Mode.Connected) return@LaunchedEffect
+        if (conversations.isNotEmpty() || loadFailure != null) {
+            subscribeWatchdog = null
+            return@LaunchedEffect
+        }
+        delay(15_000)
+        if (conversations.isEmpty() && loadFailure == null) {
+            subscribeWatchdog = "桌面端暂未返回会话列表（会话初始化未完成）· 点按重试"
         }
     }
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
@@ -322,6 +339,19 @@ fun SessionsScreen(
                 Spacer(Modifier.height(BiuZSpacing.sm))
             }
 
+            // P-023：看门狗超时行（常驻，点按重新订阅；首屏到达即清）
+            subscribeWatchdog?.let { text ->
+                BiuzInlineNotice(
+                    message = text,
+                    tag = "04-subscribe-watchdog",
+                    onRetry = {
+                        subscribeWatchdog = null
+                        scope.launch { conversations = surface.conversation.conversations() }
+                    },
+                )
+                Spacer(Modifier.height(BiuZSpacing.sm))
+            }
+
             when {
                 // 未连接空态（§1.6 表：未连接桌面端 / 连接后同步… / 连接桌面端 CTA）
                 rows.isEmpty() && (mode is AppSession.Mode.Demo || mode is AppSession.Mode.ConnectFailed) -> {
@@ -332,7 +362,8 @@ fun SessionsScreen(
                 }
 
                 // 连接态首屏：订阅快照未到 = 居中 spinner（5.9 加载态口径，无骨架屏）
-                rows.isEmpty() && loadFailure == null && mode is AppSession.Mode.Connected -> {
+                rows.isEmpty() && loadFailure == null && subscribeWatchdog == null &&
+                    mode is AppSession.Mode.Connected -> {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier

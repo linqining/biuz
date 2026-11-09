@@ -3,7 +3,9 @@
      改键必须双表同批；键名/占位符类型完全一致（%1$s/%1$d/%%），禁漂移。 -->
 <resources>
     <!-- 顶栏 -->
-    <string name="chat_title">Sessions</string>
+    <string name="chat_title">Task chat</string>
+    <string name="sessions_title">Task list</string>
+    <string name="sessions_new_task">New task</string>
     <string name="chat_back">Back</string>
     <string name="chat_running">Running</string>
     <string name="chat_load_retry">Reload</string>
