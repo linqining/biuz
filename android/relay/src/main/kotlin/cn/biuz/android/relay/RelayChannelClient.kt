@@ -719,7 +719,15 @@ class RelayChannelClient(
         arg: RPCValue,
         timeout: Duration,
     ): RPCValue {
-        val body = RPCSerialization.serialize(RPCValue.Arr(listOf(arg)))
+        // arg 约定（2026-11-10 实证）：Arg=Arr = 完整位置参数数组（web toService
+        // `channel.call(name, args)` 同形）原样作 body——多参服务
+        // （project.deleteProject(id, hostId) 等）靠它表达；否则视为单个位置参数
+        // 包一层成 [arg]（既有全部调用形态不变——仓内零 Arr 形态调用点，零回归面）。
+        // 反面实证：deleteProject 传 Obj(JSON数组) 被再包一层 → 桌面 spread 后
+        // id=整个数组 → SQLite "cannot be bound to parameter 3"。
+        val body = RPCSerialization.serialize(
+            if (arg is RPCValue.Arr) arg else RPCValue.Arr(listOf(arg)),
+        )
         val deferred = CompletableDeferred<RPCValue>()
         val id: Int
         val frame: ByteArray

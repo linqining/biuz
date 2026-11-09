@@ -662,4 +662,8 @@
     <string name="projects_task_count">%1$d 个会话</string>
     <string name="projects_removed_title">已移除的项目（%1$d）</string>
     <string name="projects_removed_badge">已移除</string>
+    <string name="projects_restore">恢复</string>
+    <string name="projects_remove_title">移除项目「%1$s」？</string>
+    <string name="projects_remove_message">它会从侧栏和项目选择器中移除，会话仍保留在最近和搜索中，磁盘上的文件不受影响。（可在此页的「已移除的项目」区恢复）</string>
+    <string name="projects_remove_confirm">移除</string>
 </resources>

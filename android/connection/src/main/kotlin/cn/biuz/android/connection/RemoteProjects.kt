@@ -53,6 +53,46 @@ sealed class ProjectsError(message: String) : Exception(message) {
 }
 
 /**
+ * 移除项目（软删；web useProjectManagement.ts:222-225 同参 `deleteProject(id, hostId)`）
+ * ——多参服务按位置数组透传：arg=RPCValue.Arr（中继传输对 Arr 原样发，见
+ * RelayChannelClient 约定注记；直连 ChannelClient 无包装亦同形），幂等软删容器、
+ * 保留任务归属与 roots（contract.ts:47-48）。返回 null=成功；非 null=可上屏错误文案。
+ */
+suspend fun AppSession.deleteProject(id: String, hostId: String): String? {
+    if (!isConnected) return "未连接桌面端"
+    return try {
+        connection.call(
+            "project", "deleteProject",
+            RPCValue.Arr(listOf(RPCValue.Str(id), RPCValue.Str(hostId))),
+        )
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "移除失败 · ${e.toString().take(160)}"
+    }
+}
+
+/**
+ * 恢复项目（撤销移除；web useProjectManagement.ts:341-344 同参
+ * `restoreProject(id, hostId)`，回执 VirtualProject）。返回 null=成功。
+ */
+suspend fun AppSession.restoreProject(id: String, hostId: String): String? {
+    if (!isConnected) return "未连接桌面端"
+    return try {
+        connection.call(
+            "project", "restoreProject",
+            RPCValue.Arr(listOf(RPCValue.Str(id), RPCValue.Str(hostId))),
+        )
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "恢复失败 · ${e.toString().take(160)}"
+    }
+}
+
+/**
  * 项目树读（includeDeleted=true 连已移除一起拿——web ProjectManagement 的
  * 「已移除的项目」区同源；hostId 缺省不传，服务端按当前 host 处理）。
  */

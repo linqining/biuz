@@ -75,7 +75,14 @@ class E2EStubServer(
 
     // MARK: 记账类型（用例断言面）
 
-    class RecordedCall(val order: Int, val channel: String, val command: String, val atMillis: Long)
+    class RecordedCall(
+        val order: Int,
+        val channel: String,
+        val command: String,
+        val atMillis: Long,
+        /** 原始 body（RPC 反序列化产物）——传输层 args 约定测试用（2026-11-10） */
+        val body: JSONValue? = null,
+    )
 
     class RecordedClientHello(
         val order: Int,
@@ -463,7 +470,7 @@ class E2EStubServer(
                 val channelName = header.getOrNull(2)?.stringValue ?: ""
                 val command = header.getOrNull(3)?.stringValue ?: ""
                 synchronized(lock) {
-                    rpcCalls.add(RecordedCall(nextOrderLocked(), channelName, command, System.currentTimeMillis()))
+                    rpcCalls.add(RecordedCall(nextOrderLocked(), channelName, command, System.currentTimeMillis(), body.jsonValue))
                 }
                 dispatchPromise(session, id, command, body)
             }
@@ -1876,7 +1883,7 @@ class E2EStubServer(
                 val channelName = header.getOrNull(2)?.stringValue ?: ""
                 val command = header.getOrNull(3)?.stringValue ?: ""
                 synchronized(lock) {
-                    rpcCalls.add(RecordedCall(nextOrderLocked(), channelName, command, System.currentTimeMillis()))
+                    rpcCalls.add(RecordedCall(nextOrderLocked(), channelName, command, System.currentTimeMillis(), body.jsonValue))
                 }
                 // 桥内 promise body = 参数数组（toService 把调用参数列表整体序列化，host 端
                 // fromService 按 apply(o, p) 展开——RelayChannelClient.call 直译注；与局域网

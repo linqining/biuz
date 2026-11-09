@@ -319,4 +319,56 @@ class RelayChannelE2ETest {
             server.stop()
         }
     }
+
+    // MARK: 传输层 args 约定（2026-11-10）：arg=Arr = 完整位置参数数组原样透传
+    // （web toService 同形，多参服务 deleteProject(id, hostId) 形态）；其余单参形态
+    // 包一层 [arg]。反面实证：Obj(JSON数组) 被再包一层 → 桌面 spread 后 id=整个数组
+    // → SQLite "cannot be bound to parameter 3"。
+
+    @Test
+    fun rpcBodyConvention_arrArgsPassThrough_objectsWrapped() = runBlocking {
+        val server = E2EStubServer()
+        server.start()
+        server.relayDeviceSid = relaySid
+        server.relayPassHash = relayPassHash
+        server.startRelay()
+        server.methodHandlers["deleteProject"] = { stubObj("ok" to JSONValue.Bool(true)) }
+        server.methodHandlers["readTree"] = { stubObj("projects" to JSONValue.Arr(emptyList())) }
+        var harness: Harness? = null
+        try {
+            val bridgeOpened = AtomicInteger(0)
+            harness = connect(server, clientId = "zcode-mobile-relaytest-args", bridgeOpenedCount = bridgeOpened)
+            val client = harness.client
+            // 多参位置形态：Arr 原样透传（桌面 spread 后 deleteProject(id, hostId)）
+            client.call(
+                "project", "deleteProject",
+                RPCValue.Arr(listOf(RPCValue.Str("proj-1"), RPCValue.Str("local"))),
+            )
+            awaitUntil("deleteProject 抵达替身") { server.rpcCallCount("deleteProject") >= 1 }
+            val recorded = server.rpcCallLog().last { it.command == "deleteProject" }
+            val bodyArr = recorded.body?.arrayValue
+            assertNotNull(bodyArr, "body 应为位置参数数组（而非再包一层的嵌套数组）")
+            assertEquals(2, bodyArr.size, "args=[id, hostId] 两参")
+            assertEquals("proj-1", bodyArr[0].stringValue)
+            assertEquals("local", bodyArr[1].stringValue)
+            // 单对象形态：包一层 [obj]（既有语义不变）
+            client.call(
+                "project", "readTree",
+                RPCValue.json(JSONValue.Obj(mapOf("includeDeleted" to JSONValue.Bool(true)))),
+            )
+            awaitUntil("readTree 抵达替身") { server.rpcCallCount("readTree") >= 1 }
+            val readRecorded = server.rpcCallLog().last { it.command == "readTree" }
+            val readBodyArr = readRecorded.body?.arrayValue
+            assertNotNull(readBodyArr, "单对象参数 wire body = [obj]（桌面 spread 后成单参）")
+            assertEquals(1, readBodyArr.size)
+            assertEquals(
+                true,
+                readBodyArr[0].objectValue?.get("includeDeleted")?.boolValue,
+                "对象字段原样可达",
+            )
+        } finally {
+            server.stopRelay()
+            server.stop()
+        }
+    }
 }

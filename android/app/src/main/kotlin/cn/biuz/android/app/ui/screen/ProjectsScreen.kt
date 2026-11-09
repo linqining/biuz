@@ -3,6 +3,7 @@ package cn.biuz.android.app.ui.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,9 +13,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +49,8 @@ import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
+import cn.biuz.android.connection.deleteProject
+import cn.biuz.android.connection.restoreProject
 import cn.biuz.android.connection.ProjectRow
 import cn.biuz.android.connection.ProjectsError
 import cn.biuz.android.connection.ProjectsTree
@@ -73,6 +78,10 @@ fun ProjectsScreen(
     var tree by remember { mutableStateOf<ProjectsTree?>(null) }
     var notConnected by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
+    // 写面（P-009 写面波次①）：移除/恢复——返回 null=成功、非 null=错误文案（写面禁静默）
+    var actionNotice by remember { mutableStateOf<String?>(null) }
+    var actionNoticeIsError by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<ProjectRow?>(null) }
 
     suspend fun reload() {
         loading = true
@@ -146,6 +155,15 @@ fun ProjectsScreen(
                 val active = projects.filter { !it.deleted }
                 val removed = projects.filter { it.deleted }
                 val counts = tree?.taskCountByProject ?: emptyMap()
+                if (actionNotice != null) {
+                    BiuzInlineNotice(
+                        message = actionNotice.orEmpty(),
+                        kind = if (actionNoticeIsError) cn.biuz.android.app.ui.components.BiuzNoticeKind.Error
+                        else cn.biuz.android.app.ui.components.BiuzNoticeKind.Info,
+                        modifier = Modifier.padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.xs),
+                        tag = "18-action-notice",
+                    )
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -172,7 +190,11 @@ fun ProjectsScreen(
                         }
                     }
                     items(active, key = { it.id }) { project ->
-                        ProjectRowView(project, counts[project.id] ?: 0)
+                        ProjectRowView(
+                            project = project,
+                            taskCount = counts[project.id] ?: 0,
+                            onRemove = { pendingDelete = project },
+                        )
                     }
                     if (removed.isNotEmpty()) {
                         item(key = "removed-header") {
@@ -185,23 +207,67 @@ fun ProjectsScreen(
                             )
                         }
                         items(removed, key = { "removed-${it.id}" }) { project ->
-                            RemovedProjectRowView(project)
+                            RemovedProjectRowView(
+                                project = project,
+                                onRestore = {
+                                    scope.launch {
+                                        val error = session.restoreProject(project.id, project.hostId)
+                                        actionNotice = error ?: "已恢复 ${project.name}"
+                                        actionNoticeIsError = error != null
+                                        reload()
+                                    }
+                                },
+                            )
                         }
                     }
                 }
             }
         }
     }
+
+    // 移除确认（软删可撤销——web ProjectRemovalDialog 的「删数据」选项未接：v1 只做
+    // 侧栏移除，measureProjectData/deleteProjectData 登记后续波次）
+    pendingDelete?.let { project ->
+        val removeTitle = stringResource(R.string.projects_remove_title, project.name)
+        val removeMessage = stringResource(R.string.projects_remove_message)
+        val removeConfirmText = stringResource(R.string.projects_remove_confirm)
+        val cancelText = stringResource(R.string.desktop_act_cancel)
+        val removedTemplate = "已移除 " + project.name
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(removeTitle) },
+            text = { Text(removeMessage) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = project
+                    pendingDelete = null
+                    scope.launch {
+                        val error = session.deleteProject(target.id, target.hostId)
+                        actionNotice = error ?: removedTemplate
+                        actionNoticeIsError = error != null
+                        reload()
+                    }
+                }) { Text(removeConfirmText) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text(cancelText)
+                }
+            },
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ProjectRowView(project: ProjectRow, taskCount: Int) {
+private fun ProjectRowView(project: ProjectRow, taskCount: Int, onRemove: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(BiuZRadius.medium)
             .background(BiuZBgCard)
             .border(1.dp, BiuZBorder, BiuZRadius.medium)
+            .combinedClickable(onClick = {}, onLongClick = onRemove)
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("18-row-${project.id}"),
         verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -251,7 +317,7 @@ private fun ProjectRowView(project: ProjectRow, taskCount: Int) {
 }
 
 @Composable
-private fun RemovedProjectRowView(project: ProjectRow) {
+private fun RemovedProjectRowView(project: ProjectRow, onRestore: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -274,6 +340,18 @@ private fun RemovedProjectRowView(project: ProjectRow) {
             text = stringResource(R.string.projects_removed_badge),
             fontSize = 10.sp,
             color = BiuZText3,
+            modifier = Modifier.padding(end = 8.dp),
+        )
+        Text(
+            text = stringResource(R.string.projects_restore),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = BiuZAccent,
+            modifier = Modifier
+                .clip(BiuZRadius.small)
+                .clickable { onRestore() }
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .testTag("18-act-restore-${project.id}"),
         )
     }
 }

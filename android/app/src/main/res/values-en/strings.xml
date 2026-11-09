@@ -584,4 +584,8 @@
     <string name="projects_task_count">%1$d sessions</string>
     <string name="projects_removed_title">Removed projects (%1$d)</string>
     <string name="projects_removed_badge">Removed</string>
+    <string name="projects_restore">Restore</string>
+    <string name="projects_remove_title">Remove project "%1$s"?</string>
+    <string name="projects_remove_message">It is removed from the sidebar and project picker. Sessions remain in recents and search; files on disk are not affected. (Restore it from the "Removed projects" section on this page.)</string>
+    <string name="projects_remove_confirm">Remove</string>
 </resources>
