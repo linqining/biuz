@@ -38,6 +38,24 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="zcode" android:host="share" />
             </intent-filter>
+            <!-- 009 分享深链（https 形态）：真链接是 https://zcode.z.ai/share/<code>
+                 与 /cn/share/<code>（SharePreviewClient.shareCodeFrom 已解析，:115-135）。
+                 注：OS 级「点链接直接开 App」还需在 zcode.z.ai 托管
+                 /.well-known/assetlinks.json 并给本 filter 加 autoVerify —— 该文件属服务端资产，
+                 未托管前链接仍会用浏览器打开，App 作为候选处理器可用 intent 显式指定。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="zcode.z.ai"
+                    android:pathPrefix="/share" />
+                <data
+                    android:scheme="https"
+                    android:host="zcode.z.ai"
+                    android:pathPrefix="/cn/share" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

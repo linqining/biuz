@@ -14,7 +14,7 @@
 | P-005 | W1 | — | ios | **已修（2026-11-09）**：新增 `TinySyntax.swift` 轻量词法高亮（关键词/字符串/注释/数字四类），语言归一 swift/kotlin/java/ts/js/python/go/rust/shell/json/yaml/sql（SQL 关键词大小写不敏感 + `--` 注释），未知语言原样不高亮（不猜语义）；接入 `CodeBlockView`。与 web shiki 的差异：不做 AST、无主题变体、仅单行字符串/注释扫描——阅读级对齐，登记为刻意简化。原描述：Markdown 为轻量实现（`TinyMarkdown`），无代码高亮 | `ios/.../Components/TinySyntax.swift`；单测 `UnitTests/TinySyntaxTests.swift`（8 例）；UI 目检 `MatrixAcceptanceE2ETests/test29_codeBlockHighlightedInFilePreview` | 已修+实拍验证 |
 | P-006 | W2 | 006-多实例选择 | ios/android | 同机多在线实例时无选择弹层 | web `webRemoteControlConnectionSheet.tsx:141`；双端无对应实现 | 待修 |
 | P-007 | W2 | 008-版本提示 | ios/android | 桌面版本不匹配时的阻塞提示缺失 | web `webRemoteControlVersionNotice.tsx:6`；双端无 | 待修 |
-| P-008 | W2 | 009-分享落地 | android | 无 deeplink scheme，分享链接无法唤起 | `AndroidManifest.xml:30`（仅 LAUNCHER） | 待修 |
+| P-008 | W2 | 009-分享落地 | android | **已修（2026-11-09）**：manifest 补 https intent-filter（`zcode.z.ai` 的 `/share` 与 `/cn/share`，与既有 `zcode://share/<code>` 并存）；解析早已在 `SharePreviewClient.shareCodeFrom` 且有单测。**剩余（服务端资产）**：OS 级「点链接直接开 App」需 `zcode.z.ai/.well-known/assetlinks.json` + autoVerify，属服务端托管项。原描述：无 deeplink scheme，分享链接无法唤起 | `app/src/main/AndroidManifest.xml`；实测 `am start -a VIEW -d https://zcode.z.ai/share/TESTCODE9 -p cn.biuz.android` → 直达分享页并拿到真实 HTTP 404 | 已修 |
 | P-009 | W5 | 018/024/026/027 设置页 | ios | 项目/钩子/子代理/个性化四页未建 | web `settingsPageConfig.ts:2172,2218,2194,2098` | 待修 |
 | P-010 | W6 | 036-白板 | ios/android | Canvas2D 白板未移植 | web `WhiteboardPane.tsx:47` | 待修 |
 | P-011 | W3 | 010-任务主页 | ios | **已修（2026-11-08）**：补设备切换行、已置顶文案、筛选视图四档、行严格对齐 web。剩余两项已裁决为刻意差异：常驻搜索框 = D008、来源 chips = D009 | web 基线 `.capture/sync/20261108-075048-010/`；iOS `ConversationListView.swift` | 已修+实拍验证 |
