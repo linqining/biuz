@@ -516,4 +516,20 @@
     <string name="desktop_key_shortcutBindings">Keyboard shortcuts</string>
     <string name="desktop_key_providerFamilyDomain">Plan region</string>
     <string name="desktop_key_providerFamilyConnectionSelections">Plan connection selections</string>
+    <string name="automation_title">Automations</string>
+    <string name="automation_not_connected_hint">Scheduled tasks are run by the desktop; connect to sync the list and run history here</string>
+    <string name="automation_loading">Syncing automations…</string>
+    <string name="automation_none">No scheduled tasks</string>
+    <string name="automation_none_hint">Automations created on the desktop appear here with their schedule and history</string>
+    <string name="automation_error_hint">Check that the desktop is online and retry</string>
+    <string name="automation_summary">%1$d scheduled tasks · scheduled by the desktop</string>
+    <string name="automation_enabled">Enabled</string>
+    <string name="automation_disabled">Disabled</string>
+    <string name="automation_runs_title">Run history</string>
+    <string name="automation_runs_count">Ran %1$d times</string>
+    <string name="automation_runs_empty">No runs yet · collapse and re-expand to retry</string>
+    <string name="automation_status_success">Success</string>
+    <string name="automation_status_failed">Failed</string>
+    <string name="automation_status_running">Running</string>
+    <string name="settings_row_automation_sub">Scheduled tasks and triggers</string>
 </resources>

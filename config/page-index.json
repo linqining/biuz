@@ -232,7 +232,7 @@
       "route": "/remote/v4#settings/automations",
       "app": {
         "ios": "settings/automations (RemoteExtrasViews.swift:337)",
-        "android": "（待建）",
+        "android": "settings/automations (AutomationsScreen.kt)",
         "miniprogram": "pages/settings/automations"
       },
       "note": "SettingsPage.tsx:2200"

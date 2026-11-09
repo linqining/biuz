@@ -14,6 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.ui.screen.AboutScreen
 import cn.biuz.android.app.ui.screen.ArchivesScreen
+import cn.biuz.android.app.ui.screen.AutomationsScreen
 import cn.biuz.android.app.ui.screen.AppearanceScreen
 import cn.biuz.android.app.ui.screen.CapabilityListScreen
 import cn.biuz.android.app.ui.screen.ChatScreen
@@ -291,11 +292,19 @@ fun BiuZApp(
                     onOpenCapability = { kind -> navController.navigate(Routes.capability(kind)) },
                     onOpenAppearance = { navController.navigate(Routes.APPEARANCE) },
                     onOpenDesktopSettings = { navController.navigate(Routes.DESKTOP_SETTINGS) },
+                    onOpenAutomations = { navController.navigate(Routes.AUTOMATIONS) },
                 )
             }
             // 028 桌面设置同步（setting.get/update；iOS DesktopSettingsPage 对位）
             composable(Routes.DESKTOP_SETTINGS) {
                 DesktopSettingsScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            // 023 自动化（定时任务清单 + 运行历史；iOS AutomationsView 对位，只读）
+            composable(Routes.AUTOMATIONS) {
+                AutomationsScreen(
                     session = session,
                     onBack = { navController.popBackStack() },
                 )

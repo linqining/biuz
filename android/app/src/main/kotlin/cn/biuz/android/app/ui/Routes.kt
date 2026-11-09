@@ -38,6 +38,9 @@ object Routes {
     /** 028 桌面设置同步（setting.get 读 / setting.update 单键补丁写） */
     const val DESKTOP_SETTINGS = "settings/desktop"
 
+    /** 023 自动化（定时任务 + 运行历史；zcode-agent.listAutomations 只读） */
+    const val AUTOMATIONS = "settings/automations"
+
     /** 屏 07 执行输出（模型轨迹） */
     const val TASK_OUTPUT = "taskOutput/{sessionId}"
 

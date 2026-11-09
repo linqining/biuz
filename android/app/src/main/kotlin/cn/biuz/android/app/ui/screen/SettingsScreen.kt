@@ -68,6 +68,7 @@ fun SettingsScreen(
     onOpenCapability: (String) -> Unit = {},
     onOpenAppearance: () -> Unit = {},
     onOpenDesktopSettings: () -> Unit = {},
+    onOpenAutomations: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val developerMode by settings.developerMode.collectAsStateWithLifecycle()
@@ -169,6 +170,13 @@ fun SettingsScreen(
                     subtitle = stringResource(R.string.settings_row_plugins_sub),
                     testTagId = "13-row-plugins",
                     onClick = { onOpenCapability("plugins") },
+                )
+                // 023 自动化（iOS 12-row-automation 同位；只读清单 + 运行历史）
+                SettingsNavRow(
+                    title = stringResource(R.string.automation_title),
+                    subtitle = stringResource(R.string.settings_row_automation_sub),
+                    testTagId = "12-row-automation",
+                    onClick = onOpenAutomations,
                 )
                 // 028 桌面设置同步（iOS 12-row-desktop-settings 同位；连接态二分副标题）
                 val connectedForDesktopSettings =
