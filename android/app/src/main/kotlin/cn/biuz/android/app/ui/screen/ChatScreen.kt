@@ -148,6 +148,7 @@ fun ChatScreen(
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val sending by viewModel.isSending.collectAsStateWithLifecycle()
     val sendFailureReason by viewModel.sendFailureReason.collectAsStateWithLifecycle()
+    val feedbackFailure by viewModel.feedbackFailure.collectAsStateWithLifecycle()
     val slashHint by viewModel.slashHint.collectAsStateWithLifecycle()
     val collabMode by viewModel.collaborationMode.collectAsStateWithLifecycle()
     val collabModeFailure by viewModel.collaborationModeFailure.collectAsStateWithLifecycle()
@@ -436,6 +437,8 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
         ) {
             // 发送失败持久错误行（U-6：不随 3s 消失；重试钮；拒因原文透传）
+            // P-020 行级反馈失败原文（常驻错误行，禁静默）
+            feedbackFailure?.let { text -> ComposerErrorRow(text = text) }
             sendFailureReason?.let { reason ->
                 ComposerErrorRow(
                     text = if (reason.isEmpty()) {

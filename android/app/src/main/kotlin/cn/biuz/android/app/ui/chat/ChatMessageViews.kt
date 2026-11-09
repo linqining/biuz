@@ -132,6 +132,8 @@ fun MessageRow(
     onOpenWorkflowRun: (() -> Unit)? = null,
     /** 完成卡产物点按 → 产物详情 sheet（宿主接 store.workflowArtifactContent）。 */
     onOpenWorkflowArtifact: ((WorkflowCompletionCard, WorkflowCompletionArtifact) -> Unit)? = null,
+    /** P-020 行级反馈（赞/踩/取消）：null = 不渲染入口（游标缺失或宿主未接）。 */
+    onFeedback: ((ChatMessage, Boolean?) -> Unit)? = null,
 ) {
     when (message.role) {
         MessageRole.user -> UserMessageRow(message, modifier, onEditResend, attachmentContext)
@@ -143,6 +145,7 @@ fun MessageRow(
             workflowCompletionRun = workflowCompletionRun,
             onOpenWorkflowRun = onOpenWorkflowRun,
             onOpenWorkflowArtifact = onOpenWorkflowArtifact,
+            onFeedback = onFeedback,
         )
     }
 }
@@ -372,9 +375,15 @@ private fun EditResendSheet(
  * 本轮只落无副作用的只读项；赞踩属写面（store.setAssistantFeedback 已具备，VM 未接）。
  */
 @Composable
-private fun MessageActionRow(message: ChatMessage) {
+private fun MessageActionRow(
+    message: ChatMessage,
+    onFeedback: ((ChatMessage, Boolean?) -> Unit)? = null,
+) {
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var copied by remember(message.id) { mutableStateOf(false) }
+    // 本地乐观态（服务端行回声到达后以 message.feedback 为准）
+    var feedback by remember(message.id, message.feedback) { mutableStateOf(message.feedback) }
+    val canFeedback = onFeedback != null && message.rowKind == "assistantText" && message.entityId != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -396,6 +405,36 @@ private fun MessageActionRow(message: ChatMessage) {
                 .padding(horizontal = 6.dp, vertical = 2.dp)
                 .testTag("05-msg-copy-" + message.id),
         )
+        if (canFeedback) {
+            Text(
+                text = "赞",
+                fontSize = 11.sp,
+                color = if (feedback == true) BiuZText else BiuZText3,
+                modifier = Modifier
+                    .clip(BiuZRadius.small)
+                    .clickable {
+                        val next = if (feedback == true) null else true
+                        feedback = next
+                        onFeedback?.invoke(message, next)
+                    }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .testTag("05-msg-like-" + message.id),
+            )
+            Text(
+                text = "踩",
+                fontSize = 11.sp,
+                color = if (feedback == false) BiuZText else BiuZText3,
+                modifier = Modifier
+                    .clip(BiuZRadius.small)
+                    .clickable {
+                        val next = if (feedback == false) null else false
+                        feedback = next
+                        onFeedback?.invoke(message, next)
+                    }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .testTag("05-msg-dislike-" + message.id),
+            )
+        }
         Text(
             text = remember(message.timestamp) { formatMessageTime(message.timestamp) },
             fontSize = 11.sp,
@@ -425,6 +464,7 @@ private fun AgentMessageRow(
     workflowCompletionRun: WorkflowRunSummary? = null,
     onOpenWorkflowRun: (() -> Unit)? = null,
     onOpenWorkflowArtifact: ((WorkflowCompletionCard, WorkflowCompletionArtifact) -> Unit)? = null,
+    onFeedback: ((ChatMessage, Boolean?) -> Unit)? = null,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -445,7 +485,7 @@ private fun AgentMessageRow(
         // 消息动作行（web 会话页为 复制/赞/踩/展开/锚点/时间；本轮先落只读两项：
         // 复制 + 时间。赞/踩需接 setAssistantFeedback 的 VM 写链路，单列后续。
         if (message.text.isNotEmpty() && message.status != MessageStatus.streaming) {
-            MessageActionRow(message = message)
+            MessageActionRow(message = message, onFeedback = onFeedback)
         }
         message.thinking?.let { ThinkingBlock(it.text, it.state) }
         // G-014 附件缩略图行（无附件数据不渲染任何占位块；iOS MessageViews.swift:91 同构）

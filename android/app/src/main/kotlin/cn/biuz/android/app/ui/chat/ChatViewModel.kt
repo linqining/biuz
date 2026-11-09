@@ -1202,6 +1202,37 @@ class ChatViewModel(
      * 返回 null = 权威成功（消息流由桌面 rows 键级重建自动刷新，本地乐观不做）；
      * 游标缺失 = Undelivered（调用方门槛：游标缺失不渲染入口，本实现亦不下发——防御位）。
      */
+    /** 行级反馈失败原文（P-020；常驻错误行，失败不上屏即假成功）。 */
+    private val _feedbackFailure = MutableStateFlow<String?>(null)
+    val feedbackFailure: StateFlow<String?> = _feedbackFailure
+
+    /**
+     * 助手消息行级反馈（store.setAssistantFeedback；rowId+entityId 双游标精确寻址）。
+     * value：true=赞 / false=踩 / null=取消。写面失败/未知态把原文落常驻错误行。
+     */
+    suspend fun setAssistantFeedback(message: ChatMessage, value: Boolean?) {
+        val rowId = message.id.removePrefix("row-").toIntOrNull()
+        val entityId = message.entityId
+        val store = attachedStore
+        if (rowId == null || entityId == null || store == null) {
+            _feedbackFailure.value = "该消息不可反馈（缺少行游标）"
+            return
+        }
+        val ack = store.setAssistantFeedback(
+            conversationId = conversationId,
+            rowId = rowId,
+            entityId = entityId,
+            value = value,
+        )
+        val commandAck = CommandAck(ack)
+        _feedbackFailure.value = when {
+            ack == null -> "消息未送达（无回执）"
+            commandAck.isFailure -> commandAck.failureText ?: "桌面端拒绝"
+            commandAck.isAuthoritativeSuccess -> null
+            else -> "桌面回执状态未知"
+        }
+    }
+
     suspend fun editUserQuery(message: ChatMessage, newText: String): InteractionFailure? {
         val rowId = message.id.removePrefix("row-").toIntOrNull()
             ?: return InteractionFailure.Undelivered

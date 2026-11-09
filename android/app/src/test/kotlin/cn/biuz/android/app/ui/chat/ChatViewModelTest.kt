@@ -46,6 +46,8 @@ private class FakeConversationStore(
     var collaborationProjection: String? = null,
     var interactions: List<RemotePendingInteraction> = emptyList(),
     var editAck: JSONValue? = null,
+    // P-020 行级反馈（赞/踩）回执
+    var feedbackAck: JSONValue? = null,
     // 模型面板面（v1.36/37）
     var modelSelectionInfo: ModelSelectionInfo? = null,
     var modelAck: JSONValue? = null,
@@ -67,6 +69,7 @@ private class FakeConversationStore(
     val sendAttachmentCalls = CopyOnWriteArrayList<List<OutgoingAttachment>>()
     val collabModeCalls = CopyOnWriteArrayList<String>()
     val editCalls = CopyOnWriteArrayList<Triple<Int, String?, String>>()
+    val feedbackCalls = CopyOnWriteArrayList<Triple<Int, String?, Boolean?>>()
     val switchModelCalls = CopyOnWriteArrayList<Triple<String, String, String>>() // provider|model|thought
     val queueCalls = CopyOnWriteArrayList<Pair<String, String>>() // verb|argument
     val attachmentCalls = CopyOnWriteArrayList<String>() // begin|chunk:i|commit|abort
@@ -171,6 +174,16 @@ private class FakeConversationStore(
     ): JSONValue? {
         editCalls.add(Triple(rowId, entityId, newText))
         return editAck
+    }
+
+    override suspend fun setAssistantFeedback(
+        conversationId: String,
+        rowId: Int,
+        entityId: String?,
+        value: Boolean?,
+    ): JSONValue? {
+        feedbackCalls.add(Triple(rowId, entityId, value))
+        return feedbackAck
     }
 
     override suspend fun pendingInteractionList(
@@ -485,6 +498,43 @@ class ChatViewModelTest {
         advanceUntilIdle()
         assertEquals("plan", vm.collaborationMode.value)
         assertNull(vm.collaborationModeFailure.value)
+    }
+
+    // MARK: P-020 行级反馈（赞/踩；rowId+entityId 双游标 + 回执三态）
+
+    @Test
+    fun assistantFeedbackRequiresCursorAndMapsAckOutcome() = runTest {
+        val store = FakeConversationStore(feedbackAck = acceptedAck())
+        val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm.attach(store)
+        advanceUntilIdle()
+
+        // 游标缺失：不下发
+        val noCursor = ChatMessage(
+            id = "row-7", role = MessageRole.agent, text = "回答",
+            rowKind = "assistantText", timestamp = 0,
+        )
+        vm.setAssistantFeedback(noCursor, true)
+        assertTrue(store.feedbackCalls.isEmpty(), "缺 entityId 不得下发")
+        assertNotNull(vm.feedbackFailure.value, "缺游标要如实上屏失败")
+
+        // 前人成功：rowId + entityId + 值逐字
+        val msg = ChatMessage(
+            id = "row-8", role = MessageRole.agent, text = "回答",
+            entityId = "ent-8", rowKind = "assistantText", timestamp = 0,
+        )
+        vm.setAssistantFeedback(msg, true)
+        assertEquals(listOf(Triple(8, "ent-8", true)), store.feedbackCalls.toList())
+        assertNull(vm.feedbackFailure.value, "权威成功清错误行")
+
+        // 取消（value=null）同样下发
+        vm.setAssistantFeedback(msg, null)
+        assertEquals(Triple(8, "ent-8", null), store.feedbackCalls.last())
+
+        // 拒收：原文上屏
+        store.feedbackAck = rejectedAck()
+        vm.setAssistantFeedback(msg, false)
+        assertNotNull(vm.feedbackFailure.value, "拒收必须常驻错误行")
     }
 
     // MARK: 编辑重发（P1-3：行游标精确寻址 + 回执三态如实映射；预填/下发恒用原文）
