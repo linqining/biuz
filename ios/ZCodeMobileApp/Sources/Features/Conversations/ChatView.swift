@@ -235,6 +235,42 @@ struct ChatView: View {
                     .font(.system(size: 14))
                     .foregroundColor(T.text3)
             }
+            // P-022 工作流运行摘要行（web「工作流运行中 工作流脚本 / N 个阶段 · M 个子代理工作中…」）
+            // 明细仍在 SessionPanelsView 的 Workflow 面板；此行点按即展开
+            if let run = viewModel.workflowRuns.first(where: { $0.rawStatus == "running" }) {
+                let agents = run.actors.filter { $0.rawStatus == "running" || $0.rawStatus == "active" }.count
+                let meta = [
+                    (run.phaseCount ?? 0) > 0 ? "\(run.phaseCount ?? 0) 个阶段" : nil,
+                    agents > 0 ? "\(agents) 个子代理工作中…" : nil,
+                ].compactMap { $0 }.joined(separator: " · ")
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { expandedPanel = .workflow }
+                } label: {
+                    HStack(spacing: T.sp2) {
+                        Text("⑂").font(.system(size: 13)).foregroundColor(T.violet)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("工作流运行中 · \(run.name)")
+                                .font(T.font(13, .medium))
+                                .foregroundColor(T.text)
+                                .lineLimit(1)
+                            if !meta.isEmpty {
+                                Text(meta).font(.system(size: 11)).foregroundColor(T.text3)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(T.text3)
+                    }
+                    .padding(.horizontal, T.sp3)
+                    .padding(.vertical, T.sp2)
+                    .background(T.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                    .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("05-workflow-running")
+            }
             if let progress = viewModel.conversation?.taskProgress {
                 ThinProgressBar(progress: progress)
             }
