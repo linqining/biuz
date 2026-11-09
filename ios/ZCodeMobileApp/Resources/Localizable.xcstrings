@@ -16073,6 +16073,56 @@
           }
         }
       }
+    },
+    "白板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whiteboard"
+          }
+        }
+      }
+    },
+    "添加到聊天" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add to chat"
+          }
+        }
+      }
+    },
+    "已添加到聊天附件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added to chat attachments"
+          }
+        }
+      }
+    },
+    "添加失败 · 附件被拒收" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to add — attachment was rejected"
+          }
+        }
+      }
+    },
+    "清空" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

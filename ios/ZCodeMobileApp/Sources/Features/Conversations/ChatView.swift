@@ -27,6 +27,8 @@ struct ChatView: View {
     @State private var expandedPanel: SessionPanelKind?
     /// 工作流完成卡产物详情 sheet（点交付物/产物索引行；nil = 收起）
     @State private var workflowArtifactSheet: WorkflowArtifactRequest?
+    /// 036 白板浮层（web 侧栏面板同位；零 RPC 纯客户端，语义见 WhiteboardModel）
+    @State private var whiteboardOpen = false
 
     var body: some View {
         Group {
@@ -205,6 +207,22 @@ struct ChatView: View {
             // 弹窗在场时键盘收不起——卡片区不在消息 ScrollView 内，需独立点按通道；
             // 卡内 Button/胶囊子控件占优先级，仅空白命中）
             .onTapGesture { composerFocused = false }
+            // 036 白板浮层（零 RPC 纯客户端；导出 PNG 直插 composer 附件——
+            // web add-to-chat 同效；workspace 键同 web buildWhiteboardWorkspaceKey 口径）
+            .sheet(isPresented: $whiteboardOpen) {
+                let workspace = session.connection.workspace
+                let whiteboardKey: String = {
+                    if let identity = workspace?.workspaceIdentity, !identity.isEmpty { return identity }
+                    if let path = workspace?.path, !path.isEmpty { return path }
+                    return conversationID
+                }()
+                WhiteboardPanelView(
+                    workspaceKey: whiteboardKey,
+                    onAddToChat: { data in
+                        viewModel.uploads.add(name: "白板.png", mediaType: "image/png", data: data)
+                    },
+                    onClose: { whiteboardOpen = false })
+            }
         }
     }
 
@@ -231,6 +249,20 @@ struct ChatView: View {
                         .font(T.mono(11))
                         .foregroundColor(T.text3)
                 }
+                // 036 白板入口（web 侧栏面板 tab 的移动对位；零 RPC 纯客户端）
+                Button {
+                    whiteboardOpen = true
+                } label: {
+                    Image(systemName: "scribble.variable")
+                        .font(.system(size: 14))
+                        .foregroundColor(T.text3)
+                        .frame(width: 26, height: 26)
+                }
+                // 头部容器 05-header 的 identifier 在 iOS 26 会级联覆盖直接子元素
+                // 的 identifier（树探针实证：本按钮原 identifier 被覆写为 05-header）——
+                // 显式 a11y label 不受级联影响，E2E 按 label 查（test31）
+                .accessibilityLabel(String(localized: "白板"))
+                .accessibilityIdentifier("05-act-whiteboard")
                 Image(systemName: "ellipsis")
                     .font(.system(size: 14))
                     .foregroundColor(T.text3)

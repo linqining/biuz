@@ -361,7 +361,7 @@
       "key": "036-白板",
       "route": "/remote/v4#pane/whiteboard",
       "app": {
-        "ios": "（待建）",
+        "ios": "chat#whiteboard (WhiteboardPanelView.swift sheet，头部涂鸦按钮入口；零 RPC 纯客户端)",
         "android": "chat#whiteboard (WhiteboardPanel.kt 浮层，⋯ 菜单入口；零 RPC 纯客户端)",
         "miniprogram": "pages/chat/chat#whiteboard"
       },

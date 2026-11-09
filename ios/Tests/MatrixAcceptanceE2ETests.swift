@@ -1464,4 +1464,55 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
                       "活跃项目行应在场")
         snap(application, "matrix-018-projects")
     }
+
+    // MARK: - 屏 036 白板（WhiteboardPanelView；零 RPC 纯客户端——真画+导出+附件链）
+
+    /// 会话页白板入口 → 拖拽真画两笔 → 添加到聊天 → composer 出现「白板.png」附件
+    /// （web add-to-chat 事件同效：uploads.add 入 composer 管道）。
+    func test31_whiteboardDrawAndAddToChat() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        let stubRow = element(application, "04-row-sess-e2e-1")
+        XCTAssertTrue(stubRow.waitForExistence(timeout: 15), "应呈现替身会话行")
+        stubRow.tap()
+        let composer = element(application, "05-composer-input")
+        XCTAssertTrue(composer.waitForExistence(timeout: 12), "应进入会话详情")
+
+        // 打开白板浮层
+        snap(application, "matrix-036-debug-chat-header")
+        // 头部容器 05-header 的 identifier 级联覆盖直接子元素 identifier（树探针实证）
+        // ——按钮带显式 a11y label「白板」（ChatView），按 label 查
+        let whiteboardButton = application.buttons["白板"]
+        XCTAssertTrue(whiteboardButton.waitForExistence(timeout: 8), "头部应有白板入口")
+        whiteboardButton.tap()
+        XCTAssertTrue(element(application, "36-act-add-to-chat").waitForExistence(timeout: 8),
+                      "白板浮层应呈现（添加到聊天入口在场）")
+
+        // 画布内两笔（对角 X；coordinate 拖拽真实走 DragGesture 链）
+        let canvasRegion = element(application, "36-name-field")
+        XCTAssertTrue(canvasRegion.waitForExistence(timeout: 6), "名称框应在场")
+        let start1 = application.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.35))
+        let end1 = application.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5))
+        start1.press(forDuration: 0.05, thenDragTo: end1)
+        let start2 = application.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.35))
+        let end2 = application.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.5))
+        start2.press(forDuration: 0.05, thenDragTo: end2)
+
+        // 撤销链：↺ 后可 ↻（按钮可用性随笔画翻转）
+        let undoButton = element(application, "36-act-undo")
+        XCTAssertTrue(undoButton.waitForExistence(timeout: 6), "有笔画后撤销按钮应在场")
+        undoButton.tap()
+        let redoButton = element(application, "36-act-redo")
+        XCTAssertTrue(redoButton.waitForExistence(timeout: 6), "撤销后重做按钮应在场")
+
+        // 添加到聊天：composer 附件出现「白板.png」chip
+        element(application, "36-act-add-to-chat").tap()
+        XCTAssertTrue(waitStaticText(application, containing: "已添加到聊天附件", timeout: 8,
+                                     "添加到聊天应出成功回执"))
+        snap(application, "matrix-036-whiteboard-added")
+        // 关浮层回会话页：附件 chip 在 composer 上方
+        element(application, "36-act-close").tap()
+        XCTAssertTrue(waitStaticText(application, containing: "白板.png", timeout: 8,
+                                     "composer 应出现白板导出附件 chip（uploads.add 同效 web）"))
+    }
 }

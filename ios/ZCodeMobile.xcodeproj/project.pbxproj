@@ -17,6 +17,7 @@
 		09D377064333165DF8AB0906 /* RemoteFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4577956DAA867320EDEF1D80 /* RemoteFileStore.swift */; };
 		0CA11EA530D57750D59B798F /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = F81ACB9B3F4D7D6E09FD87C5 /* InfoPlist.xcstrings */; };
 		0FF26C3041A097354663BA12 /* ApprovalSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23506970C8F49897FBAB8DD6 /* ApprovalSheetView.swift */; };
+		1A102DC328CB059AAA272F95 /* WhiteboardMutationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDEB78CEE3FEBCB100375B34 /* WhiteboardMutationsTests.swift */; };
 		1A1D8FFB9A29DDEDF0EA2FC8 /* RelayChannelClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 674143DCBCAFE98264D2354D /* RelayChannelClient.swift */; };
 		1A73CEFE48C996FA3D99A8AA /* ReadOnlyGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC85D0006A385C2129A7D97B /* ReadOnlyGateTests.swift */; };
 		1B6C9058EFDDB56F599C6906 /* AttachmentUploadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB00D44F0B2F788571998E0 /* AttachmentUploadService.swift */; };
@@ -30,6 +31,7 @@
 		45C176870C4D64D5A955D12A /* ChannelClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3A14B63EB694487754EC04 /* ChannelClient.swift */; };
 		476F50FC672DDB0712555491 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986DC64F9C9F609E26A8FC0D /* NotificationService.swift */; };
 		47B06A913DC97589FA961180 /* CommandFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81EA6DC900A6D3608EBA6689 /* CommandFactoryTests.swift */; };
+		499359EA4380C384D0477117 /* WhiteboardPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9107466835B5164D35E3A87 /* WhiteboardPanelView.swift */; };
 		4B6D4418DF4A5E2107C86B7D /* DiffReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D51E2B40D70587E47F1E8A /* DiffReviewView.swift */; };
 		4BC94FE4A6EFF5638A58AEE8 /* MockFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CAB74D240B62FE6B7EDAC33 /* MockFileStore.swift */; };
 		4D4719B100B4E72CEF3E0820 /* MockTaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2676D8BE48C1D40DD7680B92 /* MockTaskStore.swift */; };
@@ -98,6 +100,7 @@
 		EF26D35D87B6D47A80BD1484 /* RemoteExtrasViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C564D7A900C7DCDABF4828 /* RemoteExtrasViews.swift */; };
 		F1122B240286C08FF1661BA2 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259BB52CC3F6F22B250B6854 /* ChatView.swift */; };
 		F6432E8B6FC46D066B752028 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D0B618579F817B6DB7A68BB8 /* Assets.xcassets */; };
+		F95FE6C56EC96CF96D85B41A /* WhiteboardModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F7B6D47F1EF1281A60018FD /* WhiteboardModel.swift */; };
 		FA698651CC2464262DFEC4F0 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B5B14DF327A24A2F38D163F /* Models.swift */; };
 		FC6B6891CAE52B72151DC007 /* BiuZ-Android-M1-移植.dwf.ts in Resources */ = {isa = PBXBuildFile; fileRef = 665FBE87C2AF9EDB53C49AD9 /* BiuZ-Android-M1-移植.dwf.ts */; };
 /* End PBXBuildFile section */
@@ -167,6 +170,7 @@
 		76CB6BD150DFF56D790C0DED /* TinyMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TinyMarkdown.swift; sourceTree = "<group>"; };
 		7CD6C92E5023305061C96EED /* NewConversationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationSheet.swift; sourceTree = "<group>"; };
 		7F3D9C08B7B35175B7A33DEC /* E2ELoginStubServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = E2ELoginStubServer.swift; sourceTree = "<group>"; };
+		7F7B6D47F1EF1281A60018FD /* WhiteboardModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardModel.swift; sourceTree = "<group>"; };
 		81EA6DC900A6D3608EBA6689 /* CommandFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandFactoryTests.swift; sourceTree = "<group>"; };
 		8A9AA0CA3BA45B100DFB9B64 /* LayoutAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutAuditTests.swift; sourceTree = "<group>"; };
 		8AAA86FAA799FB08CF25618B /* .gitignore */ = {isa = PBXFileReference; path = .gitignore; sourceTree = "<group>"; };
@@ -218,6 +222,8 @@
 		F513D0940DD42550988A9351 /* RelayTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayTransport.swift; sourceTree = "<group>"; };
 		F71525BD62BE01F43B782C38 /* BiuZ-Android-M1-移植-2.dwf.ts */ = {isa = PBXFileReference; path = "BiuZ-Android-M1-移植-2.dwf.ts"; sourceTree = "<group>"; };
 		F81ACB9B3F4D7D6E09FD87C5 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		F9107466835B5164D35E3A87 /* WhiteboardPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardPanelView.swift; sourceTree = "<group>"; };
+		FDEB78CEE3FEBCB100375B34 /* WhiteboardMutationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardMutationsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -340,6 +346,7 @@
 				6ABFC2280688B1F228898495 /* TaskNotificationContentTests.swift */,
 				1C96E9CA2EAEB254F9E5C401 /* TinySyntaxTests.swift */,
 				B7D5685BCB5F5BEBD33C0859 /* UserSelectionParsingTests.swift */,
+				FDEB78CEE3FEBCB100375B34 /* WhiteboardMutationsTests.swift */,
 				16FFB0AD13E92734F047ADB5 /* WorkflowActorBindingTests.swift */,
 			);
 			path = UnitTests;
@@ -422,6 +429,15 @@
 			path = Login;
 			sourceTree = "<group>";
 		};
+		6AEE7992FE5B1E05371CDF1E /* Whiteboard */ = {
+			isa = PBXGroup;
+			children = (
+				7F7B6D47F1EF1281A60018FD /* WhiteboardModel.swift */,
+				F9107466835B5164D35E3A87 /* WhiteboardPanelView.swift */,
+			);
+			path = Whiteboard;
+			sourceTree = "<group>";
+		};
 		6C4C68004391617AE5F1B8FE /* Attachments */ = {
 			isa = PBXGroup;
 			children = (
@@ -449,6 +465,7 @@
 				6A52C652BC0778DC1900A0EB /* Login */,
 				35C632529AE26AFE5614341B /* Settings */,
 				710B439B8BD40A8BC56DF905 /* Tasks */,
+				6AEE7992FE5B1E05371CDF1E /* Whiteboard */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -771,6 +788,8 @@
 				DC3575605ED80F31124CF750 /* UserDefaultsSettingsStore.swift in Sources */,
 				E24EBEE8F96CFA95E6304383 /* V4Wire.swift in Sources */,
 				532B4B31DBCF823B9F264010 /* VersionGuard.swift in Sources */,
+				F95FE6C56EC96CF96D85B41A /* WhiteboardModel.swift in Sources */,
+				499359EA4380C384D0477117 /* WhiteboardPanelView.swift in Sources */,
 				D5425A5E93C49510D597780C /* ZCodeMobileApp.swift in Sources */,
 				DD826C9C2543024D0FE39710 /* ZCodeServerConnection.swift in Sources */,
 				BECF95C62D565DCFC0CB0F7C /* ZaiOAuthProvider.swift in Sources */,
@@ -796,6 +815,7 @@
 				017BAE8773AC3CE5A203FE27 /* TaskNotificationContentTests.swift in Sources */,
 				5F10BD066C14A29E27CE09CB /* TinySyntaxTests.swift in Sources */,
 				627DE524DC616F2475D59162 /* UserSelectionParsingTests.swift in Sources */,
+				1A102DC328CB059AAA272F95 /* WhiteboardMutationsTests.swift in Sources */,
 				DBBB8D7247A0D695F3720D9C /* WorkflowActorBindingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
