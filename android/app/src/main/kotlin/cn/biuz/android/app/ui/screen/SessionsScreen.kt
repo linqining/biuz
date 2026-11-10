@@ -76,6 +76,8 @@ import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
+import cn.biuz.android.connection.TaskGroupStructure
+import cn.biuz.android.connection.readTaskGroups
 import cn.biuz.android.protocol.Conversation
 import cn.biuz.android.protocol.ExecutorKind
 import cn.biuz.android.store.ConversationEvent
@@ -173,16 +175,43 @@ fun SessionsScreen(
     var viewMode by remember { mutableStateOf(ListViewMode.PROJECTS) }
     var showViewMenu by remember { mutableStateOf(false) }
     val pinnedTitle = stringResource(R.string.group_pinned)
+    // P-013 按分组视图 task-groups 数据（viewMode 切 GROUPED 时加载）
+    var taskGroups by remember { mutableStateOf<TaskGroupStructure?>(null) }
+    var taskGroupsLoading by remember { mutableStateOf(false) }
+    var taskGroupsError by remember { mutableStateOf<String?>(null) }
     val ungroupedTitle = stringResource(R.string.sessions_section_tasks)
     val timelineTitle = stringResource(R.string.sessions_view_timeline)
     val unreadTitle = stringResource(R.string.sessions_view_unread_label)
     val unreadEmpty = stringResource(R.string.sessions_unread_empty)
-    val sections = remember(rows, viewMode, pinnedTitle, ungroupedTitle, timelineTitle, unreadTitle, unreadEmpty) {
+    // P-013：切 GROUPED 视图时拉 task-groups.read
+    LaunchedEffect(viewMode, surface.conversation) {
+        if (viewMode == ListViewMode.GROUPED && taskGroups == null) {
+            taskGroupsLoading = true
+            taskGroupsError = null
+            try {
+                val ws = session.storeSurface.value.workspace
+                taskGroups = session.readTaskGroups(ws?.path, ws?.workspaceIdentity)
+            } catch (e: Exception) {
+                taskGroupsError = e.message ?: e::class.simpleName
+            } finally {
+                taskGroupsLoading = false
+            }
+        }
+    }
+
+    val sections = remember(rows, viewMode, pinnedTitle, ungroupedTitle, timelineTitle, unreadTitle, unreadEmpty, taskGroups) {
         when (viewMode) {
             ListViewMode.PROJECTS -> projectSections(rows, pinnedTitle, ungroupedTitle)
             ListViewMode.TIMELINE -> timelineSections(rows, pinnedTitle, timelineTitle)
             ListViewMode.UNREAD -> unreadSections(rows, pinnedTitle, unreadTitle, unreadEmpty)
-            ListViewMode.GROUPED -> emptyList()
+            ListViewMode.GROUPED -> {
+                val tg = taskGroups
+                if (tg != null) {
+                    taskGroupSections(rows, tg.groups, tg.members, ungroupedTitle)
+                } else {
+                    emptyList()
+                }
+            }
         }
     }
 
@@ -395,15 +424,101 @@ fun SessionsScreen(
                 }
 
                 viewMode == ListViewMode.GROUPED -> {
-                    // 数据源未接入：如实提示，不用项目分组冒充
-                    Text(
-                        text = stringResource(R.string.sessions_view_grouped_pending),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = BiuZText3,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("04-view-grouped-pending"),
-                    )
+                    when {
+                        taskGroupsLoading -> {
+                            Column(
+                                modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 64.dp),
+                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(28.dp),
+                                    strokeWidth = 3.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(Modifier.height(BiuZSpacing.sm))
+                                Text(
+                                    text = stringResource(R.string.sessions_syncing),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = BiuZText3,
+                                )
+                            }
+                        }
+                        taskGroupsError != null -> {
+                            Text(
+                                text = stringResource(R.string.sessions_view_grouped_error, taskGroupsError ?: ""),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = BiuZText3,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("04-view-grouped-error"),
+                            )
+                        }
+                        sections.isEmpty() -> {
+                            Text(
+                                text = stringResource(R.string.sessions_view_grouped_empty),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = BiuZText3,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("04-view-grouped-empty"),
+                            )
+                        }
+                        else -> {
+                            LazyColumn(modifier = Modifier.weight(1f)) {
+                                sections.forEach { section ->
+                                    item(key = "header-${section.title}-${section.rows.firstOrNull()?.id ?: ""}") {
+                                        Text(
+                                            text = section.title,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = BiuZText3,
+                                            modifier = Modifier.padding(
+                                                start = 10.dp, top = 12.dp, bottom = 4.dp,
+                                            ),
+                                        )
+                                    }
+                                    items(section.rows, key = { it.id }) { conversation ->
+                                        SessionRow(
+                                            conversation = conversation,
+                                            timeLabel = conversationRowTimeLabel(
+                                                updatedAtMs = conversation.updatedAt,
+                                                todayStartMs = dayBounds.first,
+                                                yesterdayStartMs = dayBounds.second,
+                                                timeFormat = timeFormat,
+                                                yesterdayLabel = stringResource(R.string.group_yesterday),
+                                                earlierPattern = stringResource(R.string.row_time_earlier_pattern),
+                                            ),
+                                            onOpen = { onOpenChat(conversation.id) },
+                                            onArchive = {
+                                                scope.launch {
+                                                    rowActionError = null
+                                                    runCatching { surface.conversation.setArchived(true, conversation.id) }
+                                                    val failure = surface.conversation.lastArchiveFailureText()
+                                                    if (failure.isNotEmpty()) rowActionError = failure
+                                                    conversations = runCatching {
+                                                        surface.conversation.conversations()
+                                                    }.getOrDefault(conversations)
+                                                }
+                                            },
+                                            onMarkUnread = {
+                                                scope.launch {
+                                                    rowActionError = null
+                                                    val error = runCatching {
+                                                        surface.conversation.markUnread(conversation.id)
+                                                    }.exceptionOrNull()?.message
+                                                    if (error != null) rowActionError = error
+                                                    else conversations = runCatching {
+                                                        surface.conversation.conversations()
+                                                    }.getOrDefault(conversations)
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                                item { Spacer(Modifier.height(BiuZSpacing.xl)) }
+                            }
+                        }
+                    }
                 }
 
                 else -> {

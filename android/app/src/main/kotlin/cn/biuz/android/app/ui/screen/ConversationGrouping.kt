@@ -87,6 +87,35 @@ internal fun timelineSections(rows: List<Conversation>, pinnedTitle: String, tit
 }
 
 /** 按未读：只保留未读（置顶仍独立成区）。 */
+/**
+ * P-013 按分组视图：task-groups.read 结构驱动（web TaskGroupedView 同口径）。
+ * taskId ↔ sessions 行 id 对位（members[].taskId = sessionId）；组间按 updatedAt
+ * 降序；组内按 updatedAt 降序；不在任何组的会话归 fallbackTitle 尾区。
+ */
+internal fun taskGroupSections(
+    rows: List<Conversation>,
+    groups: List<cn.biuz.android.connection.TaskGroupEntry>,
+    members: List<cn.biuz.android.connection.TaskGroupMember>,
+    fallbackTitle: String,
+): List<ListSection> {
+    val byId = rows.associateBy { it.id }
+    val taskToGroup = members.associate { it.taskId to it.groupId }
+    val out = mutableListOf<ListSection>()
+    val assigned = mutableSetOf<String>()
+    for (group in groups) {
+        val groupTasks = members.filter { it.groupId == group.id }
+        val items = groupTasks.mapNotNull { m -> byId[m.taskId] }
+            .sortedByDescending { it.updatedAt }
+        assigned.addAll(groupTasks.map { it.taskId })
+        if (items.isNotEmpty()) {
+            out.add(ListSection(group.title, items))
+        }
+    }
+    val ungrouped = rows.filter { it.id !in assigned }.sortedByDescending { it.updatedAt }
+    if (ungrouped.isNotEmpty()) out.add(ListSection(fallbackTitle, ungrouped))
+    return out
+}
+
 internal fun unreadSections(
     rows: List<Conversation>,
     pinnedTitle: String,

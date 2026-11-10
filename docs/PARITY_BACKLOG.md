@@ -69,6 +69,14 @@ Android RemoteConversationStore.modelSelectionView()——chips 同词表，Laun
 modelSelection 三键 / plugin 体 agentId+继承默认缺省逐字段断言）+ 回归 191/0 +
 Android 全量门禁绿。**测试坑固化**：行内 Button a11y id 含 entry.id 全文（含
 "built-in:" 前缀）——断言用全 id；viewport 外入口先 snap 目检再修断言
+**P-013 task-groups 数据源（2026-11-10）**：Android 已接——connection 模块
+`RemoteTaskGroups.kt`（task-groups.read → TaskGroupStructure 解析：groups/members
+宽容 + parseTaskGroupStructure 纯函数）；ConversationGrouping 加 taskGroupSections
+（taskId↔sessionId 对位/组间 groups[] 声明序/组内 updatedAt 降序/未分配归尾区）；
+SessionsScreen GROUPED 视图接入（加载/错误/空/列表四态 + 复用 SessionRow 渲染）；
+TaskGroupSectionsTest 5 例（聚合/组序/尾区/全含/空组）全绿 + 全量门禁绿。
+**iOS 同构待做**（AppSession.readTaskGroups + ConversationListView GROUPED 分支）；
+小程序 capability 页可复用（task-groups.read 可加 kind）。
 | P-010 | W6 | 036-白板 | ios/android | **双端已落（2026-11-10 第二轮）**：web 白板是**纯内存 zustand、零 RPC 自包含**（store/whiteboardStore.ts；断页即失、无持久化）——原生同构：模型 lib/whiteboard.ts:5-34 同构（1280×800 白底 #ffffff、默认墨 #111827、六色板 WhiteboardPane.tsx:28 原序、笔宽 2–18）、变更语义逐条对齐（addStroke=追加+清 redo 栈 / undo·redo 尾搬 / clear 双清 / rename trim 空忽略）、渲染 drawWhiteboardStroke 直译（eraser=画背景色、round cap/join、单点=实心圆 r=width/2）；「添加到聊天」**真对齐**：PNG 导出（CoreGraphics/bitmap 白底重绘）→ 直插 composer 附件（iOS uploads.add / Android enqueueAttachment，web dataURL 事件同效）。入口=会话页（iOS 头部涂鸦按钮 sheet / Android ⋯ 菜单浮层）；进程内存仓按 workspaceIdentity||path 键隔离。**iOS 门禁**：单测 7 例（含 PNG 导出非空+1280×800 断言）+ Matrix test31（真拖拽画 X 两笔→撤销/重做→添加到聊天→composer 白板.png chip）全绿；**Android 门禁**：单测 6 例 + 模拟器 adb swipe 真画验证。**已知差异**：web 多板 tab 系统（桌面驱动）未搬——移动端单板/workspace（v1 裁决）；PNG 命名 白板.png | `ios/.../Features/Whiteboard/`、`android/.../ui/whiteboard/` | 已修+实拍验证 |
 | P-011 | W3 | 010-任务主页 | ios | **已修（2026-11-08）**：补设备切换行、已置顶文案、筛选视图四档、行严格对齐 web。剩余两项已裁决为刻意差异：常驻搜索框 = D008、来源 chips = D009 | web 基线 `.capture/sync/20261108-075048-010/`；iOS `ConversationListView.swift` | 已修+实拍验证 |
 | P-012 | W3 | 010-任务主页 | android | **已修（2026-11-08）**：标题改「任务列表」、新增设备切换行、筛选视图四档（按项目/按分组/最近更新/按未读）、按项目改真项目分组（新增 `projectSections`/`timelineSections`/`unreadSections` + 3 项单测）、行严格对齐 web、`置顶`→`已置顶`。`compileDebugKotlin` 绿、`ConversationGroupingTest` 绿 | `android/.../ui/screen/{SessionsScreen,ConversationGrouping}.kt` | 已修（代码级验证） |

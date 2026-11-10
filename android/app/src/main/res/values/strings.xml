@@ -93,6 +93,8 @@
     <string name="sessions_view_unread_label">未读</string>
     <string name="sessions_unread_empty">暂无未读会话</string>
     <string name="sessions_view_grouped_pending">分组视图待接入：task-groups 数据源尚未接入移动端</string>
+    <string name="sessions_view_grouped_empty">暂无分组</string>
+    <string name="sessions_view_grouped_error">按分组加载失败 · %1$s</string>
 
     <!-- 001-登录（对齐 web WebLoginPage.tsx + webAuthLocale.ts:20-24） -->
     <string name="login_brand">ZCode</string>

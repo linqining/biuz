@@ -610,4 +610,6 @@
     <string name="devices_sheet_desc">%1$d ZCode instances are online on this computer. Choose one.</string>
     <string name="devices_sheet_instance">ZCode instance</string>
     <string name="devices_sheet_cancel">Cancel</string>
+    <string name="sessions_view_grouped_error">Failed to load groups · %1$s</string>
+    <string name="sessions_view_grouped_empty">No groups</string>
 </resources>
