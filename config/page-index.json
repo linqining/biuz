@@ -61,11 +61,11 @@
       "key": "006-多实例选择",
       "route": "/remote/v4#connection-sheet",
       "app": {
-        "ios": "（待建）",
-        "android": "（待建）",
+        "ios": "settings/subagents (SubagentsPage 分组渲染 + 006-row-sid)",
+        "android": "devices 页在线组 sheet (RelayDeviceCatalog.groupDevicesByMid)",
         "miniprogram": "pages/devices/devices#sheet"
       },
-      "note": "同一台电脑多个在线实例时弹底部选择层（DeviceListPage > onlineConnections>1）。双端缺失"
+      "note": "006 分组/sheet 双端已实现（web groupWebRemoteControlDevices 直译）；双实例真机补验留待环境具备"
     },
     {
       "key": "007-切换账号",
@@ -142,7 +142,7 @@
       "route": "/remote/v4#settings/general",
       "app": {
         "ios": "settings/general",
-        "android": "（待建）",
+        "android": "如实不做（无 OS 通知基建——P-030 已评估；语言项已在设置页）",
         "miniprogram": "pages/settings/general"
       },
       "note": "SettingsPage.tsx:1798"
