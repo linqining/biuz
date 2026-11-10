@@ -463,6 +463,12 @@ fun ChatScreen(
                     },
                     // G-014 附件条（refs 空的行内部自行不渲染；全屏经单一宿主）
                     attachmentContext = attachmentContext,
+                    // P-020 行级反馈（赞/踩/取消）：onFeedback 接线 → MessageActionRow
+                    // 渲染入口（MessageActionRow 内部 canFeedback 门槛控制显示——
+                    // rowKind=assistantText 且 entityId 在场才渲染）
+                    onFeedback = { origin: ChatMessage, value: Boolean? ->
+                        scope.launch { viewModel.setAssistantFeedback(origin, value) }
+                    },
                 )
             }
         }
