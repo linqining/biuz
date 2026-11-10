@@ -106,16 +106,19 @@ function getRelayJwt() {
 }
 
 function connectRelayDesktop(params) {
-  const relayLinkRaw = (params && params.relayLink || '').trim();
+  // relayLink 双形态：string（→ parseRelayLink）或 parsed object（跳过解析——
+  // acceptance 缝 wss→ws 降级后传 parsed 对象）
+  const relayLinkInput = params && params.relayLink;
+  const parsed = typeof relayLinkInput === 'string'
+    ? relayV2.parseRelayLink(relayLinkInput.trim())
+    : relayLinkInput;
   // JWT 来源：显式传入 > 持久化（login 页粘贴写入）
   const jwt = (params && params.jwt || '').trim() || getRelayJwt();
-  if (!relayLinkRaw) return Promise.reject(new Error('请先粘贴中继链接'));
+  if (!parsed) return Promise.reject(new Error('中继链接无效（需 https + /remote/ + sid）'));
   if (!jwt) return Promise.reject(new Error('云中继需要登录 Z.ai 账号（缺 JWT）'));
   const socketFactory = (params && params.socketFactory) || wxTransport.wxSocketFactory;
   const httpPost = (params && params.httpPost) || wxTransport.wxHttpPost;
   const httpGetJson = (params && params.httpGetJson) || wxTransport.wxHttpGetJson;
-  const parsed = relayV2.parseRelayLink(relayLinkRaw);
-  if (!parsed) return Promise.reject(new Error('中继链接无效'));
   if (params.persist !== false) saveAddress(parsed.httpOrigin, jwt);
   return relayV2.connectRelayV2({
     relayLink: parsed,

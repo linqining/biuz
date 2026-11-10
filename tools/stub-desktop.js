@@ -43,6 +43,36 @@ const server = http.createServer(function (req, res) {
     res.end(JSON.stringify(STUB_INFO));
     return;
   }
+  // 中继 V2 端点（token 换取 + 设备目录——写面波次⑥真机路径替身）
+  if (req.url && req.url.indexOf('/api/v1/remote/token') === 0 && req.method === 'POST') {
+    let body = '';
+    req.on('data', function (c) { body += c; });
+    req.on('end', function () {
+      const auth = req.headers['authorization'] || '';
+      if (!auth.startsWith('Bearer ') || auth.length < 10) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 401, message: 'unauthorized' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 0, data: { token: 'stub-relay-token-' + Date.now() } }));
+    });
+    return;
+  }
+  if (req.url && req.url.indexOf('/api/v1/remote/device') === 0) {
+    const auth = req.headers['authorization'] || '';
+    if (!auth.startsWith('Bearer ')) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 401 }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ code: 0, data: [
+      { device_sid: 't_stub_relay', device_mid: 'm_stub', online: true,
+        meta: { name: 'Stub Relay Desktop', platform: 'darwin', version: '3.17.2' } },
+    ] }));
+    return;
+  }
   res.writeHead(404);
   res.end('not found');
 });
@@ -71,6 +101,20 @@ server.on('upgrade', function (req, socket) {
       console.error('[mp-stub] ws frame opcode =', frame.opcode, 'len =', frame.payload.length,
         'head =', Buffer.from(frame.payload.subarray(0, 6)).toString('hex'));
       if (frame.opcode === 0x8) { socket.end(); return; } // close
+      // 中继 V2 auth_init 文本帧（opcode 0x1）——JSON.parse + auth_ack 回复
+      if (frame.opcode === 0x1) {
+        const text = frame.payload.toString();
+        if (text.indexOf('auth_init') >= 0) {
+          const ack = JSON.stringify({ type: 'auth_ack', pair_status: 'paired', desktop_version: '3.17.2' });
+          const ackBuf = Buffer.from(ack);
+          let h;
+          if (ackBuf.length < 126) { h = Buffer.from([0x81, ackBuf.length]); }
+          else if (ackBuf.length < 65536) { h = Buffer.alloc(4); h[0] = 0x81; h[1] = 126; h.writeUInt16BE(ackBuf.length, 2); }
+          else { h = Buffer.alloc(10); h[0] = 0x81; h[1] = 127; h.writeBigUInt64BE(BigInt(ackBuf.length), 2); }
+          socket.write(Buffer.concat([h, ackBuf]));
+        }
+        continue;
+      }
       if (frame.opcode !== 0x2) continue; // 仅二进制（RPC 帧）
       // ws payload = RPCFrame（13 字节头 + RPC payload）——先剥帧头再解析
       const rpcFrame = rpc.readFrame(frame.payload);

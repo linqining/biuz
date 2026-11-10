@@ -50,6 +50,48 @@ Page({
       });
       this.render(store.getState());
     }
+    // 测试缝（片六）：?acceptance=1&relayConnect=1&relayLink=<enc>&jwt=<enc>
+    // 直发中继 V2 连接（绕原生弹窗；localhost/127.0.0.1 自动降级 wss→ws
+    // ——开发者工具无 TLS；仅 automator 用途）
+    if (this.acceptanceQuery.acceptance && this.acceptanceQuery.relayConnect) {
+      const connection = require('../../utils/connection.js');
+      const self = this;
+      const rawLink = decodeURIComponent(this.acceptanceQuery.relayLink || '');
+      const jwt = decodeURIComponent(this.acceptanceQuery.jwt || '');
+      // localhost wss→ws 降级（开发者工具测试用；parseRelayLink 产 wss://）
+      const parsed = require('../../utils/relay-v2.js').parseRelayLink(rawLink);
+      if (parsed && (parsed.wssUrl.indexOf('wss://127.0.0.1') === 0 ||
+                     parsed.wssUrl.indexOf('wss://localhost') === 0)) {
+        parsed.wssUrl = parsed.wssUrl.replace('wss://', 'ws://');
+        // 开发者工具无 TLS：httpOrigin 也降级 https→http（token/设备目录请求用）
+        parsed.httpOrigin = parsed.httpOrigin.replace('https://', 'http://');
+      }
+      // 开发者工具：https/wss → http/ws 降级（127.0.0.1 无 TLS；urlCheck 已关）
+      const devHttp = function (url, jwt2, bodyObj) {
+        const httpUrl = url.replace('https://127.0.0.1', 'http://127.0.0.1')
+                           .replace('https://localhost', 'http://localhost');
+        const wt = require('../../utils/wx-transport.js');
+        return wt.wxHttpPost(httpUrl, jwt2, bodyObj);
+      };
+      const devGetJson = function (url, jwt2) {
+        const httpUrl = url.replace('https://127.0.0.1', 'http://127.0.0.1')
+                           .replace('https://localhost', 'http://localhost');
+        const wt = require('../../utils/wx-transport.js');
+        return wt.wxHttpGetJson(httpUrl, jwt2);
+      };
+      connection.connectRelayDesktop({
+        relayLink: parsed || rawLink,
+        jwt: jwt,
+        httpPost: devHttp,
+        httpGetJson: devGetJson,
+      }).then(function () { self.render(require('../../utils/store.js').getState()); })
+        .catch(function (err) {
+          wx.navigateTo({
+            url: '/pages/connecting/connecting?mode=failure&reason=transport&detail=' +
+              encodeURIComponent((err && err.message) || '中继连接失败'),
+          });
+        });
+    }
     // 测试缝（片三）：?acceptance=1&connect=<baseUrl> 直发连接（绕原生弹窗，
     // 仅 automator 用途）——连接过程/结果态由 store 与 connecting/failure 页承载
     if (this.acceptanceQuery.acceptance && this.acceptanceQuery.connect) {
