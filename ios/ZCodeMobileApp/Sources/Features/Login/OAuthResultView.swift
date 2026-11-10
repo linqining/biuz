@@ -122,37 +122,51 @@ struct OAuthSuccessView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("o3-card-autolink")
         case .selecting(let devices):
+            // 006 多实例：按 MID 分组（AppSession.groupDevicesByMid，web
+            // groupWebRemoteControlDevices 同参）——同 MID ≥2 在线实例的组先渲染
+            // 组头（web sheetDescription 同文案「这台电脑上有 N 个 ZCode 在线」）
+            // 再列实例；单实例组保持平铺。
+            let groups = AppSession.groupDevicesByMid(devices)
             VStack(alignment: .leading, spacing: T.sp2) {
                 Text(String(localized: "发现多个在线桌面端，选择一个连接"))
                     .font(T.font(12.5, .semibold))
                     .foregroundColor(T.text)
-                ForEach(devices) { device in
-                    Button {
-                        connectSelected(device)
-                    } label: {
-                        HStack(spacing: T.sp2) {
-                            Image(systemName: "desktopcomputer")
-                                .font(.system(size: 12))
-                                .foregroundColor(T.accentText)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(device.displayName)
-                                    .font(T.font(12.5, .medium))
-                                    .foregroundColor(T.text)
-                                Text([device.platform, device.version]
-                                    .compactMap { $0 }.joined(separator: " · "))
-                                    .font(T.mono(10))
-                                    .foregroundColor(T.text3)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(T.text3)
-                        }
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
+                ForEach(groups) { group in
+                    if group.needsInstanceSheet {
+                        Text(String(format: String(localized: "这台电脑上有 %lld 个 ZCode 在线，选择要连接的一个"), group.onlineConnections.count))
+                            .font(T.font(11))
+                            .foregroundColor(T.text3)
+                            .accessibilityIdentifier("006-sheet-desc")
                     }
-                    .buttonStyle(.plain)
+                    ForEach(group.needsInstanceSheet ? group.onlineConnections : [group.onlineConnections.first].compactMap { $0 }) { device in
+                        Button {
+                            connectSelected(device)
+                        } label: {
+                            HStack(spacing: T.sp2) {
+                                Image(systemName: "desktopcomputer")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(T.accentText)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(device.displayName)
+                                        .font(T.font(12.5, .medium))
+                                        .foregroundColor(T.text)
+                                    Text([device.platform, device.version]
+                                        .compactMap { $0 }.joined(separator: " · "))
+                                        .font(T.mono(10))
+                                        .foregroundColor(T.text3)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(T.text3)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("006-row-\(device.deviceSid)")
+                    }
                 }
             }
             .card(padding: T.sp3)

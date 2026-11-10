@@ -1352,6 +1352,61 @@ final class AppSession {
         }
     }
 
+    /// 006 多实例：同 MID 设备组（web WebRemoteControlDeviceGroup 同构，
+    /// web-remote-control/contract.ts:6-12）；组内保留全部在线 SID。
+    struct RelayDeviceGroup: Identifiable, Equatable {
+        let deviceMid: String
+        var name: String?
+        var platform: String?
+        var onlineConnections: [RelayDeviceSummary]
+
+        var id: String { deviceMid }
+        var displayName: String { name ?? deviceMid }
+        /// 同 MID 在线实例 ≥2 时需要 006 选择 sheet（web sheet 触发口径）
+        var needsInstanceSheet: Bool { onlineConnections.count >= 2 }
+    }
+
+    /// web `groupWebRemoteControlDevices`（webRemoteControlDeviceGroups.ts:12-56）
+    /// 直译：排序 online 优先 → 无名靠后 → name → mid → sid；MID 聚合；
+    /// 在线 SID 全保留；离线记录不生成连接。
+    /// 纯函数无状态——nonisolated 供单测/非主线程调用
+    nonisolated static func groupDevicesByMid(_ devices: [RelayDeviceSummary]) -> [RelayDeviceGroup] {
+        let sorted = devices.sorted { a, b in
+            let aName = (a.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let bName = (b.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if a.online != b.online { return a.online }
+            if (aName.isEmpty) != (bName.isEmpty) { return !aName.isEmpty }
+            if aName != bName { return aName < bName }
+            if a.deviceMid != b.deviceMid { return a.deviceMid < b.deviceMid }
+            return a.deviceSid < b.deviceSid
+        }
+        var groups: [String: RelayDeviceGroup] = [:]
+        var order: [String] = []
+        for record in sorted {
+            let key = record.deviceMid
+            if groups[key] == nil {
+                groups[key] = RelayDeviceGroup(
+                    deviceMid: key,
+                    name: record.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                        ? record.name?.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+                    platform: nil,
+                    onlineConnections: [])
+                order.append(key)
+            }
+            var group = groups[key]!
+            if group.platform == nil,
+               let platform = record.platform?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !platform.isEmpty {
+                group.platform = platform
+            }
+            if record.online {
+                group.onlineConnections.append(record)
+            }
+            groups[key] = group
+        }
+        return order.compactMap { groups[$0] }
+    }
+
     /// 登录成功后自动发现设备并连接（P0·登录直达会话）。
     ///
     /// 官方 web（webRemoteControlEntry.ts）顺序：设备目录 → 最近 SID 在线优先 →

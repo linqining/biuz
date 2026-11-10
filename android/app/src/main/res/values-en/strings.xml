@@ -601,4 +601,8 @@
     <string name="projects_purge_title">Delete data of "%1$s"?</string>
     <string name="projects_purge_message">This permanently deletes the project\'s sessions and data on the desktop disk. This cannot be undone (the project stays removed).</string>
     <string name="projects_purge_confirm">Delete %1$s</string>
+    <string name="devices_sheet_title">Choose a ZCode to connect</string>
+    <string name="devices_sheet_desc">%1$d ZCode instances are online on this computer. Choose one.</string>
+    <string name="devices_sheet_instance">ZCode instance</string>
+    <string name="devices_sheet_cancel">Cancel</string>
 </resources>

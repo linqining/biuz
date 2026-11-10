@@ -12,6 +12,21 @@ import java.util.concurrent.TimeUnit
  * web `resolveAutoConnectSid` 的落点顺序：saved SID → last SID → last MID 唯一在线 → 唯一在线设备。
  * 目录不可用返回 null（**不**等同于「没有设备」，调用方要回退本地已配对中继）。
  */
+/**
+ * 006 多实例：同 MID 设备组（web WebRemoteControlDeviceGroup 同构，
+ * web-remote-control/contract.ts:6-12）。onlineConnections 为可变列表仅供
+ * [RelayDeviceCatalog.groupDevicesByMid] 聚合填充。
+ */
+data class RelayDeviceGroup(
+    val deviceMid: String,
+    val name: String? = null,
+    var platform: String? = null,
+    val onlineConnections: MutableList<RelayDeviceSummary> = mutableListOf(),
+) {
+    val displayName: String
+        get() = name ?: deviceMid
+}
+
 data class RelayDeviceSummary(
     val deviceSid: String,
     val deviceMid: String,
@@ -88,6 +103,44 @@ class RelayDeviceCatalog(
                 )
             }
         }
+
+        /**
+         * 006 多实例：同 MID 设备组（web `groupWebRemoteControlDevices` 直译，
+         * webRemoteControlDeviceGroups.ts:12-56）——MID 只负责设备展示，保留全部
+         * 在线 SID（连接与业务状态仍按 SID 隔离）；历史离线注册不生成设备行。
+         * 排序：online 优先 → 无名靠后 → name（collator 简化为字典序——组头仅
+         * 展示用）→ mid → sid。
+         */
+        fun groupDevicesByMid(devices: List<RelayDeviceSummary>): List<RelayDeviceGroup> {
+            val sorted = devices.sortedWith(
+                compareBy(
+                    { it.online.not() },
+                    { it.name?.trim().isNullOrEmpty() },
+                    { it.name?.trim().orEmpty() },
+                    { it.deviceMid },
+                    { it.deviceSid },
+                ),
+            )
+            val groups = LinkedHashMap<String, RelayDeviceGroup>()
+            for (record in sorted) {
+                val group = groups.getOrPut(record.deviceMid) {
+                    RelayDeviceGroup(
+                        deviceMid = record.deviceMid,
+                        name = record.name?.trim()?.takeIf { it.isNotEmpty() },
+                        platform = record.platform?.trim()?.takeIf { it.isNotEmpty() },
+                    )
+                }
+                if (group.platform == null) {
+                    group.platform = record.platform?.trim()?.takeIf { it.isNotEmpty() }
+                }
+                if (record.online) group.onlineConnections.add(record)
+            }
+            return groups.values.toList()
+        }
+
+        /** 同 MID 在线实例 ≥2 时该组需要 006 选择 sheet（web sheet 触发口径）。 */
+        fun needsInstanceSheet(group: RelayDeviceGroup): Boolean =
+            group.onlineConnections.size >= 2
 
         /**
          * 官方 `resolveAutoConnectSid` 的移动端等价：saved SID → last SID → last MID 唯一在线

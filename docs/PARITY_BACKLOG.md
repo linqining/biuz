@@ -48,6 +48,16 @@ confirmationDialog 双 destructive 按钮（不支持复选控件——iOS 标�
 delete their ZCode data (530 KB)」（measure 真实大小）→ 二段「Delete 530 KB」→
 桌面项目+数据彻底删除；**iOS test34 全绿**（measure 捕获体逐字段：ids 位置参数 +
 hostId=local）。
+**006 多实例（2026-11-10）**：iOS/Android 已实现（web groupWebRemoteControlDevices
+直译，webRemoteControlDeviceGroups.ts:12-56）——纯函数 groupDevicesByMid（MID 聚合、
+在线 SID 全保留不去重、离线不生成连接、排序 online→无名→name→mid→sid）+
+needsInstanceSheet（≥2 在线实例弹 sheet，web 触发口径）；UI=Android 设备页在线组行
+点击弹 ModalBottomSheet（web sheet 同文案「这台电脑上有 N 个 ZCode 在线」+ 实例行
+SID 尾号 + 取消）、iOS OAuthResultView .selecting 分组渲染（同 MID ≥2 组头 +
+006-row-sid a11y；单实例平铺不变）；**单测 5+4 例双端锁定**（聚合/不去重/离线/排序/
+平台回退/sheet 触发阈值），Android 全量门禁绿、iOS 单测 188/0。**双实例真机验证
+留待环境具备时补验**（需同机双 ZCode 实例在线）；真桌面单实例场景行为不变（不弹
+sheet 直连——Android 模拟器实测单实例路径正常）
 | P-010 | W6 | 036-白板 | ios/android | **双端已落（2026-11-10 第二轮）**：web 白板是**纯内存 zustand、零 RPC 自包含**（store/whiteboardStore.ts；断页即失、无持久化）——原生同构：模型 lib/whiteboard.ts:5-34 同构（1280×800 白底 #ffffff、默认墨 #111827、六色板 WhiteboardPane.tsx:28 原序、笔宽 2–18）、变更语义逐条对齐（addStroke=追加+清 redo 栈 / undo·redo 尾搬 / clear 双清 / rename trim 空忽略）、渲染 drawWhiteboardStroke 直译（eraser=画背景色、round cap/join、单点=实心圆 r=width/2）；「添加到聊天」**真对齐**：PNG 导出（CoreGraphics/bitmap 白底重绘）→ 直插 composer 附件（iOS uploads.add / Android enqueueAttachment，web dataURL 事件同效）。入口=会话页（iOS 头部涂鸦按钮 sheet / Android ⋯ 菜单浮层）；进程内存仓按 workspaceIdentity||path 键隔离。**iOS 门禁**：单测 7 例（含 PNG 导出非空+1280×800 断言）+ Matrix test31（真拖拽画 X 两笔→撤销/重做→添加到聊天→composer 白板.png chip）全绿；**Android 门禁**：单测 6 例 + 模拟器 adb swipe 真画验证。**已知差异**：web 多板 tab 系统（桌面驱动）未搬——移动端单板/workspace（v1 裁决）；PNG 命名 白板.png | `ios/.../Features/Whiteboard/`、`android/.../ui/whiteboard/` | 已修+实拍验证 |
 | P-011 | W3 | 010-任务主页 | ios | **已修（2026-11-08）**：补设备切换行、已置顶文案、筛选视图四档、行严格对齐 web。剩余两项已裁决为刻意差异：常驻搜索框 = D008、来源 chips = D009 | web 基线 `.capture/sync/20261108-075048-010/`；iOS `ConversationListView.swift` | 已修+实拍验证 |
 | P-012 | W3 | 010-任务主页 | android | **已修（2026-11-08）**：标题改「任务列表」、新增设备切换行、筛选视图四档（按项目/按分组/最近更新/按未读）、按项目改真项目分组（新增 `projectSections`/`timelineSections`/`unreadSections` + 3 项单测）、行严格对齐 web、`置顶`→`已置顶`。`compileDebugKotlin` 绿、`ConversationGroupingTest` 绿 | `android/.../ui/screen/{SessionsScreen,ConversationGrouping}.kt` | 已修（代码级验证） |

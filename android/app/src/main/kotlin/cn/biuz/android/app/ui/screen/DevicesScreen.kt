@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,8 +41,11 @@ import cn.biuz.android.app.ui.components.BiuzInlineNotice
 import cn.biuz.android.app.ui.components.BiuzLoadingState
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
+import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
+import cn.biuz.android.connection.RelayDeviceCatalog
+import cn.biuz.android.connection.RelayDeviceGroup
 import cn.biuz.android.connection.RelayDeviceSummary
 import kotlinx.coroutines.launch
 
@@ -50,6 +55,7 @@ import kotlinx.coroutines.launch
  * 数据源：`AppSession.loadRelayDevices()`（Relay V2 `GET /api/v1/remote/device`，Bearer JWT）。
  * 未登录/接口失败如实呈现空态或错误行（不造设备、不折叠失败）；点设备 → 连接（V2 一次性 token）。
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun DevicesScreen(
     session: AppSession,
@@ -62,6 +68,9 @@ fun DevicesScreen(
     var loading by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var connectingSid by remember { mutableStateOf<String?>(null) }
+    // 006 多实例：同 MID ≥2 在线实例的组点击弹选择 sheet（web
+    // webRemoteControlConnectionSheet 同构——「这台电脑上有 N 个 ZCode 在线」）
+    var instanceSheetGroup by remember { mutableStateOf<RelayDeviceGroup?>(null) }
     var showSwitchAccount by remember { mutableStateOf(false) }
 
     fun refresh() {
@@ -200,16 +209,26 @@ fun DevicesScreen(
 
             else -> LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = BiuZSpacing.lg)) {
                 section("online", online) { device ->
+                    // 006：同 MID ≥2 在线实例 → 点击弹实例选择 sheet（不直连）；
+                    // 单实例保持直连。组按 deviceMid 聚合（web 分组同参）。
+                    val group = RelayDeviceCatalog.groupDevicesByMid(online)
+                        .firstOrNull { it.deviceMid == device.deviceMid }
+                    val multiInstance = group != null &&
+                        RelayDeviceCatalog.needsInstanceSheet(group)
                     DeviceRow(
                         device = device,
                         connecting = connectingSid == device.deviceSid,
                         onClick = {
+                            if (multiInstance && group != null) {
+                                instanceSheetGroup = group
+                            } else {
                             connectingSid = device.deviceSid
                             scope.launch {
                                 val outcome = session.connectRelayDevice(device)
                                 connectingSid = null
                                 if (outcome is AppSession.AutoConnectOutcome.Connected) onConnected()
                                 else errorText = "连接 ${device.displayName} 失败"
+                            }
                             }
                         },
                     )
@@ -220,6 +239,75 @@ fun DevicesScreen(
                 item { Spacer(Modifier.height(BiuZSpacing.xl)) }
             }
         }
+        // 006 多实例选择 sheet（web webRemoteControlConnectionSheet 同构：
+        // 「这台电脑上有 N 个 ZCode 在线，选择要连接的一个」）
+        instanceSheetGroup?.let { group ->
+            androidx.compose.material3.ModalBottomSheet(
+                onDismissRequest = { instanceSheetGroup = null },
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(BiuZSpacing.lg)) {
+                    Text(
+                        text = stringResource(R.string.devices_sheet_title),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BiuZText,
+                        modifier = Modifier.testTag("006-sheet-title"),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(
+                            R.string.devices_sheet_desc, group.onlineConnections.size,
+                        ),
+                        fontSize = 13.sp,
+                        color = BiuZText3,
+                        modifier = Modifier.testTag("006-sheet-desc"),
+                    )
+                    Spacer(Modifier.height(BiuZSpacing.md))
+                    group.onlineConnections.forEach { instance ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(BiuZRadius.medium)
+                                .clickable {
+                                    instanceSheetGroup = null
+                                    connectingSid = instance.deviceSid
+                                    scope.launch {
+                                        val outcome = session.connectRelayDevice(instance)
+                                        connectingSid = null
+                                        if (outcome is AppSession.AutoConnectOutcome.Connected) onConnected()
+                                        else errorText = "连接失败"
+                                    }
+                                }
+                                .padding(vertical = 12.dp)
+                                .testTag("006-sheet-row-${instance.deviceSid}"),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("🖥", fontSize = 18.sp, modifier = Modifier.padding(end = 12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.devices_sheet_instance),
+                                    fontSize = 14.sp,
+                                    color = BiuZText,
+                                )
+                                Text(
+                                    text = "SID …" + instance.deviceSid.takeLast(6),
+                                    fontSize = 12.sp,
+                                    color = BiuZText3,
+                                )
+                            }
+                            Text("›", fontSize = 16.sp, color = BiuZText3)
+                        }
+                    }
+                    TextButton(
+                        onClick = { instanceSheetGroup = null },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.devices_sheet_cancel))
+                    }
+                }
+            }
+        }
+
         if (showSwitchAccount) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showSwitchAccount = false },

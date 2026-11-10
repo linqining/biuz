@@ -112,6 +112,10 @@
     <string name="devices_loading">正在加载设备…</string>
     <string name="devices_empty_title">暂无设备</string>
     <string name="devices_empty_desc">在电脑端登录同一账号并开启 Web 远程控制，然后刷新列表。</string>
+    <string name="devices_sheet_title">选择要连接的 ZCode</string>
+    <string name="devices_sheet_desc">这台电脑上有 %1$d 个 ZCode 在线，选择要连接的一个</string>
+    <string name="devices_sheet_instance">ZCode 实例</string>
+    <string name="devices_sheet_cancel">取消</string>
 
     <!-- 008-版本提示（对齐 web webRemoteControlVersionNotice.tsx 文案：阻断式，需重新加载） -->
     <string name="version_notice_title">桌面版本已更新</string>
