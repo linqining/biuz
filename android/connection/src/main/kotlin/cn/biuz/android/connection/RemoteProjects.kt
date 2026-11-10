@@ -92,6 +92,98 @@ suspend fun AppSession.restoreProject(id: String, hostId: String): String? {
     }
 }
 
+/** 数据测量汇总（web ProjectDataTotals 同构，useProjectManagement.ts:29-36）。 */
+data class ProjectDataTotals(
+    val projects: Int,
+    val sessions: Int,
+    val sessionBytes: Long,
+    val checkpointBytes: Long,
+    val memoryBytes: Long,
+) {
+    val totalBytes: Long get() = sessionBytes + checkpointBytes + memoryBytes
+}
+
+/** deleteProjectData 回执（data/contract.ts:36-45；拒绝三态见映射函数）。 */
+data class ProjectDataDeleteResult(
+    val freedBytes: Long,
+    val deletedSessions: Int,
+    val runningSessions: Int,
+    val referencedSessions: Int,
+    val failed: Int,
+)
+
+/**
+ * 数据测量（写面波次④前置；web useProjectManagement.ts:100-126 同参
+ * `measureProjectData(ids, hostId)`——双位置参数 wire=[ids, hostId]）。
+ * 旧 Agent/服务缺失回执缺 projects 键 → 返回 null（UI 隐藏「同时删除数据」
+ * 选项——web :98、:120-123 同口径，不臆造 0 值）。
+ */
+suspend fun AppSession.measureProjectData(ids: List<String>, hostId: String): ProjectDataTotals? {
+    if (!isConnected) return null
+    if (ids.isEmpty()) return null
+    return try {
+        val json = connection.call(
+            "project", "measureProjectData",
+            RPCValue.Arr(listOf(
+                RPCValue.Arr(ids.map { RPCValue.Str(it) }),
+                RPCValue.Str(hostId),
+            )),
+        ).jsonValue
+        val rows = json?.get("projects")?.arrayValue ?: return null
+        var sessions = 0
+        var sessionBytes = 0L
+        var checkpointBytes = 0L
+        var memoryBytes = 0L
+        for (row in rows) {
+            val d = row.objectValue ?: continue
+            sessions += d["sessions"]?.intValue ?: 0
+            sessionBytes += d["sessionBytes"]?.intValue?.toLong() ?: 0L
+            checkpointBytes += d["checkpointBytes"]?.intValue?.toLong() ?: 0L
+            memoryBytes += d["memoryBytes"]?.intValue?.toLong() ?: 0L
+        }
+        ProjectDataTotals(
+            projects = rows.size, sessions = sessions, sessionBytes = sessionBytes,
+            checkpointBytes = checkpointBytes, memoryBytes = memoryBytes,
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        null // 服务不可用 → 隐藏删数据选项（web 同口径，不给 0 值假象）
+    }
+}
+
+/**
+ * 彻底删除项目数据（写面波次④，gate 已默认放行 project 频道；web
+ * useProjectManagement.ts:156 同参 `deleteProjectData(id, hostId)`——只接受
+ * 已软删除项目，hostId 必须 local）。
+ * 拒绝三态映射（web :158-160 原文）：runningSessions>0=会话运行中 /
+ * referencedSessions>0=会话被引用 / failed>0=删除失败——任一 >0 项目保持
+ * 软删除可重试。返回 null=成功（附释放摘要）；非 null=可上屏错误文案。
+ */
+suspend fun AppSession.deleteProjectData(id: String, hostId: String): String? {
+    if (!isConnected) return "未连接桌面端"
+    return try {
+        val json = connection.call(
+            "project", "deleteProjectData",
+            RPCValue.Arr(listOf(RPCValue.Str(id), RPCValue.Str(hostId))),
+        ).jsonValue
+        val freed = json?.get("freedBytes")?.intValue?.toLong() ?: 0L
+        val running = json?.get("runningSessions")?.intValue ?: 0
+        val referenced = json?.get("referencedSessions")?.intValue ?: 0
+        val failed = json?.get("failed")?.intValue ?: 0
+        when {
+            running > 0 -> "删除取消 · 有 $running 个会话仍在运行（项目保持已移除，可稍后重试）"
+            referenced > 0 -> "删除取消 · 有 $referenced 个会话被其他项目引用（项目保持已移除）"
+            failed > 0 -> "删除未完成 · $failed 项失败（项目保持已移除，可稍后重试）"
+            else -> null
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "删除失败 · ${e.toString().take(160)}"
+    }
+}
+
 /**
  * 项目树读（includeDeleted=true 连已移除一起拿——web ProjectManagement 的
  * 「已移除的项目」区同源；hostId 缺省不传，服务端按当前 host 处理）。

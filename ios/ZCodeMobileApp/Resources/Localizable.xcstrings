@@ -16323,6 +16323,96 @@
           }
         }
       }
+    },
+    "移除并删除数据（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove and delete data (%@)"
+          }
+        }
+      }
+    },
+    "仅移除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove only"
+          }
+        }
+      }
+    },
+    "删除「%@」的数据？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete data of “%@”?"
+          }
+        }
+      }
+    },
+    "将永久删除该项目在桌面端磁盘上的会话与数据，此操作无法撤销（项目本身保持已移除状态）。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This permanently deletes the project's sessions and data on the desktop disk. This cannot be undone (the project stays removed)."
+          }
+        }
+      }
+    },
+    "删除 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete %@"
+          }
+        }
+      }
+    },
+    "已删除 %@ 及其数据" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted %@ and its data"
+          }
+        }
+      }
+    },
+    "删除取消 · 有 %lld 个会话仍在运行（项目保持已移除，可稍后重试）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete cancelled — %lld sessions still running (project stays removed; retry later)"
+          }
+        }
+      }
+    },
+    "删除取消 · 有 %lld 个会话被其他项目引用（项目保持已移除）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete cancelled — %lld sessions referenced by other projects (project stays removed)"
+          }
+        }
+      }
+    },
+    "删除未完成 · %lld 项失败（项目保持已移除，可稍后重试）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete incomplete — %lld items failed (project stays removed; retry later)"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

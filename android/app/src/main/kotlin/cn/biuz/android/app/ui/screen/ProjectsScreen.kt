@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,14 +48,17 @@ import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
+import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
 import cn.biuz.android.connection.deleteProject
-import cn.biuz.android.connection.restoreProject
+import cn.biuz.android.connection.deleteProjectData
+import cn.biuz.android.connection.measureProjectData
 import cn.biuz.android.connection.ProjectRow
 import cn.biuz.android.connection.ProjectsError
 import cn.biuz.android.connection.ProjectsTree
 import cn.biuz.android.connection.loadProjectTree
+import cn.biuz.android.connection.restoreProject
 import kotlinx.coroutines.launch
 
 /**
@@ -82,6 +86,11 @@ fun ProjectsScreen(
     var actionNotice by remember { mutableStateOf<String?>(null) }
     var actionNoticeIsError by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ProjectRow?>(null) }
+    var pendingPurge by remember { mutableStateOf<ProjectRow?>(null) }
+    // 写面波次④：同时删除数据（先 measure 显示大小——null=服务不可用隐藏选项，
+    // web :98/:120-123 同口径不给 0 值假象）
+    var deleteDataChecked by remember { mutableStateOf(false) }
+    var measuredBytes by remember { mutableStateOf<Long?>(null) }
 
     suspend fun reload() {
         loading = true
@@ -233,18 +242,62 @@ fun ProjectsScreen(
         val removeConfirmText = stringResource(R.string.projects_remove_confirm)
         val cancelText = stringResource(R.string.desktop_act_cancel)
         val removedTemplate = "已移除 " + project.name
+        // 写面波次④：移除弹层呈现时测量数据大小（hostId=local 才可删数据——
+        // web useProjectManagement.ts:43-44 数据候选口径）
+        LaunchedEffect(project.id) {
+            deleteDataChecked = false
+            measuredBytes = null
+            if (project.hostId == "local") {
+                measuredBytes = session.measureProjectData(listOf(project.id), project.hostId)?.totalBytes
+            }
+        }
+        val canDeleteData = measuredBytes != null
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(removeTitle) },
-            text = { Text(removeMessage) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+                    Text(removeMessage)
+                    if (canDeleteData) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(BiuZRadius.small)
+                                .clickable { deleteDataChecked = !deleteDataChecked }
+                                .padding(vertical = 4.dp)
+                                .testTag("18-check-delete-data"),
+                        ) {
+                            androidx.compose.material3.Checkbox(
+                                checked = deleteDataChecked,
+                                onCheckedChange = { deleteDataChecked = it },
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.projects_delete_data_option,
+                                    formatBytes(measuredBytes ?: 0),
+                                ),
+                                fontSize = 13.sp,
+                                color = BiuZText2,
+                            )
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     val target = project
+                    val withData = deleteDataChecked
                     pendingDelete = null
                     scope.launch {
                         val error = session.deleteProject(target.id, target.hostId)
-                        actionNotice = error ?: removedTemplate
-                        actionNoticeIsError = error != null
+                        if (error == null && withData) {
+                            // 二段破坏性确认（「删除 N」不可恢复——web ProjectRemovalDialog
+                            // 的 .data.word 确认口径）
+                            pendingPurge = target
+                        } else {
+                            actionNotice = error ?: removedTemplate
+                            actionNoticeIsError = error != null
+                        }
                         reload()
                     }
                 }) { Text(removeConfirmText) }
@@ -256,6 +309,49 @@ fun ProjectsScreen(
             },
         )
     }
+
+    // 彻底删除数据二段确认（破坏性、不可恢复——web confirm.data.word「删除」
+    // 强确认口径；running/referenced 拒绝三态由 deleteProjectData 返回文案上屏）
+    pendingPurge?.let { project ->
+        val bytes = measuredBytes ?: 0
+        val purgeTitle = stringResource(R.string.projects_purge_title, project.name)
+        val purgeMessage = stringResource(R.string.projects_purge_message)
+        val purgeConfirmText = stringResource(R.string.projects_purge_confirm, formatBytes(bytes))
+        val cancelText2 = stringResource(R.string.desktop_act_cancel)
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingPurge = null },
+            title = { Text(purgeTitle) },
+            text = { Text(purgeMessage) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = project
+                    pendingPurge = null
+                    scope.launch {
+                        val error = session.deleteProjectData(target.id, target.hostId)
+                        actionNotice = error ?: "已删除 ${target.name} 及其数据"
+                        actionNoticeIsError = error != null
+                        reload()
+                    }
+                }) { Text(purgeConfirmText) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingPurge = null }) {
+                    Text(cancelText2)
+                }
+            },
+        )
+    }
+}
+
+/** 字节人类可读（web 同款；files-model sizeText 三端口径）。 */
+internal fun formatBytes(bytes: Long): String {
+    if (bytes < 0) return "-"
+    if (bytes < 1024) return "$bytes B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return "%.0f KB".format(kb)
+    val mb = kb / 1024.0
+    if (mb < 1024) return "%.1f MB".format(mb)
+    return "%.2f GB".format(mb / 1024.0)
 }
 
 @OptIn(ExperimentalFoundationApi::class)

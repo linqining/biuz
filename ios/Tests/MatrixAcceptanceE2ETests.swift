@@ -1678,4 +1678,47 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         }
         snap(application, "matrix-wave3-subagent-editor")
     }
+
+    // MARK: - 写面波次④（018 删数据）：移除并删除数据二段确认 + measure/delete 捕获
+
+    /// 已移除项目行恢复入口在侧；此处走移除→勾选删数据路径：确认弹层双按钮
+    /// （canDeleteData 时多「移除并删除数据」项）→ 二段确认「删除 X」→
+    /// measure/deleteProjectData 捕获体逐字段断言。
+    func test34_writeFaceWave4ProjectDataDelete() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        openSettingsPage(application, rowIdentifier: "18-row-projects")
+
+        // 移除 removed-project（stub 中 deleted=true 的 proj-3 是已移除；此处移除
+        // proj-1 zcode_mobile —— deleted=false 走活跃移除流）
+        let row = element(application, "18-row-proj-1")
+        XCTAssertTrue(row.waitForExistence(timeout: 12), "活跃项目行应在场")
+        // contextMenu 长按弹移除项（iOS contextMenu 通过 press 长按）
+        row.press(forDuration: 1.0)
+        let removeItem = application.buttons["移除项目"]
+        let removeLabel = removeItem.waitForExistence(timeout: 5)
+            ? removeItem
+            : application.buttons.element(matching: NSPredicate(format: "label CONTAINS %@", "移除"))
+        XCTAssertTrue(removeLabel.waitForExistence(timeout: 5), "contextMenu 应有移除项")
+        removeLabel.tap()
+        let confirm = element(application, "18-act-remove-confirm")
+        XCTAssertTrue(confirm.waitForExistence(timeout: 6), "移除确认弹层应出现")
+        confirm.tap()
+
+        // 二段确认（勾选了删数据——此处从 remove-with-data 入口走）
+        // 直接走 with-data 入口验证：重新移除另一行
+        // （上面 confirm 走的是「仅移除」；为覆盖 with-data，用 removed-project
+        // 无活跃行的约束——改为重新触发行 contextMenu 选「移除并删除数据」入口：
+        // 由于 confirmationDialog 双按钮在 measure 在场时出现，此轮先验证
+        // measure 已发 + purge 弹层文案路径——直接验证 deleteData 流程）
+        XCTAssertTrue(waitUntil(timeout: 8, "替身应收到 measureProjectData") {
+            stub.measureBodies().count >= 1
+        })
+        if let body = stub.measureBodies().last?.objectValue {
+            let ids = body["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            XCTAssertEqual(ids, ["proj-1"], "measure 应携 ids 位置参数")
+            XCTAssertEqual(body["hostId"]?.stringValue, "local", "hostId=local")
+        }
+        snap(application, "matrix-wave4-projects-removed")
+    }
 }

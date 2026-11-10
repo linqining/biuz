@@ -1034,6 +1034,60 @@ extension ZCodeServerConnection {
             return String(localized: "恢复失败 · \(error.localizedDescription)")
         }
     }
+
+    /// 数据测量（写面波次④前置；web useProjectManagement.ts:100-126 同参
+    /// `measureProjectData(ids, hostId)`——双位置参数 wire=[ids, hostId]）。
+    /// 服务缺失/回执缺 projects 键 → nil（UI 隐藏「同时删除数据」选项，web 同口径）。
+    func measureProjectData(ids: [String], hostId: String) async -> (bytes: Int, projects: Int)? {
+        guard isActive, !ids.isEmpty else { return nil }
+        do {
+            let result = try await call(
+                "project", "measureProjectData",
+                .json(.array([.array(ids.map { .string($0) }), .string(hostId)])))
+            let rows = result.jsonValue?["projects"]?.arrayValue
+            guard let rows, !rows.isEmpty else { return nil }
+            var total = 0
+            for row in rows {
+                let d = row.objectValue
+                let sessionBytes = d?["sessionBytes"]?.intValue ?? 0
+                let checkpointBytes = d?["checkpointBytes"]?.intValue ?? 0
+                let memoryBytes = d?["memoryBytes"]?.intValue ?? 0
+                total += sessionBytes + checkpointBytes + memoryBytes
+            }
+            return (total, rows.count)
+        } catch {
+            return nil
+        }
+    }
+
+    /// 彻底删除项目数据（写面波次④；web useProjectManagement.ts:156 同参
+    /// `deleteProjectData(id, hostId)`——只接受已软删除项目）。拒绝三态映射
+    /// （web :158-160）：running/referenced/failed 任一 >0 项目保持软删除可重试。
+    /// 返回 nil=成功；非 nil=错误文案。
+    func deleteProjectData(id: String, hostId: String) async -> String? {
+        guard isActive else { return String(localized: "未连接桌面端") }
+        do {
+            let result = try await call(
+                "project", "deleteProjectData",
+                .json(.array([.string(id), .string(hostId)])))
+            let d = result.jsonValue
+            let running = d?["runningSessions"]?.intValue ?? 0
+            let referenced = d?["referencedSessions"]?.intValue ?? 0
+            let failed = d?["failed"]?.intValue ?? 0
+            if running > 0 {
+                return String(format: String(localized: "删除取消 · 有 %lld 个会话仍在运行（项目保持已移除，可稍后重试）"), running)
+            }
+            if referenced > 0 {
+                return String(format: String(localized: "删除取消 · 有 %lld 个会话被其他项目引用（项目保持已移除）"), referenced)
+            }
+            if failed > 0 {
+                return String(format: String(localized: "删除未完成 · %lld 项失败（项目保持已移除，可稍后重试）"), failed)
+            }
+            return nil
+        } catch {
+            return String(localized: "删除失败 · \(error.localizedDescription)")
+        }
+    }
 }
 
 struct ProjectsTreeData: Equatable {
@@ -1051,6 +1105,9 @@ struct ProjectsPage: View {
     @State private var actionNoticeIsError = false
     @State private var pendingDelete: ProjectEntry?
     @State private var actionBusy = false
+    // 写面波次④：同时删除数据（measure nil=服务不可用隐藏选项，web 同口径）
+    @State private var measuredBytes: Int?
+    @State private var pendingPurge: ProjectEntry?
 
     enum Phase: Equatable { case loading, loaded, failed, notConnected }
 
@@ -1121,15 +1178,29 @@ struct ProjectsPage: View {
         .accessibilityIdentifier("18-projects-page")
         .task { await load() }
         .refreshable { await load() }
-        // 移除确认（软删可撤销——web ProjectRemovalDialog 的「删数据」选项未接：
-        // v1 只做侧栏移除，measureProjectData/deleteProjectData 登记后续波次）
+        // 移除确认（软删可撤销）。写面波次④：hostId=local 时呈现「同时删除数据」
+        // 复选项（呈现时 measure 显示大小；nil=服务不可用隐藏——web 同口径）；
+        // 勾选后移除成功转二段破坏性确认（pendingPurge）。
         .confirmationDialog(
             String(format: String(localized: "移除项目「%@」？"), pendingDelete?.name ?? ""),
             isPresented: Binding(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }),
             titleVisibility: .visible) {
-            Button(String(localized: "移除"), role: .destructive) {
+            // 写面波次④：confirmationDialog 不支持复选控件——iOS 标准模式 =
+            // 双 destructive 按钮（canDeleteData 时多一个「移除并删除数据」项，
+            // 大小由呈现时 measure 提供；nil=服务不可用只给仅移除——web 同口径）
+            if let bytes = measuredBytes {
+                Button(String(format: String(localized: "移除并删除数据（%@）"), formatBytesLocal(bytes)),
+                       role: .destructive) {
+                    guard let target = pendingDelete else { return }
+                    pendingDelete = nil
+                    measuredBytes = bytes
+                    pendingPurge = target
+                }
+                .accessibilityIdentifier("18-act-remove-with-data")
+            }
+            Button(String(localized: "仅移除"), role: .destructive) {
                 guard let target = pendingDelete else { return }
                 pendingDelete = nil
                 Task {
@@ -1144,6 +1215,46 @@ struct ProjectsPage: View {
         } message: {
             Text(String(localized: "它会从侧栏和项目选择器中移除，会话仍保留在最近和搜索中，磁盘上的文件不受影响。"))
         }
+        .task(id: pendingDelete?.id) {
+            measuredBytes = nil
+            guard let target = pendingDelete, target.hostId == "local" else { return }
+            measuredBytes = await session.connection.measureProjectData(
+                ids: [target.id], hostId: target.hostId)?.bytes
+        }
+        // 彻底删除数据二段确认（破坏性不可恢复——web confirm.data.word「删除」
+        // 强确认口径；拒绝三态由 deleteProjectData 文案上屏）
+        .confirmationDialog(
+            String(format: String(localized: "删除「%@」的数据？"), pendingPurge?.name ?? ""),
+            isPresented: Binding(
+                get: { pendingPurge != nil },
+                set: { if !$0 { pendingPurge = nil } }),
+            titleVisibility: .visible) {
+            Button(String(format: String(localized: "删除 %@"), formatBytesLocal(measuredBytes ?? 0)),
+                   role: .destructive) {
+                guard let target = pendingPurge else { return }
+                pendingPurge = nil
+                Task {
+                    let error = await session.connection.deleteProjectData(id: target.id, hostId: target.hostId)
+                    actionNotice = error ?? String(format: String(localized: "已删除 %@ 及其数据"), target.name)
+                    actionNoticeIsError = error != nil
+                    await load()
+                }
+            }
+            .accessibilityIdentifier("18-act-purge-confirm")
+            Button(String(localized: "取消"), role: .cancel) { pendingPurge = nil }
+        } message: {
+            Text(String(localized: "将永久删除该项目在桌面端磁盘上的会话与数据，此操作无法撤销（项目本身保持已移除状态）。"))
+        }
+    }
+
+    /// 字节人类可读（files-model sizeText 三端口径）
+    private func formatBytesLocal(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        let kb = Double(bytes) / 1024
+        if kb < 1024 { return String(format: "%.0f KB", kb) }
+        let mb = kb / 1024
+        if mb < 1024 { return String(format: "%.1f MB", mb) }
+        return String(format: "%.2f GB", mb / 1024)
     }
 
     private var list: some View {

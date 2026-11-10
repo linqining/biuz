@@ -390,6 +390,11 @@ final class E2ELoginStubServer {
     func subagentCreateBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _subagentCreateBodies }
     func subagentUpdateBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _subagentUpdateBodies }
     func subagentDeleteBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _subagentDeleteBodies }
+    /// 写面波次④ 捕获（test34）：measure/delete data
+    private var _measureBodies: [StubRPC] = []
+    private var _deleteDataBodies: [StubRPC] = []
+    func measureBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _measureBodies }
+    func deleteDataBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _deleteDataBodies }
 private var _recordedPinned: [String: Bool] = [:]
     private var _setTaskUnreadCount = 0
     private var _archiveTaskCount = 0
@@ -1348,6 +1353,25 @@ private var _recordedPinned: [String: Bool] = [:]
             _subagentUpdateBodies.append(body)
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["agentId": "user:reviewer"])))
+        case "measureProjectData" where channelName == "project":
+            lock.lock()
+            _measureBodies.append(body)
+            lock.unlock()
+            let measureRows: [[String: Any]] = [[
+                "id": "proj-3", "sessions": 3,
+                "sessionBytes": 1024, "checkpointBytes": 512, "memoryBytes": 256,
+            ]]
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "projects": measureRows,
+            ])))
+        case "deleteProjectData" where channelName == "project":
+            lock.lock()
+            _deleteDataBodies.append(body)
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object([
+                "freedBytes": 1792, "deletedSessions": 3,
+                "runningSessions": 0, "referencedSessions": 0, "failed": 0,
+            ])))
         case "deleteAgent" where channelName == "subagents":
             lock.lock()
             _subagentDeleteBodies.append(body)

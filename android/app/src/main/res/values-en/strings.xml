@@ -597,4 +597,8 @@
     <string name="projects_remove_title">Remove project "%1$s"?</string>
     <string name="projects_remove_message">It is removed from the sidebar and project picker. Sessions remain in recents and search; files on disk are not affected. (Restore it from the "Removed projects" section on this page.)</string>
     <string name="projects_remove_confirm">Remove</string>
+    <string name="projects_delete_data_option">Also delete their ZCode data (%1$s)</string>
+    <string name="projects_purge_title">Delete data of "%1$s"?</string>
+    <string name="projects_purge_message">This permanently deletes the project\'s sessions and data on the desktop disk. This cannot be undone (the project stays removed).</string>
+    <string name="projects_purge_confirm">Delete %1$s</string>
 </resources>

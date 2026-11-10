@@ -675,4 +675,8 @@
     <string name="projects_remove_title">移除项目「%1$s」？</string>
     <string name="projects_remove_message">它会从侧栏和项目选择器中移除，会话仍保留在最近和搜索中，磁盘上的文件不受影响。（可在此页的「已移除的项目」区恢复）</string>
     <string name="projects_remove_confirm">移除</string>
+    <string name="projects_delete_data_option">同时删除它们的 ZCode 数据（%1$s）</string>
+    <string name="projects_purge_title">删除「%1$s」的数据？</string>
+    <string name="projects_purge_message">将永久删除该项目在桌面端磁盘上的会话与数据，此操作无法撤销（项目本身保持已移除状态）。</string>
+    <string name="projects_purge_confirm">删除 %1$s</string>
 </resources>
