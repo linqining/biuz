@@ -61,6 +61,27 @@ Page({
     });
   },
 
+  /** P-020 行级反馈（赞/踩/取消）；RPC 经 connection.setAssistantFeedback。 */
+  onFeedback(event) {
+    const id = event.currentTarget.dataset.id;
+    const value = event.currentTarget.dataset.value === 'true';
+    const conn = require('../../utils/connection.js');
+    const msg = this.data.rows ? this.data.rows.find(function (r) { return r.id === id; }) : null;
+    if (!msg || !msg.entityId) {
+      wx.showToast({ title: '该消息不可反馈', icon: 'none' });
+      return;
+    }
+    const rowId = parseInt(id.replace('row-', ''), 10) || 0;
+    const sessionId = this.data.sessionId || '';
+    conn.setAssistantFeedback(sessionId, rowId, msg.entityId, value)
+      .then(function (error) {
+        if (error) wx.showToast({ title: error, icon: 'none' });
+      })
+      .catch(function (err) {
+        wx.showToast({ title: (err && err.message) || '反馈失败', icon: 'none' });
+      });
+  },
+
   onBack() {
     wx.navigateBack({ delta: 1, fail: function () { wx.reLaunch({ url: '/pages/sessions/sessions' }); } });
   },

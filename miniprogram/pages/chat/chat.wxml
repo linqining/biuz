@@ -78,6 +78,12 @@
         <!-- 动作行（web：复制 / 赞 / 踩 / 时间；本轮先只读两项） -->
         <view class="msg__actions" wx:if="{{item.kind === 'text' && item.role === 'agent'}}">
           <text class="msg__action" data-id="{{item.id}}" bind:tap="onCopy">复制</text>
+          <text class="msg__action msg__action--like {{item.feedback === true ? 'msg__action--active' : ''}}"
+            data-id="{{item.id}}" data-value="true" bind:tap="onFeedback"
+            data-test="05-feedback-like-{{item.id}}">👍</text>
+          <text class="msg__action msg__action--like {{item.feedback === false ? 'msg__action--active' : ''}}"
+            data-id="{{item.id}}" data-value="false" bind:tap="onFeedback"
+            data-test="05-feedback-dislike-{{item.id}}">👎</text>
           <text class="msg__time">{{item.timeText}}</text>
         </view>
       </view>

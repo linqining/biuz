@@ -216,3 +216,5 @@
 .md-table__row { display: flex; gap: 24rpx; padding: 10rpx 16rpx; border-top: 2rpx solid var(--color-border); }
 .md-table__cell { font-family: Menlo, Consolas, monospace; font-size: var(--font-xs); color: var(--color-foreground); }
 .md-table__cell--head { font-weight: 600; }
+
+.msg__action--active { color: #2563eb; font-weight: bold; }

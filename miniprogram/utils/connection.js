@@ -222,6 +222,28 @@ function wireSources(result) {
   });
 }
 
+/**
+ * 行级反馈（P-020；Android RemoteConversationStore.setAssistantFeedback 同参）：
+ * `zcode-agent.setAssistantFeedback` — payload {target:{rowId, entityId}, feedback:
+ * "like"|"dislike"|null}。entityId 缺席如实拒（Android client.rowCursorUnavailable
+ * 同口径）。返回 null=成功；非 null=可上屏错误文案。
+ */
+function setAssistantFeedback(sessionId, rowId, entityId, value) {
+  const conn = active && active.client;
+  if (!conn) return Promise.reject(new Error('未连接桌面端'));
+  if (!entityId) return Promise.reject(new Error('该消息不可反馈（缺少行游标）'));
+  const payload = {
+    target: { rowId: rowId, entityId: entityId },
+    feedback: value === null ? null : (value ? 'like' : 'dislike'),
+  };
+  return conn
+    .call('zcode-agent', 'setAssistantFeedback', [payload])
+    .then(function () { return null; })
+    .catch(function (err) {
+      return '反馈失败 · ' + ((err && err.message) || String(err)).substring(0, 120);
+    });
+}
+
 function disconnect() {
   if (active && active.client && active.client.close) {
     active.client.close();
@@ -439,7 +461,9 @@ function wireTrajectorySource(result) {
 
 module.exports = {
   connectDesktop: connectDesktop,
+  connectRelayDesktop: connectRelayDesktop,
   getRelayJwt: getRelayJwt,
+  setAssistantFeedback: setAssistantFeedback,
   connectRelayDesktop: connectRelayDesktop,
   mapChatMessages: mapChatMessages,
   mapGitChanges: mapGitChanges,
