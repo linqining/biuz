@@ -52,6 +52,10 @@ struct ConversationListView: View {
     }
 
     @State private var viewMode: ListViewMode = .projects
+    // P-013 按分组视图 task-groups 数据（viewMode 切 .grouped 时加载）
+    @State private var taskGroups: RelayTaskGroupStructure?
+    @State private var taskGroupsLoading = false
+    @State private var taskGroupsError: String?
 
     /// 来源过滤口径（项 5）：all=全部（默认）；mac=已配对桌面端（局域网/云中继，source=="mac"）；
     /// cloud=云端沙盒（source=="cloud"，BiuZ 尚无云端会话数据源，选中显示对应空态提示）
@@ -228,6 +232,21 @@ struct ConversationListView: View {
                 }
                 .accessibilityIdentifier("04-act-new")
             }
+        }
+        // P-013：切 GROUPED 视图时拉 task-groups.read
+        .task(id: viewMode) {
+            guard viewMode == .grouped, taskGroups == nil else { return }
+            taskGroupsLoading = true
+            taskGroupsError = nil
+            do {
+                let wsPath = session.connection.workspace?.path
+                let wsIdentity = session.connection.workspace?.workspaceIdentity
+                taskGroups = try await session.connection.readTaskGroups(
+                    workspacePath: wsPath, workspaceIdentity: wsIdentity)
+            } catch {
+                taskGroupsError = error.localizedDescription
+            }
+            taskGroupsLoading = false
         }
         .sheet(isPresented: $showNewSheet) {
             NewConversationSheet(onCreated: { conversation in
@@ -474,12 +493,61 @@ struct ConversationListView: View {
                     sectionHeader(String(localized: "未读"))
                 }
             case .grouped:
-                // 数据源未接入：如实提示，不用项目分组冒充
-                Section {
-                    Text("分组视图待接入：task-groups 数据源尚未接入移动端")
-                        .font(T.font(12.5))
-                        .foregroundColor(T.text3)
-                        .accessibilityIdentifier("04-view-grouped-pending")
+                // P-013：task-groups.read 数据源驱动
+                if taskGroupsLoading {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView().scaleEffect(0.8)
+                            Text(String(localized: "正在读取分组…"))
+                                .font(T.font(12))
+                                .foregroundColor(T.text3)
+                            Spacer()
+                        }
+                        .accessibilityIdentifier("04-view-grouped-loading")
+                    }
+                } else if let error = taskGroupsError {
+                    Section {
+                        Text(String(localized: "按分组加载失败 · \(error)"))
+                            .font(T.font(12.5))
+                            .foregroundColor(T.text3)
+                            .accessibilityIdentifier("04-view-grouped-error")
+                    }
+                } else if let tg = taskGroups {
+                    let conversations = filtered
+                    let convTuples = conversations.map { c in
+                        (id: c.id, title: c.title, updatedAt: c.updatedAt.timeIntervalSince1970)
+                    }
+                    let sections = taskGroupSections(
+                        conversations: convTuples,
+                        groups: tg.groups, members: tg.members,
+                        fallbackTitle: String(localized: "未分组"))
+                    if sections.isEmpty {
+                        Section {
+                            Text(String(localized: "暂无分组"))
+                                .font(T.font(12.5))
+                                .foregroundColor(T.text3)
+                                .accessibilityIdentifier("04-view-grouped-empty")
+                        }
+                    } else {
+                        ForEach(sections, id: \.title) { section in
+                            Section(header: sectionHeader(section.title)) {
+                                ForEach(section.items, id: \.id) { item in
+                                    // 复用 row() 渲染（需要 Conversation 对象——从 allConversations 找）
+                                    if let conv = filtered.first(where: { $0.id == item.id }) {
+                                        row(conv)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Section {
+                        Text(String(localized: "暂无分组"))
+                            .font(T.font(12.5))
+                            .foregroundColor(T.text3)
+                            .accessibilityIdentifier("04-view-grouped-empty")
+                    }
                 }
             case .projects:
                 // 项目/工作区分组（项 5：📁 项目名 + 可折叠 chevron，Qoder 对照屏 1 口径）。

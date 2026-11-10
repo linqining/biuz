@@ -1620,3 +1620,83 @@ struct ProjectsPage: View {
         .accessibilityIdentifier("18-removed-\(project.id)")
     }
 }
+
+
+// MARK: - P-013 task-groups 读面（iOS 同构，Android RemoteTaskGroups.kt 对位）
+
+/// P-013 task-groups 结构（上游 task-groups/contract.ts:5-33 同参）。
+struct RelayTaskGroup: Equatable {
+    let id: String
+    let title: String
+    let color: String?
+}
+
+struct RelayTaskGroupMember: Equatable {
+    let groupId: String
+    let taskId: String
+}
+
+struct RelayTaskGroupStructure: Equatable {
+    let groups: [RelayTaskGroup]
+    let members: [RelayTaskGroupMember]
+}
+
+extension ZCodeServerConnection {
+    /// task-groups.read（频道 `task-groups`【实证·上游仓 channels.ts:124】；
+    /// workspace 信封）。失败原样上抛。
+    func readTaskGroups(
+        workspacePath: String?, workspaceIdentity: String?
+    ) async throws -> RelayTaskGroupStructure {
+        var builder = JSONObjectBuilder()
+        if let workspacePath, !workspacePath.isEmpty { builder.set("workspacePath", workspacePath) }
+        if let workspaceIdentity, !workspaceIdentity.isEmpty { builder.set("workspaceIdentity", workspaceIdentity) }
+        let result = try await call("task-groups", "read", .json(.object(builder.fields)))
+        let groupRows = result.jsonValue?["groups"]?.arrayValue ?? []
+        let memberRows = result.jsonValue?["members"]?.arrayValue ?? []
+        let groups = groupRows.compactMap { g -> RelayTaskGroup? in
+            let d = g.objectValue
+            guard let id = d?["id"]?.stringValue else { return nil }
+            return RelayTaskGroup(
+                id: id, title: d?["title"]?.stringValue ?? id,
+                color: d?["color"]?.stringValue)
+        }
+        let members = memberRows.compactMap { m -> RelayTaskGroupMember? in
+            let d = m.objectValue
+            guard let groupId = d?["groupId"]?.stringValue,
+                  let taskId = d?["taskId"]?.stringValue else { return nil }
+            return RelayTaskGroupMember(groupId: groupId, taskId: taskId)
+        }
+        return RelayTaskGroupStructure(groups: groups, members: members)
+    }
+}
+
+/// P-013 按分组视图纯函数（web TaskGroupedView 同口径）：taskId ↔ sessions 行 id
+/// 对位；组间 groups[] 声明序；组内 updatedAt 降序；不在任何组的会话归尾区。
+func taskGroupSections(
+    conversations: [(id: String, title: String, updatedAt: Double)],
+    groups: [RelayTaskGroup],
+    members: [RelayTaskGroupMember],
+    fallbackTitle: String
+) -> [(title: String, items: [(id: String, title: String, updatedAt: Double)])] {
+    let byId = Dictionary(conversations.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    var out: [(title: String, items: [(id: String, title: String, updatedAt: Double)])] = []
+    var assigned = Set<String>()
+    for group in groups {
+        let groupTasks = members.filter { $0.groupId == group.id }
+        let items = groupTasks.compactMap { m -> (id: String, title: String, updatedAt: Double)? in
+            guard let conv = byId[m.taskId] else { return nil }
+            return (id: conv.id, title: conv.title, updatedAt: conv.updatedAt)
+        }.sorted { $0.updatedAt > $1.updatedAt }
+        assigned.formUnion(groupTasks.map(\.taskId))
+        if !items.isEmpty {
+            out.append((title: group.title, items: items))
+        }
+    }
+    let ungrouped = conversations
+        .filter { !assigned.contains($0.id) }
+        .sorted { $0.updatedAt > $1.updatedAt }
+    if !ungrouped.isEmpty {
+        out.append((title: fallbackTitle, items: ungrouped))
+    }
+    return out
+}

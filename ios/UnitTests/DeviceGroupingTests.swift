@@ -64,4 +64,62 @@ final class DeviceGroupingTests: XCTestCase {
         XCTAssertFalse(mid2.needsInstanceSheet, "单实例不弹 sheet")
         XCTAssertEqual(mid2.displayName, "mini")
     }
+
+    // MARK: - P-013 task-groupSections 纯函数单测
+
+    func testTaskGroupSectionsGroupsByMemberMapping() {
+        let conversations: [(id: String, title: String, updatedAt: Double)] = [
+            (id: "t1", title: "前端会话", updatedAt: 100),
+            (id: "t2", title: "后端会话", updatedAt: 200),
+            (id: "t3", title: "另一前端", updatedAt: 300),
+        ]
+        let groups = [
+            RelayTaskGroup(id: "g1", title: "前端", color: "blue"),
+            RelayTaskGroup(id: "g2", title: "后端", color: "green"),
+        ]
+        let members = [
+            RelayTaskGroupMember(groupId: "g1", taskId: "t1"),
+            RelayTaskGroupMember(groupId: "g1", taskId: "t3"),
+            RelayTaskGroupMember(groupId: "g2", taskId: "t2"),
+        ]
+        let sections = taskGroupSections(
+            conversations: conversations, groups: groups, members: members,
+            fallbackTitle: "未分组")
+        XCTAssertEqual(sections.count, 2)
+        XCTAssertEqual(sections[0].title, "前端")
+        XCTAssertEqual(sections[0].items.count, 2)
+        XCTAssertEqual(sections[1].title, "后端")
+        XCTAssertEqual(sections[1].items.count, 1)
+    }
+
+    func testTaskGroupSectionsUngroupedFallToTail() {
+        let conversations: [(id: String, title: String, updatedAt: Double)] = [
+            (id: "t1", title: "A", updatedAt: 100),
+            (id: "t2", title: "B", updatedAt: 200),
+            (id: "t-orphan", title: "C", updatedAt: 300),
+        ]
+        let groups = [RelayTaskGroup(id: "g1", title: "前端", color: nil)]
+        let members = [RelayTaskGroupMember(groupId: "g1", taskId: "t1")]
+        let sections = taskGroupSections(
+            conversations: conversations, groups: groups, members: members,
+            fallbackTitle: "未分组")
+        XCTAssertEqual(sections.count, 2)
+        XCTAssertEqual(sections[0].title, "前端")
+        XCTAssertEqual(sections[1].title, "未分组")
+        XCTAssertEqual(sections[1].items.map(\.id), ["t-orphan", "t2"], "t2 也未分配应归尾区")
+    }
+
+    func testTaskGroupSectionsEmptyGroupsProduceNoSection() {
+        let conversations: [(id: String, title: String, updatedAt: Double)] = [
+            (id: "t1", title: "A", updatedAt: 100),
+        ]
+        let groups = [RelayTaskGroup(id: "g1", title: "空组", color: nil)]
+        let sections = taskGroupSections(
+            conversations: conversations, groups: groups, members: [],
+            fallbackTitle: "未分组")
+        // 空组不产 section，t1 归尾区
+        XCTAssertEqual(sections.count, 1)
+        XCTAssertEqual(sections[0].title, "未分组")
+        XCTAssertEqual(sections[0].items.count, 1)
+    }
 }
