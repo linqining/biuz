@@ -29,6 +29,10 @@ Page({
     });
   },
 
+  onBack() {
+    wx.navigateBack({ delta: 1, fail: function () { wx.reLaunch({ url: '/pages/sessions/sessions' }); } });
+  },
+
   onChooseLanguage() {
     wx.showActionSheet({
       itemList: settings.LANGUAGES.map(function (item) { return item.label; }),

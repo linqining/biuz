@@ -10,6 +10,7 @@
   flex: 0 0 auto;
   padding: 24rpx 32rpx 16rpx;
 }
+.settings-header__back { font-size: 52rpx; color: #111827; padding: 0 20rpx; margin-right: -8rpx; }
 .settings-header__title {
   font-size: 40rpx;
   font-weight: 600;

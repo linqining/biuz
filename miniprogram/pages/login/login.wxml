@@ -32,5 +32,8 @@
         <text class="jwt-action">×</text>
       </view>
     </view>
+    <view class="relay-btn {{connecting ? 'relay-btn--disabled' : ''}}" bind:tap="onConnectRelay" data-test="01-act-relay">
+      <text>{{connecting ? '正在连接中继…' : '连接中继'}}</text>
+    </view>
   </view>
 </view>

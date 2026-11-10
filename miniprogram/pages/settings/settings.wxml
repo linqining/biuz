@@ -1,6 +1,7 @@
 <!-- 013-设置：基础设置 / 数据与统计 / 关于（品牌行连点 7 次出开发者组） -->
 <view class="page settings-page" style="padding-top: {{statusBarHeight}}px">
   <view class="settings-header">
+    <text class="settings-header__back" bind:tap="onBack" data-test="13-act-back">‹</text>
     <text class="settings-header__title">设置</text>
   </view>
 

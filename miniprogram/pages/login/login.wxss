@@ -108,3 +108,14 @@
 .jwt-row + .jwt-row { border-top: 1rpx solid #f3f4f6; }
 .jwt-label { font-size: 26rpx; color: #374151; }
 .jwt-action { font-size: 24rpx; color: #2563eb; }
+
+.relay-btn {
+  margin: 24rpx 32rpx 0;
+  background: #111827;
+  color: #ffffff;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  text-align: center;
+  padding: 20rpx 0;
+}
+.relay-btn--disabled { opacity: 0.5; }
