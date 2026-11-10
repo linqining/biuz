@@ -291,3 +291,11 @@
 .sheet__safe {
   height: env(safe-area-inset-bottom);
 }
+
+.relay-btn {
+  margin: 24rpx 24rpx 40rpx;
+  background: #111827;
+  color: #ffffff;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+}

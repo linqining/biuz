@@ -84,4 +84,5 @@
     <view class="sheet__cancel" bind:tap="onCloseSheet">{{sheetCopy.cancel}}</view>
     <view class="sheet__safe"></view>
   </view>
+  <button class="relay-btn" bindtap="onConnectRelay" data-test="03-act-relay">中继接入（链接 + JWT）</button>
 </view>

@@ -48,6 +48,41 @@ Page({
     if (this.unsubscribe) this.unsubscribe();
   },
 
+  // 写面波次⑥（中继 V2）：粘贴中继链接 + JWT → connectRelayDesktop 全链
+  // （token→ws2→auth_init→paired→设备目录/会话数据源点亮）
+  onConnectRelay() {
+    const connection = require('../../utils/connection.js');
+    wx.showModal({
+      title: '中继接入',
+      editable: true,
+      placeholderText: 'https://zcode.z.ai/remote/v4?sid=…&mid=…',
+      content: '',
+      success: (res) => {
+        if (!res.confirm) return;
+        const relayLink = (res.content || '').trim();
+        if (!relayLink) return;
+        // 二段输入 JWT
+        wx.showModal({
+          title: 'Z.ai 登录凭据 (JWT)',
+          editable: true,
+          placeholderText: 'eyJhbGciOi…',
+          success: (res2) => {
+            if (!res2.confirm) return;
+            const jwt = (res2.content || '').trim();
+            connection.connectRelayDesktop({ relayLink: relayLink, jwt: jwt })
+              .then(() => { this.render(require('../../utils/store.js').getState()); })
+              .catch((err) => {
+                wx.navigateTo({
+                  url: '/pages/connecting/connecting?mode=failure&reason=transport&detail=' +
+                    encodeURIComponent((err && err.message) || '中继连接失败'),
+                });
+              });
+          },
+        });
+      },
+    });
+  },
+
   render(state) {
     const account = state.account;
     this.devices = state.devices || [];

@@ -22,6 +22,37 @@ function wxHttpGet(url) {
   });
 }
 
+/** wx.request POST → JSON API 注入件（中继 token / 设备目录）。 */
+function wxHttpPost(url, jwt, bodyObj) {
+  return new Promise(function (resolve, reject) {
+    wx.request({
+      url: url,
+      method: 'POST',
+      data: bodyObj,
+      header: { Authorization: 'Bearer ' + jwt },
+      success: function (res) { resolve({ status: res.statusCode, body: res.data }); },
+      fail: function (err) {
+        reject(new Error((err && err.errMsg) || 'request failed'));
+      },
+    });
+  });
+}
+
+/** wx.request GET（带可选 Bearer）→ JSON API 注入件（设备目录）。 */
+function wxHttpGetJson(url, jwt) {
+  return new Promise(function (resolve, reject) {
+    wx.request({
+      url: url,
+      method: 'GET',
+      header: jwt ? { Authorization: 'Bearer ' + jwt } : {},
+      success: function (res) { resolve({ status: res.statusCode, body: res.data }); },
+      fail: function (err) {
+        reject(new Error((err && err.errMsg) || 'request failed'));
+      },
+    });
+  });
+}
+
 /** wx.connectSocket → socketFactory 注入件（单层：直接接 {url}——
  * 曾误包双层导致 rpc-client 收到内层函数当 transport）。 */
 function wxSocketFactory(params) {
@@ -68,8 +99,13 @@ function wxSocketFactory(params) {
           messageCbs.forEach(function (cb) {
             try { cb(bytes); } catch (e) { console.error('[BiuZ] message cb', e); }
           });
+        } else if (typeof data === 'string') {
+          // 中继 V2 auth 面走文本帧（auth_init/auth_ack JSON——RelayTransport
+          // sendJSONLocked 同口径）；rpc 桥内帧仍为二进制
+          messageCbs.forEach(function (cb) {
+            try { cb(data); } catch (e) { console.error('[BiuZ] message cb', e); }
+          });
         }
-        // 文本帧忽略（桌面 RPC 帧均为二进制）
       });
     }
     if (task && task.onError) {
@@ -84,13 +120,16 @@ function wxSocketFactory(params) {
     }
 
     return {
-      send: function (bytes) {
-        // 转 ArrayBuffer（wx.send 接受 ArrayBuffer）
-        const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      send: function (payload) {
+        // 双形态：Uint8Array→ArrayBuffer（rpc 二进制帧）；string→文本（中继 V2
+        // auth_init/auth_ack JSON——RelayTransport sendJSONLocked 同口径）
+        const data = typeof payload === 'string'
+          ? payload
+          : payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
         if (opened && task) {
-          task.send({ data: ab });
+          task.send({ data: data });
         } else if (!failed) {
-          pendingSends.push(ab);
+          pendingSends.push(data);
         }
         // failed 后静默丢弃：onError 已走 onClose → pending 由 client 统一 reject
       },
@@ -115,5 +154,7 @@ function failedSocket(message) {
 
 module.exports = {
   wxHttpGet: wxHttpGet,
+  wxHttpPost: wxHttpPost,
+  wxHttpGetJson: wxHttpGetJson,
   wxSocketFactory: wxSocketFactory,
 };

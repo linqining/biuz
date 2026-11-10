@@ -11,6 +11,7 @@
 // wx.setStorageSync('biuz.desktop')（baseUrl/token），支持重连。
 
 const rpcConnection = require('./rpc-connection.js');
+const relayV2 = require('./relay-v2.js');
 const wxTransport = require('./wx-transport.js');
 const store = require('./store.js');
 const chatStore = require('./chat-store.js');
@@ -51,9 +52,10 @@ function connectDesktop(params) {
   const token = (params && params.token || '').trim();
   if (!baseUrl) return Promise.reject(new Error('请先填写桌面端地址'));
   saveAddress(baseUrl, token);
-  // 注入面：单测传假 socketFactory/httpGet；运行时用 wx 薄壳
+  // 注入面：单测传假 socketFactory/httpGet/httpPost；运行时用 wx 薄壳
   const socketFactory = (params && params.socketFactory) || wxTransport.wxSocketFactory;
   const httpGet = (params && params.httpGet) || wxTransport.wxHttpGet;
+  const httpPost = (params && params.httpPost) || wxTransport.wxHttpPost;
   return rpcConnection.connect({
     baseUrl: baseUrl,
     token: token,
@@ -88,6 +90,125 @@ function connectDesktop(params) {
     });
     store.refresh();
     return result;
+  });
+}
+
+/**
+ * 中继 V2 连接（真机数据路径；写面波次⑥——Android RelayV2.kt + fetchToken 直译）：
+ * relay link → POST /api/v1/remote/token（Bearer JWT）→ wss /remote/ws2 →
+ * auth_init（文本帧，无 role）→ auth_ack paired → 桥内 rpc（二进制 rpc-frame）
+ * → sessions 等 store 数据源同 LAN 口径点亮；设备页接中继设备目录
+ * （GET /api/v1/remote/device，Bearer JWT——Mock 红线解除：JWT 在场才接）。
+ */
+function connectRelayDesktop(params) {
+  const relayLinkRaw = (params && params.relayLink || '').trim();
+  const jwt = (params && params.jwt || '').trim();
+  if (!relayLinkRaw) return Promise.reject(new Error('请先粘贴中继链接'));
+  if (!jwt) return Promise.reject(new Error('云中继需要登录 Z.ai 账号（缺 JWT）'));
+  const socketFactory = (params && params.socketFactory) || wxTransport.wxSocketFactory;
+  const httpPost = (params && params.httpPost) || wxTransport.wxHttpPost;
+  const httpGetJson = (params && params.httpGetJson) || wxTransport.wxHttpGetJson;
+  const parsed = relayV2.parseRelayLink(relayLinkRaw);
+  if (!parsed) return Promise.reject(new Error('中继链接无效'));
+  if (params.persist !== false) saveAddress(parsed.httpOrigin, jwt);
+  return relayV2.connectRelayV2({
+    relayLink: parsed,
+    jwt: jwt,
+    platform: 'miniprogram',
+    appVersion: '1.0.0',
+    socketFactory: socketFactory,
+    httpPost: httpPost,
+  }).then(function (result) {
+    active = {
+      client: makeRpcSocketClient(result),
+      serverInfo: {
+        name: parsed.machineName || '云端中继',
+        version: parsed.desktopAppVersion || '',
+      },
+      workspace: { path: parsed.deviceMid || 'relay', workspaceIdentity: parsed.deviceMid },
+      hello: { authUserId: '' },
+      clientId: '',
+      mode: 'relay-v2',
+    };
+    store.setIdentity({
+      deviceName: active.serverInfo.name,
+      accountName: '',
+    });
+    wireSources(active);
+    store.refresh();
+    return active;
+  });
+}
+
+/** 桥内 rpc 客户端包装（auth 配对后的二进制 rpc-frame 面）。 */
+function makeRpcSocketClient(result) {
+  const rpcClient = require('./rpc-client.js');
+  return rpcClient.createRpcClient({
+    send: function (bytes) { result.socket.sendBinary(bytes); },
+    onMessage: function (cb) { result.socket.onBinary(cb); },
+    onClose: function (cb) { result.socket.onClosed(cb); },
+  });
+}
+
+/** store 数据源装配（LAN/中继共用——同一 RPC 面）。 */
+function wireSources(result) {
+  const client = result.client;
+  const workspacePath = result.workspace && result.workspace.path;
+  store.setSource(function () {
+    return client
+      .call('zcode-task', 'listTaskList', [{ scope: 'all' }])
+      .then(function (value) { return mapTaskRows(value); });
+  });
+  chatStore.setSource(function (sessionId) {
+    return client
+      .call('zcode-agent', 'readSessionMessages', [{ sessionId: sessionId, limit: 200 }])
+      .then(function (value) { return mapChatMessages(value, sessionId); });
+  });
+  filesStore.setSource(function () {
+    const root = workspacePath;
+    return readDirRecursiveClient(client, root, 0).then(function (tree) {
+      return { tree: tree, workspacePath: root };
+    });
+  });
+  diffStore.setSource(function () {
+    return client
+      .call('git', 'getChanges', [{ workspacePath: workspacePath }])
+      .then(function (value) { return mapGitChanges(value); });
+  });
+  trajectoryStore.setSource(function (sessionId) {
+    return client
+      .call('zcode-agent', 'readSessionMessages', [{ sessionId: sessionId, limit: 200 }])
+      .then(function (value) {
+        const mapped = mapChatMessages(value, sessionId);
+        return { entries: mapped.messages, taskTitle: sessionId };
+      });
+  });
+  capabilityStore.setSource(function (kind) {
+    return capability.loadCapability(client, result.workspace, kind);
+  });
+  devicesStore.setSource(function () {
+    // 中继设备目录（GET /api/v1/remote/device，Bearer JWT——Android
+    // RelayDeviceCatalog.parse 直译）；jwt 缺席如实拒绝
+    const jwt = (result.jwt || '').trim();
+    if (!jwt) return Promise.reject(new Error('设备列表来自中继账号服务；当前未携带登录凭据'));
+    const origin = result.httpOrigin || 'https://zcode.z.ai';
+    const httpGetJson = (result.httpGetJson) || wxTransport.wxHttpGetJson;
+    return httpGetJson(origin + '/api/v1/remote/device', jwt).then(function (response) {
+      if (response.status !== 200) throw new Error('设备目录 HTTP ' + response.status);
+      const json = response.body || {};
+      const rows = json.data || [];
+      return {
+        devices: rows.map(function (row) {
+          const meta = row.meta || {};
+          return {
+            deviceSid: row.device_sid, deviceMid: row.device_mid,
+            online: row.online === true, name: meta.name || null,
+            platform: meta.platform || null, version: meta.version || null,
+          };
+        }),
+        account: null,
+      };
+    });
   });
 }
 
@@ -134,6 +255,39 @@ function mapTaskRows(value) {
 }
 
 // ---- 片四：各页数据源接线（形状证据见各映射函数头注） ----
+
+/** 递归读目录（client 直收版——中继/局域网共用；深度 3 层）。 */
+function readDirRecursiveClient(client, dirPath, depth) {
+  if (depth > 3) return Promise.resolve([]);
+  return client
+    .call('file', 'readdir', [{ path: dirPath }])
+    .then(function (value) {
+      const entries = (value && (value.entries || value)) || [];
+      if (!Array.isArray(entries)) return [];
+      return Promise.all(
+        entries.map(function (entry) {
+          if (!entry || typeof entry !== 'object') return null;
+          const name = entry.name || entry.fileName || '';
+          if (!name) return null;
+          const entryPath = entry.path || dirPath + '/' + name;
+          const isDirectory = entry.isDirectory === true || entry.directory === true
+            || entry.kind === 'directory';
+          const node = {
+            id: entryPath,
+            name: name,
+            path: entryPath,
+            isDirectory: isDirectory,
+            size: entry.size == null ? null : Number(entry.size),
+            children: null,
+          };
+          if (!isDirectory) return node;
+          return readDirRecursiveClient(client, entryPath, depth + 1)
+            .then(function (children) { node.children = children; return node; });
+        }),
+      ).then(function (nodes) { return nodes.filter(function (n) { return n !== null; }); });
+    })
+    .catch(function () { return []; });
+}
 
 /**
  * 会话页数据源：`zcode-agent.readSessionMessages {sessionId, limit?}` →
@@ -275,6 +429,7 @@ function wireTrajectorySource(result) {
 
 module.exports = {
   connectDesktop: connectDesktop,
+  connectRelayDesktop: connectRelayDesktop,
   mapChatMessages: mapChatMessages,
   mapGitChanges: mapGitChanges,
   disconnect: disconnect,
