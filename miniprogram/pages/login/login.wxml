@@ -20,5 +20,17 @@
       <text class="login-btn__action">{{item.action}}</text>
       <text class="login-btn__region">{{item.region}}</text>
     </view>
+
+    <!-- P-018：JWT 粘贴持久化（完整 OAuth 待 web-view + 白名单波次） -->
+    <view class="jwt-section">
+      <view class="jwt-row" bind:tap="onPasteJwt" data-test="01-act-paste-jwt">
+        <text class="jwt-label">{{jwtStored ? 'JWT 已保存' : '粘贴 Z.ai JWT（中继连接用）'}}</text>
+        <text class="jwt-action">{{jwtStored ? '更新' : '粘贴'}}</text>
+      </view>
+      <view wx:if="{{jwtStored}}" class="jwt-row" bind:tap="onClearJwt" data-test="01-act-clear-jwt">
+        <text class="jwt-label" style="color: #dc2626">清除 JWT</text>
+        <text class="jwt-action">×</text>
+      </view>
+    </view>
   </view>
 </view>

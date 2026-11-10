@@ -102,3 +102,9 @@
   border: 2rpx solid var(--color-accent-pill-border);
   color: var(--color-accent-pill-text);
 }
+
+.jwt-section { margin: 24rpx 32rpx 0; padding: 20rpx 24rpx; background: #ffffff; border: 1rpx solid #e5e7eb; border-radius: 16rpx; }
+.jwt-row { display: flex; align-items: center; justify-content: space-between; padding: 12rpx 0; }
+.jwt-row + .jwt-row { border-top: 1rpx solid #f3f4f6; }
+.jwt-label { font-size: 26rpx; color: #374151; }
+.jwt-action { font-size: 24rpx; color: #2563eb; }

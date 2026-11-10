@@ -100,9 +100,15 @@ function connectDesktop(params) {
  * → sessions 等 store 数据源同 LAN 口径点亮；设备页接中继设备目录
  * （GET /api/v1/remote/device，Bearer JWT——Mock 红线解除：JWT 在场才接）。
  */
+/** 读取持久化 JWT（login 页 P-018 写入；connectRelayDesktop 自动回填）。 */
+function getRelayJwt() {
+  try { return wx.getStorageSync('biuz.jwt') || ''; } catch (err) { return ''; }
+}
+
 function connectRelayDesktop(params) {
   const relayLinkRaw = (params && params.relayLink || '').trim();
-  const jwt = (params && params.jwt || '').trim();
+  // JWT 来源：显式传入 > 持久化（login 页粘贴写入）
+  const jwt = (params && params.jwt || '').trim() || getRelayJwt();
   if (!relayLinkRaw) return Promise.reject(new Error('请先粘贴中继链接'));
   if (!jwt) return Promise.reject(new Error('云中继需要登录 Z.ai 账号（缺 JWT）'));
   const socketFactory = (params && params.socketFactory) || wxTransport.wxSocketFactory;
@@ -129,6 +135,7 @@ function connectRelayDesktop(params) {
       hello: { authUserId: '' },
       clientId: '',
       mode: 'relay-v2',
+      jwt: jwt,
     };
     store.setIdentity({
       deviceName: active.serverInfo.name,
@@ -429,6 +436,7 @@ function wireTrajectorySource(result) {
 
 module.exports = {
   connectDesktop: connectDesktop,
+  getRelayJwt: getRelayJwt,
   connectRelayDesktop: connectRelayDesktop,
   mapChatMessages: mapChatMessages,
   mapGitChanges: mapGitChanges,
