@@ -574,6 +574,13 @@
     <string name="subagents_group_plugin">Plugin profiles (%1$d)</string>
     <string name="subagents_tools_all">All tools</string>
     <string name="subagents_tools_count">%1$d tools</string>
+    <string name="subagents_new_title">New Subagent</string>
+    <string name="subagents_edit_title">Edit Subagent</string>
+    <string name="subagents_field_name">Name</string>
+    <string name="subagents_field_description">Description</string>
+    <string name="subagents_field_prompt">System prompt</string>
+    <string name="subagents_delete_title">Delete subagent "%1$s"?</string>
+    <string name="subagents_delete_message">Deleting removes the md file on the desktop. This cannot be undone.</string>
     <!-- ============ 018 Projects (project.readTree read-only first wave) ============ -->
     <string name="projects_title">Projects</string>
     <string name="projects_not_connected_hint">Projects are organized on the desktop; connect to sync the list here</string>

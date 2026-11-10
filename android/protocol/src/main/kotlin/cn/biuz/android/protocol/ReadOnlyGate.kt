@@ -219,11 +219,13 @@ object ReadOnlyGate {
         ),
         // setEnabled 放行（写面波次② 2026-11-10，web 同参同面裁决先例=git 写族/setting.update）：
         // 手机「子智能体」页启停开关 = subagents.setEnabled({agentId, enabled})，桌面代执行
-        // （写 agents-state.json，服务端 fs）；createAgent/updateAgent/deleteAgent/
-        // set*ModelOverride（完整编辑器面）未接 UI，维持拦截。
+        // （写 agents-state.json，服务端 fs）。
+        // CRUD 放行（写面波次③ 2026-11-10，同裁决）：手机「子智能体」编辑器 =
+        // createAgent/updateAgent/deleteAgent（SubagentsSection.tsx:1507-1525 同参，
+        // 服务端落 md 文件——subagentsService 服务端 fs）；set*ModelOverride 维持
+        // 拦截（需模型目录联动，编辑器模型选择波次）。
         "subagents" to setOf(
             "setBuiltInModelOverride", "setPluginAgentModelOverride",
-            "createAgent", "updateAgent", "deleteAgent",
         ),
         "commands" to setOf("writeCommandFile", "updateCommandFile", "deleteCommandFile", "setCommandEnabled"),
         // saveHooks 放行（写面波次② 2026-11-10，同上裁决）：手机「钩子」页启停/删除 =

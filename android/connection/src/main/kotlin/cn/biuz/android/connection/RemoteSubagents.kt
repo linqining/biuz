@@ -25,7 +25,13 @@ import kotlinx.coroutines.CancellationException
  * plugin=插件 profile）。
  */
 
-/** 一条子代理行（只读投影）。 */
+/**
+ * 一条子代理行；`raw` = 回执原条目（写面波次③：updateAgent config 按 raw 回传
+ * 保留 web 表单 preserve 族字段——tools/disallowedTools/skills/permissionMode/
+ * maxTurns/background/mcpServers 原样，编辑器只改 name/description/systemPrompt/
+ * injectAgentsMd 四键）；`path`/`projectPath` 供 deleteAgent filePath 与
+ * updateAgent oldFilePath。
+ */
 data class SubagentRow(
     val id: String,
     val name: String,
@@ -40,6 +46,12 @@ data class SubagentRow(
     val tools: List<String>?,
     val color: String?,
     val pluginName: String?,
+    /** md 文件路径（built-in/plugin 无文件面，delete/update 的 filePath） */
+    val path: String? = null,
+    val projectPath: String? = null,
+    val systemPrompt: String? = null,
+    val injectAgentsMd: Boolean? = null,
+    val raw: JSONValue? = null,
 ) {
     val toolsCount: Int get() = tools?.size ?: 0
     val toolsAll: Boolean get() = tools == null
@@ -124,6 +136,117 @@ suspend fun AppSession.setSubagentEnabled(agentId: String, enabled: Boolean): St
     }
 }
 
+/**
+ * 子智能体新建（写面波次③，gate 已放行；web SubagentsSection.tsx:1517-1525 同参）：
+ * `subagents.createAgent {config, provider, scope, workspacePath?, workspaceIdentity?}`——
+ * config 仅携编辑器四键 + raw preserve 族（web 表单 onSave 同构：initial 的
+ * disallowedTools/skills/permissionMode/maxTurns/background/mcpServers 原样保留）。
+ * 返回 null=成功；非 null=可上屏错误文案。
+ */
+suspend fun AppSession.createSubagent(
+    name: String,
+    description: String,
+    systemPrompt: String,
+    workspacePath: String?,
+    workspaceIdentity: String?,
+): String? {
+    if (!isConnected) return "未连接桌面端"
+    val fields = LinkedHashMap<String, JSONValue>()
+    fields["config"] = JSONValue.Obj(subagentConfig(name, description, systemPrompt, null))
+    fields["provider"] = JSONValue.Str(ZCODE_AGENT_PROVIDER)
+    fields["scope"] = JSONValue.Str("user")
+    if (!workspacePath.isNullOrEmpty()) fields["workspacePath"] = JSONValue.Str(workspacePath)
+    if (!workspaceIdentity.isNullOrEmpty()) fields["workspaceIdentity"] = JSONValue.Str(workspaceIdentity)
+    return try {
+        connection.call("subagents", "createAgent", RPCValue.json(JSONValue.Obj(fields)))
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "新建失败 · ${e.toString().take(160)}"
+    }
+}
+
+/**
+ * 子智能体更新（web SubagentsSection.tsx:1507-1516 同参）：
+ * `subagents.updateAgent {agentId, config, oldFilePath, provider, scope,
+ * workspacePath?, workspaceIdentity?}`——config = 编辑器四键 + raw preserve 族。
+ * 返回 null=成功；非 null=可上屏错误文案。
+ */
+suspend fun AppSession.updateSubagent(
+    agent: SubagentRow,
+    name: String,
+    description: String,
+    systemPrompt: String,
+    workspacePath: String?,
+    workspaceIdentity: String?,
+): String? {
+    if (!isConnected) return "未连接桌面端"
+    val fields = LinkedHashMap<String, JSONValue>()
+    fields["agentId"] = JSONValue.Str(agent.id)
+    fields["config"] = JSONValue.Obj(subagentConfig(name, description, systemPrompt, agent))
+    if (!agent.path.isNullOrEmpty()) fields["oldFilePath"] = JSONValue.Str(agent.path)
+    fields["provider"] = JSONValue.Str(ZCODE_AGENT_PROVIDER)
+    fields["scope"] = if (agent.scope == "workspace") JSONValue.Str("workspace") else JSONValue.Str("user")
+    val effectiveWorkspace = agent.projectPath ?: workspacePath
+    if (!effectiveWorkspace.isNullOrEmpty()) fields["workspacePath"] = JSONValue.Str(effectiveWorkspace)
+    if (!workspaceIdentity.isNullOrEmpty()) fields["workspaceIdentity"] = JSONValue.Str(workspaceIdentity)
+    return try {
+        connection.call("subagents", "updateAgent", RPCValue.json(JSONValue.Obj(fields)))
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "保存失败 · ${e.toString().take(160)}"
+    }
+}
+
+/**
+ * 子智能体删除（web SubagentsSection.tsx:1565 同参）：
+ * `subagents.deleteAgent {agentId, filePath}`——filePath = agent.path。
+ * 返回 null=成功；非 null=可上屏错误文案。
+ */
+suspend fun AppSession.deleteSubagent(agent: SubagentRow): String? {
+    if (!isConnected) return "未连接桌面端"
+    val fields = LinkedHashMap<String, JSONValue>()
+    fields["agentId"] = JSONValue.Str(agent.id)
+    fields["filePath"] = JSONValue.Str(agent.path ?: "")
+    return try {
+        connection.call("subagents", "deleteAgent", RPCValue.json(JSONValue.Obj(fields)))
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "删除失败 · ${e.toString().take(160)}"
+    }
+}
+
+/**
+ * config 装配（web onSave 表单同构）：编辑器四键 + agent.raw preserve 族
+ * （disallowedTools/skills/permissionMode/maxTurns/background/mcpServers 原样）。
+ * color 取 raw 保留（编辑器不含色板）；injectAgentsMd 仅编辑器显式设置时携带。
+ */
+private fun subagentConfig(
+    name: String,
+    description: String,
+    systemPrompt: String,
+    agent: SubagentRow?,
+): LinkedHashMap<String, JSONValue> {
+    val config = LinkedHashMap<String, JSONValue>()
+    config["name"] = JSONValue.Str(name)
+    config["description"] = JSONValue.Str(description)
+    config["systemPrompt"] = JSONValue.Str(systemPrompt)
+    val raw = agent?.raw
+    for (key in listOf("color", "tools", "disallowedTools", "skills", "permissionMode",
+        "maxTurns", "background", "mcpServers")) {
+        val v = raw?.get(key) ?: continue
+        config[key] = v
+    }
+    val inject = agent?.injectAgentsMd
+    if (inject != null) config["injectAgentsMd"] = JSONValue.Bool(inject)
+    return config
+}
+
 /** 子代理条目解析（纯函数；id/name 缺席丢弃）。 */
 fun parseSubagent(json: JSONValue): SubagentRow? {
     val d = json.objectValue ?: return null
@@ -140,5 +263,10 @@ fun parseSubagent(json: JSONValue): SubagentRow? {
         tools = d["tools"]?.arrayValue?.mapNotNull { it.stringValue },
         color = d["color"]?.stringValue,
         pluginName = d["pluginName"]?.stringValue,
+        path = d["path"]?.stringValue,
+        projectPath = d["projectPath"]?.stringValue,
+        systemPrompt = d["systemPrompt"]?.stringValue,
+        injectAgentsMd = d["injectAgentsMd"]?.boolValue,
+        raw = json,
     )
 }

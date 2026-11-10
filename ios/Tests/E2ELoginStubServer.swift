@@ -383,6 +383,13 @@ final class E2ELoginStubServer {
     private var _setEnabledBodies: [StubRPC] = []
     func saveHooksBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _saveHooksBodies }
     func setEnabledBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _setEnabledBodies }
+    /// 写面波次③ 捕获（test33）：subagents CRUD 请求体
+    private var _subagentCreateBodies: [StubRPC] = []
+    private var _subagentUpdateBodies: [StubRPC] = []
+    private var _subagentDeleteBodies: [StubRPC] = []
+    func subagentCreateBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _subagentCreateBodies }
+    func subagentUpdateBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _subagentUpdateBodies }
+    func subagentDeleteBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _subagentDeleteBodies }
 private var _recordedPinned: [String: Bool] = [:]
     private var _setTaskUnreadCount = 0
     private var _archiveTaskCount = 0
@@ -1331,6 +1338,21 @@ private var _recordedPinned: [String: Bool] = [:]
             _setEnabledBodies.append(body)
             lock.unlock()
             channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
+        case "createAgent" where channelName == "subagents":
+            lock.lock()
+            _subagentCreateBodies.append(body)
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["agentId": "user:new-agent", "path": "/agents/new-agent.md"])))
+        case "updateAgent" where channelName == "subagents":
+            lock.lock()
+            _subagentUpdateBodies.append(body)
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["agentId": "user:reviewer"])))
+        case "deleteAgent" where channelName == "subagents":
+            lock.lock()
+            _subagentDeleteBodies.append(body)
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
         // ---- 屏 024/026/018 设置只读页替身（test30；上游形状见 RemoteSettingsExtrasViews.swift）。
         // 值一律走 [String: Any] 重载（Bool→int 1/0 线缆口径，与本文件既有 case 同惯例）----
         case "loadHooks" where channelName == "hooks":
@@ -1375,6 +1397,11 @@ private var _recordedPinned: [String: Bool] = [:]
                 "id": "user:reviewer", "name": "reviewer",
                 "description": "审查代码", "scope": "user",
                 "source": "user", "enabled": true,
+                // 编辑器保存按钮 canSave 要求 systemPrompt 非空（真实 user agent 必带）；
+                // path 供 delete filePath / update oldFilePath
+                "systemPrompt": "You are a code reviewer.",
+                "path": "/agents/reviewer.md",
+                "injectAgentsMd": true,
             ]
             let pluginAgent: [String: Any] = [
                 "id": "plugin:documents@zcode-plugins-official:visual-judge",

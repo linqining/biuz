@@ -180,8 +180,10 @@ final class ReadOnlyGateTests: XCTestCase {
             // 写面波次②（2026-11-10）：hooks.saveHooks / subagents.setEnabled 移入放行面
             // （testWriteFaceWave2Released；反向回归：加回黑名单即误杀启停/删除入口）
             ("commands", "writeCommandFile"),
-            ("subagents", "deleteAgent"), ("subagents", "createAgent"),
-            ("subagents", "setBuiltInModelOverride"), ("hooks", "grantWorkspaceHookTrust"),
+            // 写面波次③（2026-11-10）：subagents CRUD 移入放行面
+            // （testWriteFaceWave3Released；反向回归同②）
+            ("subagents", "setBuiltInModelOverride"), ("subagents", "setPluginAgentModelOverride"),
+            ("hooks", "grantWorkspaceHookTrust"),
             ("mcp-sync", "saveMcpToUserDirectory"),
             ("plugin-sync", "importPluginsArchive"), ("plugins", "installPlugin"),
             ("plugin-management", "setPluginEnabled"),
@@ -372,5 +374,22 @@ final class ReadOnlyGateTests: XCTestCase {
             let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: .undefined)
             XCTAssertFalse(verdict.isBlocked, "\(channel).\(command) 已放行（桌面代执行写），不应拦截")
         }
+    }
+
+    // MARK: 写面波次③ 放行（2026-11-10，web 同参同面裁决续）：子智能体编辑器
+    // createAgent/updateAgent/deleteAgent。set*ModelOverride 维持拦截。
+
+    func testWriteFaceWave3Released() {
+        let cases: [(String, String)] = [
+            ("subagents", "createAgent"),
+            ("subagents", "updateAgent"),
+            ("subagents", "deleteAgent"),
+        ]
+        for (channel, command) in cases {
+            let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: .undefined)
+            XCTAssertFalse(verdict.isBlocked, "\(channel).\(command) 已放行（编辑器写面），不应拦截")
+        }
+        let blocked = ReadOnlyGate.inspect(channel: "subagents", command: "setBuiltInModelOverride", arg: .undefined)
+        XCTAssertTrue(blocked.isBlocked, "setBuiltInModelOverride 维持拦截（模型目录联动波次）")
     }
 }

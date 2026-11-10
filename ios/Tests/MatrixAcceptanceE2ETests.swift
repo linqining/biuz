@@ -1587,4 +1587,95 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         }
         snap(application, "matrix-wave2-write-faces")
     }
+
+    // MARK: - 写面波次③（gate 放行 subagents CRUD）：编辑器新建/保存/删除
+
+    /// 026 子智能体：＋新建 → save 捕获 createAgent 体（config 四键+provider+scope）；
+    /// 行点编辑 → 捕获 updateAgent 体（agentId+oldFilePath）；contextMenu 删除 →
+    /// 捕获 deleteAgent 体 {agentId, filePath}。
+    func test33_writeFaceWave3SubagentEditor() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        openSettingsPage(application, rowIdentifier: "26-row-subagents")
+
+        // ---- 新建：＋ → 表单三键 → 保存 ----
+        let newButton = element(application, "26-act-new")
+        XCTAssertTrue(newButton.waitForExistence(timeout: 8), "应有新建子智能体入口")
+        newButton.tap()
+        let nameField = element(application, "26-field-name")
+        XCTAssertTrue(nameField.waitForExistence(timeout: 8), "编辑器 sheet 应呈现")
+        XCTAssertTrue(typeInto(application, nameField, text: "wave3-agent"), "名称可输入")
+        XCTAssertTrue(typeInto(application, element(application, "26-field-description"),
+                               text: "wave3 描述"), "描述可输入")
+        XCTAssertTrue(typeInto(application, element(application, "26-field-prompt"),
+                               text: "You are a test agent."), "提示词可输入")
+        element(application, "26-act-save").tap()
+        XCTAssertTrue(waitStaticText(application, containing: "已新建 wave3-agent", timeout: 10,
+                                     "新建成功应出回执"))
+        let createArrived = waitUntil(timeout: 8, "替身应收到 createAgent") {
+            stub.subagentCreateBodies().count >= 1
+        }
+        XCTAssertTrue(createArrived, "替身应收到 createAgent（实际 \(stub.subagentCreateBodies().count) 次）")
+        if let body = stub.subagentCreateBodies().last?.objectValue {
+            let config = body["config"]?.objectValue
+            XCTAssertEqual(config?["name"]?.stringValue, "wave3-agent", "config.name")
+            XCTAssertEqual(config?["systemPrompt"]?.stringValue, "You are a test agent.", "config.systemPrompt")
+            XCTAssertEqual(body["provider"]?.stringValue, "glm", "provider 固定 glm")
+            XCTAssertEqual(body["scope"]?.stringValue, "user", "新建 scope=user")
+        } else {
+            XCTFail("createAgent 捕获体应为对象")
+        }
+
+        // ---- 编辑：点 user 行（reviewer）→ 改描述 → 保存 ----
+        let reviewerRow = element(application, "26-row-user:reviewer")
+        XCTAssertTrue(reviewerRow.waitForExistence(timeout: 10), "user 代理行应在场")
+        reviewerRow.tap()
+        let editField = element(application, "26-field-description")
+        XCTAssertTrue(editField.waitForExistence(timeout: 8), "编辑 sheet 应呈现")
+        // 编辑器以原值回填（raw preserve）；本断言只看 update 体形状（agentId/
+        // oldFilePath/scope），描述内容不做清空重输（中文键盘 Delete 键名不稳）
+        _ = editField
+        element(application, "26-act-save").tap()
+        let updateArrived = waitUntil(timeout: 8, "替身应收到 updateAgent") {
+            stub.subagentUpdateBodies().count >= 1
+        }
+        if !updateArrived {
+            XCTFail("替身应收到 updateAgent（update=\(stub.subagentUpdateBodies().count) 次，" +
+                    "create=\(stub.subagentCreateBodies().count) 次——create 增长说明走了新建分支）")
+            return
+        }
+        XCTAssertTrue(updateArrived, "替身应收到 updateAgent")
+        if let body = stub.subagentUpdateBodies().last?.objectValue {
+            XCTAssertEqual(body["agentId"]?.stringValue, "user:reviewer", "update 携 agentId")
+            XCTAssertEqual(body["oldFilePath"]?.stringValue, "/agents/reviewer.md", "oldFilePath = entry.path")
+            XCTAssertEqual(body["scope"]?.stringValue, "user")
+        } else {
+            XCTFail("updateAgent 捕获体应为对象")
+        }
+
+        // ---- 删除：contextMenu 删除 → 确认 ----
+        reviewerRow.press(forDuration: 1.0)
+        let deleteLabel = application.buttons["删除子智能体"]
+        let deleteHit = deleteLabel.waitForExistence(timeout: 5)
+            ? deleteLabel
+            : application.buttons.element(matching: NSPredicate(format: "label CONTAINS %@", "删除"))
+        XCTAssertTrue(deleteHit.waitForExistence(timeout: 5), "contextMenu 应有删除项")
+        deleteHit.tap()
+        let confirm = element(application, "26-act-delete-confirm")
+        XCTAssertTrue(confirm.waitForExistence(timeout: 6), "删除确认弹层应出现")
+        confirm.tap()
+        XCTAssertTrue(waitStaticText(application, containing: "已删除 reviewer", timeout: 10,
+                                     "删除成功应出回执"))
+        let deleteArrived = waitUntil(timeout: 8, "替身应收到 deleteAgent") {
+            stub.subagentDeleteBodies().count >= 1
+        }
+        XCTAssertTrue(deleteArrived, "替身应收到 deleteAgent（实际 \(stub.subagentDeleteBodies().count) 次）")
+        if let body = stub.subagentDeleteBodies().last?.objectValue {
+            XCTAssertEqual(body["agentId"]?.stringValue, "user:reviewer", "delete 携 agentId")
+            XCTAssertEqual(body["filePath"]?.stringValue, "/agents/reviewer.md", "delete 携 filePath")
+        } else {
+            XCTFail("deleteAgent 捕获体应为对象")
+        }
+        snap(application, "matrix-wave3-subagent-editor")
+    }
 }

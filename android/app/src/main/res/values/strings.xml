@@ -652,6 +652,13 @@
     <string name="subagents_group_plugin">插件 profile（%1$d）</string>
     <string name="subagents_tools_all">全部工具</string>
     <string name="subagents_tools_count">%1$d 个工具</string>
+    <string name="subagents_new_title">新建子智能体</string>
+    <string name="subagents_edit_title">编辑子智能体</string>
+    <string name="subagents_field_name">名称</string>
+    <string name="subagents_field_description">描述</string>
+    <string name="subagents_field_prompt">系统提示词</string>
+    <string name="subagents_delete_title">删除子智能体「%1$s」？</string>
+    <string name="subagents_delete_message">删除会从桌面端移除该 md 文件，此操作无法撤销。</string>
     <!-- ============ 018 项目管理（project.readTree 只读第一波） ============ -->
     <string name="projects_title">项目</string>
     <string name="projects_not_connected_hint">项目组织存于桌面端；连接后此处同步清单</string>

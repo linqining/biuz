@@ -186,11 +186,12 @@ enum ReadOnlyGate {
             "validatePlugin", "setPluginEnabled",
         ],
         // setEnabled 放行（写面波次② 2026-11-10，web 同参同面裁决先例=git 写族/setting.update）：
-        // 手机「子智能体」页启停开关 = subagents.setEnabled({agentId, enabled})，桌面代执行；
-        // createAgent/updateAgent/deleteAgent/set*ModelOverride 未接 UI，维持拦截。
+        // 手机「子智能体」页启停开关 = subagents.setEnabled({agentId, enabled})，桌面代执行。
+        // CRUD 放行（写面波次③ 2026-11-10，同裁决）：编辑器 createAgent/updateAgent/
+        // deleteAgent（SubagentsSection.tsx:1507-1525 同参，服务端落 md 文件）；
+        // set*ModelOverride 维持拦截（需模型目录联动）。
         "subagents": [
             "setBuiltInModelOverride", "setPluginAgentModelOverride",
-            "createAgent", "updateAgent", "deleteAgent",
         ],
         "commands": ["writeCommandFile", "updateCommandFile", "deleteCommandFile", "setCommandEnabled"],
         // saveHooks 放行（写面波次② 2026-11-10，同上裁决）：手机「钩子」页启停/删除 =

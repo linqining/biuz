@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -49,8 +51,11 @@ import cn.biuz.android.connection.AppSession
 import cn.biuz.android.connection.SubagentRow
 import cn.biuz.android.connection.SubagentsError
 import cn.biuz.android.connection.SubagentsList
+import cn.biuz.android.connection.createSubagent
+import cn.biuz.android.connection.deleteSubagent
 import cn.biuz.android.connection.loadSubagents
 import cn.biuz.android.connection.setSubagentEnabled
+import cn.biuz.android.connection.updateSubagent
 import kotlinx.coroutines.launch
 
 /**
@@ -77,6 +82,10 @@ fun SubagentsScreen(
     var actionNotice by remember { mutableStateOf<String?>(null) }
     var actionNoticeIsError by remember { mutableStateOf(false) }
     var busyAgentId by remember { mutableStateOf<String?>(null) }
+    // 写面波次③：编辑器（null=无；SubagentRow? 非 null=user 行编辑，"new" 标记新建）
+    var editingAgent by remember { mutableStateOf<SubagentRow?>(null) }
+    var creatingNew by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<SubagentRow?>(null) }
 
     suspend fun reload() {
         loading = true
@@ -120,6 +129,21 @@ fun SubagentsScreen(
                 fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = BiuZText,
+            )
+            Spacer(Modifier.weight(1f))
+            // 写面波次③：新建子智能体（user scope；web addNew 同位）
+            Text(
+                text = "＋",
+                fontSize = 20.sp,
+                color = BiuZAccent,
+                modifier = Modifier
+                    .clip(BiuZRadius.small)
+                    .clickable {
+                        creatingNew = true
+                        editingAgent = null
+                    }
+                    .padding(horizontal = 10.dp)
+                    .testTag("26-act-new"),
             )
         }
         HorizontalDivider(color = BiuZBorder)
@@ -205,6 +229,17 @@ fun SubagentsScreen(
                                         if (error != null) reload()
                                     }
                                 },
+                                onEdit = {
+                                    if (agent.source == "user" && !agent.readOnly) {
+                                        creatingNew = false
+                                        editingAgent = agent
+                                    }
+                                },
+                                onDelete = {
+                                    if (agent.source == "user" && !agent.readOnly) {
+                                        pendingDelete = agent
+                                    }
+                                },
                             )
                         }
                     }
@@ -212,13 +247,135 @@ fun SubagentsScreen(
             }
         }
     }
+    // 写面波次③：编辑器 sheet（呈现期捕获传参 §5-15；name/description/systemPrompt
+    // 三键编辑 + raw preserve 族随 update 下发；web SubagentForm 同参同面）
+    val editorSeed = editingAgent ?: if (creatingNew) SubagentRow(
+        id = "__new__", name = "", description = "", scope = "user", source = "user",
+        enabled = true, readOnly = false, tools = null, color = null, pluginName = null,
+        path = null, systemPrompt = "",
+    ) else null
+    if (editorSeed != null) {
+        var name by remember(editorSeed.id) { mutableStateOf(editorSeed.name) }
+        var description by remember(editorSeed.id) { mutableStateOf(editorSeed.description) }
+        var systemPrompt by remember(editorSeed.id) { mutableStateOf(editorSeed.systemPrompt ?: "") }
+        var saving by remember(editorSeed.id) { mutableStateOf(false) }
+        val workspace = session.storeSurface.value.workspace
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                if (!saving) {
+                    editingAgent = null
+                    creatingNew = false
+                }
+            },
+            title = {
+                Text(
+                    text = if (creatingNew) stringResource(R.string.subagents_new_title)
+                    else stringResource(R.string.subagents_edit_title),
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.subagents_field_name)) },
+                        modifier = Modifier.fillMaxWidth().testTag("26-field-name"),
+                    )
+                    androidx.compose.material3.OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = { Text(stringResource(R.string.subagents_field_description)) },
+                        modifier = Modifier.fillMaxWidth().testTag("26-field-description"),
+                    )
+                    androidx.compose.material3.OutlinedTextField(
+                        value = systemPrompt,
+                        onValueChange = { systemPrompt = it },
+                        label = { Text(stringResource(R.string.subagents_field_prompt)) },
+                        minLines = 4,
+                        maxLines = 8,
+                        modifier = Modifier.fillMaxWidth().testTag("26-field-prompt"),
+                    )
+                    if (saving) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().testTag("26-saving"),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    enabled = !saving && name.trim().isNotEmpty() && systemPrompt.trim().isNotEmpty(),
+                    onClick = {
+                        val target = editingAgent
+                        val newName = name.trim()
+                        val newDescription = description.trim()
+                        val newPrompt = systemPrompt.trim()
+                        saving = true
+                        scope.launch {
+                            val error = if (creatingNew || target == null) {
+                                session.createSubagent(newName, newDescription, newPrompt,
+                                    workspace?.path, workspace?.workspaceIdentity)
+                            } else {
+                                session.updateSubagent(target, newName, newDescription, newPrompt,
+                                    workspace?.path, workspace?.workspaceIdentity)
+                            }
+                            saving = false
+                            editingAgent = null
+                            creatingNew = false
+                            actionNotice = error
+                                ?: (if (creatingNew) "已新建 $newName" else "已保存 $newName")
+                            actionNoticeIsError = error != null
+                            reload()
+                        }
+                    },
+                    modifier = Modifier.testTag("26-act-save"),
+                ) { Text(stringResource(R.string.desktop_act_update)) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    enabled = !saving,
+                    onClick = { editingAgent = null; creatingNew = false },
+                ) { Text(stringResource(R.string.desktop_act_cancel)) }
+            },
+        )
+    }
+
+    // 删除确认（saveHooks 同族：写失败原文常驻上屏）
+    pendingDelete?.let { agent ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.subagents_delete_title, agent.name)) },
+            text = { Text(stringResource(R.string.subagents_delete_message)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    val target = agent
+                    pendingDelete = null
+                    scope.launch {
+                        val error = session.deleteSubagent(target)
+                        actionNotice = error ?: "已删除 ${target.name}"
+                        actionNoticeIsError = error != null
+                        reload()
+                    }
+                }) { Text(stringResource(R.string.projects_remove_confirm)) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.desktop_act_cancel))
+                }
+            },
+        )
+    }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun SubagentRowView(
     agent: SubagentRow,
     busy: Boolean,
     onToggle: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -226,6 +383,10 @@ private fun SubagentRowView(
             .clip(BiuZRadius.medium)
             .background(BiuZBgCard)
             .border(1.dp, BiuZBorder, BiuZRadius.medium)
+            .combinedClickable(
+                onClick = onEdit,
+                onLongClick = onDelete,
+            )
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("26-row-${agent.id}"),
         verticalArrangement = Arrangement.spacedBy(3.dp),

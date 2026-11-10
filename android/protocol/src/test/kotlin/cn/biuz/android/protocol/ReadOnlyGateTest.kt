@@ -256,8 +256,10 @@ class ReadOnlyGateTest {
             // 写面波次②（2026-11-10）：hooks.saveHooks / subagents.setEnabled 移入放行面
             // （testWriteFaceWave2Released，反向回归：加回黑名单即误杀启停/删除入口）
             "commands" to "writeCommandFile",
-            "subagents" to "deleteAgent", "subagents" to "createAgent",
-            "subagents" to "setBuiltInModelOverride", "hooks" to "grantWorkspaceHookTrust",
+            // 写面波次③（2026-11-10）：subagents CRUD 移入放行面
+            // （testWriteFaceWave3Released；反向回归同②）
+            "subagents" to "setBuiltInModelOverride", "subagents" to "setPluginAgentModelOverride",
+            "hooks" to "grantWorkspaceHookTrust",
             "mcp-sync" to "saveMcpToUserDirectory",
             "plugin-sync" to "importPluginsArchive", "plugins" to "installPlugin",
             "plugin-management" to "setPluginEnabled",
@@ -476,5 +478,26 @@ class ReadOnlyGateTest {
                 channel = channel, command = command, arg = RPCValue.Undefined)
             assertFalse(verdict.isBlocked, "$channel.$command 已放行（桌面代执行写），不应拦截")
         }
+    }
+
+    // MARK: 写面波次③ 放行（2026-11-10，web 同参同面裁决续）：子智能体编辑器
+    // createAgent/updateAgent/deleteAgent（SubagentsSection.tsx:1507-1525 同参，
+    // 服务端落 md 文件）。set*ModelOverride 维持拦截（需模型目录联动）。
+
+    @Test
+    fun testWriteFaceWave3Released() {
+        val cases: List<Pair<String, String>> = listOf(
+            "subagents" to "createAgent",
+            "subagents" to "updateAgent",
+            "subagents" to "deleteAgent",
+        )
+        for ((channel, command) in cases) {
+            val verdict = ReadOnlyGate.inspect(
+                channel = channel, command = command, arg = RPCValue.Undefined)
+            assertFalse(verdict.isBlocked, "$channel.$command 已放行（编辑器写面），不应拦截")
+        }
+        val blocked = ReadOnlyGate.inspect(
+            channel = "subagents", command = "setBuiltInModelOverride", arg = RPCValue.Undefined)
+        assertTrue(blocked.isBlocked, "setBuiltInModelOverride 维持拦截（模型目录联动波次）")
     }
 }

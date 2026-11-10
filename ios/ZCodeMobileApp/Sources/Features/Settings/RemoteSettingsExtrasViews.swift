@@ -78,6 +78,91 @@ extension ZCodeServerConnection {
             return String(localized: "操作失败 · \(error.localizedDescription)")
         }
     }
+
+    /// config 装配（web onSave 表单同构）：编辑器四键 + raw preserve 族
+    /// （disallowedTools/skills/permissionMode/maxTurns/background/mcpServers 原样）。
+    private func subagentConfig(
+        _ raw: JSONValue?, name: String, description: String,
+        systemPrompt: String, injectAgentsMd: Bool?
+    ) -> JSONValue {
+        var config = raw?.objectValue ?? [:]
+        config["name"] = .string(name)
+        config["description"] = .string(description)
+        config["systemPrompt"] = .string(systemPrompt)
+        for key in ["tools", "disallowedTools", "skills", "permissionMode",
+                    "maxTurns", "background", "mcpServers"] {
+            config.removeValue(forKey: key) // 保留原值——上面从 raw 展开已含
+        }
+        if let raw {
+            for key in ["color", "tools", "disallowedTools", "skills", "permissionMode",
+                        "maxTurns", "background", "mcpServers"] {
+                if let v = raw.objectValue?[key] { config[key] = v }
+            }
+        }
+        if let injectAgentsMd { config["injectAgentsMd"] = .bool(injectAgentsMd) }
+        return .object(config)
+    }
+
+    /// 子智能体新建（写面波次③，gate 已放行；web SubagentsSection.tsx:1517-1525 同参）。
+    /// 返回 nil=成功；非 nil=错误文案。
+    func createSubagent(
+        name: String, description: String, systemPrompt: String,
+        workspacePath: String?, workspaceIdentity: String?
+    ) async -> String? {
+        guard isActive else { return String(localized: "未连接桌面端") }
+        var builder = JSONObjectBuilder()
+        builder.set("config", subagentConfig(nil, name: name, description: description,
+                                              systemPrompt: systemPrompt, injectAgentsMd: nil))
+        builder.set("provider", "glm")
+        builder.set("scope", "user")
+        if let workspacePath, !workspacePath.isEmpty { builder.set("workspacePath", workspacePath) }
+        if let workspaceIdentity, !workspaceIdentity.isEmpty { builder.set("workspaceIdentity", workspaceIdentity) }
+        do {
+            _ = try await call("subagents", "createAgent", .json(.object(builder.fields)))
+            return nil
+        } catch {
+            return String(localized: "新建失败 · \(error.localizedDescription)")
+        }
+    }
+
+    /// 子智能体更新（web SubagentsSection.tsx:1507-1516 同参：config + oldFilePath +
+    /// scope 按 entry.scope 二值；workspacePath 取 projectPath 优先）。
+    func updateSubagent(
+        _ entry: SubagentEntry, name: String, description: String, systemPrompt: String,
+        workspacePath: String?, workspaceIdentity: String?
+    ) async -> String? {
+        guard isActive else { return String(localized: "未连接桌面端") }
+        var builder = JSONObjectBuilder()
+        builder.set("agentId", entry.id)
+        builder.set("config", subagentConfig(entry.raw, name: name, description: description,
+                                             systemPrompt: systemPrompt, injectAgentsMd: entry.injectAgentsMd))
+        if let path = entry.path { builder.set("oldFilePath", path) }
+        builder.set("provider", "glm")
+        builder.set("scope", entry.scope == "workspace" ? "workspace" : "user")
+        let effectiveWorkspace = entry.projectPath ?? workspacePath
+        if let effectiveWorkspace, !effectiveWorkspace.isEmpty { builder.set("workspacePath", effectiveWorkspace) }
+        if let workspaceIdentity, !workspaceIdentity.isEmpty { builder.set("workspaceIdentity", workspaceIdentity) }
+        do {
+            _ = try await call("subagents", "updateAgent", .json(.object(builder.fields)))
+            return nil
+        } catch {
+            return String(localized: "保存失败 · \(error.localizedDescription)")
+        }
+    }
+
+    /// 子智能体删除（web SubagentsSection.tsx:1565 同参 {agentId, filePath}）。
+    func deleteSubagent(_ entry: SubagentEntry) async -> String? {
+        guard isActive else { return String(localized: "未连接桌面端") }
+        var builder = JSONObjectBuilder()
+        builder.set("agentId", entry.id)
+        builder.set("filePath", entry.path ?? "")
+        do {
+            _ = try await call("subagents", "deleteAgent", .json(.object(builder.fields)))
+            return nil
+        } catch {
+            return String(localized: "删除失败 · \(error.localizedDescription)")
+        }
+    }
 }
 
 // MARK: 屏 024 · 钩子（hooks.loadHooks 只读）
@@ -164,7 +249,12 @@ enum RemoteSettingsParsers {
                 enabled: d["enabled"]?.boolValue ?? true,
                 readOnly: d["readOnly"]?.boolValue ?? false,
                 tools: d["tools"]?.arrayValue?.compactMap(\.stringValue),
-                pluginName: d["pluginName"]?.stringValue)
+                pluginName: d["pluginName"]?.stringValue,
+                path: d["path"]?.stringValue,
+                projectPath: d["projectPath"]?.stringValue,
+                systemPrompt: d["systemPrompt"]?.stringValue,
+                injectAgentsMd: d["injectAgentsMd"]?.boolValue,
+                raw: item)
         }
     }
 
@@ -480,6 +570,10 @@ struct HooksPage: View {
 /// agents/userAgents/pluginAgents/capability{userScopeAvailable,userScopeReason}。
 /// **agents 数组实测已含插件代理**（桌面 3.17.2）——按 web 投影（SubagentsSection.tsx:115-119）
 /// 滤 plugin 后拼 pluginAgents + id 兜底去重。
+/// 一条子代理行；`raw` = 回执原条目（写面波次③：updateAgent config 按 raw 回传
+/// 保留 web 表单 preserve 族——tools/disallowedTools/skills/permissionMode/
+/// maxTurns/background/mcpServers 原样，编辑器只改四键）；`path`/`projectPath`
+/// 供 deleteAgent filePath 与 updateAgent oldFilePath。
 struct SubagentEntry: Equatable {
     let id: String
     let name: String
@@ -491,6 +585,12 @@ struct SubagentEntry: Equatable {
     /// tools 白名单（nil = 未配置 = 全部工具）
     let tools: [String]?
     let pluginName: String?
+    /// md 文件路径（built-in/plugin 无文件面；delete filePath / update oldFilePath）
+    var path: String?
+    var projectPath: String?
+    var systemPrompt: String?
+    var injectAgentsMd: Bool?
+    var raw: JSONValue?
 
     var toolsAll: Bool { tools == nil }
 }
@@ -504,6 +604,9 @@ struct SubagentsPage: View {
     @State private var actionNotice: String?
     @State private var actionNoticeIsError = false
     @State private var busyAgentId: String?
+    // 写面波次③：编辑器（.sheet(item:) 载荷；entry=nil=新建）
+    @State private var editorRequest: SubagentEditorRequest?
+    @State private var pendingDelete: SubagentEntry?
 
     enum Phase: Equatable { case loading, loaded, failed, notConnected }
 
@@ -574,6 +677,60 @@ struct SubagentsPage: View {
         .accessibilityIdentifier("26-subagents-page")
         .task { await load() }
         .refreshable { await load() }
+        // 写面波次③：编辑器 sheet（.sheet(item:)——每次呈现重建 content；
+        // §5-15 呈现期捕获 request；name/description/systemPrompt 三键 +
+        // raw preserve 族随 update 下发；web SubagentForm 同参）
+        .sheet(item: $editorRequest) { request in
+            SubagentEditSheet(
+                seed: request.entry,
+                workspacePath: session.connection.workspace?.path,
+                workspaceIdentity: session.connection.workspace?.workspaceIdentity,
+                onSave: { name, description, systemPrompt in
+                    let isNew = request.entry == nil
+                    let error: String?
+                    if let entry = request.entry {
+                        error = await session.connection.updateSubagent(
+                            entry, name: name, description: description, systemPrompt: systemPrompt,
+                            workspacePath: session.connection.workspace?.path,
+                            workspaceIdentity: session.connection.workspace?.workspaceIdentity)
+                    } else {
+                        error = await session.connection.createSubagent(
+                            name: name, description: description, systemPrompt: systemPrompt,
+                            workspacePath: session.connection.workspace?.path,
+                            workspaceIdentity: session.connection.workspace?.workspaceIdentity)
+                    }
+                    editorRequest = nil
+                    actionNotice = error
+                        ?? String(format: String(localized: "已%@ %@"),
+                                  isNew ? String(localized: "新建") : String(localized: "保存"),
+                                  name)
+                    actionNoticeIsError = error != nil
+                    await load()
+                },
+                onCancel: { editorRequest = nil })
+        }
+        // 删除确认（写失败原文常驻上屏）
+        .confirmationDialog(
+            String(format: String(localized: "删除子智能体「%@」？"), pendingDelete?.name ?? ""),
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible) {
+            Button(String(localized: "删除"), role: .destructive) {
+                guard let target = pendingDelete else { return }
+                pendingDelete = nil
+                Task {
+                    let error = await session.connection.deleteSubagent(target)
+                    actionNotice = error ?? String(format: String(localized: "已删除 %@"), target.name)
+                    actionNoticeIsError = error != nil
+                    await load()
+                }
+            }
+            .accessibilityIdentifier("26-act-delete-confirm")
+            Button(String(localized: "取消"), role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text(String(localized: "删除会从桌面端移除该 md 文件，此操作无法撤销。"))
+        }
     }
 
     private var list: some View {
@@ -586,6 +743,17 @@ struct SubagentsPage: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("26-action-notice")
                 }
+                // 写面波次③：新建子智能体（user scope；web addNew 同位）
+                Button {
+                    editorRequest = SubagentEditorRequest(entry: nil)
+                } label: {
+                    Label(String(localized: "新建子智能体"), systemImage: "plus.circle.fill")
+                        .font(T.font(13, .medium))
+                        .foregroundColor(T.accentText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 2)
+                }
+                .accessibilityIdentifier("26-act-new")
                 ForEach(
                     [("user", String(localized: "已安装")),
                      ("built-in", String(localized: "内置子智能体")),
@@ -614,7 +782,21 @@ struct SubagentsPage: View {
                                                       newValue ? String(localized: "启用") : String(localized: "停用"), name)
                                         actionNoticeIsError = error != nil
                                         if error != nil { await load() }
+                                    },
+                                    onEdit: {
+                                        if entry.source == "user" && !entry.readOnly {
+                                            editorRequest = SubagentEditorRequest(entry: entry)
+                                        }
                                     })
+                                    .contextMenu {
+                                        if entry.source == "user" && !entry.readOnly {
+                                            Button(role: .destructive) {
+                                                pendingDelete = entry
+                                            } label: {
+                                                Label(String(localized: "删除子智能体"), systemImage: "trash")
+                                            }
+                                        }
+                                    }
                                 if index != groupEntries.count - 1 {
                                     Divider().overlay(T.border)
                                 }
@@ -631,7 +813,8 @@ struct SubagentsPage: View {
     }
 
     private func subagentRow(
-        _ entry: SubagentEntry, busy: Bool, onToggle: @escaping (Bool) async -> Void
+        _ entry: SubagentEntry, busy: Bool, onToggle: @escaping (Bool) async -> Void,
+        onEdit: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: T.sp1) {
@@ -679,6 +862,8 @@ struct SubagentsPage: View {
         .padding(.horizontal, T.sp3)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { onEdit() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("26-row-\(entry.id)")
     }
@@ -692,6 +877,107 @@ struct SubagentsPage: View {
             builder.set("workspaceIdentity", identity)
         }
         return builder.fields
+    }
+}
+
+/// 编辑器呈现请求（.sheet(item:) 的 Identifiable 载荷——entry=nil=新建。
+/// isPresented 版在 iOS 上第二次呈现会复用首次构建的 content 闭包（test33
+/// 实测：编辑保存走成 create 分支），item 语义每次 identity 变化强制重建）。
+struct SubagentEditorRequest: Identifiable {
+    let id = UUID()
+    /// nil = 新建（user scope）；非 nil = 编辑该行
+    let entry: SubagentEntry?
+}
+
+// MARK: 写面波次③ · 子智能体编辑器 sheet（web SubagentForm 三键简化版）
+
+/// name/description/systemPrompt 三键编辑；保存只回调不自 dismiss（§5-15：
+/// 关闭由父级 onSave/onCancel 置 nil 单路径）。
+struct SubagentEditSheet: View {
+    let seed: SubagentEntry?
+    let workspacePath: String?
+    let workspaceIdentity: String?
+    let onSave: (String, String, String) async -> Void
+    let onCancel: () -> Void
+
+    @State private var name: String
+    @State private var description: String
+    @State private var systemPrompt: String
+    @State private var saving = false
+    @Environment(\.dismiss) private var dismiss
+
+    private var canSave: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
+            && !systemPrompt.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    init(
+        seed: SubagentEntry?, workspacePath: String?, workspaceIdentity: String?,
+        onSave: @escaping (String, String, String) async -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.seed = seed
+        self.workspacePath = workspacePath
+        self.workspaceIdentity = workspaceIdentity
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _name = State(initialValue: seed?.name ?? "")
+        _description = State(initialValue: seed?.description ?? "")
+        _systemPrompt = State(initialValue: seed?.systemPrompt ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text(String(localized: "名称"))) {
+                    TextField(String(localized: "名称"), text: $name)
+                        .accessibilityIdentifier("26-field-name")
+                }
+                Section(header: Text(String(localized: "描述"))) {
+                    TextField(String(localized: "描述"), text: $description)
+                        .accessibilityIdentifier("26-field-description")
+                }
+                Section(header: Text(String(localized: "系统提示词"))) {
+                    TextField(String(localized: "系统提示词"), text: $systemPrompt, axis: .vertical)
+                        .lineLimit(4...10)
+                        .accessibilityIdentifier("26-field-prompt")
+                }
+            }
+            .navigationTitle(seed == nil
+                ? String(localized: "新建子智能体")
+                : String(localized: "编辑子智能体"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "取消")) {
+                        onCancel()
+                        dismiss()
+                    }
+                    .disabled(saving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if saving {
+                        ProgressView()
+                    } else {
+                        Button(String(localized: "保存")) {
+                            let trimmedName = name.trimmingCharacters(in: .whitespaces)
+                            let trimmedDescription = description.trimmingCharacters(in: .whitespaces)
+                            let trimmedPrompt = systemPrompt.trimmingCharacters(in: .whitespaces)
+                            guard canSave else { return }
+                            saving = true
+                            Task {
+                                // 只回调不自 dismiss（§5-15）：关闭由父级置 nil 单路径
+                                await onSave(trimmedName, trimmedDescription, trimmedPrompt)
+                                dismiss()
+                            }
+                        }
+                        .disabled(!canSave)
+                        .accessibilityIdentifier("26-act-save")
+                    }
+                }
+            }
+            .interactiveDismissDisabled(saving)
+        }
     }
 }
 
