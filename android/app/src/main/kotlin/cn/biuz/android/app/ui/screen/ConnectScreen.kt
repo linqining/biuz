@@ -53,6 +53,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
 import cn.biuz.android.app.settings.AppSettingsStore
+import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText2
@@ -741,9 +742,24 @@ private fun ConnectFailedCard(
             .padding(BiuZSpacing.md)
             .testTag("l3-card-failed"),
     ) {
+        // P-017：web 12 种全量文案（badge/title/description/nextSteps）
+        val failureCopy = failureCopyForConnectError(error)
+        // badge 徽标行
+        Text(
+            text = failureCopy.badge,
+            style = MaterialTheme.typography.labelSmall,
+            color = when (failureCopy.tone) {
+                "danger" -> MaterialTheme.colorScheme.error
+                "warning" -> BiuZOrange
+                else -> BiuZText3
+            },
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(BiuZSpacing.xs))
         // 红横幅口径：headline + mono 错误码行（服务端拒因原文上屏，禁笼统「连接失败」）
         Text(
-            text = stringResource(R.string.connect_failed_fmt, error.headline),
+            text = failureCopy.title,
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.error,
             textAlign = TextAlign.Center,
@@ -751,12 +767,29 @@ private fun ConnectFailedCard(
         )
         Spacer(Modifier.height(BiuZSpacing.xs))
         Text(
+            text = failureCopy.description,
+            style = MaterialTheme.typography.bodyMedium,
+            color = BiuZText2,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(BiuZSpacing.sm))
+        Text(
             text = error.codeLine,
             style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
             color = BiuZText3,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(Modifier.height(BiuZSpacing.sm))
+        // nextSteps
+        failureCopy.nextSteps.forEach { step ->
+            Text(
+                text = "• $step",
+                style = MaterialTheme.typography.bodySmall,
+                color = BiuZText2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Spacer(Modifier.height(BiuZSpacing.sm))
         connectFailureHints(error).forEach { hint ->
             Text(
