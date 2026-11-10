@@ -360,7 +360,13 @@ class ChannelClient(
         arg: RPCValue,
         timeout: Duration,
     ): RPCValue {
-        // body 序列化与 Swift 同序（帧构建在注册/发送前完成；纯计算，无锁需求）
+        // body 序列化与 Swift 同序（帧构建在注册/发送前完成；纯计算，无锁需求）。
+        // 潜伏口径（2026-11-10 登记）：arg 不包装直接发——zcode-agent V4 命令走
+        // 自定义分发不受影响；ProxyChannel.fromService 类服务（project/hooks/
+        // subagents）单参 Obj 也 OK（desktop spread 后 args=[obj]——fromService
+        // 对非数组 arg 调 apply 会 TypeError，但既有 LAN 调用面全部走 zcode-agent
+        // 自定义分发 + 单参 Obj 服务在真桌面实测可用）。多参位置服务 LAN 直连
+        // 未用——LAN 取证轮确认 desktop fromService 对非数组 arg 的实际行为后修。
         val body = RPCSerialization.serialize(arg)
 
         val deferred = CompletableDeferred<RPCValue>()

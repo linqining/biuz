@@ -244,6 +244,9 @@ actor ChannelClient: RPCChannelTransport {
         let header = RPCSerialization.serialize(.array([
             .int(RequestType.promise.rawValue), .int(id), .string(channel), .string(command),
         ]))
+        // body 序列化与 Android 同序。潜伏口径（2026-11-10 登记）：arg 不包装
+        // 直接发——zcode-agent V4 命令走自定义分发不受影响；ProxyChannel 类服务
+        // LAN 直连未用——LAN 取证轮确认后修（同 Android ChannelClient 注记）。
         let body = RPCSerialization.serialize(arg)
         let frame = RPCFrame.write(payload: header + body)
 
