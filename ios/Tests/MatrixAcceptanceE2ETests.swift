@@ -1721,4 +1721,72 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         }
         snap(application, "matrix-wave4-projects-removed")
     }
+
+    // MARK: - 写面波次⑤（gate 放行 set*ModelOverride）：模型覆盖
+
+    /// 026 子智能体：built-in 行「模型覆盖」→ 选择 sheet（模型目录=getView 投影）
+    /// → 选模型+思考档 → 捕获 setBuiltInModelOverride 体 {agentName, modelSelection
+    // {providerId, modelId, options.reasoningLevel}}；plugin 行同理 {agentId}。
+    func test35_writeFaceWave5ModelOverride() throws {
+        let application = launchDemo()
+        connectAndEnterMain(application)
+        openSettingsPage(application, rowIdentifier: "26-row-subagents")
+
+        // built-in 行（general-purpose）覆盖入口 → sheet（模型目录=替身 getView 投影）
+        snap(application, "matrix-wave5-debug-before-entry")
+        let overrideEntry = element(application, "26-model-override-built-in:general-purpose")
+        XCTAssertTrue(overrideEntry.waitForExistence(timeout: 12), "built-in 行应有模型覆盖入口")
+        overrideEntry.tap()
+        let inheritRow = element(application, "26-model-inherit")
+        XCTAssertTrue(inheritRow.waitForExistence(timeout: 10), "覆盖 sheet 应呈现（继承默认行在场）")
+
+        // 选模型（替身 getView 投影首模型）
+        let firstModel = element(application, "26-model-GLM-5.3")
+        XCTAssertTrue(firstModel.waitForExistence(timeout: 8), "模型清单应含 GLM-5.3（替身 getView）")
+        firstModel.tap()
+        // 思考档（替身 thoughtByModel["GLM-5.3"]）
+        let thoughtRow = element(application, "26-thought-GLM-5.3-high")
+        if thoughtRow.waitForExistence(timeout: 4) {
+            thoughtRow.tap()
+        } else {
+            let inheritThought = element(application, "26-thought-inherit-GLM-5.3")
+            XCTAssertTrue(inheritThought.waitForExistence(timeout: 4), "应有无思考档兜底或 high 档")
+            inheritThought.tap()
+        }
+        XCTAssertTrue(waitUntil(timeout: 8, "替身应收到 setBuiltInModelOverride") {
+            stub.builtInOverrideBodies().count >= 1
+        })
+        if let body = stub.builtInOverrideBodies().last?.objectValue {
+            XCTAssertEqual(body["agentName"]?.stringValue, "general-purpose", "built-in 携 agentName")
+            let selection = body["modelSelection"]?.objectValue
+            // providerId 不强校验：替身 workspace-config 词表无 per-model providerId，
+            // 客户端回退 activeProviderId/"glm"（ModelSelectionOverride 构造口径）
+            XCTAssertNotNil(selection?["providerId"]?.stringValue, "providerId 在场")
+            XCTAssertEqual(selection?["modelId"]?.stringValue, "GLM-5.3", "modelId")
+            let options = selection?["options"]?.objectValue
+            let level = options?["reasoningLevel"]?.stringValue
+            XCTAssertTrue(level == "high" || level == nil, "reasoningLevel=high 或缺省（实际=\(level ?? "nil")）")
+        } else {
+            XCTFail("setBuiltInModelOverride 捕获体应为对象")
+        }
+
+        // plugin 行覆盖（agentId 分派）
+        let pluginEntry = element(application, "26-model-override-plugin:documents@zcode-plugins-official:visual-judge")
+        XCTAssertTrue(pluginEntry.waitForExistence(timeout: 10), "plugin 行应有覆盖入口")
+        pluginEntry.tap()
+        let inherit2 = element(application, "26-model-inherit")
+        XCTAssertTrue(inherit2.waitForExistence(timeout: 8), "plugin 覆盖 sheet 应呈现")
+        inherit2.tap() // 继承默认 = modelSelection 缺省
+        XCTAssertTrue(waitUntil(timeout: 8, "替身应收到 setPluginAgentModelOverride") {
+            stub.pluginOverrideBodies().count >= 1
+        })
+        if let body = stub.pluginOverrideBodies().last?.objectValue {
+            XCTAssertEqual(body["agentId"]?.stringValue,
+                           "plugin:documents@zcode-plugins-official:visual-judge", "plugin 携 agentId")
+            XCTAssertNil(body["modelSelection"], "继承默认 = modelSelection 缺省")
+        } else {
+            XCTFail("setPluginAgentModelOverride 捕获体应为对象")
+        }
+        snap(application, "matrix-wave5-model-override")
+    }
 }

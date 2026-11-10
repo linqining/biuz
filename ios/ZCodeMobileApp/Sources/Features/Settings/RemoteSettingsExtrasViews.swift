@@ -163,6 +163,66 @@ extension ZCodeServerConnection {
             return String(localized: "删除失败 · \(error.localizedDescription)")
         }
     }
+
+    /// 模型覆盖 JSON（model-selection.ts:4-15 strict 三键；reasoningLevel nil=继承默认）。
+    private func overrideJson(_ override: ModelSelectionOverride) -> JSONValue {
+        var options: [String: JSONValue] = [:]
+        if let reasoningLevel = override.reasoningLevel, !reasoningLevel.isEmpty {
+            options["reasoningLevel"] = .string(reasoningLevel)
+        }
+        var fields: [String: JSONValue] = [
+            "providerId": .string(override.providerId),
+            "modelId": .string(override.modelId),
+        ]
+        if !options.isEmpty { fields["options"] = .object(options) }
+        return .object(fields)
+    }
+
+    /// 内建子代理模型覆盖（写面波次⑤，gate 已放行；web SubagentsSection.tsx:1607-1610
+    /// 同参 {agentName, modelSelection?}；modelSelection nil=继承默认）。
+    func setBuiltInModelOverride(
+        agentName: String, modelSelection: ModelSelectionOverride?
+    ) async -> String? {
+        guard isActive else { return String(localized: "未连接桌面端") }
+        var builder = JSONObjectBuilder()
+        builder.set("agentName", agentName)
+        if let modelSelection { builder.set("modelSelection", overrideJson(modelSelection)) }
+        do {
+            _ = try await call("subagents", "setBuiltInModelOverride", .json(.object(builder.fields)))
+            return nil
+        } catch {
+            return String(localized: "设置失败 · \(error.localizedDescription)")
+        }
+    }
+
+    /// 插件子代理模型覆盖（web SubagentsSection.tsx:1611-1613 同参 {agentId, modelSelection?}）。
+    func setPluginAgentModelOverride(
+        agentId: String, modelSelection: ModelSelectionOverride?
+    ) async -> String? {
+        guard isActive else { return String(localized: "未连接桌面端") }
+        var builder = JSONObjectBuilder()
+        builder.set("agentId", agentId)
+        if let modelSelection { builder.set("modelSelection", overrideJson(modelSelection)) }
+        do {
+            _ = try await call("subagents", "setPluginAgentModelOverride", .json(.object(builder.fields)))
+            return nil
+        } catch {
+            return String(localized: "设置失败 · \(error.localizedDescription)")
+        }
+    }
+}
+
+/// 模型覆盖选择（model-selection.ts:4-15 strict 三键）。
+struct ModelSelectionOverride: Equatable {
+    var providerId: String
+    var modelId: String
+    /// nil = 继承该模型默认档
+    var reasoningLevel: String?
+
+    var pickerValue: String {
+        let base = "\(providerId)/\(modelId)"
+        return reasoningLevel.map { "\(base)$\($0)" } ?? base
+    }
 }
 
 // MARK: 屏 024 · 钩子（hooks.loadHooks 只读）
@@ -597,6 +657,7 @@ struct SubagentEntry: Equatable {
 
 struct SubagentsPage: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.conversationStore) private var store
     @State private var entries: [SubagentEntry] = []
     @State private var phase: Phase = .loading
     @State private var errorText: String?
@@ -607,6 +668,8 @@ struct SubagentsPage: View {
     // 写面波次③：编辑器（.sheet(item:) 载荷；entry=nil=新建）
     @State private var editorRequest: SubagentEditorRequest?
     @State private var pendingDelete: SubagentEntry?
+    // 写面波次⑤：模型覆盖（built-in/plugin 行；.sheet(item:) 语义）
+    @State private var overrideRequest: SubagentOverrideRequest?
 
     enum Phase: Equatable { case loading, loaded, failed, notConnected }
 
@@ -709,6 +772,21 @@ struct SubagentsPage: View {
                 },
                 onCancel: { editorRequest = nil })
         }
+        // 写面波次⑤：模型覆盖 sheet（.sheet(item:)；模型目录 = 既有
+        // model-selection.getView 投影 store.modelSelectionView()——chips 同词表）
+        .sheet(item: $overrideRequest) { request in
+            SubagentOverrideSheet(
+                agentKey: request.agentKey,
+                isBuiltIn: request.isBuiltIn,
+                store: store,
+                session: session,
+                onDone: { error, message in
+                    actionNotice = error ?? message
+                    actionNoticeIsError = error != nil
+                    Task { await load() }
+                },
+                onCancel: { overrideRequest = nil })
+        }
         // 删除确认（写失败原文常驻上屏）
         .confirmationDialog(
             String(format: String(localized: "删除子智能体「%@」？"), pendingDelete?.name ?? ""),
@@ -787,6 +865,15 @@ struct SubagentsPage: View {
                                         if entry.source == "user" && !entry.readOnly {
                                             editorRequest = SubagentEditorRequest(entry: entry)
                                         }
+                                    },
+                                    onModelOverride: {
+                                        if entry.source == "built-in" || entry.source == "plugin" {
+                                            overrideRequest = SubagentOverrideRequest(
+                                                agentKey: entry.source == "built-in"
+                                                    ? (entry.name ?? entry.id)
+                                                    : entry.id,
+                                                isBuiltIn: entry.source == "built-in")
+                                        }
                                     })
                                     .contextMenu {
                                         if entry.source == "user" && !entry.readOnly {
@@ -814,7 +901,7 @@ struct SubagentsPage: View {
 
     private func subagentRow(
         _ entry: SubagentEntry, busy: Bool, onToggle: @escaping (Bool) async -> Void,
-        onEdit: @escaping () -> Void
+        onEdit: @escaping () -> Void, onModelOverride: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: T.sp1) {
@@ -858,6 +945,16 @@ struct SubagentsPage: View {
                 : String(format: String(localized: "%lld 个工具"), entry.tools?.count ?? 0))
                 .font(T.font(10))
                 .foregroundColor(T.text3)
+            // 写面波次⑤：built-in/plugin 行内模型覆盖入口（web SubagentModelOverrideControl
+            // :608-805 同位；user 行走编辑器）
+            if entry.source == "built-in" || entry.source == "plugin" {
+                Button(action: onModelOverride) {
+                    Text(String(localized: "模型覆盖"))
+                        .font(T.font(11))
+                        .foregroundColor(T.accentText)
+                }
+                .accessibilityIdentifier("26-model-override-\(entry.id)")
+            }
         }
         .padding(.horizontal, T.sp3)
         .padding(.vertical, 10)
@@ -883,6 +980,14 @@ struct SubagentsPage: View {
 /// 编辑器呈现请求（.sheet(item:) 的 Identifiable 载荷——entry=nil=新建。
 /// isPresented 版在 iOS 上第二次呈现会复用首次构建的 content 闭包（test33
 /// 实测：编辑保存走成 create 分支），item 语义每次 identity 变化强制重建）。
+/// 写面波次⑤：模型覆盖呈现请求（.sheet(item:) 载荷——agentKey 由 kind 分派）
+struct SubagentOverrideRequest: Identifiable {
+    let id = UUID()
+    /// built-in = agentName；plugin = agentId
+    let agentKey: String
+    let isBuiltIn: Bool
+}
+
 struct SubagentEditorRequest: Identifiable {
     let id = UUID()
     /// nil = 新建（user scope）；非 nil = 编辑该行
@@ -977,6 +1082,138 @@ struct SubagentEditSheet: View {
                 }
             }
             .interactiveDismissDisabled(saving)
+        }
+    }
+}
+
+// MARK: 写面波次⑤ · 模型覆盖选择 sheet（web SubagentModelOverrideControl :608-805
+// 三键简化：继承默认 / 模型清单（getView 投影）/ 模型 → 思考档二段）
+
+struct SubagentOverrideSheet: View {
+    let agentKey: String
+    let isBuiltIn: Bool
+    let store: any ConversationStore
+    let session: AppSession
+    let onDone: (String?, String) async -> Void
+    let onCancel: () -> Void
+
+    @State private var catalog: ModelSelectionInfo?
+    @State private var pickedModel: String?
+    @State private var saving = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        save(nil)
+                    } label: {
+                        HStack {
+                            Text(String(localized: "继承默认"))
+                            Spacer()
+                            if pickedModel == nil && !saving {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(T.accentText)
+                            }
+                        }
+                    }
+                    .disabled(saving)
+                    .accessibilityIdentifier("26-model-inherit")
+                    if catalog == nil {
+                        HStack {
+                            ProgressView().scaleEffect(0.8)
+                            Text(String(localized: "正在读取模型目录…"))
+                                .font(T.font(12))
+                                .foregroundColor(T.text3)
+                        }
+                    } else {
+                        ForEach(catalog?.models ?? [], id: \.self) { model in
+                            Button {
+                                pickedModel = model
+                            } label: {
+                                HStack {
+                                    Text(model)
+                                        .foregroundColor(pickedModel == model ? T.accentText : T.text)
+                                    Spacer()
+                                    if pickedModel == model {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(T.accentText)
+                                    }
+                                }
+                            }
+                            .accessibilityIdentifier("26-model-\(model)")
+                            if pickedModel == model {
+                                let thoughts = catalog?.thoughtByModel[model] ?? []
+                                if thoughts.isEmpty {
+                                    Button {
+                                        save(ModelSelectionOverride(
+                                            providerId: providerId(for: model),
+                                            modelId: model, reasoningLevel: nil))
+                                    } label: {
+                                        Text(String(localized: "继承模型默认档"))
+                                            .font(T.font(12))
+                                            .foregroundColor(T.accentText)
+                                    }
+                                    .disabled(saving)
+                                    .accessibilityIdentifier("26-thought-inherit-\(model)")
+                                } else {
+                                    ForEach(thoughts, id: \.self) { thought in
+                                        Button {
+                                            save(ModelSelectionOverride(
+                                                providerId: providerId(for: model),
+                                                modelId: model, reasoningLevel: thought))
+                                        } label: {
+                                            Text(thought)
+                                                .font(T.font(12))
+                                                .foregroundColor(T.accentText)
+                                                .padding(.leading, 16)
+                                        }
+                                        .disabled(saving)
+                                        .accessibilityIdentifier("26-thought-\(model)-\(thought)")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(String(localized: "模型覆盖"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "取消")) { onCancel(); dismiss() }
+                        .disabled(saving)
+                }
+            }
+            .interactiveDismissDisabled(saving)
+            .task {
+                catalog = await store.modelSelectionView()
+            }
+        }
+    }
+
+    private func providerId(for model: String) -> String {
+        catalog?.modelProviders[model] ?? catalog?.activeProviderId ?? "glm"
+    }
+
+    private func save(_ override: ModelSelectionOverride?) {
+        saving = true
+        Task {
+            let error: String?
+            if isBuiltIn {
+                error = await session.connection.setBuiltInModelOverride(
+                    agentName: agentKey, modelSelection: override)
+            } else {
+                error = await session.connection.setPluginAgentModelOverride(
+                    agentId: agentKey, modelSelection: override)
+            }
+            saving = false
+            let message = override == nil
+                ? String(localized: "已恢复继承默认")
+                : String(format: String(localized: "已设置 %@"), override?.pickerValue ?? "")
+            await onDone(error, message)
+            dismiss()
         }
     }
 }

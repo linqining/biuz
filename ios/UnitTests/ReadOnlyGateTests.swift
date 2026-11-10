@@ -182,7 +182,6 @@ final class ReadOnlyGateTests: XCTestCase {
             ("commands", "writeCommandFile"),
             // 写面波次③（2026-11-10）：subagents CRUD 移入放行面
             // （testWriteFaceWave3Released；反向回归同②）
-            ("subagents", "setBuiltInModelOverride"), ("subagents", "setPluginAgentModelOverride"),
             ("hooks", "grantWorkspaceHookTrust"),
             ("mcp-sync", "saveMcpToUserDirectory"),
             ("plugin-sync", "importPluginsArchive"), ("plugins", "installPlugin"),
@@ -389,7 +388,9 @@ final class ReadOnlyGateTests: XCTestCase {
             let verdict = ReadOnlyGate.inspect(channel: channel, command: command, arg: .undefined)
             XCTAssertFalse(verdict.isBlocked, "\(channel).\(command) 已放行（编辑器写面），不应拦截")
         }
-        let blocked = ReadOnlyGate.inspect(channel: "subagents", command: "setBuiltInModelOverride", arg: .undefined)
-        XCTAssertTrue(blocked.isBlocked, "setBuiltInModelOverride 维持拦截（模型目录联动波次）")
+        let overrides = ReadOnlyGate.inspect(channel: "subagents", command: "setBuiltInModelOverride", arg: .undefined)
+        XCTAssertFalse(overrides.isBlocked, "setBuiltInModelOverride 已放行（波次⑤）")
+        let pluginOverrides = ReadOnlyGate.inspect(channel: "subagents", command: "setPluginAgentModelOverride", arg: .undefined)
+        XCTAssertFalse(pluginOverrides.isBlocked, "setPluginAgentModelOverride 已放行（波次⑤）")
     }
 }

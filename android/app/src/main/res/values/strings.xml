@@ -662,6 +662,11 @@
     <string name="subagents_field_description">描述</string>
     <string name="subagents_field_prompt">系统提示词</string>
     <string name="subagents_delete_title">删除子智能体「%1$s」？</string>
+    <string name="subagents_model_override">模型覆盖</string>
+    <string name="subagents_model_override_title">模型覆盖</string>
+    <string name="subagents_model_inherit">继承默认</string>
+    <string name="subagents_model_empty">模型目录不可用（连接后重试）</string>
+    <string name="subagents_thought_inherit">继承模型默认档</string>
     <string name="subagents_delete_message">删除会从桌面端移除该 md 文件，此操作无法撤销。</string>
     <!-- ============ 018 项目管理（project.readTree 只读第一波） ============ -->
     <string name="projects_title">项目</string>

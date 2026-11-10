@@ -256,9 +256,9 @@ class ReadOnlyGateTest {
             // 写面波次②（2026-11-10）：hooks.saveHooks / subagents.setEnabled 移入放行面
             // （testWriteFaceWave2Released，反向回归：加回黑名单即误杀启停/删除入口）
             "commands" to "writeCommandFile",
-            // 写面波次③（2026-11-10）：subagents CRUD 移入放行面
-            // （testWriteFaceWave3Released；反向回归同②）
-            "subagents" to "setBuiltInModelOverride", "subagents" to "setPluginAgentModelOverride",
+            // 写面波次③（2026-11-10）：subagents CRUD 移入放行面；
+            // 波次⑤（2026-11-10）：set*ModelOverride 移入放行面
+            // （反向回归：加回黑名单即误杀入口）
             "hooks" to "grantWorkspaceHookTrust",
             "mcp-sync" to "saveMcpToUserDirectory",
             "plugin-sync" to "importPluginsArchive", "plugins" to "installPlugin",
@@ -496,8 +496,11 @@ class ReadOnlyGateTest {
                 channel = channel, command = command, arg = RPCValue.Undefined)
             assertFalse(verdict.isBlocked, "$channel.$command 已放行（编辑器写面），不应拦截")
         }
-        val blocked = ReadOnlyGate.inspect(
+        val overrides = ReadOnlyGate.inspect(
             channel = "subagents", command = "setBuiltInModelOverride", arg = RPCValue.Undefined)
-        assertTrue(blocked.isBlocked, "setBuiltInModelOverride 维持拦截（模型目录联动波次）")
+        assertFalse(overrides.isBlocked, "setBuiltInModelOverride 已放行（波次⑤）")
+        val pluginOverrides = ReadOnlyGate.inspect(
+            channel = "subagents", command = "setPluginAgentModelOverride", arg = RPCValue.Undefined)
+        assertFalse(pluginOverrides.isBlocked, "setPluginAgentModelOverride 已放行（波次⑤）")
     }
 }

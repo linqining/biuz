@@ -390,6 +390,11 @@ final class E2ELoginStubServer {
     func subagentCreateBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _subagentCreateBodies }
     func subagentUpdateBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _subagentUpdateBodies }
     func subagentDeleteBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _subagentDeleteBodies }
+    /// 写面波次⑤ 捕获（test35）：set*ModelOverride 请求体
+    private var _builtInOverrideBodies: [StubRPC] = []
+    private var _pluginOverrideBodies: [StubRPC] = []
+    func builtInOverrideBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _builtInOverrideBodies }
+    func pluginOverrideBodies() -> [StubRPC] { lock.lock(); defer { lock.unlock() }; return _pluginOverrideBodies }
     /// 写面波次④ 捕获（test34）：measure/delete data
     private var _measureBodies: [StubRPC] = []
     private var _deleteDataBodies: [StubRPC] = []
@@ -1372,6 +1377,16 @@ private var _recordedPinned: [String: Bool] = [:]
                 "freedBytes": 1792, "deletedSessions": 3,
                 "runningSessions": 0, "referencedSessions": 0, "failed": 0,
             ])))
+        case "setBuiltInModelOverride" where channelName == "subagents":
+            lock.lock()
+            _builtInOverrideBodies.append(body)
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
+        case "setPluginAgentModelOverride" where channelName == "subagents":
+            lock.lock()
+            _pluginOverrideBodies.append(body)
+            lock.unlock()
+            channel.sendWSFrame(rpcFrame(header: [.int(201), .int(id)], body: StubRPC.object(["ok": true])))
         case "deleteAgent" where channelName == "subagents":
             lock.lock()
             _subagentDeleteBodies.append(body)

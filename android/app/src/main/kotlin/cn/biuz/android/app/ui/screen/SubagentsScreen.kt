@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,12 +49,16 @@ import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
+import cn.biuz.android.connection.ModelSelectionOverride
 import cn.biuz.android.connection.SubagentRow
+import cn.biuz.android.connection.setBuiltInModelOverride
+import cn.biuz.android.connection.setPluginAgentModelOverride
 import cn.biuz.android.connection.SubagentsError
 import cn.biuz.android.connection.SubagentsList
 import cn.biuz.android.connection.createSubagent
 import cn.biuz.android.connection.deleteSubagent
 import cn.biuz.android.connection.loadSubagents
+import cn.biuz.android.connection.setPluginAgentModelOverride
 import cn.biuz.android.connection.setSubagentEnabled
 import cn.biuz.android.connection.updateSubagent
 import kotlinx.coroutines.launch
@@ -86,6 +91,8 @@ fun SubagentsScreen(
     var editingAgent by remember { mutableStateOf<SubagentRow?>(null) }
     var creatingNew by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<SubagentRow?>(null) }
+    // 写面波次⑤：模型覆盖选择（built-in/plugin 行；null agent=关闭）
+    var overrideTarget by remember { mutableStateOf<SubagentRow?>(null) }
 
     suspend fun reload() {
         loading = true
@@ -240,6 +247,11 @@ fun SubagentsScreen(
                                         pendingDelete = agent
                                     }
                                 },
+                                onModelOverride = {
+                                    if (agent.source == "built-in" || agent.source == "plugin") {
+                                        overrideTarget = agent
+                                    }
+                                },
                             )
                         }
                     }
@@ -247,6 +259,143 @@ fun SubagentsScreen(
             }
         }
     }
+    // 写面波次⑤：模型覆盖弹层（web SubagentModelOverrideControl :608-805 同位）——
+    // 列「继承默认」+ model-selection.getView 投影模型清单（模型/思考档二段），
+    // built-in 发 agentName、plugin 发 agentId；modelSelection 缺省=继承默认
+    overrideTarget?.let { target ->
+        var info by remember(target.id) {
+            mutableStateOf<cn.biuz.android.store.ModelSelectionInfo?>(null)
+        }
+        LaunchedEffect(target.id) {
+            val store = session.storeSurface.value.conversation
+            info = (store as? cn.biuz.android.store.RemoteConversationStore)?.modelSelectionView()
+        }
+        var pickedModel by remember(target.id) { mutableStateOf<String?>(null) }
+        val isBuiltIn = target.source == "built-in"
+        val agentKey = if (isBuiltIn) target.name else target.id
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { overrideTarget = null },
+            title = { Text(stringResource(R.string.subagents_model_override_title)) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
+                ) {
+                    Text(
+                        text = agentKey ?: "",
+                        fontSize = 12.sp,
+                        color = BiuZText3,
+                    )
+                    // 继承默认（modelSelection 缺省）
+                    Text(
+                        text = stringResource(R.string.subagents_model_inherit),
+                        fontSize = 14.sp,
+                        color = BiuZText,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(BiuZRadius.small)
+                            .clickable {
+                                scope.launch {
+                                    val error = if (isBuiltIn) {
+                                        session.setBuiltInModelOverride(agentKey ?: "", null)
+                                    } else {
+                                        session.setPluginAgentModelOverride(target.id, null)
+                                    }
+                                    overrideTarget = null
+                                    actionNotice = error ?: "已恢复继承默认"
+                                    actionNoticeIsError = error != null
+                                    reload()
+                                }
+                            }
+                            .padding(vertical = 8.dp)
+                            .testTag("26-model-inherit"),
+                    )
+                    // 模型清单（getView 投影；模型 → 该模型思考档二段）
+                    val models = info?.models.orEmpty()
+                    if (models.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.subagents_model_empty),
+                            fontSize = 12.sp,
+                            color = BiuZText3,
+                        )
+                    } else {
+                        models.forEach { model ->
+                            Text(
+                                text = model,
+                                fontSize = 14.sp,
+                                color = BiuZText,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(BiuZRadius.small)
+                                    .clickable { pickedModel = model }
+                                    .padding(vertical = 8.dp)
+                                    .testTag("26-model-$model"),
+                            )
+                            if (pickedModel == model) {
+                                val thoughts = info?.thoughtByModel?.get(model).orEmpty()
+                                if (thoughts.isEmpty()) {
+                                    // 该模型无思考档 → 只发 model（reasoningLevel 缺省）
+                                    TextButton(
+                                        onClick = {
+                                            val providerId = info?.modelProviders?.get(model)
+                                                ?: info?.activeProviderId ?: "glm"
+                                            scope.launch {
+                                                val override = ModelSelectionOverride(
+                                                    providerId, model, null,
+                                                )
+                                                val error = if (isBuiltIn) {
+                                                    session.setBuiltInModelOverride(agentKey ?: "", override)
+                                                } else {
+                                                    session.setPluginAgentModelOverride(target.id, override)
+                                                }
+                                                overrideTarget = null
+                                                actionNotice = error ?: "已设置 $model"
+                                                actionNoticeIsError = error != null
+                                                reload()
+                                            }
+                                        },
+                                        modifier = Modifier.testTag("26-thought-inherit-$model"),
+                                    ) { Text(stringResource(R.string.subagents_thought_inherit)) }
+                                }
+                                thoughts.forEach { thought ->
+                                    TextButton(
+                                        onClick = {
+                                            val providerId = info?.modelProviders?.get(model)
+                                                ?: info?.activeProviderId ?: "glm"
+                                            scope.launch {
+                                                val override = ModelSelectionOverride(
+                                                    providerId, model, thought,
+                                                )
+                                                val error = if (isBuiltIn) {
+                                                    session.setBuiltInModelOverride(agentKey ?: "", override)
+                                                } else {
+                                                    session.setPluginAgentModelOverride(target.id, override)
+                                                }
+                                                overrideTarget = null
+                                                actionNotice = error ?: "已设置 $model/$thought"
+                                                actionNoticeIsError = error != null
+                                                reload()
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .padding(start = 16.dp)
+                                            .testTag("26-thought-$model-$thought"),
+                                    ) { Text(thought) }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { overrideTarget = null }) {
+                    Text(stringResource(R.string.desktop_act_cancel))
+                }
+            },
+        )
+    }
+
     // 写面波次③：编辑器 sheet（呈现期捕获传参 §5-15；name/description/systemPrompt
     // 三键编辑 + raw preserve 族随 update 下发；web SubagentForm 同参同面）
     val editorSeed = editingAgent ?: if (creatingNew) SubagentRow(
@@ -376,6 +525,7 @@ private fun SubagentRowView(
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onModelOverride: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -447,5 +597,19 @@ private fun SubagentRowView(
             fontSize = 10.sp,
             color = BiuZText3,
         )
+        // 写面波次⑤：built-in/plugin 行内模型覆盖入口（web
+        // SubagentModelOverrideControl :608-805 同位；user 行走编辑器）
+        if (agent.source == "built-in" || agent.source == "plugin") {
+            Text(
+                text = stringResource(R.string.subagents_model_override),
+                fontSize = 11.sp,
+                color = BiuZAccent,
+                modifier = Modifier
+                    .clip(BiuZRadius.small)
+                    .clickable { onModelOverride() }
+                    .padding(vertical = 4.dp)
+                    .testTag("26-model-override-${agent.id}"),
+            )
+        }
     }
 }

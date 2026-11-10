@@ -580,6 +580,11 @@
     <string name="subagents_field_description">Description</string>
     <string name="subagents_field_prompt">System prompt</string>
     <string name="subagents_delete_title">Delete subagent "%1$s"?</string>
+    <string name="subagents_model_override">Model override</string>
+    <string name="subagents_model_override_title">Model override</string>
+    <string name="subagents_model_inherit">Inherit default</string>
+    <string name="subagents_model_empty">Model catalog unavailable (retry after connecting)</string>
+    <string name="subagents_thought_inherit">Use model default</string>
     <string name="subagents_delete_message">Deleting removes the md file on the desktop. This cannot be undone.</string>
     <!-- ============ 018 Projects (project.readTree read-only first wave) ============ -->
     <string name="projects_title">Projects</string>

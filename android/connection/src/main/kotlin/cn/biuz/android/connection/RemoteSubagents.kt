@@ -247,6 +247,78 @@ private fun subagentConfig(
     return config
 }
 
+/**
+ * 模型覆盖选择（model-selection.ts:4-15 strict 三键；reasoningLevel 缺省=
+ * 继承该模型默认档）。
+ */
+data class ModelSelectionOverride(
+    val providerId: String,
+    val modelId: String,
+    val reasoningLevel: String? = null,
+) {
+    fun toJson(): JSONValue {
+        val fields = LinkedHashMap<String, JSONValue>()
+        fields["providerId"] = JSONValue.Str(providerId)
+        fields["modelId"] = JSONValue.Str(modelId)
+        reasoningLevel?.takeIf { it.isNotEmpty() }?.let {
+            fields["options"] = JSONValue.Obj(mapOf("reasoningLevel" to JSONValue.Str(it)))
+        }
+        return JSONValue.Obj(fields)
+    }
+
+    /** 显示值（web formatModelPickerValue 同构：providerId/modelId[$reasoning]）。 */
+    val pickerValue: String
+        get() = "$providerId/$modelId" + (reasoningLevel?.let { "$$it" } ?: "")
+}
+
+/**
+ * 内建子代理模型覆盖（写面波次⑤，gate 已放行；web SubagentsSection.tsx:1607-1610
+ * 同参）：`subagents.setBuiltInModelOverride {agentName, modelSelection?}`——
+ * agentName ∈ general-purpose|Explore（BuiltInSubagentName）；modelSelection
+ * 缺省（null）= 清除覆盖继承默认。返回 null=成功；非 null=可上屏错误文案。
+ */
+suspend fun AppSession.setBuiltInModelOverride(
+    agentName: String,
+    modelSelection: ModelSelectionOverride?,
+): String? {
+    if (!isConnected) return "未连接桌面端"
+    val fields = LinkedHashMap<String, JSONValue>()
+    fields["agentName"] = JSONValue.Str(agentName)
+    modelSelection?.let { fields["modelSelection"] = it.toJson() }
+    return try {
+        connection.call("subagents", "setBuiltInModelOverride", RPCValue.json(JSONValue.Obj(fields)))
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "设置失败 · ${e.toString().take(160)}"
+    }
+}
+
+/**
+ * 插件子代理模型覆盖（web SubagentsSection.tsx:1611-1613 同参；
+ * 「稳定 ID 不含插件版本；升级换目录后继续读取同一份用户覆盖」注释原文）：
+ * `subagents.setPluginAgentModelOverride {agentId, modelSelection?}`。
+ * 返回 null=成功；非 null=可上屏错误文案。
+ */
+suspend fun AppSession.setPluginAgentModelOverride(
+    agentId: String,
+    modelSelection: ModelSelectionOverride?,
+): String? {
+    if (!isConnected) return "未连接桌面端"
+    val fields = LinkedHashMap<String, JSONValue>()
+    fields["agentId"] = JSONValue.Str(agentId)
+    modelSelection?.let { fields["modelSelection"] = it.toJson() }
+    return try {
+        connection.call("subagents", "setPluginAgentModelOverride", RPCValue.json(JSONValue.Obj(fields)))
+        null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        "设置失败 · ${e.toString().take(160)}"
+    }
+}
+
 /** 子代理条目解析（纯函数；id/name 缺席丢弃）。 */
 fun parseSubagent(json: JSONValue): SubagentRow? {
     val d = json.objectValue ?: return null
