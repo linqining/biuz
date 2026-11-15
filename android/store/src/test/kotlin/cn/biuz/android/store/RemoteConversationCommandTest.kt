@@ -519,9 +519,11 @@ class RemoteConversationCommandTest {
         assertEquals("q2", payloads[3]["queueItemId"]?.stringValue)
         assertTrue(payloads[3].containsKey("beforeQueueItemId") && payloads[3]["beforeQueueItemId"] is JSONValue.Null)
         assertEquals(true, payloads[4]["autoDrain"]?.boolValue)
-        // 全部信封携 CAS 双字段（队列五件全 CAS 词表）
+        // 队列五件 payload 形状 + 信封字段（editQueueItem 自 web v3.18.1 起非 CAS 词表
+        // 成员，但移动端发送路径仍统一经 sendCASWithRetry 携双字段，CLI 对非 CAS 成员
+        // 跳过 revision 裁决不误拒；其余四件仍为 CAS 成员，双字段必携）
         for (envelope in f.transport.sendArgs.map { it["envelope"]!!.objectValue!! }) {
-            assertEquals(8L, envelope["baseRevision"].longOf(), "队列命令必携 baseRevision（${envelope["type"]?.stringValue}）")
+            assertEquals(8L, envelope["baseRevision"].longOf(), "队列命令信封携 baseRevision（${envelope["type"]?.stringValue}）")
             assertEquals("epoch-1", envelope["baseLogEpoch"]?.stringValue)
         }
     }

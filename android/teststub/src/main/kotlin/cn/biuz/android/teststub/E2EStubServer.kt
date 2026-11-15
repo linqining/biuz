@@ -256,7 +256,7 @@ class E2EStubServer(
 
     /**
      * CAS 裁决代际（两代桌面并存口径，AGENTS §4.5）：
-     * - [CasGeneration.LEGACY_3_14_4]（缺省，2026-10-05 真机实证桌面）：CAS 15 命令缺
+     * - [CasGeneration.LEGACY_3_14_4]（缺省，2026-10-05 真机实证桌面）：CAS 14 命令缺
      *   baseRevision 或 row-target 5 命令缺 baseLogEpoch → rejected + message
      *   "CAS commands require baseRevision and baseLogEpoch"（不判 stale——旧代
      *   revision 账本面未取证）；
@@ -816,7 +816,7 @@ class E2EStubServer(
                 errors.add("envelope.clientId: 与握手注册 clientId 不一致（A2，上游 fault.command.clientMismatch）")
             }
             // CAS 门（双代语义）：
-            // - parse 层（command.ts:340-367 parseCommandEnvelope 镜像，两代同文）：CAS 15
+            // - parse 层（command.ts:340-367 parseCommandEnvelope 镜像，两代同文）：CAS 14
             //   命令缺 baseRevision 或 row-target 5 命令缺 baseLogEpoch → rejected +
             //   message "CAS commands require baseRevision and baseLogEpoch"；
             // - decide 层（UPSTREAM_MAIN 代，command-inbox.ts:323-363 镜像）：信封键全后

@@ -154,8 +154,7 @@ class CommandFactoryTests {
             "retryTurn" to obj("target" to target),
             "setAssistantFeedback" to obj("target" to target, "feedback" to JSONValue.Null),
             "sendQueuedNow" to obj("queueItemId" to JSONValue.Str("q")),
-            "editQueueItem" to obj(
-                "queueItemId" to JSONValue.Str("q"), "newText" to JSONValue.Str("n")),
+            // editQueueItem 非 CAS（web v3.18.1 移出，编辑锁承担并发保护），不在此门控词表
             "reorderQueueItem" to obj(
                 "queueItemId" to JSONValue.Str("q"), "beforeQueueItemId" to JSONValue.Null),
             "deleteQueueItem" to obj("queueItemId" to JSONValue.Str("q")),

@@ -181,12 +181,12 @@ class ProtocolSchemaTests {
     fun testCASVocabularyMatchesUpstream() {
         val expectedCAS: Set<String> = setOf(
             "applyFileRewind", "forkAssistant", "editUserQuery", "retryTurn",
-            "setAssistantFeedback", "sendQueuedNow", "editQueueItem", "reorderQueueItem",
+            "setAssistantFeedback", "sendQueuedNow", "reorderQueueItem",
             "deleteQueueItem", "setAutoDrain", "switchModelConfig",
             "switchCollaborationMode", "setFollowupMode", "pauseGoal", "resumeGoal",
         )
         assertEquals(expectedCAS, CommandSchemas.commandsRequiringBaseRevision)
-        assertEquals(15, CommandSchemas.commandsRequiringBaseRevision.size)
+        assertEquals(14, CommandSchemas.commandsRequiringBaseRevision.size)
         val expectedRowTargeting: Set<String> = setOf(
             "applyFileRewind", "forkAssistant", "editUserQuery", "retryTurn",
             "setAssistantFeedback",
