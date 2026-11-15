@@ -98,12 +98,12 @@ final class ProtocolSchemaTests: XCTestCase {
     func testCASVocabularyMatchesUpstream() {
         let expectedCAS: Set<String> = [
             "applyFileRewind", "forkAssistant", "editUserQuery", "retryTurn",
-            "setAssistantFeedback", "sendQueuedNow", "editQueueItem", "reorderQueueItem",
+            "setAssistantFeedback", "sendQueuedNow", "reorderQueueItem",
             "deleteQueueItem", "setAutoDrain", "switchModelConfig",
             "switchCollaborationMode", "setFollowupMode", "pauseGoal", "resumeGoal",
         ]
         XCTAssertEqual(CommandSchemas.commandsRequiringBaseRevision, expectedCAS)
-        XCTAssertEqual(CommandSchemas.commandsRequiringBaseRevision.count, 15)
+        XCTAssertEqual(CommandSchemas.commandsRequiringBaseRevision.count, 14)
         let expectedRowTargeting: Set<String> = [
             "applyFileRewind", "forkAssistant", "editUserQuery", "retryTurn",
             "setAssistantFeedback",

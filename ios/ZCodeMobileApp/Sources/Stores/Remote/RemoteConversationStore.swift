@@ -4069,7 +4069,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             payload: .object(["queueItemId": .string(queueItemId)]))
     }
 
-    /// 队列条目文本编辑（CAS 类——桌面四件队列命令全部携 revision，缺一被拒）
+    /// 队列条目文本编辑（web v3.18.1 起**非 CAS**：运行中 revision 频繁递增，CAS 会被
+    /// staleRevision 误拒；并发保护由 CLI 编辑锁承担）。当前仍走 sendCASWithRetry 携
+    /// baseRevision——CLI 对非 CAS 词表成员跳过 revision 裁决（command-inbox.decide），
+    /// 不会误拒；锁命令（lockQueueItemEdit/releaseQueueItemEdit）移植后再对齐 web 直发。
     @discardableResult
     func editQueueItem(_ conversationID: String, queueItemId: String, newText: String) async -> JSONValue? {
         await ensureStateRevision(conversationID)

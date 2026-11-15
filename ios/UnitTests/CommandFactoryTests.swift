@@ -92,7 +92,7 @@ final class CommandFactoryTests: XCTestCase {
             "retryTurn": .object(["target": target]),
             "setAssistantFeedback": .object(["target": target, "feedback": .null]),
             "sendQueuedNow": .object(["queueItemId": .string("q")]),
-            "editQueueItem": .object(["queueItemId": .string("q"), "newText": .string("n")]),
+            // editQueueItem 非 CAS（web v3.18.1 移出，编辑锁承担并发保护），不在此门控词表
             "reorderQueueItem": .object([
                 "queueItemId": .string("q"), "beforeQueueItemId": .null]),
             "deleteQueueItem": .object(["queueItemId": .string("q")]),

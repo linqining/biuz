@@ -18,13 +18,16 @@ enum CommandSchemas {
 
     // MARK: 权威词表
 
-    /// CAS 类命令全集（缺 baseRevision 构造即拒）【实证·上游仓 command.ts:296-320
-    /// COMMANDS_REQUIRING_BASE_REVISION，逐字】
+    /// CAS 类命令全集（缺 baseRevision 构造即拒）【实证·上游仓 command.ts:406-420
+    /// COMMANDS_REQUIRING_BASE_REVISION，逐字；web v3.18.1（同步提交 c5904686）】
     static let commandsRequiringBaseRevision: Set<String> = [
         "applyFileRewind", "forkAssistant", "editUserQuery", "retryTurn",
-        "setAssistantFeedback", "sendQueuedNow", "editQueueItem", "reorderQueueItem",
+        "setAssistantFeedback", "sendQueuedNow", "reorderQueueItem",
         "deleteQueueItem", "setAutoDrain", "switchModelConfig",
         "switchCollaborationMode", "setFollowupMode", "pauseGoal", "resumeGoal",
+        // editQueueItem 不走 CAS（web v3.18.1 移出）：运行中 revision 随 control/queue
+        // 投影频繁递增，提交会被 proto.staleRevision 误拒；并发保护改用 CLI 编辑锁
+        // （editorId 持锁，lockQueueItemEdit/releaseQueueItemEdit 尚未移植）。
     ]
 
     /// row-target 类（另要求 baseLogEpoch；为本表的子集）【command.ts:309-320】
