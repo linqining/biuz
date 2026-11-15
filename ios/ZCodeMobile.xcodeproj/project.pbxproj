@@ -26,6 +26,7 @@
 		235BF9FFB1393D602F36DEA6 /* E2ELoginStubServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3D9C08B7B35175B7A33DEC /* E2ELoginStubServer.swift */; };
 		25DFF8F3EEDDEBBFEE74AD3F /* ConversationCommandFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C532B367F3397D56AE75A887 /* ConversationCommandFactory.swift */; };
 		29E79CA65041A927147558C4 /* LoginFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4D0EFC01CC7EA3E6A1C779E /* LoginFlowView.swift */; };
+		2A1E545064C90905906E9C9D /* RelayRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D5075DBF3B168B394C702F /* RelayRetryPolicy.swift */; };
 		2F26FEE02E29CA5BAD46EA2C /* RemoteTaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD165EFCA94743A60E247DB2 /* RemoteTaskStore.swift */; };
 		31A02139F5ECCDA2966B42C0 /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61D8B3A9F83D69D99B7A644 /* ConnectingView.swift */; };
 		37533D714B52A6824AE7D4E9 /* LayoutAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9AA0CA3BA45B100DFB9B64 /* LayoutAuditTests.swift */; };
@@ -91,6 +92,7 @@
 		DBBB8D7247A0D695F3720D9C /* WorkflowActorBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16FFB0AD13E92734F047ADB5 /* WorkflowActorBindingTests.swift */; };
 		DC3575605ED80F31124CF750 /* UserDefaultsSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09FC90B4C2C1FF5129D9CE1A /* UserDefaultsSettingsStore.swift */; };
 		DD826C9C2543024D0FE39710 /* ZCodeServerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD723268C0BDC9B403E9C1D0 /* ZCodeServerConnection.swift */; };
+		E1FAFA7E38B77BE594077B22 /* RelayRetryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE5FE29289BA860BA986315A /* RelayRetryPolicyTests.swift */; };
 		E202CBB0EC3C0C5A60FF9B45 /* RelayLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A67A0FE019BFAD6D56316ED /* RelayLink.swift */; };
 		E24EBEE8F96CFA95E6304383 /* V4Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38F8B0C7583C93F53FEF5C2 /* V4Wire.swift */; };
 		E53824F70E44802053E3A05D /* ZCodeMobileE2ETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F2752F667FD8A9F0987C4C8 /* ZCodeMobileE2ETests.swift */; };
@@ -137,6 +139,7 @@
 		1C96E9CA2EAEB254F9E5C401 /* TinySyntaxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TinySyntaxTests.swift; sourceTree = "<group>"; };
 		1CAB74D240B62FE6B7EDAC33 /* MockFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockFileStore.swift; sourceTree = "<group>"; };
 		20251CA9C8E283A5E27EC124 /* CompletenessUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletenessUnitTests.swift; sourceTree = "<group>"; };
+		20D5075DBF3B168B394C702F /* RelayRetryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayRetryPolicy.swift; sourceTree = "<group>"; };
 		23506970C8F49897FBAB8DD6 /* ApprovalSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalSheetView.swift; sourceTree = "<group>"; };
 		259BB52CC3F6F22B250B6854 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		266CCA9FEF758C632D709965 /* RemoteConversationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConversationStore.swift; sourceTree = "<group>"; };
@@ -208,6 +211,7 @@
 		CB09AB2BD22D7D615896A0A5 /* .gitignore */ = {isa = PBXFileReference; path = .gitignore; sourceTree = "<group>"; };
 		CBFB9FD9310D919F26F5DA83 /* RelayLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayLinkTests.swift; sourceTree = "<group>"; };
 		CC85D0006A385C2129A7D97B /* ReadOnlyGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyGateTests.swift; sourceTree = "<group>"; };
+		CE5FE29289BA860BA986315A /* RelayRetryPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayRetryPolicyTests.swift; sourceTree = "<group>"; };
 		D0B618579F817B6DB7A68BB8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D38F8B0C7583C93F53FEF5C2 /* V4Wire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V4Wire.swift; sourceTree = "<group>"; };
 		D61D8B3A9F83D69D99B7A644 /* ConnectingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectingView.swift; sourceTree = "<group>"; };
@@ -345,6 +349,7 @@
 				70984EB4456F6B957EFADE4A /* ProviderDisplayTests.swift */,
 				CC85D0006A385C2129A7D97B /* ReadOnlyGateTests.swift */,
 				CBFB9FD9310D919F26F5DA83 /* RelayLinkTests.swift */,
+				CE5FE29289BA860BA986315A /* RelayRetryPolicyTests.swift */,
 				C7CE4B774CB91B26D472F4FD /* RemoteSettingsParsersTests.swift */,
 				6ABFC2280688B1F228898495 /* TaskNotificationContentTests.swift */,
 				1C96E9CA2EAEB254F9E5C401 /* TinySyntaxTests.swift */,
@@ -418,6 +423,7 @@
 				674143DCBCAFE98264D2354D /* RelayChannelClient.swift */,
 				C79F7B944778B3293F0E89BA /* RelayFrameCodec.swift */,
 				3A67A0FE019BFAD6D56316ED /* RelayLink.swift */,
+				20D5075DBF3B168B394C702F /* RelayRetryPolicy.swift */,
 				F513D0940DD42550988A9351 /* RelayTransport.swift */,
 			);
 			path = Relay;
@@ -770,6 +776,7 @@
 				1A1D8FFB9A29DDEDF0EA2FC8 /* RelayChannelClient.swift in Sources */,
 				BCDEF8024334DAE3541863A9 /* RelayFrameCodec.swift in Sources */,
 				E202CBB0EC3C0C5A60FF9B45 /* RelayLink.swift in Sources */,
+				2A1E545064C90905906E9C9D /* RelayRetryPolicy.swift in Sources */,
 				6E282754066B0F428F97D9D5 /* RelayTransport.swift in Sources */,
 				B8ECF94D4DEC21D03450C50F /* RemoteConversationStore.swift in Sources */,
 				EF26D35D87B6D47A80BD1484 /* RemoteExtrasViews.swift in Sources */,
@@ -815,6 +822,7 @@
 				7B31D72714429E27C6F1D0A0 /* ProviderDisplayTests.swift in Sources */,
 				1A73CEFE48C996FA3D99A8AA /* ReadOnlyGateTests.swift in Sources */,
 				79B4C8627E2F9049E3C419A0 /* RelayLinkTests.swift in Sources */,
+				E1FAFA7E38B77BE594077B22 /* RelayRetryPolicyTests.swift in Sources */,
 				A44E5D73A46148CE24068C6E /* RemoteSettingsParsersTests.swift in Sources */,
 				017BAE8773AC3CE5A203FE27 /* TaskNotificationContentTests.swift in Sources */,
 				5F10BD066C14A29E27CE09CB /* TinySyntaxTests.swift in Sources */,
