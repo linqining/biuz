@@ -268,34 +268,29 @@ enum ServerRegistry {
     private static let mirrorKey = "server.configs.mirror.v1"
 
     static var servers: [ServerConfig] {
-        if let stored = (try? KeychainStore.loadCodable([ServerConfig].self, account: serversKey)) ?? nil {
-            return stored
-        }
-        // 自愈：部分模拟器运行时上重装会清空应用 Keychain（真机更新无此问题）。
-        // Keychain 读空但 UserDefaults 镜像存在 → 回填 Keychain 并沿用（镜像内容与
-        // Keychain 同源，由 upsert/remove 同步维护）。
-        // 2026-11-19：读失败先分类——`unavailable/authFailed` 属于「暂时读不到」，
-        // 与「Keychain 里真的没有」区分开，避免把锁定态当成「从未配对」把镜像也删掉
-        // （web `systemCredentialCipher.ts:67-75` 同一纪律）。
+        // 2026-11-19：读失败先按语义分类（`systemCredentialCipher.ts:67-75` 同纪律）——
+        // 「钥匙串不可用/需授权」必须与「里面真的没有」区分开：前者**保留**数据、
+        // 只把原因暴露给诊断面；只有真正读到值才用值，读到空才走镜像自愈。
         switch KeychainStore.readCodable([ServerConfig].self, account: serversKey) {
         case let .value(payload):
             if let list = try? JSONDecoder().decode([ServerConfig].self, from: payload) {
+                lastReadFailure = nil
                 return list
             }
+            // 能读到但解不开：结构非法（确坏档），记录原因后照常走镜像降级，不清任何数据
+            lastReadFailure = .corrupt
+            return mirroredServers()
         case .absent:
-            break
+            lastReadFailure = nil
+            // 自愈：部分模拟器运行时上重装会清空应用 Keychain（真机更新无此问题）。
+            // Keychain 读空但 UserDefaults 镜像存在 → 回填 Keychain 并沿用（镜像内容与
+            // Keychain 同源，由 upsert/remove 同步维护）。
+            return mirroredServers()
         case let .failed(reason):
-            if reason.recovery == .keepDataAndRetry {
-                lastReadFailure = reason
-                // 保留数据：能读到镜像就用镜像顶住，读不到就返回空但记录原因（不清任何东西）
-                return mirroredServers()
-            }
+            lastReadFailure = reason
+            // 保留数据：能读到镜像就用镜像顶住，读不到就返回空但**不清理**任何东西
+            return mirroredServers()
         }
-        let mirrored = mirroredServers()
-        if !mirrored.isEmpty {
-            return mirrored
-        }
-        return []
     }
 
     /// 最近一次注册表读取失败原因（诊断/设置页可读；nil = 正常）。
