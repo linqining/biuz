@@ -35,9 +35,10 @@
     "started_at": "2026-11-17T17:30:10+00:00",
     "scope": [
       "logic",
-      "ui"
+      "ui",
+      "api"
     ],
-    "note": "集成测试：模拟工作流写入",
+    "note": "webhook sync c590468..fec9759",
     "operator": "mac"
   }
 }
