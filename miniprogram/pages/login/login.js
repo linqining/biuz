@@ -7,6 +7,13 @@
 // 当前落法（务实）：粘贴 JWT → 持久化 → 直发 connectRelayDesktop（中继 V2 全链：
 // token→ws2→auth_init→paired→sessions 等 store 数据源点亮）。
 // provider 按钮如实提示「OAuth 授权待接入」——不伪造登录。
+//
+// 凭据落盘（2026-11-19，web v3.18.2 凭证安全语义对齐）：原来 `wx.setStorageSync('biuz.jwt',
+// jwt)` 是**明文**；现改走 utils/credential-store.js（加密容器 + 来源标记 + 失败原因三分）。
+// APP-DIFF[D014]：小程序无 OS keychain 等价物，密钥托管在本地存储——只消除明文落盘，
+// 不能防同设备同账号运行时读取，安全等级低于 iOS/Android（差距见 PARITY_BACKLOG P-031）。
+const credentialStore = require('../../utils/credential-store.js');
+
 const COPY = {
   brand: 'ZCode',
   loginTitle: '登录后继续使用 Web 远程控制',
@@ -17,8 +24,6 @@ const COPY = {
   ],
 };
 
-const JWT_KEY = 'biuz.jwt';
-
 Page({
   data: {
     copy: COPY,
@@ -26,6 +31,9 @@ Page({
     connecting: false,
     statusBarHeight: 0,
     jwtStored: false,
+    // 凭据读取失败原因（web：`unavailable` 与 `decrypt` 必须区别上屏，
+    // 不能统一显示「未登录」——systemCredentialCipher.ts:67-75）
+    credentialIssue: '',
   },
 
   onLoad() {
@@ -36,27 +44,69 @@ Page({
     } catch (err) {
       statusBarHeight = 0;
     }
+    // 旧明文 JWT（biuz.jwt）→ 加密容器；只在没有加密 JWT 时执行，失败不丢原值
+    const migration = credentialStore.migrateLegacyJwt();
+    const state = this.readJwtState();
     this.setData({
       statusBarHeight: statusBarHeight,
-      jwtStored: this.hasJwt(),
+      jwtStored: state.stored,
+      credentialIssue: state.issue || (migration.reason ? this.issueCopy(migration.reason) : ''),
     });
   },
 
   onShow() {
-    this.setData({ jwtStored: this.hasJwt() });
+    const state = this.readJwtState();
+    this.setData({ jwtStored: state.stored, credentialIssue: state.issue });
   },
 
-  hasJwt() {
-    try {
-      const jwt = wx.getStorageSync(JWT_KEY) || '';
-      return jwt.length > 20;
-    } catch (err) {
-      return false;
+  /**
+   * 读取持久化 JWT 状态。三条读失败原因分别上屏（web 三分口径：
+   * systemCredentialCipher.ts:67-75 / oauth.ts:39-56）：只有「密文确坏」才允许清。
+   */
+  readJwtState() {
+    const result = credentialStore.readJwt();
+    const stored = result.outcome === credentialStore.OUTCOME_OK && result.value.length > 20;
+    if (result.outcome === credentialStore.OUTCOME_MISSING) return { stored: false, issue: '' };
+    if (result.outcome === credentialStore.OUTCOME_UNAVAILABLE) {
+      return { stored: false, issue: this.issueCopy(result.reason) };
+    }
+    if (result.outcome === credentialStore.OUTCOME_DECRYPT) {
+      // 数据确坏：清理确坏字段并如实告知（web：只有 isCredentialDecryptError 才清）
+      credentialStore.clearFieldOnCorruption('jwt', result.reason);
+      return { stored: false, issue: '已保存的凭据无法解密（数据损坏），请重新粘贴 JWT' };
+    }
+    return { stored: stored, issue: '' };
+  },
+
+  /** 失败原因 → 用户可读文案（不暴露密钥材料，只说明可执行的下一步）。
+   *  APP-DIFF[D017] platform: 小程序为登录页单行提示（`01-note-credential-issue`）。 */
+  issueCopy(reason) {
+    switch (reason) {
+      case credentialStore.REASON_SOURCE_OS_PINNED:
+      case credentialStore.REASON_SOURCE_MISMATCH:
+        return '凭据由其他端写入（来源不一致），本机无法解密；请重新粘贴 JWT';
+      case credentialStore.REASON_NO_SOURCE_MARKER:
+      case credentialStore.REASON_KEY_MISSING:
+      case credentialStore.REASON_KEY_INVALID:
+        return '本机凭据密钥已丢失（换设备/清数据），已保存的登录无法恢复；请重新登录';
+      case credentialStore.REASON_KEY_FINGERPRINT_MISMATCH:
+        return '本机凭据密钥与原记录不匹配，无法解密；请重新登录';
+      case credentialStore.REASON_RECORD_CORRUPT:
+        return '已保存的凭据无法解密（数据损坏），请重新粘贴 JWT';
+      case credentialStore.REASON_STORAGE_UNAVAILABLE:
+        return '本地存储不可用，凭据未保存';
+      default:
+        return '';
     }
   },
 
+  hasJwt() {
+    return this.readJwtState().stored;
+  },
+
   getStoredJwt() {
-    try { return wx.getStorageSync(JWT_KEY) || ''; } catch (err) { return ''; }
+    const result = credentialStore.readJwt();
+    return result.outcome === credentialStore.OUTCOME_OK ? result.value : '';
   },
 
   /** P-018 务实落法：粘贴 JWT → 持久化（中继 V2 用）。 */
@@ -73,21 +123,26 @@ Page({
           wx.showToast({ title: 'JWT 无效（太短）', icon: 'none' });
           return;
         }
-        try {
-          wx.setStorageSync(JWT_KEY, jwt);
-          self.setData({ jwtStored: true });
-          wx.showToast({ title: 'JWT 已保存', icon: 'success' });
-        } catch (err) {
-          wx.showToast({ title: '存储失败', icon: 'none' });
+        const written = credentialStore.saveJwt(jwt);
+        if (!written.ok) {
+          wx.showToast({
+            title: written.reason === credentialStore.REASON_STORAGE_UNAVAILABLE
+              ? '存储失败'
+              : '凭据写入被拒绝',
+            icon: 'none',
+          });
+          return;
         }
+        self.setData({ jwtStored: true, credentialIssue: '' });
+        wx.showToast({ title: 'JWT 已保存（加密）', icon: 'success' });
       },
     });
   },
 
-  /** 清除 JWT（重登录用）。 */
+  /** 清除 JWT（用户显式登出：web `clear()` 是显式调用，不是读失败的副作用）。 */
   onClearJwt() {
-    try { wx.removeStorageSync(JWT_KEY); } catch (err) { /* 幂等 */ }
-    this.setData({ jwtStored: false });
+    credentialStore.clearAll();
+    this.setData({ jwtStored: false, credentialIssue: '' });
     wx.showToast({ title: 'JWT 已清除', icon: 'none' });
   },
 

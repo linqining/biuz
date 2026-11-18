@@ -1,0 +1,410 @@
+// 凭据加密与来源辨析对拍（node --test miniprogram/tests/credential-store.test.js）
+//
+// 对齐面：web `packages/shared/src/credential-security/systemCredentialCipher.ts`（v3.18.2 `fec97590`）
+// - sha256/hmac/base64url 与 node:crypto 逐字节对拍（自实现密码学原语必须被外部权威证明）
+// - seal/open 往返 + 篡改/换密钥必拒（web :76-96 认证失败绝不返回明文）
+// - 密文头三判定：来源不符/密钥指纹不符 → unavailable（不清理）；认证失败 → decrypt（可清理）
+//   （web :403-425；`shouldClearOnFailure` 的白名单口径 = `isCredentialDecryptError`）
+// - 来源钉住：已钉 local 后绝不新建密钥；有密文却无来源标记 → unavailable（web :276/:289/:305）
+// - 存储面：明文 JWT 不落盘 + 旧明文键迁移 + 读失败不误清
+const assert = require('assert');
+const nodeCrypto = require('node:crypto');
+const crypto2 = require('../utils/credential-crypto.js');
+const store = require('../utils/credential-store.js');
+
+let passed = 0;
+let failed = 0;
+const cases = [];
+
+function test(name, fn) { cases.push([name, fn]); }
+
+// 内存 wx 垫片（与 connection.test.js 同形；storage 可被用例重置）
+function installWx() {
+  global.wx = {
+    storage: {},
+    setStorageSync(key, value) { this.storage[key] = JSON.parse(JSON.stringify(value)); },
+    getStorageSync(key) { return this.storage[key]; },
+    removeStorageSync(key) { delete this.storage[key]; },
+  };
+  return global.wx;
+}
+
+function fixedIv(fill) {
+  const iv = [];
+  for (let i = 0; i < crypto2.IV_BYTES; i += 1) iv.push(fill == null ? i : fill);
+  return iv;
+}
+
+// ---- 1. 原语对拍 node:crypto ----
+
+test('sha256 与 node:crypto 逐字节一致（含空串/跨块/多字节）', function () {
+  const samples = [
+    '', 'abc', 'the quick brown fox jumps over the lazy dog',
+    'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiMTIzIn0.c2ln',
+    '中文凭据 🎉 emoji', 'a'.repeat(55), 'a'.repeat(56), 'a'.repeat(64), 'a'.repeat(1000),
+  ];
+  samples.forEach(function (text) {
+    const mine = crypto2.sha256Hex(crypto2.utf8Bytes(text));
+    const ref = nodeCrypto.createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex');
+    assert.strictEqual(mine, ref, 'SHA256 不一致：' + JSON.stringify(text.slice(0, 20)));
+  });
+});
+
+test('hmac-sha256 与 node:crypto 一致（含超块长密钥 / 空 key / 空 msg）', function () {
+  const pairs = [
+    ['key', 'msg'], ['', ''], ['k'.repeat(100), 'm'.repeat(300)],
+    ['中文密钥', '中文消息 🎉'],
+  ];
+  pairs.forEach(function (pair) {
+    const mine = Buffer.from(crypto2.hmacSha256(
+      crypto2.utf8Bytes(pair[0]), crypto2.utf8Bytes(pair[1]),
+    )).toString('hex');
+    const ref = nodeCrypto.createHmac('sha256', Buffer.from(pair[0], 'utf8'))
+      .update(Buffer.from(pair[1], 'utf8')).digest('hex');
+    assert.strictEqual(mine, ref);
+  });
+});
+
+test('base64url 编解码与 node 一致且无损（0/1/2/3/31/32/43/64 字节）', function () {
+  [0, 1, 2, 3, 31, 32, 43, 64].forEach(function (size) {
+    const bytes = [];
+    for (let i = 0; i < size; i += 1) bytes.push((i * 37 + 11) & 0xff);
+    const mine = crypto2.encodeBase64url(bytes);
+    assert.strictEqual(mine, Buffer.from(bytes).toString('base64url'));
+    assert.deepStrictEqual(crypto2.decodeBase64url(mine), bytes);
+  });
+});
+
+// ---- 2. 封装/解封（web seal/open） ----
+
+test('seal/open 往返：中文 + emoji 原样还原', function () {
+  const key = crypto2.sha256(crypto2.utf8Bytes('device-key-seed'));
+  const plaintext = 'JWT 载荷 / 中文 / 🎉 混排';
+  const sealed = crypto2.seal(plaintext, key, { iv: fixedIv() });
+  assert.strictEqual(sealed.split('.').length, 3, 'iv.tag.bytes 三段（web :80）');
+  assert.strictEqual(crypto2.open(sealed, key), plaintext);
+});
+
+test('seal 每次 IV 不同 → 同一明文的密文不同（随机 IV）', function () {
+  const key = crypto2.sha256(crypto2.utf8Bytes('seed'));
+  const a = crypto2.seal('same', key);
+  const b = crypto2.seal('same', key);
+  assert.notStrictEqual(a, b);
+});
+
+test('open：篡改密文 / 改 tag / 改 IV / 换密钥 / 截断 全部拒绝且码为 decrypt', function () {
+  const key = crypto2.sha256(crypto2.utf8Bytes('seed'));
+  const parts = crypto2.seal('payload', key, { iv: fixedIv() }).split('.');
+  const flip = function (b64) {
+    const bytes = crypto2.decodeBase64url(b64);
+    bytes[0] = bytes[0] ^ 0x01;
+    return crypto2.encodeBase64url(bytes);
+  };
+  const variants = [
+    [parts[0], parts[1], flip(parts[2])], // 密文改一位
+    [parts[0], flip(parts[1]), parts[2]], // tag 改一位
+    [flip(parts[0]), parts[1], parts[2]], // IV 改一位
+    [parts[0], parts[1]],                 // 少一段
+    [parts[0], parts[1], parts[2], 'x'],  // 多一段
+    ['', parts[1], parts[2]],             // 空 IV
+    [parts[0], parts[1], parts[2] + '='], // 非 base64url 字符
+  ];
+  variants.forEach(function (variant, index) {
+    assert.throws(
+      function () { crypto2.open(variant.join('.'), key); },
+      function (err) { return err.code === crypto2.DECRYPT_ERROR_CODE; },
+      '第 ' + index + ' 种畸形必须判 decrypt',
+    );
+  });
+  assert.throws(
+    function () { crypto2.open(parts.join('.'), crypto2.sha256(crypto2.utf8Bytes('other'))); },
+    function (err) { return err.code === crypto2.DECRYPT_ERROR_CODE; },
+  );
+});
+
+test('密钥指纹：24 位小写 hex，且等于 sha256 前 24 位（web :207-209）', function () {
+  const key = crypto2.sha256(crypto2.utf8Bytes('seed'));
+  const fingerprint = crypto2.keyFingerprint(key);
+  assert.strictEqual(fingerprint.length, 24);
+  assert.ok(/^[a-f0-9]{24}$/.test(fingerprint));
+  assert.strictEqual(fingerprint, nodeCrypto.createHash('sha256')
+    .update(Buffer.from(key)).digest('hex').slice(0, 24));
+});
+
+test('encodedKeyFingerprint / isEncodedKey：43 位 base64url 才合法（web :212-216）', function () {
+  const encoded = crypto2.encodeBase64url(crypto2.sha256(crypto2.utf8Bytes('seed')));
+  assert.strictEqual(encoded.length, 43);
+  assert.ok(crypto2.isEncodedKey(encoded));
+  assert.ok(crypto2.encodedKeyFingerprint(encoded));
+  ['', 'short', encoded.slice(0, 42), encoded + 'xx', encoded + '='].forEach(function (bad) {
+    assert.strictEqual(crypto2.encodedKeyFingerprint(bad), null, '应拒：' + bad.slice(0, 12));
+  });
+});
+
+// ---- 3. 密文记录：来源/指纹先于认证（web :403-425 判定顺序） ----
+
+test('buildCiphertext：enc:v2:<source>:<fp> 头部形状与 web encrypt 一致', function () {
+  const key = crypto2.sha256(crypto2.utf8Bytes('seed'));
+  const record = crypto2.buildCiphertext('v', key, crypto2.SOURCE_LOCAL, { iv: fixedIv(3) });
+  assert.ok(record.indexOf('enc:v2:local:' + crypto2.keyFingerprint(key) + ':') === 0);
+});
+
+test('buildCiphertext：来源只允许 os / local（其他一律 unavailable）', function () {
+  const key = crypto2.sha256(crypto2.utf8Bytes('seed'));
+  assert.throws(
+    function () { crypto2.buildCiphertext('v', key, 'env-ish'); },
+    function (err) { return err.code === crypto2.UNAVAILABLE_ERROR_CODE; },
+  );
+});
+
+test('decryptRecord：来源不符 → unavailable（换来源 ≠ 数据损坏）', function () {
+  const key = crypto2.sha256(crypto2.utf8Bytes('seed'));
+  const record = crypto2.buildCiphertext('v', key, crypto2.SOURCE_LOCAL, { iv: fixedIv() });
+  assert.throws(
+    function () { crypto2.decryptRecord(record, key, crypto2.SOURCE_OS); },
+    function (err) { return err.code === crypto2.UNAVAILABLE_ERROR_CODE; },
+  );
+});
+
+test('decryptRecord：指纹不符 → unavailable（密钥丢失 ≠ 数据损坏）', function () {
+  const key = crypto2.sha256(crypto2.utf8Bytes('seed'));
+  const record = crypto2.buildCiphertext('v', key, crypto2.SOURCE_LOCAL, { iv: fixedIv() });
+  const otherKey = crypto2.sha256(crypto2.utf8Bytes('other'));
+  assert.throws(
+    function () { crypto2.decryptRecord(record, otherKey, crypto2.SOURCE_LOCAL); },
+    function (err) { return err.code === crypto2.UNAVAILABLE_ERROR_CODE; },
+  );
+});
+
+test('decryptRecord：头部格式坏 → decrypt（只有数据确坏才允许清理）', function () {
+  const key = crypto2.sha256(crypto2.utf8Bytes('seed'));
+  // 指纹核对必须在解密之前（web :423-425：来源 → 指纹 → 认证）；这里指纹与密钥一致，
+  // 才轮到 payload 本身畸形 → decrypt。
+  const matching = 'enc:v2:local:' + crypto2.keyFingerprint(key) + ':';
+  ['zzz:aa.bb.cc', 'aa', 'aa.bb', 'aa.bb.cc', 'aa.bb.cc.dd'].forEach(function (payload) {
+    assert.throws(
+      function () { crypto2.decryptRecord(matching + payload, key, crypto2.SOURCE_LOCAL); },
+      function (err) { return err.code === crypto2.DECRYPT_ERROR_CODE; },
+      '应判 decrypt：' + payload);
+  });
+  ['plaintext', 'enc:v1:x', 'enc:v2:local:zzz:aa.bb.cc', 'enc:v2:local:'.concat(crypto2.keyFingerprint(key))]
+    .forEach(function (bad) {
+      assert.throws(
+        function () { crypto2.decryptRecord(bad, key, crypto2.SOURCE_LOCAL); },
+        function (err) { return err.code === crypto2.DECRYPT_ERROR_CODE; },
+        '头部格式坏应判 decrypt：' + bad);
+    });
+  // 来源词法合法但非本端来源（他端新增的 env 档）→ unavailable，**不得**当密文损坏清理
+  assert.throws(
+    function () {
+      crypto2.decryptRecord('enc:v2:env:' + crypto2.keyFingerprint(key) + ':aa.bb.cc', key, crypto2.SOURCE_LOCAL);
+    },
+    function (err) { return err.code === crypto2.UNAVAILABLE_ERROR_CODE; },
+    '他端来源必须判 unavailable（数据保留）',
+  );
+});
+
+// ---- 4. 策略纯函数（web :68 注释「系统库锁定/缺失不能冒充密文损坏」） ----
+
+test('shouldClearOnFailure：只有 record-corrupt 允许清（其余全部保留数据）', function () {
+  assert.strictEqual(store.shouldClearOnFailure(store.REASON_RECORD_CORRUPT), true);
+  [
+    store.REASON_NO_SOURCE_MARKER, store.REASON_SOURCE_OS_PINNED, store.REASON_SOURCE_MISMATCH,
+    store.REASON_KEY_MISSING, store.REASON_KEY_INVALID,
+    store.REASON_KEY_FINGERPRINT_MISMATCH, store.REASON_STORAGE_UNAVAILABLE,
+  ].forEach(function (reason) {
+    assert.strictEqual(store.shouldClearOnFailure(reason), false, '不得清理：' + reason);
+  });
+});
+
+test('classifyFailure：失败原因 → ok/missing/unavailable/decrypt 四分', function () {
+  assert.strictEqual(store.classifyFailure(null), store.OUTCOME_OK);
+  assert.strictEqual(store.classifyFailure(store.REASON_KEY_MISSING), store.OUTCOME_UNAVAILABLE);
+  assert.strictEqual(store.classifyFailure(store.REASON_RECORD_CORRUPT), store.OUTCOME_DECRYPT);
+});
+
+test('resolveSourceDecision：来源钉住/未钉/他端来源/有密文无标记 四态', function () {
+  assert.deepStrictEqual(
+    store.resolveSourceDecision({ markedSource: null, hasCiphertext: false }),
+    { mode: 'create-pin', source: 'local' },
+  );
+  assert.deepStrictEqual(
+    store.resolveSourceDecision({ markedSource: crypto2.LOCAL_SOURCE_MARKER, hasCiphertext: true }),
+    { mode: 'use-pin', source: 'local' },
+  );
+  assert.deepStrictEqual(
+    store.resolveSourceDecision({ markedSource: crypto2.OS_SOURCE_MARKER, hasCiphertext: true }),
+    { mode: 'refuse', source: 'os', reason: store.REASON_SOURCE_OS_PINNED },
+  );
+  assert.deepStrictEqual(
+    store.resolveSourceDecision({ markedSource: null, hasCiphertext: true }),
+    { mode: 'refuse', source: null, reason: store.REASON_NO_SOURCE_MARKER },
+  );
+  assert.deepStrictEqual(
+    store.resolveSourceDecision({ markedSource: 'env\n', hasCiphertext: true }),
+    { mode: 'refuse', source: 'env\n', reason: store.REASON_SOURCE_MISMATCH },
+  );
+});
+
+test('evaluateRead：六种读结果（missing/ok/unavailable×4/decrypt）一次穷举', function () {
+  const keyEncoded = crypto2.encodeBase64url(crypto2.sha256(crypto2.utf8Bytes('seed')));
+  const keyBytes = crypto2.decodeBase64url(keyEncoded);
+  const good = crypto2.buildCiphertext('jwt-value', keyBytes, crypto2.SOURCE_LOCAL, { iv: fixedIv() });
+  const bad = (function () {
+    const parts = good.split('.');
+    const bytes = crypto2.decodeBase64url(parts[2]);
+    bytes[0] ^= 0xff;
+    return [parts[0], parts[1], crypto2.encodeBase64url(bytes)].join('.');
+  })();
+  const base = {
+    markedSource: crypto2.LOCAL_SOURCE_MARKER,
+    keyEncoded: keyEncoded,
+    requireFields: ['jwt'],
+  };
+  const evaluate = function (patch) {
+    return store.evaluateRead(Object.assign({}, base, patch));
+  };
+  assert.strictEqual(evaluate({ record: null }).outcome, store.OUTCOME_MISSING);
+  const ok = evaluate({ record: { fields: { jwt: good } } });
+  assert.strictEqual(ok.outcome, store.OUTCOME_OK);
+  assert.strictEqual(ok.fields.jwt, 'jwt-value');
+  assert.deepStrictEqual(ok.fingerprints, [crypto2.keyFingerprint(keyBytes)]);
+
+  const reasonOf = function (patch) { return evaluate(patch).reason; };
+  assert.strictEqual(reasonOf({ record: { fields: { jwt: good } }, markedSource: null }),
+    store.REASON_NO_SOURCE_MARKER);
+  assert.strictEqual(reasonOf({ record: { fields: { jwt: good } }, markedSource: crypto2.OS_SOURCE_MARKER }),
+    store.REASON_SOURCE_OS_PINNED);
+  assert.strictEqual(reasonOf({ record: { fields: { jwt: good } }, keyEncoded: null }),
+    store.REASON_KEY_MISSING);
+  assert.strictEqual(reasonOf({ record: { fields: { jwt: good } }, keyEncoded: 'not-a-key' }),
+    store.REASON_KEY_INVALID);
+  assert.strictEqual(
+    reasonOf({ record: { fields: { jwt: good } }, keyEncoded: crypto2.encodeBase64url(crypto2.sha256(crypto2.utf8Bytes('k2'))) }),
+    store.REASON_KEY_FINGERPRINT_MISMATCH,
+  );
+  const corrupt = evaluate({ record: { fields: { jwt: bad } } });
+  assert.strictEqual(corrupt.reason, store.REASON_RECORD_CORRUPT);
+  assert.strictEqual(corrupt.outcome, store.OUTCOME_DECRYPT);
+});
+
+// ---- 5. 存储面（明文不落盘 / 迁移 / 读失败不误清） ----
+
+test('saveJwt：落盘内容不含明文 JWT，且来源标记为 local', function () {
+  const wx = installWx();
+  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.signature-abcdefghijklmnop';
+  const written = store.saveJwt(jwt);
+  assert.strictEqual(written.ok, true, '应写入成功；reason=' + written.reason);
+  const dump = JSON.stringify(wx.storage);
+  assert.ok(dump.indexOf(jwt) < 0, '存储里不得出现明文 JWT');
+  assert.ok(dump.indexOf('signature-abcdefghijklmnop') < 0, '片段也不得出现');
+  assert.strictEqual(wx.storage[store.SOURCE_KEY], crypto2.LOCAL_SOURCE_MARKER);
+  assert.strictEqual(wx.storage[store.LEGACY_JWT_KEY], undefined, '旧明文键不得残留');
+  assert.strictEqual(store.readJwt().value, jwt, '读回应等价');
+});
+
+test('saveJwt 后 readJwt 返回 ok；显式 clearAll 后返回 missing', function () {
+  installWx();
+  store.saveJwt('j'.repeat(40));
+  assert.strictEqual(store.readJwt().outcome, store.OUTCOME_OK);
+  store.clearAll();
+  assert.strictEqual(store.readJwt().outcome, store.OUTCOME_MISSING);
+});
+
+test('密钥丢失（容器还在、密钥键被清）→ unavailable/key-missing，且**不清**数据', function () {
+  const wx = installWx();
+  store.saveJwt('k'.repeat(40));
+  delete wx.storage[store.KEY_SECRET];
+  const result = store.readJwt();
+  assert.strictEqual(result.outcome, store.OUTCOME_UNAVAILABLE);
+  assert.strictEqual(result.reason, store.REASON_KEY_MISSING);
+  assert.ok(wx.storage[store.RECORD_KEY], '数据必须保留（不得无差别清理）');
+  // 再写新值不得生成替代密钥覆盖旧密文
+  const rewrite = store.saveJwt('m'.repeat(40));
+  assert.strictEqual(rewrite.ok, false);
+  assert.strictEqual(rewrite.reason, store.REASON_KEY_MISSING);
+});
+
+test('来源标记被改成 os（他端写入）→ unavailable/os-source-pinned，且不清数据', function () {
+  const wx = installWx();
+  store.saveJwt('k'.repeat(40));
+  wx.storage[store.SOURCE_KEY] = crypto2.OS_SOURCE_MARKER;
+  const result = store.readJwt();
+  assert.strictEqual(result.outcome, store.OUTCOME_UNAVAILABLE);
+  assert.strictEqual(result.reason, store.REASON_SOURCE_OS_PINNED);
+  assert.ok(wx.storage[store.RECORD_KEY]);
+});
+
+test('密文被损坏 → decrypt/record-corrupt，且只有显式 clearFieldOnCorruption 才清该字段', function () {
+  const wx = installWx();
+  store.saveJwt('k'.repeat(40));
+  const record = wx.storage[store.RECORD_KEY];
+  const parts = record.fields.jwt.split('.');
+  const bytes = crypto2.decodeBase64url(parts[2]);
+  bytes[0] ^= 0x01;
+  record.fields.jwt = [parts[0], parts[1], crypto2.encodeBase64url(bytes)].join('.');
+  wx.storage[store.RECORD_KEY] = record;
+
+  const result = store.readJwt();
+  assert.strictEqual(result.outcome, store.OUTCOME_DECRYPT);
+  assert.strictEqual(result.reason, store.REASON_RECORD_CORRUPT);
+  assert.strictEqual(store.clearFieldOnCorruption('jwt', store.REASON_RECORD_CORRUPT), true);
+  assert.strictEqual(store.readJwt().outcome, store.OUTCOME_MISSING);
+});
+
+test('clearFieldOnCorruption 拒绝非 corrupt 原因（unavailable 时数据必须留住）', function () {
+  installWx();
+  store.saveJwt('k'.repeat(40));
+  [store.REASON_KEY_MISSING, store.REASON_SOURCE_OS_PINNED, store.REASON_KEY_FINGERPRINT_MISMATCH]
+    .forEach(function (reason) {
+      assert.strictEqual(store.clearFieldOnCorruption('jwt', reason), false, reason);
+    });
+  assert.strictEqual(store.readJwt().outcome, store.OUTCOME_OK, '数据仍在且仍可解');
+});
+
+test('migrateLegacyJwt：旧明文 biuz.jwt → 加密容器并删除明文键', function () {
+  const wx = installWx();
+  const legacy = 'legacy-plaintext-jwt-' + 'z'.repeat(30);
+  wx.storage[store.LEGACY_JWT_KEY] = legacy;
+  const migrated = store.migrateLegacyJwt();
+  assert.strictEqual(migrated.migrated, true);
+  assert.strictEqual(wx.storage[store.LEGACY_JWT_KEY], undefined, '明文键必须删除');
+  assert.ok(JSON.stringify(wx.storage).indexOf(legacy) < 0, '明文不得残留');
+  assert.strictEqual(store.readJwt().value, legacy);
+});
+
+test('migrateLegacyJwt：已有可用密文时不覆盖（返回 migrated:false）', function () {
+  const wx = installWx();
+  store.saveJwt('current-' + 'c'.repeat(30));
+  wx.storage[store.LEGACY_JWT_KEY] = 'stale-plaintext-jwt-value';
+  const migrated = store.migrateLegacyJwt();
+  assert.strictEqual(migrated.migrated, false);
+  assert.strictEqual(store.readJwt().value, 'current-' + 'c'.repeat(30), '加密值优先');
+});
+
+test('readDesktopAddress：baseUrl/token 同容器加密，明文不可见', function () {
+  const wx = installWx();
+  store.saveDesktopAddress('http://192.168.1.24:9100', 'server-password-xyz');
+  const dump = JSON.stringify(wx.storage);
+  assert.ok(dump.indexOf('server-password-xyz') < 0, 'token 不得明文落盘');
+  const restored = store.readDesktopAddress();
+  assert.strictEqual(restored.outcome, store.OUTCOME_OK);
+  assert.strictEqual(restored.baseUrl, 'http://192.168.1.24:9100');
+  assert.strictEqual(restored.token, 'server-password-xyz');
+});
+
+// ---- 串行执行（与本仓既有 node 测试风格一致） ----
+
+(function run(i) {
+  if (i >= cases.length) {
+    console.log(passed + ' 项通过');
+    if (failed > 0) { console.error(failed + ' 项失败'); process.exitCode = 1; }
+    return;
+  }
+  const pair = cases[i];
+  Promise.resolve()
+    .then(pair[1])
+    .then(function () { passed += 1; console.log('  ok', pair[0]); })
+    .catch(function (err) { failed += 1; console.error('  FAIL', pair[0], err.message); })
+    .then(function () { run(i + 1); });
+})(0);

@@ -8,11 +8,13 @@
 //
 // 纪律（AGENTS.md §5-13 / store.js 头注）：未连接/失败如实上屏，不填假数据；
 // 读面失败保留 last-good（store.refresh 已按此实现）。address 持久化于
-// wx.setStorageSync('biuz.desktop')（baseUrl/token），支持重连。
+// utils/credential-store.js 的加密容器（baseUrl/token 同容器；原来明文落
+// `biuz.desktop`——见 APP-DIFF[D014] 与 PARITY_BACKLOG P-031），支持重连。
 
 const rpcConnection = require('./rpc-connection.js');
 const relayV2 = require('./relay-v2.js');
 const wxTransport = require('./wx-transport.js');
+const credentialStore = require('./credential-store.js');
 const store = require('./store.js');
 const chatStore = require('./chat-store.js');
 const filesStore = require('./files-store.js');
@@ -22,26 +24,25 @@ const capabilityStore = require('./capability-store.js');
 const capability = require('./capability.js');
 const devicesStore = require('./devices-store.js');
 
-const STORAGE_KEY = 'biuz.desktop';
-
 let active = null; // { client, serverInfo, workspace, hello, clientId }
 
 function getState() {
   return active;
 }
 
+/** 上次连接地址（解不开时按失败原因区分：unavailable/decrypt 都如实返回 null + reason）。 */
+function lastAddressState() {
+  return credentialStore.readDesktopAddress();
+}
+
 function lastAddress() {
-  try {
-    return wx.getStorageSync(STORAGE_KEY) || null;
-  } catch (err) {
-    return null;
-  }
+  const state = lastAddressState();
+  return state.baseUrl ? { baseUrl: state.baseUrl, token: state.token } : null;
 }
 
 function saveAddress(baseUrl, token) {
-  try {
-    wx.setStorageSync(STORAGE_KEY, { baseUrl: baseUrl, token: token || '' });
-  } catch (err) { /* 存储失败不影响连接 */ }
+  // 写失败不阻断连接（web：凭据写失败只影响「下次自动重连」），但原因可被诊断面读到
+  return credentialStore.saveDesktopAddress(baseUrl, token || '');
 }
 
 /**
@@ -100,9 +101,15 @@ function connectDesktop(params) {
  * → sessions 等 store 数据源同 LAN 口径点亮；设备页接中继设备目录
  * （GET /api/v1/remote/device，Bearer JWT——Mock 红线解除：JWT 在场才接）。
  */
-/** 读取持久化 JWT（login 页 P-018 写入；connectRelayDesktop 自动回填）。 */
+/** 读取持久化 JWT（login 页 P-018 写入；connectRelayDesktop 自动回填）。
+ *  来源 = 加密容器（原 `biuz.jwt` 明文键，见 APP-DIFF[D014]）；读失败按原因分辨。 */
+function getRelayJwtState() {
+  return credentialStore.readJwt();
+}
+
 function getRelayJwt() {
-  try { return wx.getStorageSync('biuz.jwt') || ''; } catch (err) { return ''; }
+  const state = getRelayJwtState();
+  return state.outcome === credentialStore.OUTCOME_OK ? state.value : '';
 }
 
 function connectRelayDesktop(params) {
