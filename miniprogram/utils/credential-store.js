@@ -61,6 +61,9 @@ const REASON_KEY_INVALID = 'key-invalid';
 const REASON_KEY_FINGERPRINT_MISMATCH = 'key-fingerprint-mismatch';
 const REASON_RECORD_CORRUPT = 'record-corrupt';
 const REASON_STORAGE_UNAVAILABLE = 'storage-unavailable';
+// P-031 修复：平台未提供 CSPRNG / 预取失败 / 池容量不足。
+// 与「存储不可用」区分：这是密钥材料拿不到，写下去会变成弱密钥，必须拒绝写入。
+const REASON_ENTROPY_UNAVAILABLE = 'entropy-unavailable';
 
 /**
  * **纯函数**：读失败时是否允许清理该凭据（web 的 `isCredentialDecryptError`
@@ -282,12 +285,26 @@ function writeFields(values) {
   if (decision.mode === 'refuse') return { ok: false, reason: decision.reason };
 
   let keyEncoded = readRaw(KEY_SECRET);
-  if (!crypto.isEncodedKey(keyEncoded)) {
-    if (decision.mode !== 'create-pin') {
-      // 已有密文但密钥丢了：绝不生成替代密钥（web :266 注释：禁止生成替代密钥、误判损坏）
-      return { ok: false, reason: REASON_KEY_MISSING };
+  const needNewKey = !crypto.isEncodedKey(keyEncoded);
+  if (needNewKey && decision.mode !== 'create-pin') {
+    // 已有密文但密钥丢了：绝不生成替代密钥（web :266 注释：禁止生成替代密钥、误判损坏）
+    return { ok: false, reason: REASON_KEY_MISSING };
+  }
+
+  // P-031 修复：写前检查 CSPRNG 池容量（新建密钥 32B + 每字段 IV 12B）。
+  // 不足则明确失败并提示预取，**绝不退回 Math.random 写弱密钥**。
+  const requiredBytes = (needNewKey ? crypto.KEY_BYTES : 0) + names.length * crypto.IV_BYTES;
+  if (crypto.entropyStatus().available < requiredBytes) {
+    return { ok: false, reason: REASON_ENTROPY_UNAVAILABLE, needBytes: requiredBytes };
+  }
+
+  if (needNewKey) {
+    let fresh;
+    try {
+      fresh = crypto.encodeBase64url(crypto.randomBytes(crypto.KEY_BYTES));
+    } catch (err) {
+      return { ok: false, reason: REASON_ENTROPY_UNAVAILABLE, needBytes: requiredBytes };
     }
-    const fresh = crypto.encodeBase64url(crypto.randomBytes(crypto.KEY_BYTES));
     if (!writeRaw(KEY_SECRET, fresh)) return { ok: false, reason: REASON_STORAGE_UNAVAILABLE };
     keyEncoded = fresh;
   }
@@ -298,9 +315,14 @@ function writeFields(values) {
   }
   const keyBytes = crypto.decodeBase64url(keyEncoded);
   const fields = record.fields || {};
-  for (let i = 0; i < names.length; i += 1) {
-    const name = names[i];
-    fields[name] = crypto.buildCiphertext(String(values[name]), keyBytes, crypto.SOURCE_LOCAL);
+  try {
+    for (let i = 0; i < names.length; i += 1) {
+      const name = names[i];
+      fields[name] = crypto.buildCiphertext(String(values[name]), keyBytes, crypto.SOURCE_LOCAL);
+    }
+  } catch (err) {
+    // IV 池在循环中被其他调用耗尽等：不写半成品
+    return { ok: false, reason: REASON_ENTROPY_UNAVAILABLE, needBytes: requiredBytes };
   }
   if (!writeRaw(RECORD_KEY, { v: 2, fields: fields })) {
     return { ok: false, reason: REASON_STORAGE_UNAVAILABLE };
@@ -309,6 +331,31 @@ function writeFields(values) {
   removeRaw(LEGACY_JWT_KEY);
   removeRaw(LEGACY_DESKTOP_KEY);
   return { ok: true, reason: null };
+}
+
+/**
+ * 异步写入：先确保 CSPRNG 池有足够字节再同步写。
+ * 池不足时自动向平台预取一次；平台不提供 CSPRNG 则明确失败（不写弱密钥）。
+ * @param {Object} values
+ * @returns {Promise<{ok:boolean, reason:string|null}>}
+ */
+function writeFieldsAsync(values) {
+  const names = Object.keys(values || {});
+  if (names.length === 0) return Promise.resolve({ ok: true, reason: null });
+  const needNewKey = !crypto.isEncodedKey(readRaw(KEY_SECRET));
+  const requiredBytes = (needNewKey ? crypto.KEY_BYTES : 0) + names.length * crypto.IV_BYTES;
+  const attempt = () => writeFields(values);
+
+  const pre = crypto.entropyStatus().available >= requiredBytes
+    ? Promise.resolve()
+    : crypto.prefillEntropy(requiredBytes);
+
+  return pre
+    .then(attempt)
+    .catch(function () {
+      // 预取失败（平台无 CSPRNG / 调用失败）：返回明确原因，不退化为弱随机
+      return { ok: false, reason: REASON_ENTROPY_UNAVAILABLE, needBytes: requiredBytes };
+    });
 }
 
 /** 在 `shouldClearOnFailure` 允许时才清该字段；其他原因一律保留整份容器。 */
@@ -360,6 +407,13 @@ function saveJwt(jwt) {
   return writeFields({ jwt: text });
 }
 
+/** 异步版：先预取 CSPRNG 再写，避免池不足导致登录失败（推荐调用方使用）。 */
+function saveJwtAsync(jwt) {
+  const text = String(jwt == null ? '' : jwt).trim();
+  if (!text) return Promise.resolve({ ok: false, reason: 'empty' });
+  return writeFieldsAsync({ jwt: text });
+}
+
 /** 连接地址（baseUrl/token）：token 与 JWT 一起加密，baseUrl 一并进容器（口径统一）。 */
 function readDesktopAddress() {
   const result = readCredentials(['baseUrl', 'token']);
@@ -371,6 +425,14 @@ function readDesktopAddress() {
 
 function saveDesktopAddress(baseUrl, token) {
   return writeFields({ baseUrl: String(baseUrl == null ? '' : baseUrl), token: String(token == null ? '' : token) });
+}
+
+/** 异步版：先预取 CSPRNG 再写（推荐调用方使用）。 */
+function saveDesktopAddressAsync(baseUrl, token) {
+  return writeFieldsAsync({
+    baseUrl: String(baseUrl == null ? '' : baseUrl),
+    token: String(token == null ? '' : token),
+  });
 }
 
 module.exports = {
@@ -391,6 +453,7 @@ module.exports = {
   REASON_KEY_FINGERPRINT_MISMATCH: REASON_KEY_FINGERPRINT_MISMATCH,
   REASON_RECORD_CORRUPT: REASON_RECORD_CORRUPT,
   REASON_STORAGE_UNAVAILABLE: REASON_STORAGE_UNAVAILABLE,
+  REASON_ENTROPY_UNAVAILABLE: REASON_ENTROPY_UNAVAILABLE,
   shouldClearOnFailure: shouldClearOnFailure,
   classifyFailure: classifyFailure,
   resolveSourceDecision: resolveSourceDecision,
@@ -399,11 +462,14 @@ module.exports = {
   readRecord: readRecord,
   readCredentials: readCredentials,
   writeFields: writeFields,
+  writeFieldsAsync: writeFieldsAsync,
   clearFieldOnCorruption: clearFieldOnCorruption,
   clearAll: clearAll,
   migrateLegacyJwt: migrateLegacyJwt,
   readJwt: readJwt,
   saveJwt: saveJwt,
+  saveJwtAsync: saveJwtAsync,
   readDesktopAddress: readDesktopAddress,
   saveDesktopAddress: saveDesktopAddress,
+  saveDesktopAddressAsync: saveDesktopAddressAsync,
 };

@@ -42,7 +42,12 @@ function lastAddress() {
 
 function saveAddress(baseUrl, token) {
   // 写失败不阻断连接（web：凭据写失败只影响「下次自动重连」），但原因可被诊断面读到
-  return credentialStore.saveDesktopAddress(baseUrl, token || '');
+  // P-031 修复：用异步版，先预取平台 CSPRNG 再写；池不足时明确失败而非写弱密钥
+  const result = credentialStore.saveDesktopAddressAsync(baseUrl, token || '');
+  if (result && typeof result.then === 'function') {
+    result.catch(function () { /* 不阻断连接；诊断面另有记录 */ });
+  }
+  return result;
 }
 
 /**

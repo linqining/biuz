@@ -123,18 +123,24 @@ Page({
           wx.showToast({ title: 'JWT 无效（太短）', icon: 'none' });
           return;
         }
-        const written = credentialStore.saveJwt(jwt);
-        if (!written.ok) {
-          wx.showToast({
-            title: written.reason === credentialStore.REASON_STORAGE_UNAVAILABLE
-              ? '存储失败'
-              : '凭据写入被拒绝',
-            icon: 'none',
-          });
-          return;
-        }
-        self.setData({ jwtStored: true, credentialIssue: '' });
-        wx.showToast({ title: 'JWT 已保存（加密）', icon: 'success' });
+        // P-031 修复：异步写入（先预取平台 CSPRNG），池不可用时明确拒绝，绝不写弱密钥
+        credentialStore.saveJwtAsync(jwt).then(function (written) {
+          if (!written.ok) {
+            wx.showToast({
+              title: written.reason === credentialStore.REASON_STORAGE_UNAVAILABLE
+                ? '存储失败'
+                : written.reason === credentialStore.REASON_ENTROPY_UNAVAILABLE
+                  ? '安全随机数不可用，无法加密保存'
+                  : '凭据写入被拒绝',
+              icon: 'none',
+            });
+            return;
+          }
+          self.setData({ jwtStored: true, credentialIssue: '' });
+          wx.showToast({ title: 'JWT 已保存（加密）', icon: 'success' });
+        }).catch(function () {
+          wx.showToast({ title: '安全随机数不可用，无法加密保存', icon: 'none' });
+        });
       },
     });
   },

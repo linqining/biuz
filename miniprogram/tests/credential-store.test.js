@@ -19,14 +19,40 @@ const cases = [];
 function test(name, fn) { cases.push([name, fn]); }
 
 // 内存 wx 垫片（与 connection.test.js 同形；storage 可被用例重置）
-function installWx() {
+// P-031 修复后：randomBytes 只从 CSPRNG 池取字节，不再回退 Math.random。
+// 因此垫片必须提供 wx.getRandomValues（异步 Promise 形态，与真实小程序一致），
+// 并在每个用例装填足够池，否则写入会（正确地）以 entropy-unavailable 拒绝。
+function installWx(options) {
+  const opts = options || {};
   global.wx = {
     storage: {},
     setStorageSync(key, value) { this.storage[key] = JSON.parse(JSON.stringify(value)); },
     getStorageSync(key) { return this.storage[key]; },
     removeStorageSync(key) { delete this.storage[key]; },
   };
+  if (opts.withoutCspRng !== true) {
+    // 真实平台是异步回调：返回 Promise<{ randomValues: ArrayBuffer }>
+    global.wx.getRandomValues = function (o) {
+      const len = (o && o.length) || 32;
+      const buf = new Uint8Array(len);
+      for (let i = 0; i < len; i += 1) buf[i] = Math.floor(Math.random() * 256);
+      return Promise.resolve({ randomValues: buf.buffer });
+    };
+  }
   return global.wx;
+}
+
+/** 装填熵池：让需要随机数的同步写入能通过（模拟启动时 app.js 的预取）。 */
+async function primeEntropy(bytes) {
+  // 优先走真实异步预取路径（同时验证 platform 适配），失败则用测试专用直接装填
+  try {
+    await crypto2.prefillEntropy(bytes || crypto2.KEY_BYTES + crypto2.IV_BYTES * 8);
+  } catch (err) {
+    const n = bytes || (crypto2.KEY_BYTES + crypto2.IV_BYTES * 8);
+    const filler = [];
+    for (let i = 0; i < n; i += 1) filler.push(Math.floor(Math.random() * 256));
+    crypto2.seedEntropyForTest(filler);
+  }
 }
 
 function fixedIv(fill) {
@@ -393,6 +419,76 @@ test('readDesktopAddress：baseUrl/token 同容器加密，明文不可见', fun
   assert.strictEqual(restored.token, 'server-password-xyz');
 });
 
+// ---- P-031 修复专项：CSPRNG 熵源（防回归） ----
+// 背景：旧实现把异步 API `wx.getRandomValues` 当同步 ArrayBuffer 用，
+// `new Uint8Array(Promise)` → 空数组 → 填充 undefined，而 `out.length === size` 仍成立，
+// 于是**静默返回全 undefined**：密钥等同全零、IV 固定（确定性加密）。
+// 下面这些用例锁定"绝不退回弱随机"的行为。
+
+test('randomBytes：池空时抛 unavailable，绝不返回 undefined / 不退回 Math.random', function () {
+  crypto2.seedEntropyForTest([]);   // 清空池
+  assert.throws(
+    function () { crypto2.randomBytes(12); },
+    function (err) { return err.code === crypto2.UNAVAILABLE_ERROR_CODE; },
+    '池空必须明确失败'
+  );
+});
+
+test('randomBytes：预取后返回真实字节，且两次调用 IV 不同', async function () {
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  await crypto2.prefillEntropy(64);
+  const a = crypto2.randomBytes(12);
+  const b = crypto2.randomBytes(12);
+  assert.strictEqual(a.length, 12);
+  assert.ok(a.every(function (x) { return typeof x === 'number' && x >= 0 && x <= 255; }), '必须是 0..255 的字节');
+  assert.notDeepStrictEqual(a, b, '两次随机数必须不同（IV 不能固定）');
+});
+
+test('randomBytes：平台无 CSPRNG 时 prefill 拒绝，不伪造随机数', async function () {
+  installWx({ withoutCspRng: true });
+  crypto2.seedEntropyForTest([]);
+  let rejected = false;
+  try { await crypto2.prefillEntropy(32); } catch (err) { rejected = true; }
+  assert.strictEqual(rejected, true, '无 CSPRNG 必须拒绝');
+  assert.strictEqual(crypto2.entropyStatus().platformCspRng, false);
+  assert.throws(function () { crypto2.randomBytes(8); }, '且 randomBytes 仍必须抛错');
+});
+
+test('seal：相同明文两次封装必须不同（依赖随机 IV，防确定性加密回归）', async function () {
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  await crypto2.prefillEntropy(128);
+  const key = crypto2.randomBytes(crypto2.KEY_BYTES);
+  const s1 = crypto2.seal('same-plaintext', key);
+  const s2 = crypto2.seal('same-plaintext', key);
+  assert.notStrictEqual(s1, s2, '两次密文必须不同，否则 IV 固定');
+  assert.strictEqual(crypto2.open(s1, key), 'same-plaintext');
+  assert.strictEqual(crypto2.open(s2, key), 'same-plaintext');
+});
+
+test('writeFieldsAsync：池不足时自动预取后写入成功（登录路径不被熵限制打断）', async function () {
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  const written = await store.writeFieldsAsync({ jwt: 'x'.repeat(40) });
+  assert.strictEqual(written.ok, true, '应自动预取后写成功');
+  const back = store.readJwt();
+  assert.strictEqual(back.outcome, store.OUTCOME_OK);
+  assert.strictEqual(back.value, 'x'.repeat(40));
+});
+
+test('writeFields（同步）：池不足时返回 entropy-unavailable 且不写弱密钥', function () {
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  const res = store.writeFields({ jwt: 'y'.repeat(40) });
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.reason, store.REASON_ENTROPY_UNAVAILABLE);
+  assert.ok(res.needBytes > 0, '应回报需要多少字节');
+  // 关键：不得因失败而落盘任何密钥/密文
+  assert.strictEqual(global.wx.storage[store.KEY_SECRET], undefined, '不得写入密钥');
+  assert.strictEqual(store.readRecord(), null, '不得写入密文容器');
+});
+
 // ---- 串行执行（与本仓既有 node 测试风格一致） ----
 
 (function run(i) {
@@ -403,6 +499,8 @@ test('readDesktopAddress：baseUrl/token 同容器加密，明文不可见', fun
   }
   const pair = cases[i];
   Promise.resolve()
+    // P-031 修复后写入需要 CSPRNG 池；每个用例前重装，避免用例间互相耗尽
+    .then(function () { return primeEntropy(); })
     .then(pair[1])
     .then(function () { passed += 1; console.log('  ok', pair[0]); })
     .catch(function (err) { failed += 1; console.error('  FAIL', pair[0], err.message); })
