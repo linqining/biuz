@@ -110,8 +110,15 @@ test('connectDesktop：握手 → identity/source 注入 → refresh 拉真实�
     const state = store.getState();
     assert.strictEqual(state.deviceName, 'E2E Stub Desktop', '身份注入');
     assert.strictEqual(state.accountName, 'user-1', 'hello.authUserId 注入');
-    // 地址持久化（重连用）
-    assert.deepStrictEqual(global.wx.storage['biuz.desktop'], { baseUrl: 'http://127.0.0.1:9100', token: '' });
+    // 地址持久化（重连用）：2026-11-19 起落加密容器（原 `biuz.desktop` 明文键，
+    // APP-DIFF[D014]）；断言口径从「存储形状」改为「解出来的语义」
+    const credentialStore = require('../utils/credential-store.js');
+    const savedAddress = credentialStore.readDesktopAddress();
+    assert.strictEqual(savedAddress.outcome, credentialStore.OUTCOME_OK);
+    assert.strictEqual(savedAddress.baseUrl, 'http://127.0.0.1:9100');
+    assert.strictEqual(savedAddress.token, '');
+    assert.strictEqual(global.wx.storage['biuz.desktop'], undefined, '旧明文键不得再写入');
+    assert.strictEqual(global.wx.storage['biuz.jwt'], undefined, '旧明文 JWT 键不得再写入');
     // store.refresh 是异步读面——轮询到 connected（上限 2s）
     return new Promise(function (resolve) {
       const store2 = require('../utils/store.js');

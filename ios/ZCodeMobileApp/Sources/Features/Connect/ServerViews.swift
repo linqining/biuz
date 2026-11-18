@@ -73,6 +73,10 @@ struct ServerAccountConfigView: View {
                 } else {
                     loggedInCard(tokenSet)
                 }
+            } else if !session.oauthCredentialFailureMessage.isEmpty {
+                // 凭据读失败（钥匙串锁定/需授权/损坏）：不再显示成「未登录」，
+                // 否则用户会以为登录态丢了（web systemCredentialCipher.ts:67-75 同纪律）
+                credentialUnavailableCard
             } else {
                 notLoggedInCard
             }
@@ -238,6 +242,58 @@ struct ServerAccountConfigView: View {
         }
         .card(padding: 14)
         .accessibilityIdentifier("l4-b-card-login")
+    }
+
+    /// 凭据读取失败卡（钥匙串不可用 / 需授权 / 确坏）。
+    /// APP-DIFF[D017] platform: web 是桌面设置页形态，移动端为卡片容器；文案仍按原因一一对应。
+    /// 与 `notLoggedInCard` 的区别：这里**不暗示登录态丢失**——不可恢复的只在 corrupt
+    /// 场景由 `CredentialReadPolicy.canPurge` 清掉；其余情况数据仍在 Keychain 里。
+    private var credentialUnavailableCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.lock")
+                    .font(.system(size: 17))
+                    .foregroundColor(T.orange)
+                    .frame(width: 48, height: 48)
+                    .background(T.orangeDim)
+                    .clipShape(Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "无法读取本机登录凭据"))
+                        .font(T.font(14, .bold))
+                        .foregroundColor(T.text)
+                    Text(session.oauthCredentialFailureMessage)
+                        .font(T.font(11))
+                        .foregroundColor(T.text3)
+                        .lineSpacing(2)
+                }
+                Spacer()
+            }
+            HStack(spacing: 10) {
+                Button {
+                    session.reloadOAuthCredentials()
+                } label: {
+                    Label(String(localized: "重试读取"), systemImage: "arrow.clockwise")
+                        .font(T.font(13, .semibold))
+                        .foregroundColor(T.text)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+                }
+                .accessibilityIdentifier("l4-b-card-credential-retry")
+                Button {
+                    // 只有用户主动要求才清（web：clear 是显式动作，不是读失败副作用）
+                    session.logout()
+                } label: {
+                    Text(String(localized: "清除并重新登录"))
+                        .font(T.font(13, .semibold))
+                        .foregroundColor(T.red)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.redLine, lineWidth: 1))
+                }
+                .accessibilityIdentifier("l4-b-card-credential-reset")
+            }
+        }
+        .card(padding: 14)
+        .accessibilityIdentifier("l4-b-card-credential-unavailable")
     }
 
     // MARK: 服务地址与令牌（连接层编辑入口）

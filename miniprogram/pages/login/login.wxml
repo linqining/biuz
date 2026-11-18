@@ -23,6 +23,11 @@
 
     <!-- P-018：JWT 粘贴持久化（完整 OAuth 待 web-view + 白名单波次） -->
     <view class="jwt-section">
+      <!-- 凭据读取失败原因（web 三分口径：密钥不可用 / 数据损坏 必须区别上屏，
+           不再统一落到「未登录」——systemCredentialCipher.ts:67-75） -->
+      <view wx:if="{{credentialIssue}}" class="jwt-issue" data-test="01-note-credential-issue">
+        <text class="jwt-issue__text">{{credentialIssue}}</text>
+      </view>
       <view class="jwt-row" bind:tap="onPasteJwt" data-test="01-act-paste-jwt">
         <text class="jwt-label">{{jwtStored ? 'JWT 已保存' : '粘贴 Z.ai JWT（中继连接用）'}}</text>
         <text class="jwt-action">{{jwtStored ? '更新' : '粘贴'}}</text>

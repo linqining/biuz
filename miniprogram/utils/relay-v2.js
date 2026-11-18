@@ -12,7 +12,8 @@
 // 配对成功后同一 socket 走二进制 rpc-frame（rpc-serialization/rpc-client 复用）。
 //
 // JWT 来源：中继链接页面由用户粘贴 JWT（或后续 login 页 OAuth 接入——P-018）；
-// wx.setStorageSync('biuz.relay') 持久化 {relayLink, jwt} 支持重连。
+// 持久化落 `utils/credential-store.js` 的加密容器（原注释里的 `biuz.relay` 键从未实现，
+// 实际明文键是 `biuz.jwt`，已于 2026-11-19 迁入加密容器——见 APP-DIFF[D014]）。
 
 const FRAME_TYPE_REGULAR = 1;
 const FRAME_HEADER_SIZE = 13;

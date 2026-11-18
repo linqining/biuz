@@ -104,6 +104,8 @@
 }
 
 .jwt-section { margin: 24rpx 32rpx 0; padding: 20rpx 24rpx; background: #ffffff; border: 1rpx solid #e5e7eb; border-radius: 16rpx; }
+.jwt-issue { padding: 8rpx 0 12rpx; border-bottom: 1rpx solid #f3f4f6; }
+.jwt-issue__text { font-size: 24rpx; color: #b45309; line-height: 1.5; }
 .jwt-row { display: flex; align-items: center; justify-content: space-between; padding: 12rpx 0; }
 .jwt-row + .jwt-row { border-top: 1rpx solid #f3f4f6; }
 .jwt-label { font-size: 26rpx; color: #374151; }

@@ -2,11 +2,35 @@ import Foundation
 import Security
 
 // MARK: - Keychain 基础库（账户层 tokenSet 与连接层服务器令牌均仅存 Keychain，9.5）
+//
+// 读取语义（2026-11-19，web v3.18.2 凭证安全对齐）：`read(account:)` 返回
+// `CredentialReadOutcome` 而不是 Data?/throw 二态——「没有 / 不可用 / 确坏」三分，
+// 由上层按 `CredentialReadPolicy` 做「降级还是重新登录」的明确决策。
+// 权威源：`packages/shared/src/credential-security/systemCredentialCipher.ts:61-75`
+// （密文损坏与系统密钥不可用必须是两个错误码，否则恢复逻辑会误删登录）。
 
 enum KeychainStore {
 
     enum KeychainError: Error {
         case failure(OSStatus)
+        /// 语义化失败（携带「不可用 / 需授权 / 损坏」原因，供调用方决定降级或重新登录）
+        case semantic(CredentialFailureReason)
+    }
+
+    /// 最近一次读取失败的语义原因（可观测面：设置页/诊断读它上屏，而不是显示成「未登录」）。
+    /// 只存语义枚举，不存 OSStatus 之外的任何凭据材料。
+    private(set) static var lastFailure: CredentialFailureReason?
+
+    private static func note(_ outcome: CredentialReadOutcome) -> CredentialReadOutcome {
+        switch outcome {
+        case .value:
+            lastFailure = nil
+        case .absent:
+            lastFailure = nil
+        case let .failed(reason):
+            lastFailure = reason
+        }
+        return outcome
     }
 
     /// 与 bundle id（cn.biuz.mobile）对齐的 Keychain service 标识。
@@ -37,6 +61,20 @@ enum KeychainStore {
     }
 
     static func load(account: String) throws -> Data? {
+        switch read(account: account) {
+        case let .value(payload):
+            return payload
+        case .absent:
+            return nil
+        case let .failed(reason):
+            // 旧调用点保持「抛错」语义，但错误里带着**语义原因**（上层可据此判断是否可重试）
+            throw KeychainError.semantic(reason)
+        }
+    }
+
+    /// 语义化读取（推荐入口）：`errSecSuccess` → 值；`errSecItemNotFound` → 没有；
+    /// 其余一切 → 失败，并按 `CredentialReadPolicy` 归类（绝不把「不可用」当成「损坏」）。
+    static func read(account: String) -> CredentialReadOutcome {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -46,13 +84,25 @@ enum KeychainStore {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        switch status {
-        case errSecSuccess:
-            return result as? Data
-        case errSecItemNotFound:
-            return nil
-        default:
-            throw KeychainError.failure(status)
+        let payload = (status == errSecSuccess) ? (result as? Data) : nil
+        return note(CredentialReadPolicy.classify(status: status, payload: payload))
+    }
+
+    /// 语义化 Codable 读取：解码失败按 web `open()` 认证失败同档 → corrupt（唯一可清理档）。
+    /// 返回原始存储字节；调用方仍需自行 `JSONDecoder().decode`（一次读取不重复解两次）。
+    static func readCodable<T: Decodable>(_ type: T.Type, account: String) -> CredentialReadOutcome {
+        switch read(account: account) {
+        case let .value(payload):
+            do {
+                _ = try JSONDecoder().decode(T.self, from: payload)
+                return .value(payload)
+            } catch {
+                return note(CredentialReadPolicy.classifyDecodingFailure())
+            }
+        case .absent:
+            return .absent
+        case let .failed(reason):
+            return .failed(reason)
         }
     }
 
@@ -73,8 +123,14 @@ enum KeychainStore {
     }
 
     static func loadCodable<T: Decodable>(_ type: T.Type, account: String) throws -> T? {
-        guard let data = try load(account: account) else { return nil }
-        return try JSONDecoder().decode(T.self, from: data)
+        switch readCodable(type, account: account) {
+        case let .value(payload):
+            return try JSONDecoder().decode(T.self, from: payload)
+        case .absent:
+            return nil
+        case let .failed(reason):
+            throw KeychainError.semantic(reason)
+        }
     }
 }
 
@@ -129,16 +185,60 @@ enum OAuthCredentialStore {
         }
     }
 
+    /// 兼容入口（旧调用点语义不变：成功/没有 → 值，失败 → nil）。
+    /// **新代码请用 `readCredentials()`**——它会区分「没有 / 不可用 / 损坏」，
+    /// 避免把「钥匙串锁定」显示成「未登录」并触发误清理。
     static func load() -> (tokenSet: OAuthTokenSet, userInfo: OAuthUserInfo)? {
-        guard let tokenSet = try? KeychainStore.loadCodable(OAuthTokenSet.self, account: tokenSetKey),
-              let userInfo = try? KeychainStore.loadCodable(OAuthUserInfo.self, account: userInfoKey) else {
+        switch readCredentials() {
+        case let .value(readResult):
+            return (tokenSet: readResult.tokenSet, userInfo: readResult.userInfo)
+        case .absent, .failed:
             return nil
         }
-        return (tokenSet, userInfo)
+    }
+
+    /// 语义化读取（web `loadSessionSnapshot` 的三分同构）：
+    /// - `.absent`：本机没有登录凭据 → 登录页
+    /// - `.failed(.unavailable/.authFailed)`：**保留** Keychain 数据 + 暴露原因，可重试
+    /// - `.failed(.corrupt)`：能读到但解不开 → 唯一允许清理的分支（web `isCredentialDecryptError`）
+    static func readCredentials() -> OAuthCredentialReadOutcome {
+        let tokenSetOutcome = KeychainStore.readCodable(OAuthTokenSet.self, account: tokenSetKey)
+        let userInfoOutcome = KeychainStore.readCodable(OAuthUserInfo.self, account: userInfoKey)
+        // 任一侧失败优先按「不可用 > 损坏」排序上抛（web：密钥不可用不得冒充损坏）
+        for outcome in [tokenSetOutcome, userInfoOutcome] {
+            if case let .failed(reason) = outcome {
+                return .failed(reason)
+            }
+        }
+        guard let tokenSetData = tokenSetOutcome.data, let userInfoData = userInfoOutcome.data else {
+            return .absent
+        }
+        do {
+            return .value(
+                tokenSet: try JSONDecoder().decode(OAuthTokenSet.self, from: tokenSetData),
+                userInfo: try JSONDecoder().decode(OAuthUserInfo.self, from: userInfoData)
+            )
+        } catch {
+            // 解不开 = 确坏（web `open()` 认证失败同档）
+            return .failed(.corrupt)
+        }
+    }
+
+    /// 只有 corrupt 时才允许清理（web 清理白名单）；其他失败一律保留数据。
+    @discardableResult
+    static func purgeIfRecoverable(_ reason: CredentialFailureReason) -> Bool {
+        guard CredentialReadPolicy.canPurge(reason) else { return false }
+        clear()
+        return true
     }
 
     static var tokenSet: OAuthTokenSet? {
-        try? KeychainStore.loadCodable(OAuthTokenSet.self, account: tokenSetKey)
+        switch KeychainStore.readCodable(OAuthTokenSet.self, account: tokenSetKey) {
+        case let .value(payload):
+            return try? JSONDecoder().decode(OAuthTokenSet.self, from: payload)
+        case .absent, .failed:
+            return nil
+        }
     }
 
     static func clear() {
@@ -168,18 +268,41 @@ enum ServerRegistry {
     private static let mirrorKey = "server.configs.mirror.v1"
 
     static var servers: [ServerConfig] {
-        if let stored = (try? KeychainStore.loadCodable([ServerConfig].self, account: serversKey)) ?? nil {
-            return stored
+        // 2026-11-19：读失败先按语义分类（`systemCredentialCipher.ts:67-75` 同纪律）——
+        // 「钥匙串不可用/需授权」必须与「里面真的没有」区分开：前者**保留**数据、
+        // 只把原因暴露给诊断面；只有真正读到值才用值，读到空才走镜像自愈。
+        switch KeychainStore.readCodable([ServerConfig].self, account: serversKey) {
+        case let .value(payload):
+            if let list = try? JSONDecoder().decode([ServerConfig].self, from: payload) {
+                lastReadFailure = nil
+                return list
+            }
+            // 能读到但解不开：结构非法（确坏档），记录原因后照常走镜像降级，不清任何数据
+            lastReadFailure = .corrupt
+            return mirroredServers()
+        case .absent:
+            lastReadFailure = nil
+            // 自愈：部分模拟器运行时上重装会清空应用 Keychain（真机更新无此问题）。
+            // Keychain 读空但 UserDefaults 镜像存在 → 回填 Keychain 并沿用（镜像内容与
+            // Keychain 同源，由 upsert/remove 同步维护）。
+            return mirroredServers()
+        case let .failed(reason):
+            lastReadFailure = reason
+            // 保留数据：能读到镜像就用镜像顶住，读不到就返回空但**不清理**任何东西
+            return mirroredServers()
         }
-        // 自愈：部分模拟器运行时上重装会清空应用 Keychain（真机更新无此问题）。
-        // Keychain 读空但 UserDefaults 镜像存在 → 回填 Keychain 并沿用（镜像内容与
-        // Keychain 同源，由 upsert/remove 同步维护）。
-        if let mirrored = UserDefaults.standard.data(forKey: mirrorKey),
-           let list = try? JSONDecoder().decode([ServerConfig].self, from: mirrored), !list.isEmpty {
-            try? KeychainStore.saveCodable(list, account: serversKey)
-            return list
+    }
+
+    /// 最近一次注册表读取失败原因（诊断/设置页可读；nil = 正常）。
+    private(set) static var lastReadFailure: CredentialFailureReason?
+
+    /// UserDefaults 镜像（读不到 Keychain 时的降级读面，与写面同源维护）。
+    private static func mirroredServers() -> [ServerConfig] {
+        guard let mirrored = UserDefaults.standard.data(forKey: mirrorKey),
+              let list = try? JSONDecoder().decode([ServerConfig].self, from: mirrored) else {
+            return []
         }
-        return []
+        return list
     }
 
     static func upsert(_ config: ServerConfig) {
