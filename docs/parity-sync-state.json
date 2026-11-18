@@ -1,44 +1,28 @@
 {
   "version": 1,
-  "last_synced": null,
-  "in_progress": {
-    "base_commit": "a9fe401eede6e6e5e01be9048679c206fe6f02d9",
-    "base_commit_short": "a9fe401eede6",
+  "last_synced": {
+    "commit": "a9fe401eede6e6e5e01be9048679c206fe6f02d9",
+    "commit_short": "a9fe401eede6",
     "branch": "main",
     "dirty": true,
     "dirty_count": 23,
-    "dirty_files": [
-      "D packages/desktop/build/dmg_background.png",
-      " D packages/desktop/build/dmg_background@2x.png",
-      " D packages/desktop/build/entitlements.helper.plist",
-      " D packages/desktop/build/entitlements.mac.inherit.plist",
-      " D packages/desktop/build/entitlements.mac.plist",
-      " D packages/desktop/build/icon.icns",
-      " D packages/desktop/build/icon.ico",
-      " D packages/desktop/build/icon.png",
-      " D packages/desktop/build/icon_installer.icns",
-      " D packages/desktop/build/icon_installer.ico",
-      " D packages/desktop/build/icon_installer.png",
-      " D packages/desktop/build/icon_windows.png",
-      " D packages/desktop/build/icons/1024x1024.png",
-      " D packages/desktop/build/icons/128x128.png",
-      " D packages/desktop/build/icons/16x16.png",
-      " D packages/desktop/build/icons/24x24.png",
-      " D packages/desktop/build/icons/256x256.png",
-      " D packages/desktop/build/icons/32x32.png",
-      " D packages/desktop/build/icons/48x48.png",
-      " D packages/desktop/build/icons/512x512.png",
-      " D packages/desktop/build/icons/64x64.png",
-      " D packages/desktop/build/installer.nsh",
-      " M pnpm-lock.yaml"
-    ],
-    "started_at": "2026-11-17T17:30:10+00:00",
+    "synced_at": "2026-11-18T17:57:40+00:00",
     "scope": [
       "logic",
       "ui",
       "api"
     ],
-    "note": "webhook sync c590468..fec9759",
-    "operator": "mac"
-  }
+    "gates": {
+      "build": "pass",
+      "logic": "pass",
+      "ui": "pass",
+      "capture": "pass"
+    },
+    "note": "webhook sync c590468..fec9759；分支 sync/web-fec9759-20261119",
+    "skip_reason": "",
+    "operator": "unknown",
+    "head_moved": false,
+    "base_commit": "a9fe401eede6e6e5e01be9048679c206fe6f02d9"
+  },
+  "in_progress": null
 }
