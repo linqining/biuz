@@ -223,8 +223,38 @@ final class AppSession {
 
     private(set) var oauthTokenSet: OAuthTokenSet?
     private(set) var oauthUserInfo: OAuthUserInfo?
+    /// 账户层凭据**读取失败**的语义原因（nil = 正常或本来就没登录）。
+    /// 2026-11-19 新增：把「钥匙串不可用 / 需授权」与「真的没登录」区分开，
+    /// 设置页据此显示「登录态已保留，解锁后重试」而不是「未登录」
+    /// （web `systemCredentialCipher.ts:67-75`：系统库锁定不能冒充登录失效）。
+    private(set) var oauthCredentialFailure: CredentialFailureReason?
     /// 订阅视图刷新用（「刷新额度」触发重算过期判定）
     var oauthSessionVersion = 0
+
+    /// 凭据读取失败的说明文案（空串 = 无异常，供设置页/诊断面直接上屏）。
+    var oauthCredentialFailureMessage: String {
+        guard let oauthCredentialFailure else { return "" }
+        return CredentialReadPolicy.message(for: oauthCredentialFailure)
+    }
+
+    /// 重新读取账户层凭据（设置页「重试读取」入口）。
+    /// 语义同启动路径：不可用只记录原因并**保留**数据，只有 corrupt 才清理。
+    func reloadOAuthCredentials() {
+        switch OAuthCredentialStore.readCredentials() {
+        case let .value(readResult):
+            oauthTokenSet = readResult.tokenSet
+            oauthUserInfo = readResult.userInfo
+            oauthCredentialFailure = nil
+        case .absent:
+            oauthTokenSet = nil
+            oauthUserInfo = nil
+            oauthCredentialFailure = nil
+        case let .failed(reason):
+            oauthCredentialFailure = reason
+            OAuthCredentialStore.purgeIfRecoverable(reason)
+        }
+        oauthSessionVersion += 1
+    }
 
     var isOAuthLoggedIn: Bool {
         guard let tokenSet = oauthTokenSet else { return false }
@@ -383,9 +413,20 @@ final class AppSession {
         }
         // E2E 钩子：须先于凭据加载执行（Keychain 跨进程启动持久，门禁用例需「未配置/未登录」起点）
         Self.performE2EStateResetIfNeeded()
-        if let credentials = OAuthCredentialStore.load() {
-            oauthTokenSet = credentials.tokenSet
-            oauthUserInfo = credentials.userInfo
+        // 三分读取（web loadSessionSnapshot 同构）：没有 → 登录页；不可用 → 保留数据 + 可观测；
+        // 确坏 → 唯一允许清理的分支（CredentialReadPolicy.canPurge）
+        switch OAuthCredentialStore.readCredentials() {
+        case let .value(readResult):
+            oauthTokenSet = readResult.tokenSet
+            oauthUserInfo = readResult.userInfo
+            oauthCredentialFailure = nil
+        case .absent:
+            oauthCredentialFailure = nil
+        case let .failed(reason):
+            oauthCredentialFailure = reason
+            // 只有 corrupt 才清（web `isCredentialDecryptError` 白名单）；
+            // unavailable/authFailed 一律保留 Keychain 数据（不静默丢登录）
+            OAuthCredentialStore.purgeIfRecoverable(reason)
         }
     }
 
@@ -1609,6 +1650,7 @@ final class AppSession {
         OAuthCredentialStore.clear()
         oauthTokenSet = nil
         oauthUserInfo = nil
+        oauthCredentialFailure = nil
         oauthSessionVersion += 1
     }
 

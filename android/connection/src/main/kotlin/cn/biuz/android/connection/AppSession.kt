@@ -481,6 +481,27 @@ class AppSession(
     val isOAuthExpired: Boolean
         get() = oauthCredentials.tokenSet?.let { oauthCredentials.isExpired(it) } ?: false
 
+    /**
+     * 账户层凭据**读取失败**原因（null = 正常或本来没登录）。
+     * 2026-11-19 新增：把「密钥失效/换设备/存储不可用」与「真的没登录」区分开——
+     * 未登录 UI 不得把前者显示成「未登录」，否则用户以为登录态丢了
+     * （web `systemCredentialCipher.ts:67-75` 同纪律）。
+     */
+    val oauthCredentialReadFailure: OAuthCredentialReadFailure?
+        get() = oauthCredentials.lastReadFailure
+
+    /** 读失败的可执行说明（空串 = 无异常），UI 直接上屏。APP-DIFF[D017] platform: 移动端为单行/卡片形态。 */
+    val oauthCredentialFailureMessage: String
+        get() = oauthCredentials.lastReadFailure
+            ?.let { CredentialReadPolicy.message(it) }
+            .orEmpty()
+
+    /** 重试读取账户层凭据（登录/设置页「重试」入口）；语义同构造期，不可用时不清理。 */
+    fun reloadOAuthCredentials() {
+        oauthCredentials.reload()
+        _oauthSessionVersion.value += 1
+    }
+
     /** 登录后设备直达结果（iOS `AutoConnectOutcome`；UI 据此渲染）。 */
     sealed class AutoConnectOutcome {
         data object Connected : AutoConnectOutcome()
