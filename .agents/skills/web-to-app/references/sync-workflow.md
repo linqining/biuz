@@ -17,7 +17,7 @@
 | 5. UI 静态 | 布局、颜色、token、适配换算、平台能力、弹窗静态布局、资源/文案 | 构建门 + 适配判定表 |
 | 6. Interaction & Motion | 弹窗开关/遮罩/层级/返回/滚动锁；入场/退场动画/缓动/中断/reduced-motion | 交互清单 + 动效规格落地 |
 | 7. Capture / Compare / Adjust | 同 key 同状态多端成对、弹窗 before/after、动画关键帧、多机型、seam+real | 对比报告 + 修复闭环 |
-| 8. Acceptance / State | 台账、差异标记、遗留项；**全门通过后才推进 sync commit** | `sync_state.py done`、状态文件 |
+| 8. Acceptance / State | 台账、差异标记、遗留项；**方法论机械检查**；**全门通过后才推进 sync commit** | `methodology_checks.py` 五子命令 VERDICT、`sync_state.py done`、状态文件 |
 
 > 纯 UI 变更可把第 4 步标 `logic=skipped`，但必须在 checklist 写理由，并在
 > `sync_state.py done` 传 `--skip-reason`。不要为了"走完流程"编造逻辑向量。
@@ -129,6 +129,24 @@ python3 <skill>/scripts/capture.py shot <key> --scrolls N --dom
 - 退出标准：P1/P2 清零，或 deferred 带堵点/复验条件；差异入 BACKLOG/差异台账。
 
 ## 9. Acceptance / 推进 commit
+
+### 9.0 方法论机械检查（2026-11-20 起，与全门同级）
+
+```bash
+MC=<skill>/scripts/methodology_checks.py
+python3 "$MC" baseline       # ML-1：基线可达性/审计字段/in_progress 脱管/门禁语义
+python3 "$MC" state-ledger   # ML-3：状态文件 ↔ 差异台账基线行镜像一致
+python3 "$MC" diff-ledger    # ML-7：APP-DIFF 标记 ↔ 台账双向对账 + kind 词表 + pending 挂账
+python3 "$MC" page-index     # 页面索引 key 唯一/格式/路由/验收缝
+python3 "$MC" backlog        # BACKLOG 编号唯一/状态词表/证据非空
+python3 "$MC" selftest       # M10：工具自身正负控（改工具后必跑）
+```
+
+- 轮次报告/PR 描述必须贴出各命令的 `VERDICT` 行与计数；没有命令输出的方法论
+  变更记 `partial`（`source-to-contract.md` §5/§6）。
+- FAIL 项分两类处置：**本轮引入的**必须同轮修复；**历史遗留**（如 ML-7 的
+  D001–D009 台账脱钩）登记 `docs/methodology-ledger.md` 并写复验条件，不得伪装成通过。
+- REVIEW 不阻断但必须在报告中逐条说明；`--strict` 模式下 REVIEW 也 exit 1。
 
 ```bash
 # 全门通过后（示例）

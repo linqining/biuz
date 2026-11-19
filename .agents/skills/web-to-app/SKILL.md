@@ -5,6 +5,24 @@ description: 把任意 web 项目移植并持续同步为原生 App / 微信小�
 
 # web-to-app：web 项目 → 原生 App 移植与持续同步
 
+## 方法论优先（最高优先级，2026-11-20 移植自 mtt-web-sync 用户指令）
+
+实现/验收中发现任何**可复现到一类元素/页面**的偏差，先按
+`references/source-to-contract.md` 的十类机制（M1–M10）归因；确认是方法论问题 →
+**同一轮内更新 skill + 加机械检查 + 记 `docs/methodology-ledger.md`（ML-N）**，
+再继续实现。不得推迟到下一轮，不得只写散文。
+
+五步：归因（内容 vs 方法论）→ 定位机制（M1–M10）→ 改 skill → 上机械检查 → 记账（ML-N）。
+
+- 判据：同类问题会不会在别的元素/页面上再发生？会 → 方法论；只影响单个元素 → 内容缺陷。
+- **没有机械检查的方法论变更记 `partial`，不算关闭**。机械检查的固定落点：
+  `scripts/methodology_checks.py <子命令>`（只读业务代码），清单见
+  `references/source-to-contract.md` §5；每个 ML 行都必须能贴出一条该工具的命令输出。
+- 同一类缺陷在更新后再次出现 → 升级为能力/门禁变更（补工具子命令、改契约结构、
+  加工作流门禁），不是再加一条规则。
+- 门自身也要先自证（正控/负控/落点/失败清理/可执行性/构建身份/状态 seam 七条，
+  见 `source-to-contract.md` §6.5）；`methodology_checks.py selftest` 是其机械落地。
+
 ## 背景（必读）
 
 以 **web 源项目为唯一权威参照**，同源开发原生 App（读 web 源码移植，非黑盒猜还原）：
@@ -131,10 +149,15 @@ JSON 由 capture.py 的 `pages` 子命令消费。
 
 ## 留痕规则
 
-- 自查发现的不一致 → 登记 `docs/PARITY_BACKLOG.md`（格式见该文件头部，状态 `待修 → 修复中 → 已修+实拍验证`）
-- 刻意差异 → 差异标记 + `diff_language.ledger` 台账
+- 自查发现的不一致 → 登记 `docs/PARITY_BACKLOG.md`（格式见该文件头部，状态词表：
+  `待修 → 修复中 → 部分已修* → 已修+实拍验证 / 已完成`，另有衍生态 `已解除*`、
+  `如实不做*`；带 `*` 的状态**必须括号注记剩余部分/堵点/复验条件**，裸状态机检 FAIL）
+- 刻意差异 → 差异标记 + `diff_language.ledger` 台账（**两级缺一不可**：代码内
+  `APP-DIFF[D###]` 标记与台账行双向对账，机检 `methodology_checks.py diff-ledger`）
 - 稳定性/环境问题 → `docs/PENDING-STABILITY.md`
 - 采证事实（截图/网络/DOM）路径必须写进登记条目，禁止无证据裁决
+- 方法论变更（共性偏差的规则化修复）→ `docs/methodology-ledger.md` 追加 ML-N，
+  协议与判据见 `references/source-to-contract.md` §6
 
 ## 原则（所有流程通用）
 
@@ -150,6 +173,7 @@ JSON 由 capture.py 的 `pages` 子命令消费。
 
 ## Resources
 
+- `references/source-to-contract.md` — **方法论主干**：十类偏差机制（M1–M10）、Source→Contract 流水线、coverage 收敛定义（替换 findings=0）、能力矩阵、机械检查目录、方法论变更协议五步、门自身七条验收、本仓反例库
 - `references/bootstrap.md` — 冷启动：web 项目 → App 首次移植（配置/页面盘点/公共件矩阵/技术栈摸底/分波次/样板页）
 - `references/sync-workflow.md` — 同步流水线与分支对比：9 步全解（冻结→采证→契约→逻辑→对拍→UI→交互动效→实拍→验收）、diff 归类、门禁语义
 - `references/capture-pipeline.md` — 浏览器采证链路：调试 Chrome、capture.py CLI、稳定门三重奏、输出目录约定、已知坑
@@ -165,3 +189,4 @@ JSON 由 capture.py 的 `pages` 子命令消费。
 - `scripts/sync_state.py` — 同步基线：`status` / `begin` / `abort` / `done` / `reconcile`；记录 commit/branch/dirty/门禁，done 时镜像台账；`--commit` 显式钉住同步目标，`reconcile` 做向前自校正
 - `scripts/sync_scaffold.py` — 生成同步任务包（brief/file-map/checklist/popup-inventory/motion-spec/state-machine/acceptance）；`--code` 只生成 `.template` 骨架
 - `scripts/skill_common.py` — 上述脚本共用的配置/git/路径工具（无第三方依赖）
+- `scripts/methodology_checks.py` — 方法论机械检查（只读业务代码）：`baseline` / `state-ledger` / `diff-ledger` / `page-index` / `backlog` 五子命令 + `selftest` 临时树正负控；输出 `VERDICT` 行，轮次报告/PR 必须能贴出；`--strict` 时 REVIEW 也计失败
