@@ -147,6 +147,12 @@ python3 "$MC" selftest       # M10：工具自身正负控（改工具后必跑�
 - FAIL 项分两类处置：**本轮引入的**必须同轮修复；**历史遗留**（如 ML-7 的
   D001–D009 台账脱钩）登记 `docs/methodology-ledger.md` 并写复验条件，不得伪装成通过。
 - REVIEW 不阻断但必须在报告中逐条说明；`--strict` 模式下 REVIEW 也 exit 1。
+- **repo-change-sync 工作流已自动执行（2026-11-20 接入 Phase 6）**：五子命令在
+  Phase 6 循环执行，VERDICT 汇总进 `gates.methodology`，无需手工再跑。默认
+  `methodology_strict=false`（报告型，FAIL 不阻断基线推进与 PR 落地，历史 ML-7
+  partial 期间保持此默认）；传 `methodology_strict: true` 后任一子命令 FAIL 即
+  阻断——不推进 sync 基线、不落地 PR，运行状态记 `succeeded_with_gate_failures`。
+  工具缺失/子命令无 VERDICT/五子命令未跑齐均按 FAIL 计数，不许静默少跑。
 
 ```bash
 # 全门通过后（示例）
