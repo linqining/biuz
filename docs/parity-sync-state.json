@@ -18,7 +18,7 @@
       "ui": "pass",
       "capture": "pass"
     },
-    "note": "基线校正：源仓本地 HEAD(a9fe401) 滞后于实际已同步点；webhook sync c590468..fec9759（PR #1 已合并）；分支 sync/web-fec9759-20261119",
+    "note": "基线校正：源仓本地 HEAD(a9fe401) 滞后于实际已同步点；webhook sync c590468..fec9759（PR #1、PR #2 已合并，PR #2 merge d5db67ed）；分支 sync/web-fec9759-20261119",
     "skip_reason": "",
     "operator": "unknown",
     "head_moved": false,

@@ -39,4 +39,4 @@
 | 字段 | 值 |
 |---|---|
 | web-sync-base | fec975905a2abd4c07e35c40d51fa097a2258ec9 (2026-11-19) |
-| 上次同步范围 | logic, ui, api；webhook sync c590468..fec9759（PR #1 已合并）；分支 sync/web-fec9759-20261119 |
+| 上次同步范围 | logic, ui, api；webhook sync c590468..fec9759（PR #1、PR #2 已合并；PR #2 merge `d5db67ed`）；分支 sync/web-fec9759-20261119 |
