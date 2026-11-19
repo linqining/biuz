@@ -1,5 +1,7 @@
 import SwiftUI
 
+// APP-DIFF[D002] platform: 全局导航用 NavigationStack 系统返回语义（web 为 history.pushState +
+// popstate，浏览器历史无原生对应；4 Tab 各自独立 stack，Push 层隐藏 Tab 栏）
 /// 全局导航路由：4 Tab 各自独立 NavigationStack，Push 层隐藏 Tab 栏（spec 3.2）
 enum ChatRoute: Hashable {
     case chat(String)

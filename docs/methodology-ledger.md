@@ -32,13 +32,16 @@
 | ML-4 | 工作流 bash 非登录 shell，PATH 无 node → 小程序门禁假失败（`node: command not found`）被误读成代码问题 | M10 | 门禁命令内多级 node 回退（PATH → `/usr/local/bin` → `/opt/homebrew/bin` → Floatboat 内置）+ `exit 127` 区分环境缺陷与代码缺陷（手册 §6） | 门禁输出「使用 node: …」行 + `mp.code===127` 判定；「不要把环境缺失误判成代码问题」 | enforced |
 | ML-5 | 同一区间先由 doubao 处理判定「三端无代码落点、仅文档登记」；deepseek-flash 找到真实落点（iOS Keychain 无降级态、Android 无差别 `clear()`、小程序明文 JWT 落盘，P-031）——「没有发现」≠「不存在」 | M6 变体（自查指标替代语义核查） | 重要分析结论交叉复核纪律（手册 §8）+ 报告 agent 自检字段 | Phase 6 构建门禁（落点必须编译/测试过）+ 报告 `agent_self_checks` | **partial**（交叉复核本身暂无机检；同类再发时升级为双模型强制对跑门禁） |
 | ML-6 | PR 落地通道逐次摸索：GitHub Connector PAT 建 PR 可、合并 403（Resource not accessible）；内置浏览器无登录态；`git merge --ff-only` 在本地 base 领先 origin 时以 "Already up to date" 通过，落地推送把漂移提交一起带上远程（2026-11-20 临时仓模拟实测） | M10（落地通道未预验证即投入使用） | 工作流 Phase 7.5 固化本地 `merge --no-ff` 落地通道 + base 与 origin/base 逐字节守卫 + 冲突自动 `git merge --abort` 回滚；手册 §8 通道矩阵 | 门禁 `pr_landing` 字段（merged / already merged / skipped / fail）+ 临时仓正/负控模拟（正常落地/幂等重跑/漂移拒绝/冲突恢复） | enforced（2026-11-20） |
-| ML-7 | `methodology_checks.py` 首跑（2026-11-20）实证三类登记脱钩：① 台账 D001–D009 共 8 行「生效」但全仓代码 APP-DIFF 标记仅命中 D014–D017（两级缺一不可被打破）；② BACKLOG 状态列词表漂移——真实状态出现「已解除阻塞」「如实不做」「部分已修」等文件头未声明的衍生词（P-013/014/025/026/027/030/031）；③ P-027 状态裸「部分已修」未注记剩余部分 | M7 台账/登记脱钩（登记与代码实态分叉；状态机词表未正式化） | ① `source-to-contract.md` §5 新增 `diff-ledger` 双向对账；② backlog 状态词表正式化（待修/修复中/部分已修*/已修/已完成/已解除/如实不做，`*` 与「如实不做」必须括号注记剩余/堵点/复验条件），写入 SKILL.md 留痕规则；③ 处置工作项见下 | `methodology_checks.py diff-ledger`（双向对账 + kind 词表 + pending 挂账）+ `backlog`（编号唯一/词表/证据非空） | **partial**（工具 enforced；待处置：D001–D009 逐行核对语义→成立者补代码标记、不成立者改「作废」写理由；P-027 补注记；复验条件=diff-ledger 与 backlog 对上述条目全 PASS） |
+| ML-7 | `methodology_checks.py` 首跑（2026-11-20）实证三类登记脱钩：① 台账 D001–D009 共 8 行「生效」但全仓代码 APP-DIFF 标记仅命中 D014–D017（两级缺一不可被打破）；② BACKLOG 状态列词表漂移——真实状态出现「已解除阻塞」「如实不做」「部分已修」等文件头未声明的衍生词（P-013/014/025/026/027/030/031）；③ P-027 状态裸「部分已修」未注记剩余部分 | M7 台账/登记脱钩（登记与代码实态分叉；状态机词表未正式化） | ① `source-to-contract.md` §5 新增 `diff-ledger` 双向对账；② backlog 状态词表正式化（待修/修复中/部分已修*/已修/已完成/已解除/如实不做，`*` 与「如实不做」必须括号注记剩余/堵点/复验条件），写入 SKILL.md 留痕规则；③ 处置工作项见下 | `methodology_checks.py diff-ledger`（双向对账 + kind 词表 + pending 挂账）+ `backlog`（编号唯一/词表/证据非空） | **enforced（2026-11-20 清零，PR 落地后复跑全 PASS；处置过程另发现 D001/D008 台账文案与代码实态不符，已按实修正而非照文打标）** |
 
-### ML-7 处置清单（复验条件）
+### ML-7 处置清单（复验条件）—— 2026-11-20 全部清零
 
-- [ ] D001/D002/D003/D005/D006/D007/D008/D009：逐行核对语义是否仍成立 → 成立者在三端对应实现处补 `APP-DIFF[D###]` 标记；不成立者台账改「作废」并写理由（先例 D004）
-- [ ] P-027 状态列补括号注记（剩余部分/堵点）
-- [ ] `diff-ledger` + `backlog` 复跑对上述条目全 PASS
+- [x] D001/D002/D003/D005/D006/D007：语义成立，在真实实现处补 `APP-DIFF` 标记共 14 处（iOS 7 / Android 5 / 小程序 4，含 session-row 悬空引用「见 APP-DIFF」补编号 D006）
+- [x] D008：语义**部分不成立**——全仓核对仅 iOS 有常驻搜索框（`04-search`），Android/小程序无任何搜索入口；台账改为 iOS-only 并如实标注功能缺口待裁决，未在缺失端伪造标记
+- [x] D001：同理修正——小程序无侧抽屉形态（chat 页无 pane），台账标注「功能未移植，非刻意差异」；标记仅落 iOS `.sheet` 组与 Android `ModalBottomSheet`
+- [x] D009：语义成立且本就 iOS-only（chips），标记落 `ConversationListView.sourceChips`
+- [x] P-027 状态列补括号注记（剩余写面/钩子子代理个性化归 P-009/复验条件）
+- [x] `diff-ledger` + `backlog` 复跑对上述条目全 PASS（见清零 VERDICT 存档）
 
 ### 首跑 VERDICT 存档（2026-11-20）
 
@@ -49,4 +52,15 @@ VERDICT diff-ledger: FAIL  (fail=8 review=0 pass=5)   # D001–D009 台账脱钩
 VERDICT page-index:  PASS (fail=0 review=0 pass=2)
 VERDICT backlog:     FAIL  (fail=1 review=1 pass=1)   # P-027 裸状态 → ML-7
 SELFTEST PASS: 6/6 assertions（diff-ledger/page-index/backlog/state-ledger/baseline 正负控）
+```
+
+### 清零 VERDICT 存档（2026-11-20，ML-7 处置后）
+
+```
+VERDICT diff-ledger: PASS (fail=0 review=0 pass=13)  # 8 个 active D 行全部有代码标记，无未登记标记
+VERDICT backlog:     REVIEW (fail=0 review=1 pass=1)  # P-027 FAIL 清零；余 1 条跨行表格 REVIEW（解析器限制，人工核对项）
+VERDICT state-ledger: PASS (fail=0 review=0 pass=3)
+VERDICT page-index:  PASS (fail=0 review=0 pass=2)
+VERDICT baseline:    REVIEW (fail=0 review=3 pass=3)  # 同首跑，历史审计字段待下次 done --commit 补记
+SELFTEST PASS: 6/6 assertions
 ```

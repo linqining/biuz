@@ -893,6 +893,8 @@ private fun NewConversationSheet(
 // 2026-11-08 用户裁决：移除首字符圆徽、运行转圈、摘要、等待确认胶囊 —— 行只保留
 // 图钉/标题/时间/轨道四项。web 侧运行态由轨道点表达（`.capture/sync/.../compare-report.md`）。
 
+// APP-DIFF[D007] business: 任务行信息密度按用户裁决「严格对齐 web」——仅图钉 + 14sp 单行
+// 标题 + 12sp 时间 + 工作流迷你轨道；首字头像/状态胶囊/预览摘要/agents working 不实现
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun SessionRow(
@@ -907,6 +909,8 @@ private fun SessionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // APP-DIFF[D006] platform: web 靠 hover 显现行内文件/归档按钮；触屏无 hover，
+            // 长按 combinedClickable 弹菜单（行内双按钮会挤压标题宽度）
             .combinedClickable(
                 onClick = onOpen,
                 onLongClick = { if (onArchive != null || onMarkUnread != null) menuOpen = true },

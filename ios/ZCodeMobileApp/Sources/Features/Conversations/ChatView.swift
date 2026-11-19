@@ -42,6 +42,8 @@ struct ChatView: View {
         .background(T.bg)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(false)
+        // APP-DIFF[D001] platform: web 侧边抽屉（side pane，宽 min(88vw,28rem)）在 iOS 投影为
+        // .sheet 原生弹层组（产物/白板/附件/composer/相机），手势与焦点管理由系统承担
         // 工作流完成卡产物详情（点交付物/产物索引行；viewModel 透传 store 私有读面）
         .sheet(item: $workflowArtifactSheet) { request in
             WorkflowArtifactSheetView(request: request, onClose: {
@@ -123,6 +125,8 @@ struct ChatView: View {
             }
             messageList(viewModel)
         }
+        // APP-DIFF[D003] platform: web 用 dvh 视口高度（含地址栏收放）；原生无地址栏，
+        // 改用 safeAreaInset 承接底部 composer/横幅栈，避让 Home 指示条与安全区
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 // 详情态连接横幅（push 态 RootView 底部 overlay 恰好压在 composer

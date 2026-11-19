@@ -189,6 +189,8 @@ Page({
   onRowMenu(event) {
     const id = event.detail.id;
     if (!id) return;
+    // APP-DIFF[D006] platform: web 靠 hover 显现行内文件/归档按钮；触屏无 hover，
+    // 长按行（session-row bind:longpress）触发 wx.showActionSheet 菜单
     wx.showActionSheet({
       itemList: ['查看文件', '归档'],
       success: (res) => {

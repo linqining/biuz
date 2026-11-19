@@ -3,6 +3,7 @@
   <!-- 顶栏（web: h-11 + border-b，左返回 / 标题 / 主题图标） -->
   <view class="chat-header" style="padding-top: {{statusBarHeight}}px">
     <view class="chat-header__bar">
+      <!-- APP-DIFF[D005] platform: 自定义返回钮（web 为浏览器历史返回，微信无浏览器历史；onBack 走 wx.navigateBack，fail 回落 reLaunch） -->
       <text class="chat-header__back" bind:tap="onBack">‹</text>
       <text class="chat-header__title">{{title}}</text>
       <text class="chat-header__theme">🎨</text>

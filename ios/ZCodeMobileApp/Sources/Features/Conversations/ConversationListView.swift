@@ -426,6 +426,8 @@ struct ConversationListView: View {
             // 工作区切换器（P3-10）：连接态且桌面工作区清单非空时渲染在列表头部
             //（未连接/清单空不渲染，演示态布局零变化）
             workspaceSwitcher
+            // APP-DIFF[D008] platform: web 列表头只有搜索图标按钮（点开命令中心 ⌘K）；
+            // 移动端无键盘快捷键，保留常驻搜索输入框（10 处 E2E 断言依赖 04-search/04-search-input）
             SearchField(text: $query, placeholder: String(localized: "搜索会话"), identifier: "04-search")
                 .padding(.horizontal, T.sp4)
                 .padding(.top, T.sp1)
@@ -641,7 +643,9 @@ struct ConversationListView: View {
     /// HIDDEN(对齐修复) H7/L-4：「云端沙盒」档整档不渲染（BiuZ 无 cloud 会话数据源，
     /// 恒空档/置灰死档，审查报告 §六 L-4）· 恢复条件：cloud 会话源接入（还原
     /// visibleCases 过滤与 cloud 空态分支即可）。
-    private var sourceChips: some View {
+            // APP-DIFF[D009] business: web home 恒单源无来源概念；iOS 同时支持 mac 与 cloud
+            // 会话来源，保留「全部 / 我的 Mac」筛选 chips（cloud 档 H7 隐藏），Matrix test01 依赖
+            private var sourceChips: some View {
         HStack(spacing: T.sp2) {
             ForEach(SourceFilter.visibleCases) { filter in
                 let unavailable = filter == .cloud && !conversations.contains { $0.source == "cloud" }
@@ -901,6 +905,8 @@ struct ConversationListView: View {
         .listRowInsets(EdgeInsets(top: 4, leading: T.sp4, bottom: 4, trailing: T.sp4))
         .listRowSeparator(.hidden)
         .accessibilityIdentifier("04-row-\(conversation.id)")
+        // APP-DIFF[D006] platform: web 靠 hover 显现行内文件/归档按钮；触屏无 hover，
+        // 改为长按 contextMenu 菜单（行内双按钮会挤压标题宽度）
         .contextMenu {
             Button {
                 renameText = conversation.title
@@ -1087,6 +1093,9 @@ struct ConversationListView: View {
 /// 已按用户裁决（2026-11-08）移除首字头像、状态 pill、预览摘要、agents working；
 /// 行级状态改由「标题/时间」承载无障碍锚点（04-row-pending-* / 04-row-running-*），
 /// 视觉上不再出现胶囊——web 侧运行态由轨道点表达（D007）。
+// APP-DIFF[D007] business: 任务行信息密度按用户裁决「严格对齐 web」——仅图钉 + 14px 单行
+// 标题 + 12px 时间 + 工作流迷你轨道；首字头像/状态胶囊/预览摘要/agents working 已移除，
+// 运行/待确认态改由无障碍锚点承载（test25 行级状态断言）
 struct ConversationRowView: View {
     let conversation: Conversation
 

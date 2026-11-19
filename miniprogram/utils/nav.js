@@ -1,3 +1,5 @@
+// APP-DIFF[D005] platform: 微信无浏览器历史，web 的 history.pushState/popstate 映射为
+// 页面栈纪律（上限 10 层，超限 reLaunch）+ 各页 wx.navigateBack 自定义返回（fail 回落 reLaunch）。
 // 页面栈纪律：微信上限 10 层。超过阈值改用 reLaunch，避免静默失败。
 // 对应 web 侧 history.pushState 的语义（WebRemoteControlMobileShell.tsx:28-38）。
 const MAX_DEPTH = 10;

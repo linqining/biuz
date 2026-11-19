@@ -1,3 +1,5 @@
+<!-- APP-DIFF[D007] business: 任务行信息密度按用户裁决「严格对齐 web」——仅图钉 + 14px 单行
+     标题 + 12px 时间 + 工作流迷你轨道；首字头像/状态胶囊/预览摘要/agents working 不实现 -->
 <view class="row" bind:tap="onOpen" bind:longpress="onLongPress">
   <view class="row__pin" wx:if="{{row.isPinned}}">
     <text class="row__pin-glyph">📌</text>
