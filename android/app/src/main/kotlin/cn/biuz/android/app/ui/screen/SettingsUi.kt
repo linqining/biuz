@@ -53,6 +53,8 @@ internal fun SettingsPageScaffold(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            // APP-DIFF[D003] platform: web 用 dvh 视口高度（含地址栏收放）；原生无地址栏，
+            // 各屏用 statusBarsPadding/imePadding 让出系统栏与键盘（安全区 inset 对位）
             .statusBarsPadding(),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {

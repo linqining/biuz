@@ -1,3 +1,6 @@
+// APP-DIFF[D003] platform: web 用 dvh 视口高度（含地址栏收放）；微信自定义导航
+// （navigationStyle: custom）需自己让出状态栏，统一走 wx.getWindowInfo() 取 statusBarHeight。
+//
 // 布局工具：自定义导航（navigationStyle: custom）需要自己让出状态栏。
 //
 // 为什么不用 CSS env(safe-area-inset-top)：微信开发者工具/部分机型里该值为 0，

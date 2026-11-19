@@ -140,6 +140,8 @@ fun BiuZApp(
         androidx.compose.runtime.LaunchedEffect(initialShareCode) {
             if (initialShareCode != null) navController.navigate(Routes.share(initialShareCode))
         }
+        // APP-DIFF[D002] platform: 系统返回由 NavController 默认 pop 承接（web 为
+        // history.pushState + popstate，浏览器历史无原生对应，映射为系统返回语义）
         NavHost(navController = navController, startDestination = Routes.CONNECT) {
             composable(Routes.CONNECT) {
                 ConnectScreen(

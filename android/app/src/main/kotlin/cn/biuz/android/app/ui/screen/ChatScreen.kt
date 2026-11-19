@@ -772,6 +772,8 @@ fun ChatScreen(
     // onDismiss / 选中成功均走 closeComposerPanel）
     val panel = composerPanel
     if (panel != null) {
+        // APP-DIFF[D001] platform: web 侧边抽屉（side pane，宽 min(88vw,28rem)）在 Android
+        // 投影为 ModalBottomSheet 原生弹层组，手势/焦点/遮罩由系统承担（ChatScreen.kt:775/888）
         ModalBottomSheet(
             onDismissRequest = { viewModel.closeComposerPanel() },
             containerColor = cn.biuz.android.app.ui.theme.BiuZBgElevated,
