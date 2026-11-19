@@ -1,12 +1,12 @@
 {
   "version": 1,
   "last_synced": {
-    "commit": "a9fe401eede6e6e5e01be9048679c206fe6f02d9",
-    "commit_short": "a9fe401eede6",
+    "commit": "fec975905a2abd4c07e35c40d51fa097a2258ec9",
+    "commit_short": "fec97590",
     "branch": "main",
     "dirty": true,
     "dirty_count": 23,
-    "synced_at": "2026-11-18T17:57:40+00:00",
+    "synced_at": "2026-11-19T15:45:21+00:00",
     "scope": [
       "logic",
       "ui",
@@ -18,11 +18,11 @@
       "ui": "pass",
       "capture": "pass"
     },
-    "note": "webhook sync c590468..fec9759；分支 sync/web-fec9759-20261119",
+    "note": "基线校正：源仓本地 HEAD(a9fe401) 滞后于实际已同步点；webhook sync c590468..fec9759（PR #1 已合并）；分支 sync/web-fec9759-20261119",
     "skip_reason": "",
     "operator": "unknown",
     "head_moved": false,
-    "base_commit": "a9fe401eede6e6e5e01be9048679c206fe6f02d9"
+    "base_commit": "fec975905a2abd4c07e35c40d51fa097a2258ec9"
   },
   "in_progress": null
 }
