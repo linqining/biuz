@@ -489,6 +489,71 @@ test('writeFields（同步）：池不足时返回 entropy-unavailable 且不写
   assert.strictEqual(store.readRecord(), null, '不得写入密文容器');
 });
 
+// P-031 回归：冷启动时序。登录页 onLoad 早于 app.onLaunch 的异步预取完成，
+// 此时池必为空。若迁移走同步版，结果恒为 entropy-unavailable → 旧明文用户
+// 表现为「未登录」且明文永远迁不进来。必须走 migrateLegacyJwtAsync。
+test('migrateLegacyJwtAsync：池为空（冷启动）也能完成迁移并删除明文', async function () {
+  const wx = installWx();
+  const legacy = 'coldstart-legacy-jwt-' + 'k'.repeat(30);
+  wx.storage[store.LEGACY_JWT_KEY] = legacy;
+  crypto2.seedEntropyForTest([]); // 模拟冷启动：池为空
+  const migrated = await store.migrateLegacyJwtAsync();
+  assert.strictEqual(migrated.migrated, true, '冷启动必须能迁移：' + JSON.stringify(migrated));
+  assert.strictEqual(wx.storage[store.LEGACY_JWT_KEY], undefined, '明文键必须删除');
+  assert.strictEqual(store.readJwt().value, legacy, '迁移后必须读回原值');
+});
+
+test('migrateLegacyJwt（同步）：冷启动池为空时明确失败且不丢明文', function () {
+  const wx = installWx();
+  const legacy = 'coldstart-sync-jwt-' + 'm'.repeat(30);
+  wx.storage[store.LEGACY_JWT_KEY] = legacy;
+  crypto2.seedEntropyForTest([]);
+  const migrated = store.migrateLegacyJwt();
+  assert.strictEqual(migrated.migrated, false);
+  assert.strictEqual(migrated.reason, store.REASON_ENTROPY_UNAVAILABLE);
+  assert.strictEqual(wx.storage[store.LEGACY_JWT_KEY], legacy, '失败时明文必须保留，不得丢数据');
+  assert.strictEqual(wx.storage[store.KEY_SECRET], undefined, '不得写入弱密钥');
+  assert.strictEqual(wx.storage[store.RECORD_KEY], undefined, '不得写入容器');
+});
+
+test('migrateLegacyJwt：已有可用密文时清理遗留明文且不覆盖密文', function () {
+  const wx = installWx();
+  const current = 'current-encrypted-jwt-' + 'c'.repeat(30);
+  store.saveJwt(current);
+  wx.storage[store.LEGACY_JWT_KEY] = 'stale-plaintext-should-be-removed';
+  const migrated = store.migrateLegacyJwt();
+  assert.strictEqual(migrated.migrated, false);
+  assert.strictEqual(migrated.cleaned, true, '遗留明文必须被清理');
+  assert.strictEqual(wx.storage[store.LEGACY_JWT_KEY], undefined, '明文不得残留落盘');
+  assert.strictEqual(store.readJwt().value, current, '密文优先，不得被旧明文覆盖');
+});
+
+test('migrateLegacyJwtAsync：无 CSPRNG 时失败但保留明文、不落弱密钥', async function () {
+  const wx = installWx({ withoutCspRng: true });
+  const legacy = 'no-csprng-jwt-' + 'p'.repeat(30);
+  wx.storage[store.LEGACY_JWT_KEY] = legacy;
+  // 关键：池是模块级状态，串行运行器会在每个用例前 primeEntropy 装填。
+  // 本用例要验证「平台不给 CSPRNG」，必须显式清空，否则会用上一轮残留字节成功写入。
+  crypto2.seedEntropyForTest([]);
+  const migrated = await store.migrateLegacyJwtAsync();
+  assert.strictEqual(migrated.migrated, false);
+  assert.strictEqual(migrated.reason, store.REASON_ENTROPY_UNAVAILABLE);
+  assert.strictEqual(wx.storage[store.LEGACY_JWT_KEY], legacy, '明文保留');
+  assert.strictEqual(wx.storage[store.KEY_SECRET], undefined);
+  assert.strictEqual(wx.storage[store.RECORD_KEY], undefined);
+});
+
+test('migrateLegacyJwtAsync：无旧明文时为空操作且不触发预取', async function () {
+  const wx = installWx();
+  let calls = 0;
+  const original = global.wx.getRandomValues;
+  global.wx.getRandomValues = function (o) { calls += 1; return original(o); };
+  const migrated = await store.migrateLegacyJwtAsync();
+  assert.strictEqual(migrated.migrated, false);
+  assert.strictEqual(migrated.reason, null);
+  assert.strictEqual(calls, 0, '没有旧明文时不应白白消耗平台随机数');
+});
+
 // ---- 串行执行（与本仓既有 node 测试风格一致） ----
 
 (function run(i) {

@@ -385,13 +385,44 @@ function migrateLegacyJwt() {
   const legacy = readRaw(LEGACY_JWT_KEY);
   if (typeof legacy !== 'string' || !legacy) return { migrated: false, reason: null };
   const current = readCredentials(['jwt']);
-  if (current.outcome === OUTCOME_OK && current.fields.jwt) return { migrated: false, reason: null };
+  if (current.outcome === OUTCOME_OK && current.fields.jwt) {
+    // 已有可用加密 JWT：旧明文是历史残留（旧版本遗留/迁移中断），按 web 删除纪律清掉。
+    // 不覆盖已有密文——密文优先，明文只做清理。
+    removeRaw(LEGACY_JWT_KEY);
+    return { migrated: false, reason: null, cleaned: true };
+  }
   if (current.outcome === OUTCOME_UNAVAILABLE || current.outcome === OUTCOME_DECRYPT) {
     // 存在但坏/不可用的密文：不覆盖，交给上层按原因决策
     return { migrated: false, reason: current.reason };
   }
   const written = writeFields({ jwt: legacy });
   return { migrated: written.ok, reason: written.reason };
+}
+
+/**
+ * 异步版迁移：先确保 CSPRNG 池就绪再同步写。
+ *
+ * 为什么必须有它：`wx.getRandomValues` 只有异步形态，冷启动时 `onLaunch` 的预取
+ * 尚未完成，池必然为空。若登录页在 `onLoad` 里调用同步 `migrateLegacyJwt()`，
+ * 结果恒为 `entropy-unavailable` → 旧明文用户表现为「未登录」且明文永不迁移。
+ * 因此启动首屏必须走本函数（内部 `prefillEntropy`），不能依赖同步版。
+ *
+ * @returns {Promise<{migrated:boolean, reason:string|null, cleaned?:boolean}>}
+ */
+function migrateLegacyJwtAsync() {
+  const legacy = readRaw(LEGACY_JWT_KEY);
+  if (typeof legacy !== 'string' || !legacy) return Promise.resolve({ migrated: false, reason: null });
+  const current = readCredentials(['jwt']);
+  if (current.outcome === OUTCOME_OK && current.fields.jwt) {
+    removeRaw(LEGACY_JWT_KEY);
+    return Promise.resolve({ migrated: false, reason: null, cleaned: true });
+  }
+  if (current.outcome === OUTCOME_UNAVAILABLE || current.outcome === OUTCOME_DECRYPT) {
+    return Promise.resolve({ migrated: false, reason: current.reason });
+  }
+  return writeFieldsAsync({ jwt: legacy }).then(function (written) {
+    return { migrated: written.ok, reason: written.reason };
+  });
 }
 
 // ---- JWT / 连接地址便捷面（login.js 与 connection.js 的既有调用点同形） ----
@@ -466,6 +497,7 @@ module.exports = {
   clearFieldOnCorruption: clearFieldOnCorruption,
   clearAll: clearAll,
   migrateLegacyJwt: migrateLegacyJwt,
+  migrateLegacyJwtAsync: migrateLegacyJwtAsync,
   readJwt: readJwt,
   saveJwt: saveJwt,
   saveJwtAsync: saveJwtAsync,
