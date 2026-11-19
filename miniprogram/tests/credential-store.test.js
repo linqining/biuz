@@ -445,6 +445,72 @@ test('randomBytes：预取后返回真实字节，且两次调用 IV 不同', as
   assert.notDeepStrictEqual(a, b, '两次随机数必须不同（IV 不能固定）');
 });
 
+// P-031 回归：平台返回值形态。官方文档是 success(res){res.randomValues:ArrayBuffer}，
+// Promise 只是额外支持；某些版本可能只给回调（返回 undefined）。只依赖 Promise
+// 会让预取在这些版本上永久失败 → 写入被永久拒绝。以上都与原 bug 同类风险。
+test('prefillEntropy：仅回调形态（无 Promise 返回）也能取到随机数', async function () {
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  global.wx.getRandomValues = function (o) {
+    setTimeout(function () { o.success({ randomValues: new Uint8Array(o.length).buffer }); }, 1);
+    // 故意不返回 Promise（模拟只支持回调的平台版本）
+  };
+  const n = await crypto2.prefillEntropy(64);
+  assert.ok(n >= 64, '回调形态必须可用，实际 ' + n);
+});
+
+test('prefillEntropy：回调与 Promise 同时触发时只结算一次', async function () {
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  global.wx.getRandomValues = function (o) {
+    const res = { randomValues: new Uint8Array(o.length).buffer };
+    o.success(res);              // 回调先结算
+    return Promise.resolve(res); // Promise 随后到，必须被忽略
+  };
+  const n = await crypto2.prefillEntropy(64);
+  assert.strictEqual(n, 1024, '池不得被重复填充，实际 ' + n);
+});
+
+test('prefillEntropy：TypedArray 子视图按视图范围取字节（尊重 byteOffset）', async function () {
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  global.wx.getRandomValues = function (o) {
+    const big = new Uint8Array(o.length * 2);
+    for (let i = 0; i < big.length; i += 1) big[i] = i & 0xff;
+    // 只给后半段视图：若实现错误地取 raw.buffer，长度会翻倍
+    return Promise.resolve({ randomValues: big.subarray(o.length, o.length * 2) });
+  };
+  const n = await crypto2.prefillEntropy(64);
+  assert.strictEqual(n, 1024, '必须按 byteOffset/byteLength 取，实际 ' + n);
+});
+
+test('prefillEntropy：平台 fail/同步抛错/空结果一律 unavailable，不伪造', async function () {
+  // fail 回调
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  global.wx.getRandomValues = function (o) { setTimeout(function () { o.fail({ errMsg: 'x' }); }, 1); };
+  let rejected = null;
+  try { await crypto2.prefillEntropy(32); } catch (err) { rejected = err.code; }
+  assert.strictEqual(rejected, 'CREDENTIAL_SECURE_STORAGE_UNAVAILABLE', 'fail 回调须拒绝');
+  assert.strictEqual(crypto2.entropyStatus().available, 0, '不得留下空池成功态');
+
+  // 同步抛错
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  global.wx.getRandomValues = function () { throw new Error('sync boom'); };
+  rejected = null;
+  try { await crypto2.prefillEntropy(32); } catch (err) { rejected = err.code; }
+  assert.strictEqual(rejected, 'CREDENTIAL_SECURE_STORAGE_UNAVAILABLE', '同步抛错须拒绝');
+
+  // 空结果
+  installWx();
+  crypto2.seedEntropyForTest([]);
+  global.wx.getRandomValues = function () { return Promise.resolve({ randomValues: new ArrayBuffer(0) }); };
+  rejected = null;
+  try { await crypto2.prefillEntropy(32); } catch (err) { rejected = err.code; }
+  assert.strictEqual(rejected, 'CREDENTIAL_SECURE_STORAGE_UNAVAILABLE', '空结果须拒绝');
+});
+
 test('randomBytes：平台无 CSPRNG 时 prefill 拒绝，不伪造随机数', async function () {
   installWx({ withoutCspRng: true });
   crypto2.seedEntropyForTest([]);

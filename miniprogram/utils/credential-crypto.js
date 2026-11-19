@@ -323,14 +323,57 @@ function seedEntropyForTest(bytes) {
 }
 
 function normalizeRandomValues(raw) {
-  // 平台可能返回 ArrayBuffer / TypedArray / Array
+  // 官方口径（基础库 2.15.0+）：success(res) 的 res.randomValues 是 ArrayBuffer。
+  // 同时兼容 TypedArray（必须尊重 byteOffset/byteLength——直接取 .buffer 会读错字节）
+  // 与普通数组两种非官方形态。
   var view;
-  if (raw instanceof ArrayBuffer) view = new Uint8Array(raw);
-  else if (raw && typeof raw.length === 'number') view = new Uint8Array(raw.buffer ? raw.buffer : raw);
-  else return null;
+  if (raw instanceof ArrayBuffer) {
+    view = new Uint8Array(raw);
+  } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(raw)) {
+    view = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+  } else if (raw && typeof raw.length === 'number') {
+    view = new Uint8Array(raw);
+  } else {
+    return null;
+  }
   var out = [];
   for (var i = 0; i < view.length; i += 1) out.push(view[i]);
   return out;
+}
+
+/**
+ * 取一批平台安全随机字节。
+ *
+ * 为什么不能只写 `Promise.resolve().then(() => wx.getRandomValues(...))`：
+ * 官方文档给的是 `success(res)` 回调形态，Promise 风格只是额外支持，
+ * 且平台不同版本返回值形态并不一致（可能返回 Promise、也可能返回 undefined）。
+ * 若只依赖 Promise，某些版本上会拿到 undefined → 预取永远失败 → 写入被永久拒绝。
+ * 因此这里同时挂 success/fail 回调并兼收 Promise，用 settled 防止双次结算。
+ * @returns {Promise<ArrayBuffer|*>}
+ */
+function fetchPlatformRandom(length) {
+  return new Promise(function (resolve, reject) {
+    var settled = false;
+    function ok(res) { if (!settled) { settled = true; resolve(res); } }
+    function bad(err) { if (!settled) { settled = true; reject(unavailableError(err)); } }
+    var ret;
+    try {
+      ret = wx.getRandomValues({
+        length: length,
+        success: function (res) { ok(res && res.randomValues !== undefined ? res.randomValues : res); },
+        fail: function (err) { bad(err); },
+      });
+    } catch (err) {
+      bad(err);
+      return;
+    }
+    // Promise 风格（未传回调时平台才返回 Promise；这里兼容两者并存）
+    if (ret && typeof ret.then === 'function') {
+      ret.then(function (res) {
+        ok(res && res.randomValues !== undefined ? res.randomValues : res);
+      }, bad);
+    }
+  });
 }
 
 /**
@@ -350,12 +393,10 @@ function prefillEntropy(size) {
 
   poolPending = Promise.resolve()
     .then(function () {
-      return wx.getRandomValues({ length: Math.max(want, PREFILL_CHUNK) });
+      return fetchPlatformRandom(Math.max(want, PREFILL_CHUNK));
     })
-    .then(function (res) {
+    .then(function (raw) {
       poolPending = null;
-      // 兼容 { randomValues } 与直接返回 ArrayBuffer 两种形态
-      var raw = res && res.randomValues !== undefined ? res.randomValues : res;
       var bytes = normalizeRandomValues(raw);
       if (!bytes || !bytes.length) throw unavailableError();
       entropyPool = entropyPool.concat(bytes);
