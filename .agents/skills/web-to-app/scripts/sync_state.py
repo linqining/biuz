@@ -3,16 +3,23 @@
 
 用法：
   python3 sync_state.py status [--json]
-  python3 sync_state.py begin --scope logic,ui,popup,animation [--note ...] [--allow-dirty]
+  python3 sync_state.py begin --scope logic,ui,popup,animation [--note ...] [--allow-dirty] \
+      [--commit <本轮同步目标>]
   python3 sync_state.py abort
   python3 sync_state.py done --gates build=pass,logic=pass,ui=pass,capture=pass \
-      [--skip-reason "UI-only 变更，逻辑对拍不适用"] [--note ...] [--allow-dirty] [--accept-head-move]
+      [--skip-reason "UI-only 变更，逻辑对拍不适用"] [--note ...] [--allow-dirty] [--accept-head-move] \
+      [--commit <本轮同步目标>]
+  python3 sync_state.py reconcile --commit <本轮同步目标> [--reason ...] [--force]
 
 设计：
   - begin 只记录 in_progress，不推进 last_synced；
   - done 校验门禁后才把 in_progress 提升为 last_synced，并镜像到差异台账；
   - 失败/部分完成不会推进基线，避免“同步了一半但基线已走”；
-  - 纯 UI 变更可把 logic 标 skipped/n/a，但必须给 --skip-reason。
+  - 纯 UI 变更可把 logic 标 skipped/n/a，但必须给 --skip-reason；
+  - --commit 显式指定“本轮实际同步到的 web commit”，不依赖源仓本地 HEAD
+    （源仓只读时 HEAD 可能滞后于 fetch 到的远端分支，直接记 HEAD 会把基线记错）；
+  - reconcile 用于事后自校正：仅允许向前（旧基线是新目标的祖先），
+    回退/无关 commit 需 --force；校正会同步镜像差异台账。
 """
 from __future__ import annotations
 
@@ -112,9 +119,45 @@ def _web_repo(args, cfg) -> Path:
     return repo
 
 
+def resolve_commit(repo: Path, value: str, flag: str = "--commit") -> str:
+    """把 --commit 入参解析成完整 SHA，并确认对象存在于 web 源仓。
+
+    显式 commit 是“本次实际同步的目标”，与 web 源仓本地 HEAD 解耦：
+    源仓按纪律只读、HEAD 可能滞后于 fetch 到的远端分支。
+    """
+    value = (value or "").strip()
+    if not value:
+        raise SystemExit(f"{flag} 不能为空。")
+    resolved = common.git(repo, "rev-parse", "--verify", "--quiet", f"{value}^{{commit}}", check=False)
+    if not resolved:
+        raise SystemExit(f"{flag} 指定 commit 在 web 源仓不可达：{value}")
+    return resolved
+
+
+def is_ancestor(repo: Path, older: str, newer: str) -> bool:
+    import subprocess
+
+    if not older or not newer:
+        return False
+    try:
+        subprocess.run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", older, newer],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception:
+        return False
+
+
 def cmd_begin(args, cfg) -> int:
     repo = _web_repo(args, cfg)
     info = common.head_info(repo)
+    source_head, source_head_short = info["commit"], info["commit_short"]
+    target = resolve_commit(repo, args.commit) if getattr(args, "commit", "") else info["commit"]
+    if target != source_head:
+        info["commit"], info["commit_short"] = target, target[:12]
     if info["dirty"] and not args.allow_dirty:
         print(
             f"web 源仓库工作区有未提交改动（{info['dirty_count']} 个文件）。\n"
@@ -159,9 +202,16 @@ def cmd_begin(args, cfg) -> int:
         "scope": scope,
         "note": args.note or "",
         "operator": common.operator(),
+        "commit_source": "explicit" if getattr(args, "commit", "") else "head",
+        "source_head": source_head,
+        "source_head_short": source_head_short,
+        "head_lagging": target != source_head and is_ancestor(repo, source_head, target),
     }
     save_state(state_path, state)
     print(f"已记录同步起点：{info['commit']} ({info['branch']})")
+    if target != source_head:
+        rel = "滞后于目标" if is_ancestor(repo, source_head, target) else "与目标不同"
+        print(f"  （显式同步目标；web 源本地 HEAD={source_head_short}，{rel}）")
     print(f"  scope={','.join(scope)}  state={state_path}")
     print("下一步：生成同步任务包（sync_scaffold.py），完成后再 done。")
     return 0
@@ -227,12 +277,17 @@ def cmd_done(args, cfg) -> int:
 
     repo = _web_repo(args, cfg)
     info = common.head_info(repo)
+    source_head, source_head_short = info["commit"], info["commit_short"]
+    # 显式 --commit 优先：它代表“本次实际同步到的 web commit”，
+    # 不能用 web 源仓本地 HEAD 代替（源仓只读时 HEAD 可能滞后）。
+    target = resolve_commit(repo, args.commit) if getattr(args, "commit", "") else info["commit"]
     base = current.get("base_commit")
-    head_moved = info["commit"] != base
-    if head_moved and not args.accept_head_move:
+    head_moved = target != base
+    if head_moved and not args.accept_head_move and not getattr(args, "commit", ""):
         print(
-            f"web 源 HEAD 已移动：base={base[:12]} 当前={info['commit_short']}。\n"
-            "为避免把未同步的提交记成基线：先重新 begin/同步，或确认已覆盖新提交后加 --accept-head-move。",
+            f"web 源 HEAD 已移动：base={str(base)[:12]} 当前={info['commit_short']}。\n"
+            "为避免把未同步的提交记成基线：先重新 begin/同步，或确认已覆盖新提交后加 --accept-head-move"
+            "（也可用 --commit <同步目标> 显式指定）。",
             file=sys.stderr,
         )
         return 2
@@ -246,8 +301,8 @@ def cmd_done(args, cfg) -> int:
 
     scope = common.parse_list(current.get("scope"))
     last = {
-        "commit": info["commit"],
-        "commit_short": info["commit_short"],
+        "commit": target,
+        "commit_short": target[:12],
         "branch": info["branch"],
         "dirty": info["dirty"],
         "dirty_count": info["dirty_count"],
@@ -259,17 +314,87 @@ def cmd_done(args, cfg) -> int:
         "operator": common.operator(),
         "head_moved": head_moved,
         "base_commit": base,
+        "commit_source": "explicit" if getattr(args, "commit", "") else "head",
+        "source_head": source_head,
+        "source_head_short": source_head_short,
+        "head_lagging": target != source_head and is_ancestor(repo, source_head, target),
     }
     state["last_synced"] = last
     state["in_progress"] = None
     save_state(state_path, state)
 
     ledger = Path(args.ledger or cfg["ledger"])
-    update_ledger(ledger, cfg["ledger_key"], info["commit"], scope, args.note or "")
-    print(f"同步基线已推进：{info['commit']} ({info['commit_short']})")
+    update_ledger(ledger, cfg["ledger_key"], target, scope, args.note or "")
+    suffix = ""
+    if target != source_head:
+        rel = "滞后于目标" if last["head_lagging"] else "与目标不同"
+        suffix = f"（显式同步目标；web 源本地 HEAD={source_head_short}，{rel}）"
+    print(f"同步基线已推进：{target} ({target[:12]}){suffix}")
     print(f"  state={state_path}")
     print(f"  ledger={ledger}")
     print(f"  gates={', '.join(f'{k}={v}' for k, v in gates.items())}")
+    return 0
+
+
+def cmd_reconcile(args, cfg) -> int:
+    """基线自校正：把 last_synced 校正到实际同步目标 commit。
+
+    只允许“向前”校正（旧基线是新目标的祖先）；回退或无关 commit 需 --force。
+    典型场景：历史版本把 web 源本地 HEAD（滞后）记成了基线，而实际同步已完成到 after。
+    """
+    state_path = Path(args.state_file or cfg["state_file"])
+    state = load_state(state_path)
+    last = state.get("last_synced")
+    if not isinstance(last, dict):
+        print("尚无 last_synced 基线，无可校正；先 begin/done。", file=sys.stderr)
+        return 2
+    repo = _web_repo(args, cfg)
+    target = resolve_commit(repo, args.commit)
+    old = str(last.get("commit") or "")
+    if old and target == old:
+        print(f"基线已一致（{target[:12]}），无需校正。")
+        return 0
+    forward = is_ancestor(repo, old, target)
+    backward = is_ancestor(repo, target, old)
+    if not forward and not args.force:
+        reason = "目标早于当前基线（回退）" if backward else "目标与当前基线无祖先关系"
+        print(
+            f"拒绝校正：{reason}：current={old[:12] or '无'} target={target[:12]}。\n"
+            "确认无误后加 --force。",
+            file=sys.stderr,
+        )
+        return 2
+
+    info = common.head_info(repo)
+    scope = common.parse_list(last.get("scope"))
+    correction = (
+        f"基线自校正：{old[:12] or '无'} → {target[:12]}；"
+        f"{args.reason or '记录基线不是本次实际同步目标'}"
+    )
+    note = str(last.get("note") or "")
+    last.update(
+        {
+            "commit": target,
+            "commit_short": target[:12],
+            "base_commit": target,
+            "head_moved": False,
+            "corrected_at": common.now_utc(),
+            "corrected_from": old or None,
+            "correction": correction,
+            "commit_source": "explicit",
+            "source_head": info["commit"],
+            "source_head_short": info["commit_short"],
+            "head_lagging": target != info["commit"] and is_ancestor(repo, info["commit"], target),
+            "note": f"{note}；{correction}" if note else correction,
+        }
+    )
+    state["last_synced"] = last
+    save_state(state_path, state)
+    ledger = Path(args.ledger or cfg["ledger"])
+    update_ledger(ledger, cfg["ledger_key"], target, scope, correction)
+    print(f"基线已自校正：{old[:12] or '无'} → {target[:12]}")
+    print(f"  state={state_path}")
+    print(f"  ledger={ledger}")
     return 0
 
 
@@ -304,6 +429,11 @@ def cmd_status(args, cfg) -> int:
         print(f"  gates: {', '.join(f'{k}={v}' for k, v in (last.get('gates') or {}).items())}")
         if last.get("dirty"):
             print("  注意：该基线记录时 web 源是 dirty 状态，复现性受限。")
+        if last.get("source_head") and last.get("source_head") != last.get("commit"):
+            rel = "滞后于目标" if last.get("head_lagging") else "与目标不同"
+            print(f"  基线来源：显式同步目标（web 源本地 HEAD={last.get('source_head_short')}，{rel}）")
+        if last.get("corrected_at"):
+            print(f"  已自校正 @ {last['corrected_at']}：{last.get('correction') or ''}")
     else:
         print("尚无同步基线（last_synced 为空）。")
 
@@ -334,6 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--note", default="")
     b.add_argument("--allow-dirty", action="store_true")
     b.add_argument("--force", action="store_true")
+    b.add_argument("--commit", default="", help="显式同步目标 commit（从 web 源仓校验）；缺省用 web 源本地 HEAD")
 
     a = sub.add_parser("abort", help="放弃 in_progress，不推进基线")
 
@@ -343,6 +474,13 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--note", default="")
     d.add_argument("--allow-dirty", action="store_true")
     d.add_argument("--accept-head-move", action="store_true")
+    d.add_argument("--commit", default="", help="显式同步目标 commit；缺省用 web 源本地 HEAD")
+
+    r = sub.add_parser("reconcile", help="基线自校正：把 last_synced 校正到实际同步目标")
+    r.add_argument("--commit", required=True, help="本轮实际同步到的 web commit")
+    r.add_argument("--reason", default="", help="校正原因，写入状态与台账")
+    r.add_argument("--note", default="")
+    r.add_argument("--force", action="store_true", help="允许回退到非后代 commit（危险）")
     return p
 
 
@@ -357,6 +495,8 @@ def main() -> int:
         return cmd_abort(args, cfg)
     if args.cmd == "done":
         return cmd_done(args, cfg)
+    if args.cmd == "reconcile":
+        return cmd_reconcile(args, cfg)
     return 2
 
 

@@ -140,6 +140,10 @@ python3 <skill>/scripts/sync_state.py done \
 - `done` 会拒绝：门禁未 pass、web 源 HEAD 移动（除非 `--accept-head-move`）、
   dirty（除非 `--allow-dirty`）。
 - `done` 成功才更新状态文件的 `last_synced` 和差异台账基线行；失败/部分完成不推进。
+- 推荐 `begin` / `done` 都传 `--commit <本轮同步目标>`：只读源仓的本地 HEAD 可能滞后，
+  不传会把「实际同步到的 commit」记成「源仓 HEAD」。工作流默认这样调用。
+- 历史基线记错时用 `sync_state.py reconcile --commit <目标> [--reason ...]` 自校正；
+  只允许向前（旧基线是新目标的祖先），回退/无关 commit 需 `--force`。
 - 收尾：`docs/PARITY_BACKLOG.md`（缺陷）、差异台账（刻意差异）、对拍账本（逻辑）。
 
 ## §A. web 变动 → App 同步（快速版）

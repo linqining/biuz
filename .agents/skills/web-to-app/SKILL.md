@@ -73,16 +73,18 @@ web 源仓库**只读**（只 `fetch/log/diff/show`，不 checkout/reset/commit�
 ```bash
 SYNC=<skill>/scripts            # 本 skill 的 scripts 目录
 python3 "$SYNC/sync_state.py" status
-python3 "$SYNC/sync_state.py" begin --scope logic,ui,popup,animation
+python3 "$SYNC/sync_state.py" begin --scope logic,ui,popup,animation --commit <本轮同步目标>
 python3 "$SYNC/sync_scaffold.py" --key <key> --title "<标题>" \
   --scope logic,ui,popup,animation --routes <route> --code
 # 按 references/sync-workflow.md 执行 9 步；门禁通过后：
 python3 "$SYNC/sync_state.py" done \
-  --gates build=pass,logic=pass,ui=pass,capture=pass
+  --gates build=pass,logic=pass,ui=pass,capture=pass --commit <本轮同步目标>
 ```
 
 - 纯 UI 变更可 `logic=skipped --skip-reason "..."`，不要编造逻辑向量。
 - 基线写 `sync.state_file`（默认 `docs/parity-sync-state.json`），并镜像台账；只有全门通过才推进。
+- `--commit` 显式钉住本轮实际同步到的 web commit；缺省才用 web 源本地 HEAD（只读源仓 HEAD 可能滞后）。
+- 历史基线记错时用 `sync_state.py reconcile --commit <目标>` 自校正（仅允许向前）。
 - 详细示例与门禁语义见 `references/sync-workflow.md`。
 
 ## 采集命令（一句话）
@@ -160,6 +162,6 @@ JSON 由 capture.py 的 `pages` 子命令消费。
 - `assets/config.sample.yaml` — 配置样本（复制到项目 `config/web-to-app.yaml` 改值即用）
 - `assets/page-index.sample.json` — 页面索引样本（复制到 `pages.index` 路径改值即用）
 - `scripts/capture.py` — 统一采证 CLI（自包含 CDP 客户端，不依赖 node；读项目配置；CDP 类可 import 做交互驱动）
-- `scripts/sync_state.py` — 同步基线：`status` / `begin` / `abort` / `done`；记录 commit/branch/dirty/门禁，done 时镜像台账
+- `scripts/sync_state.py` — 同步基线：`status` / `begin` / `abort` / `done` / `reconcile`；记录 commit/branch/dirty/门禁，done 时镜像台账；`--commit` 显式钉住同步目标，`reconcile` 做向前自校正
 - `scripts/sync_scaffold.py` — 生成同步任务包（brief/file-map/checklist/popup-inventory/motion-spec/state-machine/acceptance）；`--code` 只生成 `.template` 骨架
 - `scripts/skill_common.py` — 上述脚本共用的配置/git/路径工具（无第三方依赖）
