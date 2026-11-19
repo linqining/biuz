@@ -425,6 +425,52 @@ function migrateLegacyJwtAsync() {
   });
 }
 
+/**
+ * 读取旧版明文桌面地址（`biuz.desktop`）。
+ * 旧版 `connection.js` 存的是对象 `{baseUrl, token}`；也容忍 JSON 字符串形态。
+ * @returns {{baseUrl:string, token:string}|null}
+ */
+function readLegacyDesktopAddress() {
+  const raw = readRaw(LEGACY_DESKTOP_KEY);
+  if (!raw) return null;
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try { obj = JSON.parse(raw); } catch (err) { return null; }
+  }
+  if (!obj || typeof obj !== 'object') return null;
+  const baseUrl = typeof obj.baseUrl === 'string' ? obj.baseUrl : '';
+  if (!baseUrl) return null;
+  return { baseUrl: baseUrl, token: typeof obj.token === 'string' ? obj.token : '' };
+}
+
+/**
+ * 一次性迁移：旧明文桌面地址（`biuz.desktop`，含配对 token）→ 加密容器。
+ *
+ * 为什么单列一个函数：`writeFields` 成功后虽会 `removeRaw(LEGACY_DESKTOP_KEY)`，
+ * 但那是「任意一次凭据写入的副作用」——只升级登录、不重新连接桌面端的用户，
+ * 明文 token 会一直留在本地；而一旦某次写入清掉它却没先迁移，用户的已保存连接
+ * 就永久丢失。所以必须**先读后写再清**，与 JWT 迁移同纪律。
+ *
+ * 安全约束：已有可用加密地址时不覆盖（加密优先）；坏/不可用的密文不覆盖。
+ * @returns {Promise<{migrated:boolean, reason:string|null, cleaned?:boolean}>}
+ */
+function migrateLegacyDesktopAsync() {
+  const legacy = readLegacyDesktopAddress();
+  if (!legacy) return Promise.resolve({ migrated: false, reason: null });
+  const current = readCredentials(['baseUrl', 'token']);
+  if (current.outcome === OUTCOME_OK && current.fields.baseUrl) {
+    // 已有可用加密地址：旧明文是残留，清掉（不覆盖密文）
+    removeRaw(LEGACY_DESKTOP_KEY);
+    return Promise.resolve({ migrated: false, reason: null, cleaned: true });
+  }
+  if (current.outcome === OUTCOME_UNAVAILABLE || current.outcome === OUTCOME_DECRYPT) {
+    return Promise.resolve({ migrated: false, reason: current.reason });
+  }
+  return writeFieldsAsync({ baseUrl: legacy.baseUrl, token: legacy.token }).then(function (written) {
+    return { migrated: written.ok, reason: written.reason };
+  });
+}
+
 // ---- JWT / 连接地址便捷面（login.js 与 connection.js 的既有调用点同形） ----
 
 function readJwt() {
@@ -498,6 +544,8 @@ module.exports = {
   clearAll: clearAll,
   migrateLegacyJwt: migrateLegacyJwt,
   migrateLegacyJwtAsync: migrateLegacyJwtAsync,
+  migrateLegacyDesktopAsync: migrateLegacyDesktopAsync,
+  readLegacyDesktopAddress: readLegacyDesktopAddress,
   readJwt: readJwt,
   saveJwt: saveJwt,
   saveJwtAsync: saveJwtAsync,

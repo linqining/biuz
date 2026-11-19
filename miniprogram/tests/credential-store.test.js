@@ -554,6 +554,70 @@ test('migrateLegacyJwtAsync：无旧明文时为空操作且不触发预取', as
   assert.strictEqual(calls, 0, '没有旧明文时不应白白消耗平台随机数');
 });
 
+// P-031 回归：旧明文桌面地址（biuz.desktop，含配对 token）必须迁入加密容器。
+// 原实现只在 writeFields 成功时 removeRaw 删掉它——即「删除」而非「迁移」，
+// 只连桌面不进登录页的用户明文 token 会一直留本地；一旦某次写入清掉就永久丢连接。
+test('migrateLegacyDesktopAsync：明文桌面地址+token 迁入加密容器并删除明文', async function () {
+  const wx = installWx();
+  wx.storage[store.LEGACY_DESKTOP_KEY] = { baseUrl: 'http://192.168.1.9:9100', token: 'legacy-desktop-token-secret' };
+  const migrated = await store.migrateLegacyDesktopAsync();
+  assert.strictEqual(migrated.migrated, true, JSON.stringify(migrated));
+  assert.strictEqual(wx.storage[store.LEGACY_DESKTOP_KEY], undefined, '明文键必须删除');
+  assert.ok(JSON.stringify(wx.storage).indexOf('legacy-desktop-token-secret') < 0, '明文 token 不得残留');
+  const addr = store.readDesktopAddress();
+  assert.strictEqual(addr.outcome, store.OUTCOME_OK);
+  assert.strictEqual(addr.baseUrl, 'http://192.168.1.9:9100');
+  assert.strictEqual(addr.token, 'legacy-desktop-token-secret', '迁移后不掉连接');
+});
+
+test('migrateLegacyDesktopAsync：JSON 字符串形态与对象形态都能解析', async function () {
+  const wx = installWx();
+  wx.storage[store.LEGACY_DESKTOP_KEY] = JSON.stringify({ baseUrl: 'http://10.0.0.6:9100', token: 'tok-str' });
+  const migrated = await store.migrateLegacyDesktopAsync();
+  assert.strictEqual(migrated.migrated, true, JSON.stringify(migrated));
+  assert.strictEqual(store.readDesktopAddress().token, 'tok-str');
+});
+
+test('migrateLegacyDesktopAsync：已有可用密文时只清残留、不覆盖', async function () {
+  const wx = installWx();
+  store.saveDesktopAddress('http://new.example:9100', 'new-token');
+  wx.storage[store.LEGACY_DESKTOP_KEY] = { baseUrl: 'http://stale.example:9100', token: 'stale-token' };
+  const migrated = await store.migrateLegacyDesktopAsync();
+  assert.strictEqual(migrated.cleaned, true);
+  assert.strictEqual(wx.storage[store.LEGACY_DESKTOP_KEY], undefined);
+  const addr = store.readDesktopAddress();
+  assert.strictEqual(addr.baseUrl, 'http://new.example:9100', '密文优先');
+  assert.strictEqual(addr.token, 'new-token');
+});
+
+test('migrateLegacyDesktopAsync：无 CSPRNG 时失败但保留明文、不落弱密钥', async function () {
+  const wx = installWx({ withoutCspRng: true });
+  wx.storage[store.LEGACY_DESKTOP_KEY] = { baseUrl: 'http://10.0.0.7:9100', token: 'tok-keep' };
+  crypto2.seedEntropyForTest([]);
+  const migrated = await store.migrateLegacyDesktopAsync();
+  assert.strictEqual(migrated.migrated, false);
+  assert.strictEqual(migrated.reason, store.REASON_ENTROPY_UNAVAILABLE);
+  assert.ok(JSON.stringify(wx.storage).indexOf('tok-keep') >= 0, '明文必须保留');
+  assert.strictEqual(wx.storage[store.KEY_SECRET], undefined);
+  assert.strictEqual(wx.storage[store.RECORD_KEY], undefined);
+});
+
+test('migrateLegacyJwtAsync + migrateLegacyDesktopAsync 并发只取一次 CSPRNG', async function () {
+  const wx = installWx();
+  let calls = 0;
+  const original = global.wx.getRandomValues;
+  global.wx.getRandomValues = function (o) { calls += 1; return original(o); };
+  crypto2.seedEntropyForTest([]);
+  wx.storage[store.LEGACY_JWT_KEY] = 'legacy-jwt-' + 'a'.repeat(40);
+  wx.storage[store.LEGACY_DESKTOP_KEY] = { baseUrl: 'http://10.0.0.8:9100', token: 'tok-both' };
+  const [j, d] = await Promise.all([store.migrateLegacyJwtAsync(), store.migrateLegacyDesktopAsync()]);
+  assert.strictEqual(j.migrated, true);
+  assert.strictEqual(d.migrated, true);
+  assert.strictEqual(calls, 1, 'poolPending 应复用同一次预取，实际 ' + calls + ' 次');
+  assert.strictEqual(store.readJwt().value, 'legacy-jwt-' + 'a'.repeat(40));
+  assert.strictEqual(store.readDesktopAddress().token, 'tok-both');
+});
+
 // ---- 串行执行（与本仓既有 node 测试风格一致） ----
 
 (function run(i) {

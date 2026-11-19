@@ -23,6 +23,25 @@ App({
     } catch (err) {
       console.warn('[BiuZ] CSPRNG 预取初始化异常', err);
     }
+
+    // P-031：旧明文凭据（biuz.jwt / biuz.desktop）迁入加密容器。
+    // 放在启动而非仅登录页：只连桌面、不进登录页的用户同样需要迁移，
+    // 否则明文 token 会一直留在本地（且下一次写入清掉旧键时会永久丢失连接）。
+    try {
+      const store = require('./utils/credential-store.js');
+      if (store && typeof store.migrateLegacyJwtAsync === 'function') {
+        store.migrateLegacyJwtAsync().catch(function (err) {
+          console.warn('[BiuZ] 旧明文 JWT 迁移失败（明文保留，下次启动重试）', err && err.code ? err.code : err);
+        });
+      }
+      if (store && typeof store.migrateLegacyDesktopAsync === 'function') {
+        store.migrateLegacyDesktopAsync().catch(function (err) {
+          console.warn('[BiuZ] 旧明文桌面地址迁移失败（明文保留，下次启动重试）', err && err.code ? err.code : err);
+        });
+      }
+    } catch (err) {
+      console.warn('[BiuZ] 旧明文凭据迁移初始化异常', err);
+    }
   },
 
   onError(err) {
