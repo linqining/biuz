@@ -44,14 +44,27 @@ Page({
     } catch (err) {
       statusBarHeight = 0;
     }
-    // 旧明文 JWT（biuz.jwt）→ 加密容器；只在没有加密 JWT 时执行，失败不丢原值
-    const migration = credentialStore.migrateLegacyJwt();
-    const state = this.readJwtState();
+    // 旧明文 JWT（biuz.jwt）→ 加密容器；只在没有加密 JWT 时执行，失败不丢原值。
+    // P-031：必须用异步版——冷启动瞬间 CSPRNG 池还没预取好，同步版会恒定
+    // 返回 entropy-unavailable，导致旧明文永远迁不进来（用户表现为「未登录」）。
+    const initial = this.readJwtState();
     this.setData({
       statusBarHeight: statusBarHeight,
-      jwtStored: state.stored,
-      credentialIssue: state.issue || (migration.reason ? this.issueCopy(migration.reason) : ''),
+      jwtStored: initial.stored,
+      credentialIssue: initial.issue || '',
     });
+    credentialStore
+      .migrateLegacyJwtAsync()
+      .then((migration) => {
+        const state = this.readJwtState();
+        this.setData({
+          jwtStored: state.stored,
+          credentialIssue: state.issue || (migration.reason ? this.issueCopy(migration.reason) : ''),
+        });
+      })
+      .catch(() => {
+        // 迁移失败不影响首屏可用性；明文保留，下次进入重试
+      });
   },
 
   onShow() {
@@ -95,6 +108,9 @@ Page({
         return '已保存的凭据无法解密（数据损坏），请重新粘贴 JWT';
       case credentialStore.REASON_STORAGE_UNAVAILABLE:
         return '本地存储不可用，凭据未保存';
+      case credentialStore.REASON_ENTROPY_UNAVAILABLE:
+        // P-031：熵源拿不到时必须说清楚「无法加密」，不能静默显示「未登录」
+        return '本机安全随机数暂不可用，已保存的登录暂时无法解密；请稍后重试或重新登录';
       default:
         return '';
     }
@@ -123,18 +139,24 @@ Page({
           wx.showToast({ title: 'JWT 无效（太短）', icon: 'none' });
           return;
         }
-        const written = credentialStore.saveJwt(jwt);
-        if (!written.ok) {
-          wx.showToast({
-            title: written.reason === credentialStore.REASON_STORAGE_UNAVAILABLE
-              ? '存储失败'
-              : '凭据写入被拒绝',
-            icon: 'none',
-          });
-          return;
-        }
-        self.setData({ jwtStored: true, credentialIssue: '' });
-        wx.showToast({ title: 'JWT 已保存（加密）', icon: 'success' });
+        // P-031 修复：异步写入（先预取平台 CSPRNG），池不可用时明确拒绝，绝不写弱密钥
+        credentialStore.saveJwtAsync(jwt).then(function (written) {
+          if (!written.ok) {
+            wx.showToast({
+              title: written.reason === credentialStore.REASON_STORAGE_UNAVAILABLE
+                ? '存储失败'
+                : written.reason === credentialStore.REASON_ENTROPY_UNAVAILABLE
+                  ? '安全随机数不可用，无法加密保存'
+                  : '凭据写入被拒绝',
+              icon: 'none',
+            });
+            return;
+          }
+          self.setData({ jwtStored: true, credentialIssue: '' });
+          wx.showToast({ title: 'JWT 已保存（加密）', icon: 'success' });
+        }).catch(function () {
+          wx.showToast({ title: '安全随机数不可用，无法加密保存', icon: 'none' });
+        });
       },
     });
   },

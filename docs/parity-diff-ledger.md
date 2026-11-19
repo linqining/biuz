@@ -30,7 +30,7 @@
 | D008 | platform | 搜索入口（010） | 列表头只有搜索图标按钮（点击开命令中心 ⌘K） | iOS/Android 保留常驻搜索输入框 | 移动端无键盘快捷键，常驻输入框是唯一可达且不牺牲输入法/焦点体验的形态；且有 10 处 E2E 断言依赖 `04-search` / `04-search-input` | — | 生效 |
 | D009 | business | 来源筛选 chips（010） | 无来源概念（web home 恒为单源） | iOS 保留 `全部 / 我的 Mac` chips（`云端沙盒` 档隐藏） | iOS 同时支持 mac 与 cloud 会话来源，chips 是其筛选 affordance；Matrix test01 有 10 处断言依赖 | — | 生效 |
 | D014 | platform | 凭据密钥来源钉住（iOS / Android / 小程序） | web 有「系统库 → 私有文件密钥」降级链，并用 `credential-source` 把来源钉为 `os\n`（`systemCredentialCipher.ts:23-24,241-249,276,305`） | iOS Keychain / Android Keystore 是**唯一**来源、不存在弱密钥降级路径 → 钉住条件恒成立，代码不引入冗余来源状态机；小程序无 OS 库，钉 `local\n`，且**只**在「无来源标记且无任何密文」时才新建密钥（有密文无标记 → `unavailable/no-source-marker` 拒绝写入，对齐 web `unbound` 纪律） | 移动端没有「密钥来源可切换」的物理前提，照抄来源状态机会制造永不触发的死代码；小程序侧另外**收紧**了 web `:418` 的硬白名单 `["os","env"]`——他端新增来源判 `unavailable`（保留数据）而非「损坏（可清）」 | P-031 | 生效 |
-| D015 | platform | 小程序凭据加密原语 | web `aes-256-gcm`（`systemCredentialCipher.ts:76-96`，node crypto） | 小程序 JS 运行时**无** AES/webcrypto 原语 → 纯 JS 实现 HMAC-SHA256 计数器 keystream + HMAC-SHA256 认证 tag（encrypt-then-MAC），`iv.tag.bytes` 三段 base64url 与 web 同形；sha256/hmac/base64url 与 `node:crypto` 逐字节对拍 | 平台能力缺失。构造仍是标准 EtM（抗篡改与 GCM 同级），但**不是**平台认证的密码学实现，也无硬件隔离；密钥只能存同一本地存储 → 只防「明文落盘」不防「同设备同账号运行时读取」 | P-031 | 生效 |
+| D015 | platform | 小程序凭据加密原语 | web `aes-256-gcm`（`systemCredentialCipher.ts:76-96`，node crypto） | 小程序 JS 运行时**无** AES/webcrypto 原语 → 纯 JS 实现 HMAC-SHA256 计数器 keystream + HMAC-SHA256 认证 tag（encrypt-then-MAC），`iv.tag.bytes` 三段 base64url 与 web 同形；sha256/hmac/base64url 与 `node:crypto` 逐字节对拍 | 平台能力缺失。构造仍是标准 EtM（抗篡改与 GCM 同级），但**不是**平台认证的密码学实现，也无硬件隔离；密钥只能存同一本地存储 → 只防「明文落盘」不防「同设备同账号运行时读取」。**2026-11-19 补记**：原 `randomBytes` 误把异步 `wx.getRandomValues` 当同步 ArrayBuffer 用，静默产出全 undefined（密钥等同全零 + IV 固定 = 确定性加密）；已改为「异步预取 CSPRNG 池 + 同步消费 + 耗尽即拒绝」，绝不回退 `Math.random` | P-031 | 生效 |
 | D016 | platform | 凭据读取失败语义的类型形状（三端） | `systemCredentialCipher.ts:61-75` 用两个稳定 code 区分「系统密钥不可用」与「密文损坏」（`CREDENTIAL_SECURE_STORAGE_UNAVAILABLE` / `ZCODE_CREDENTIAL_DECRYPT_FAILED`） | iOS `CredentialReadPolicy`（`itemNotFound/unavailable/authFailed/corrupt` 四分 + `CredentialRecovery`）、Android `OAuthCredentialReadFailure`（sealed 6 态 + `CredentialRecovery`）、小程序 `credential-store.js`（`OUTCOME_*` 四态 + `REASON_*` 8 态） | 各端存储原语的失败形态不同（`OSStatus` / Java 异常 / JSON 读写），无法共用一套枚举；**判定口径与清理白名单必须一致**（唯一可清理档 = 确坏），故只在类型命名与细分档位不同 | — | 生效 |
 | D017 | platform | 凭据失败态上屏（iOS / Android / 小程序） | web 由设置页/登录流程消费错误码（`packages/shared/src/oauth.ts:42-56`） | iOS `credentialUnavailableCard`（重试读取 / 清除并重新登录）、Android `AppSession.oauthCredentialFailureMessage`（登录/诊断面消费）、小程序 `credentialIssue` 行（`01-note-credential-issue`） | web 是桌面设置页形态，移动端只有卡片/单行容器；文案按端能力裁剪，但必须与实际原因一一对应（禁止统一显示「未登录」） | — | 生效 |
 
@@ -38,5 +38,5 @@
 
 | 字段 | 值 |
 |---|---|
-| web-sync-base | a9fe401eede6e6e5e01be9048679c206fe6f02d9 (2026-11-18) |
-| 上次同步范围 | logic, ui, api；webhook sync c590468..fec9759；分支 sync/web-fec9759-20261119 |
+| web-sync-base | fec975905a2abd4c07e35c40d51fa097a2258ec9 (2026-11-19) |
+| 上次同步范围 | logic, ui, api；webhook sync c590468..fec9759（PR #1 已合并）；分支 sync/web-fec9759-20261119 |

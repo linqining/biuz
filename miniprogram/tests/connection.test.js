@@ -9,7 +9,27 @@ global.wx = {
   storage: {},
   setStorageSync(key, value) { this.storage[key] = value; },
   getStorageSync(key) { return this.storage[key]; },
+  // P-031 修复后凭据写入需要平台 CSPRNG（异步 Promise 形态，与真实小程序一致）
+  getRandomValues(o) {
+    const len = (o && o.length) || 32;
+    const buf = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) buf[i] = Math.floor(Math.random() * 256);
+    return Promise.resolve({ randomValues: buf.buffer });
+  },
 };
+
+// 每个用例前装填熵池，避免 connectDesktop 写凭据时因池空被（正确地）拒绝
+const credentialCrypto = require('../utils/credential-crypto.js');
+async function primeEntropy() {
+  try {
+    await credentialCrypto.prefillEntropy(credentialCrypto.KEY_BYTES + credentialCrypto.IV_BYTES * 8);
+  } catch (err) {
+    const n = credentialCrypto.KEY_BYTES + credentialCrypto.IV_BYTES * 8;
+    const filler = [];
+    for (let i = 0; i < n; i += 1) filler.push(Math.floor(Math.random() * 256));
+    credentialCrypto.seedEntropyForTest(filler);
+  }
+}
 
 let passed = 0;
 let failed = 0;
@@ -175,6 +195,7 @@ test('connectDesktop：空地址如实拒', function () {
   }
   const pair = cases[i];
   Promise.resolve()
+    .then(function () { return primeEntropy(); })
     .then(pair[1])
     .then(function () { passed += 1; console.log('  ok', pair[0]); })
     .catch(function (err) { failed += 1; console.error('  FAIL', pair[0], err.message); })

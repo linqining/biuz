@@ -284,36 +284,151 @@ function sha256Hex(bytes) {
   return hex;
 }
 
-// ---- 随机数（熵源受限：诚实登记在 APP-DIFF[D015]） ----
+// ---- 随机数（CSPRNG 池；修复 P-031 弱熵源） ----
 
 /**
- * 32/12 字节随机数。优先 `wx.getRandomValues`（存在时由平台 CSPRNG 提供）；
- * 否则退回 Math.random 采样——**熵源弱于 node crypto**，只用于本次 IV 与首建密钥。
+ * 安全随机数池。
+ *
+ * 背景（P-031 修复，2026-11-19）：`wx.getRandomValues` 是**异步回调 / Promise** API
+ * （基础库 2.15.0+，结果在 `res.randomValues`），**没有同步返回版本**。
+ * 旧实现把它当同步 ArrayBuffer 用 → `new Uint8Array(Promise)` 得到空数组，
+ * 循环填充 undefined，而 `out.length === size` 仍成立，于是**静默返回全 undefined**，
+ * 导致密钥等同全零、IV 固定（确定性加密，任何人可解）。Math.random 兜底从未执行。
+ *
+ * 修复策略：异步预取 + 同步消费 + 耗尽安全失败。
+ * - `prefill()` 在启动/需要时异步向平台 CSPRNG 取一批字节入池；
+ * - `randomBytes()` 同步从池消费，保证 `seal` 等同步 API 语义不变；
+ * - 池不足时**抛 UNAVAILABLE 错误**，绝不退回 Math.random（宁可用不了，不用假随机）。
  */
-function randomBytes(size, source) {
-  const out = [];
-  if (source) {
-    const bytes = source(size);
-    if (!bytes || bytes.length !== size) throw unavailableError();
-    return bytes.slice();
+var entropyPool = [];        // Array<number>，安全随机字节
+var poolPending = null;      // 进行中的预取 Promise，避免并发重复取
+var PREFILL_CHUNK = 1024;    // 单次预取字节数（远小于平台 1MB 上限）
+
+/** 平台是否声明提供 CSPRNG（仅探测存在性，不调用）。 */
+function platformCspRngAvailable() {
+  return typeof wx !== 'undefined' && wx && typeof wx.getRandomValues === 'function';
+}
+
+/**
+ * 测试/诊断专用：直接装填熵池。
+ * 生产路径不得调用（生产必须走 prefillEntropy → 平台 CSPRNG）。
+ */
+function seedEntropyForTest(bytes) {
+  var src = bytes || [];
+  var out = [];
+  for (var i = 0; i < src.length; i += 1) out.push(src[i] & 0xff);
+  entropyPool = out;
+  poolPending = null;
+  return entropyPool.length;
+}
+
+function normalizeRandomValues(raw) {
+  // 官方口径（基础库 2.15.0+）：success(res) 的 res.randomValues 是 ArrayBuffer。
+  // 同时兼容 TypedArray（必须尊重 byteOffset/byteLength——直接取 .buffer 会读错字节）
+  // 与普通数组两种非官方形态。
+  var view;
+  if (raw instanceof ArrayBuffer) {
+    view = new Uint8Array(raw);
+  } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(raw)) {
+    view = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+  } else if (raw && typeof raw.length === 'number') {
+    view = new Uint8Array(raw);
+  } else {
+    return null;
   }
-  if (typeof wx !== 'undefined' && wx && typeof wx.getRandomValues === 'function') {
-    try {
-      const buffer = wx.getRandomValues({ length: size });
-      const view = new Uint8Array(buffer);
-      for (let i = 0; i < size; i += 1) out.push(view[i]);
-      if (out.length === size) return out;
-    } catch (err) { /* 落到 Math.random 混合器 */ }
-  }
-  let pool = [];
-  let counter = 0;
-  while (out.length < size) {
-    const chunk = Date.now() + counter * 0x9e3779b1 + Math.floor(Math.random() * 0xffffffff);
-    pool = sha256(utf8Bytes(String(chunk) + ':' + Math.random() + ':' + counter));
-    for (let i = 0; i < pool.length && out.length < size; i += 1) out.push(pool[i]);
-    counter += 1;
-  }
+  var out = [];
+  for (var i = 0; i < view.length; i += 1) out.push(view[i]);
   return out;
+}
+
+/**
+ * 取一批平台安全随机字节。
+ *
+ * 为什么不能只写 `Promise.resolve().then(() => wx.getRandomValues(...))`：
+ * 官方文档给的是 `success(res)` 回调形态，Promise 风格只是额外支持，
+ * 且平台不同版本返回值形态并不一致（可能返回 Promise、也可能返回 undefined）。
+ * 若只依赖 Promise，某些版本上会拿到 undefined → 预取永远失败 → 写入被永久拒绝。
+ * 因此这里同时挂 success/fail 回调并兼收 Promise，用 settled 防止双次结算。
+ * @returns {Promise<ArrayBuffer|*>}
+ */
+function fetchPlatformRandom(length) {
+  return new Promise(function (resolve, reject) {
+    var settled = false;
+    function ok(res) { if (!settled) { settled = true; resolve(res); } }
+    function bad(err) { if (!settled) { settled = true; reject(unavailableError(err)); } }
+    var ret;
+    try {
+      ret = wx.getRandomValues({
+        length: length,
+        success: function (res) { ok(res && res.randomValues !== undefined ? res.randomValues : res); },
+        fail: function (err) { bad(err); },
+      });
+    } catch (err) {
+      bad(err);
+      return;
+    }
+    // Promise 风格（未传回调时平台才返回 Promise；这里兼容两者并存）
+    if (ret && typeof ret.then === 'function') {
+      ret.then(function (res) {
+        ok(res && res.randomValues !== undefined ? res.randomValues : res);
+      }, bad);
+    }
+  });
+}
+
+/**
+ * 异步预取一批安全随机字节入池。可重复调用；池充足时直接返回。
+ * @param {number} [size] 期望入池字节数（默认 PREFILL_CHUNK）
+ * @returns {Promise<number>} 预取后池中的字节数
+ */
+function prefillEntropy(size) {
+  var want = typeof size === 'number' && size > 0 ? size : PREFILL_CHUNK;
+  if (entropyPool.length >= want) return Promise.resolve(entropyPool.length);
+  if (poolPending) return poolPending;
+
+  if (!platformCspRngAvailable()) {
+    // 无 CSPRNG：明确失败（不缓存失败状态——平台能力可能随运行环境变化，下次仍可重试）
+    return Promise.reject(unavailableError());
+  }
+
+  poolPending = Promise.resolve()
+    .then(function () {
+      return fetchPlatformRandom(Math.max(want, PREFILL_CHUNK));
+    })
+    .then(function (raw) {
+      poolPending = null;
+      var bytes = normalizeRandomValues(raw);
+      if (!bytes || !bytes.length) throw unavailableError();
+      entropyPool = entropyPool.concat(bytes);
+      return entropyPool.length;
+    })
+    .catch(function (err) {
+      poolPending = null;
+      throw err && err.code ? err : unavailableError();
+    });
+
+  return poolPending;
+}
+
+/**
+ * 同步取 size 字节安全随机数。池不足即抛错——**永不回退 Math.random**。
+ * @param {number} size
+ */
+function randomBytes(size) {
+  var need = size;
+  if (!(need > 0)) return [];
+  if (entropyPool.length < need) {
+    // 池空/不足：明确失败，由上层转成"安全存储不可用"而不是写弱密钥
+    throw unavailableError();
+  }
+  var out = entropyPool.slice(0, need);
+  entropyPool = entropyPool.slice(need);
+  return out;
+}
+
+/** 仅供测试/诊断：查看池状态，不消耗。 */
+function entropyStatus() {
+  return { available: entropyPool.length, platformCspRng: platformCspRngAvailable() };
 }
 
 // ---- 指纹（web `keyFingerprint` :207-209 / `encodedKeyFingerprint` :212-216） ----
@@ -453,7 +568,6 @@ function errorKind(err) {
   }
   return 'unknown';
 }
-
 module.exports = {
   CREDENTIAL_SOURCE_KEY: CREDENTIAL_SOURCE_KEY,
   OS_SOURCE_MARKER: OS_SOURCE_MARKER,
@@ -474,6 +588,10 @@ module.exports = {
   encodeBase64url: encodeBase64url,
   decodeBase64url: decodeBase64url,
   randomBytes: randomBytes,
+  prefillEntropy: prefillEntropy,
+  entropyStatus: entropyStatus,
+  seedEntropyForTest: seedEntropyForTest,
+  platformCspRngAvailable: platformCspRngAvailable,
   bytesEqual: bytesEqual,
   keyFingerprint: keyFingerprint,
   encodedKeyFingerprint: encodedKeyFingerprint,

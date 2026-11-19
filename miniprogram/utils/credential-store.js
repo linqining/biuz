@@ -61,6 +61,9 @@ const REASON_KEY_INVALID = 'key-invalid';
 const REASON_KEY_FINGERPRINT_MISMATCH = 'key-fingerprint-mismatch';
 const REASON_RECORD_CORRUPT = 'record-corrupt';
 const REASON_STORAGE_UNAVAILABLE = 'storage-unavailable';
+// P-031 修复：平台未提供 CSPRNG / 预取失败 / 池容量不足。
+// 与「存储不可用」区分：这是密钥材料拿不到，写下去会变成弱密钥，必须拒绝写入。
+const REASON_ENTROPY_UNAVAILABLE = 'entropy-unavailable';
 
 /**
  * **纯函数**：读失败时是否允许清理该凭据（web 的 `isCredentialDecryptError`
@@ -282,12 +285,26 @@ function writeFields(values) {
   if (decision.mode === 'refuse') return { ok: false, reason: decision.reason };
 
   let keyEncoded = readRaw(KEY_SECRET);
-  if (!crypto.isEncodedKey(keyEncoded)) {
-    if (decision.mode !== 'create-pin') {
-      // 已有密文但密钥丢了：绝不生成替代密钥（web :266 注释：禁止生成替代密钥、误判损坏）
-      return { ok: false, reason: REASON_KEY_MISSING };
+  const needNewKey = !crypto.isEncodedKey(keyEncoded);
+  if (needNewKey && decision.mode !== 'create-pin') {
+    // 已有密文但密钥丢了：绝不生成替代密钥（web :266 注释：禁止生成替代密钥、误判损坏）
+    return { ok: false, reason: REASON_KEY_MISSING };
+  }
+
+  // P-031 修复：写前检查 CSPRNG 池容量（新建密钥 32B + 每字段 IV 12B）。
+  // 不足则明确失败并提示预取，**绝不退回 Math.random 写弱密钥**。
+  const requiredBytes = (needNewKey ? crypto.KEY_BYTES : 0) + names.length * crypto.IV_BYTES;
+  if (crypto.entropyStatus().available < requiredBytes) {
+    return { ok: false, reason: REASON_ENTROPY_UNAVAILABLE, needBytes: requiredBytes };
+  }
+
+  if (needNewKey) {
+    let fresh;
+    try {
+      fresh = crypto.encodeBase64url(crypto.randomBytes(crypto.KEY_BYTES));
+    } catch (err) {
+      return { ok: false, reason: REASON_ENTROPY_UNAVAILABLE, needBytes: requiredBytes };
     }
-    const fresh = crypto.encodeBase64url(crypto.randomBytes(crypto.KEY_BYTES));
     if (!writeRaw(KEY_SECRET, fresh)) return { ok: false, reason: REASON_STORAGE_UNAVAILABLE };
     keyEncoded = fresh;
   }
@@ -298,17 +315,47 @@ function writeFields(values) {
   }
   const keyBytes = crypto.decodeBase64url(keyEncoded);
   const fields = record.fields || {};
-  for (let i = 0; i < names.length; i += 1) {
-    const name = names[i];
-    fields[name] = crypto.buildCiphertext(String(values[name]), keyBytes, crypto.SOURCE_LOCAL);
+  try {
+    for (let i = 0; i < names.length; i += 1) {
+      const name = names[i];
+      fields[name] = crypto.buildCiphertext(String(values[name]), keyBytes, crypto.SOURCE_LOCAL);
+    }
+  } catch (err) {
+    // IV 池在循环中被其他调用耗尽等：不写半成品
+    return { ok: false, reason: REASON_ENTROPY_UNAVAILABLE, needBytes: requiredBytes };
   }
   if (!writeRaw(RECORD_KEY, { v: 2, fields: fields })) {
     return { ok: false, reason: REASON_STORAGE_UNAVAILABLE };
   }
-  // 旧明文键必须在密文写成功后才清（先写后清，失败不丢凭据）
-  removeRaw(LEGACY_JWT_KEY);
-  removeRaw(LEGACY_DESKTOP_KEY);
+  // 注意：这里**不**清旧明文键。写某类字段并不代表另一类明文已被迁移——
+  // 若在此无条件 removeRaw，用户「先连桌面」就会把尚未迁移的 `biuz.jwt` 删掉
+  // （登录永久丢失且无任何报错）。旧明文的删除权只归各自的迁移函数与 clearAll。
   return { ok: true, reason: null };
+}
+
+/**
+ * 异步写入：先确保 CSPRNG 池有足够字节再同步写。
+ * 池不足时自动向平台预取一次；平台不提供 CSPRNG 则明确失败（不写弱密钥）。
+ * @param {Object} values
+ * @returns {Promise<{ok:boolean, reason:string|null}>}
+ */
+function writeFieldsAsync(values) {
+  const names = Object.keys(values || {});
+  if (names.length === 0) return Promise.resolve({ ok: true, reason: null });
+  const needNewKey = !crypto.isEncodedKey(readRaw(KEY_SECRET));
+  const requiredBytes = (needNewKey ? crypto.KEY_BYTES : 0) + names.length * crypto.IV_BYTES;
+  const attempt = () => writeFields(values);
+
+  const pre = crypto.entropyStatus().available >= requiredBytes
+    ? Promise.resolve()
+    : crypto.prefillEntropy(requiredBytes);
+
+  return pre
+    .then(attempt)
+    .catch(function () {
+      // 预取失败（平台无 CSPRNG / 调用失败）：返回明确原因，不退化为弱随机
+      return { ok: false, reason: REASON_ENTROPY_UNAVAILABLE, needBytes: requiredBytes };
+    });
 }
 
 /** 在 `shouldClearOnFailure` 允许时才清该字段；其他原因一律保留整份容器。 */
@@ -338,13 +385,96 @@ function migrateLegacyJwt() {
   const legacy = readRaw(LEGACY_JWT_KEY);
   if (typeof legacy !== 'string' || !legacy) return { migrated: false, reason: null };
   const current = readCredentials(['jwt']);
-  if (current.outcome === OUTCOME_OK && current.fields.jwt) return { migrated: false, reason: null };
+  if (current.outcome === OUTCOME_OK && current.fields.jwt) {
+    // 已有可用加密 JWT：旧明文是历史残留（旧版本遗留/迁移中断），按 web 删除纪律清掉。
+    // 不覆盖已有密文——密文优先，明文只做清理。
+    removeRaw(LEGACY_JWT_KEY);
+    return { migrated: false, reason: null, cleaned: true };
+  }
   if (current.outcome === OUTCOME_UNAVAILABLE || current.outcome === OUTCOME_DECRYPT) {
     // 存在但坏/不可用的密文：不覆盖，交给上层按原因决策
     return { migrated: false, reason: current.reason };
   }
   const written = writeFields({ jwt: legacy });
+  // 先写后清：只有密文落盘成功才删明文（失败必须保留原值）
+  if (written.ok) removeRaw(LEGACY_JWT_KEY);
   return { migrated: written.ok, reason: written.reason };
+}
+
+/**
+ * 异步版迁移：先确保 CSPRNG 池就绪再同步写。
+ *
+ * 为什么必须有它：`wx.getRandomValues` 只有异步形态，冷启动时 `onLaunch` 的预取
+ * 尚未完成，池必然为空。若登录页在 `onLoad` 里调用同步 `migrateLegacyJwt()`，
+ * 结果恒为 `entropy-unavailable` → 旧明文用户表现为「未登录」且明文永不迁移。
+ * 因此启动首屏必须走本函数（内部 `prefillEntropy`），不能依赖同步版。
+ *
+ * @returns {Promise<{migrated:boolean, reason:string|null, cleaned?:boolean}>}
+ */
+function migrateLegacyJwtAsync() {
+  const legacy = readRaw(LEGACY_JWT_KEY);
+  if (typeof legacy !== 'string' || !legacy) return Promise.resolve({ migrated: false, reason: null });
+  const current = readCredentials(['jwt']);
+  if (current.outcome === OUTCOME_OK && current.fields.jwt) {
+    removeRaw(LEGACY_JWT_KEY);
+    return Promise.resolve({ migrated: false, reason: null, cleaned: true });
+  }
+  if (current.outcome === OUTCOME_UNAVAILABLE || current.outcome === OUTCOME_DECRYPT) {
+    return Promise.resolve({ migrated: false, reason: current.reason });
+  }
+  return writeFieldsAsync({ jwt: legacy }).then(function (written) {
+    // 先写后清：只删本函数负责的那一个明文键
+    if (written.ok) removeRaw(LEGACY_JWT_KEY);
+    return { migrated: written.ok, reason: written.reason };
+  });
+}
+
+/**
+ * 读取旧版明文桌面地址（`biuz.desktop`）。
+ * 旧版 `connection.js` 存的是对象 `{baseUrl, token}`；也容忍 JSON 字符串形态。
+ * @returns {{baseUrl:string, token:string}|null}
+ */
+function readLegacyDesktopAddress() {
+  const raw = readRaw(LEGACY_DESKTOP_KEY);
+  if (!raw) return null;
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try { obj = JSON.parse(raw); } catch (err) { return null; }
+  }
+  if (!obj || typeof obj !== 'object') return null;
+  const baseUrl = typeof obj.baseUrl === 'string' ? obj.baseUrl : '';
+  if (!baseUrl) return null;
+  return { baseUrl: baseUrl, token: typeof obj.token === 'string' ? obj.token : '' };
+}
+
+/**
+ * 一次性迁移：旧明文桌面地址（`biuz.desktop`，含配对 token）→ 加密容器。
+ *
+ * 为什么单列一个函数：`writeFields` 成功后虽会 `removeRaw(LEGACY_DESKTOP_KEY)`，
+ * 但那是「任意一次凭据写入的副作用」——只升级登录、不重新连接桌面端的用户，
+ * 明文 token 会一直留在本地；而一旦某次写入清掉它却没先迁移，用户的已保存连接
+ * 就永久丢失。所以必须**先读后写再清**，与 JWT 迁移同纪律。
+ *
+ * 安全约束：已有可用加密地址时不覆盖（加密优先）；坏/不可用的密文不覆盖。
+ * @returns {Promise<{migrated:boolean, reason:string|null, cleaned?:boolean}>}
+ */
+function migrateLegacyDesktopAsync() {
+  const legacy = readLegacyDesktopAddress();
+  if (!legacy) return Promise.resolve({ migrated: false, reason: null });
+  const current = readCredentials(['baseUrl', 'token']);
+  if (current.outcome === OUTCOME_OK && current.fields.baseUrl) {
+    // 已有可用加密地址：旧明文是残留，清掉（不覆盖密文）
+    removeRaw(LEGACY_DESKTOP_KEY);
+    return Promise.resolve({ migrated: false, reason: null, cleaned: true });
+  }
+  if (current.outcome === OUTCOME_UNAVAILABLE || current.outcome === OUTCOME_DECRYPT) {
+    return Promise.resolve({ migrated: false, reason: current.reason });
+  }
+  return writeFieldsAsync({ baseUrl: legacy.baseUrl, token: legacy.token }).then(function (written) {
+    // 先写后清：只删本函数负责的那一个明文键
+    if (written.ok) removeRaw(LEGACY_DESKTOP_KEY);
+    return { migrated: written.ok, reason: written.reason };
+  });
 }
 
 // ---- JWT / 连接地址便捷面（login.js 与 connection.js 的既有调用点同形） ----
@@ -360,6 +490,13 @@ function saveJwt(jwt) {
   return writeFields({ jwt: text });
 }
 
+/** 异步版：先预取 CSPRNG 再写，避免池不足导致登录失败（推荐调用方使用）。 */
+function saveJwtAsync(jwt) {
+  const text = String(jwt == null ? '' : jwt).trim();
+  if (!text) return Promise.resolve({ ok: false, reason: 'empty' });
+  return writeFieldsAsync({ jwt: text });
+}
+
 /** 连接地址（baseUrl/token）：token 与 JWT 一起加密，baseUrl 一并进容器（口径统一）。 */
 function readDesktopAddress() {
   const result = readCredentials(['baseUrl', 'token']);
@@ -371,6 +508,14 @@ function readDesktopAddress() {
 
 function saveDesktopAddress(baseUrl, token) {
   return writeFields({ baseUrl: String(baseUrl == null ? '' : baseUrl), token: String(token == null ? '' : token) });
+}
+
+/** 异步版：先预取 CSPRNG 再写（推荐调用方使用）。 */
+function saveDesktopAddressAsync(baseUrl, token) {
+  return writeFieldsAsync({
+    baseUrl: String(baseUrl == null ? '' : baseUrl),
+    token: String(token == null ? '' : token),
+  });
 }
 
 module.exports = {
@@ -391,6 +536,7 @@ module.exports = {
   REASON_KEY_FINGERPRINT_MISMATCH: REASON_KEY_FINGERPRINT_MISMATCH,
   REASON_RECORD_CORRUPT: REASON_RECORD_CORRUPT,
   REASON_STORAGE_UNAVAILABLE: REASON_STORAGE_UNAVAILABLE,
+  REASON_ENTROPY_UNAVAILABLE: REASON_ENTROPY_UNAVAILABLE,
   shouldClearOnFailure: shouldClearOnFailure,
   classifyFailure: classifyFailure,
   resolveSourceDecision: resolveSourceDecision,
@@ -399,11 +545,17 @@ module.exports = {
   readRecord: readRecord,
   readCredentials: readCredentials,
   writeFields: writeFields,
+  writeFieldsAsync: writeFieldsAsync,
   clearFieldOnCorruption: clearFieldOnCorruption,
   clearAll: clearAll,
   migrateLegacyJwt: migrateLegacyJwt,
+  migrateLegacyJwtAsync: migrateLegacyJwtAsync,
+  migrateLegacyDesktopAsync: migrateLegacyDesktopAsync,
+  readLegacyDesktopAddress: readLegacyDesktopAddress,
   readJwt: readJwt,
   saveJwt: saveJwt,
+  saveJwtAsync: saveJwtAsync,
   readDesktopAddress: readDesktopAddress,
   saveDesktopAddress: saveDesktopAddress,
+  saveDesktopAddressAsync: saveDesktopAddressAsync,
 };
