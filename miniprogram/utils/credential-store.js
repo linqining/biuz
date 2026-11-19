@@ -327,9 +327,9 @@ function writeFields(values) {
   if (!writeRaw(RECORD_KEY, { v: 2, fields: fields })) {
     return { ok: false, reason: REASON_STORAGE_UNAVAILABLE };
   }
-  // 旧明文键必须在密文写成功后才清（先写后清，失败不丢凭据）
-  removeRaw(LEGACY_JWT_KEY);
-  removeRaw(LEGACY_DESKTOP_KEY);
+  // 注意：这里**不**清旧明文键。写某类字段并不代表另一类明文已被迁移——
+  // 若在此无条件 removeRaw，用户「先连桌面」就会把尚未迁移的 `biuz.jwt` 删掉
+  // （登录永久丢失且无任何报错）。旧明文的删除权只归各自的迁移函数与 clearAll。
   return { ok: true, reason: null };
 }
 
@@ -396,6 +396,8 @@ function migrateLegacyJwt() {
     return { migrated: false, reason: current.reason };
   }
   const written = writeFields({ jwt: legacy });
+  // 先写后清：只有密文落盘成功才删明文（失败必须保留原值）
+  if (written.ok) removeRaw(LEGACY_JWT_KEY);
   return { migrated: written.ok, reason: written.reason };
 }
 
@@ -421,6 +423,8 @@ function migrateLegacyJwtAsync() {
     return Promise.resolve({ migrated: false, reason: current.reason });
   }
   return writeFieldsAsync({ jwt: legacy }).then(function (written) {
+    // 先写后清：只删本函数负责的那一个明文键
+    if (written.ok) removeRaw(LEGACY_JWT_KEY);
     return { migrated: written.ok, reason: written.reason };
   });
 }
@@ -467,6 +471,8 @@ function migrateLegacyDesktopAsync() {
     return Promise.resolve({ migrated: false, reason: current.reason });
   }
   return writeFieldsAsync({ baseUrl: legacy.baseUrl, token: legacy.token }).then(function (written) {
+    // 先写后清：只删本函数负责的那一个明文键
+    if (written.ok) removeRaw(LEGACY_DESKTOP_KEY);
     return { migrated: written.ok, reason: written.reason };
   });
 }

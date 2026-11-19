@@ -618,6 +618,34 @@ test('migrateLegacyJwtAsync + migrateLegacyDesktopAsync 并发只取一次 CSPRN
   assert.strictEqual(store.readDesktopAddress().token, 'tok-both');
 });
 
+// P-031 回归：写入某类字段时不得删除另一类的未迁移明文。
+// 曾把 removeRaw(LEGACY_*) 放在 writeFields 成功之后：用户「先连桌面」就会把
+// 尚未迁移的 biuz.jwt 静默删掉 → 登录永久丢失且无任何报错。
+test('writeFields 不得删除尚未迁移的旧明文（先连接后登录的丢凭据隐患）', async function () {
+  const wx = installWx();
+  const legacyJwt = 'legacy-jwt-' + 'h'.repeat(40);
+  wx.storage[store.LEGACY_JWT_KEY] = legacyJwt;
+  const written = await store.saveDesktopAddressAsync('http://10.0.0.9:9100', 'desk-token');
+  assert.strictEqual(written.ok, true);
+  assert.strictEqual(wx.storage[store.LEGACY_JWT_KEY], legacyJwt, '写桌面地址不得删掉未迁移的明文 JWT');
+  // 随后迁移仍必须能拿到它
+  const migrated = await store.migrateLegacyJwtAsync();
+  assert.strictEqual(migrated.migrated, true, '迁移必须仍能成功：' + JSON.stringify(migrated));
+  assert.strictEqual(store.readJwt().value, legacyJwt, '登录不得丢失');
+  assert.strictEqual(wx.storage[store.LEGACY_JWT_KEY], undefined, '迁移完成后才清明文');
+});
+
+test('migrateLegacyJwtAsync 不得删除尚未迁移的明文桌面地址', async function () {
+  const wx = installWx();
+  wx.storage[store.LEGACY_DESKTOP_KEY] = { baseUrl: 'http://10.0.0.11:9100', token: 'desk-keep' };
+  const migrated = await store.migrateLegacyJwtAsync();
+  assert.strictEqual(migrated.migrated, false, '没有明文 JWT 时应为空操作');
+  assert.ok(JSON.stringify(wx.storage).indexOf('desk-keep') >= 0, '桌面明文不得被 JWT 迁移删掉');
+  const desk = await store.migrateLegacyDesktopAsync();
+  assert.strictEqual(desk.migrated, true, '桌面迁移仍须成功：' + JSON.stringify(desk));
+  assert.strictEqual(store.readDesktopAddress().token, 'desk-keep');
+});
+
 // ---- 串行执行（与本仓既有 node 测试风格一致） ----
 
 (function run(i) {
