@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 840" role="img" aria-label="朱批印面卡">
+  <rect width="840" height="840" fill="#17181A"/>
+  <g transform="translate(140,140) scale(5.6)">
+    <path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
+    <path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+  </g>
+</svg>
