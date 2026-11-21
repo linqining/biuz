@@ -164,9 +164,10 @@ class RemoteTaskStore(
             "zcode-task",
             "onDynamicTaskEvent",
             RPCValue.json(JSONValue.Obj(fields)),
-        ) { payload ->
-            scope.launch { handleTaskEvent(payload.jsonValue) }
-        }
+            handler = { payload ->
+                scope.launch { handleTaskEvent(payload.jsonValue) }
+            },
+        )
         mutex.withLock {
             // 双重检查（并发订阅竞态：后来者让位并立即释放重复句柄）
             if (taskEventsSubscription != null) {
@@ -197,9 +198,10 @@ class RemoteTaskStore(
             "zcode-task",
             "onDynamicWorkspaceEvent",
             RPCValue.json(JSONValue.Obj(fields)),
-        ) { payload ->
-            scope.launch { handleWorkspaceEvent(payload.jsonValue) }
-        }
+            handler = { payload ->
+                scope.launch { handleWorkspaceEvent(payload.jsonValue) }
+            },
+        )
         mutex.withLock {
             if (workspaceEventsSubscription != null) {
                 subscription.cancel()

@@ -38,6 +38,7 @@ import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.JSONObjectBuilder
 import cn.biuz.android.protocol.JsonParseException
 import cn.biuz.android.protocol.RPCChannelTransport
+import cn.biuz.android.protocol.RPCError
 import cn.biuz.android.protocol.RPCValue
 import cn.biuz.android.protocol.EventSubscription
 import cn.biuz.android.store.ConversationStore
@@ -262,7 +263,9 @@ internal class ConnectionTransport(
         event: String,
         arg: RPCValue,
         handler: (RPCValue) -> Unit,
-    ): EventSubscription = connection.listen(channel, event, arg, handler) ?: EventSubscription { }
+        onError: ((RPCError) -> Unit)?,
+    ): EventSubscription = connection.listen(channel, event, arg, handler, onError)
+        ?: EventSubscription { }
 
     override suspend fun disconnect() = connection.disconnect()
 }
@@ -1542,6 +1545,9 @@ class AppSession(
             workspace = storeWorkspace,
             sessionsIndex = sessionsIndex,
             clientId = connection.registeredClientId,
+            // 3.17.2 输入预测能力门：hello.capabilities.inputPrediction === true 才发
+            // （装配先于 mode=.connected，握手已完成——hello 已定案；iOS 同口径）
+            inputPredictionEnabled = connection.inputPredictionAvailable(),
             backgroundDispatcher = backgroundDispatcher,
         )
         conversationStore.diagListener = { key, value -> diagListener?.invoke(key, value) }

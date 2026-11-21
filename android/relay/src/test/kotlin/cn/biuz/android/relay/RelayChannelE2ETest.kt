@@ -173,9 +173,10 @@ class RelayChannelE2ETest {
                 RPCValue.json(
                     JSONValue.Obj(linkedMapOf("workspacePath" to JSONValue.Str(server.workspacePath))),
                 ),
-            ) { payload ->
-                payload.jsonValue?.let { frames.trySend(it) }
-            }
+                handler = { payload ->
+                    payload.jsonValue?.let { frames.trySend(it) }
+                },
+            )
             awaitUntil("替身登记 conversation 帧监听") { server.hasEventListener(E2EStubServer.EVENT_CONVERSATION_FRAME) }
             val row = StubV4Frames.userRow(
                 rowId = 1,

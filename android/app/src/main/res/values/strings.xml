@@ -73,6 +73,7 @@
     <string name="composer_send">发送</string>
     <string name="composer_sending">发送中…</string>
     <string name="composer_readonly">桌面端只读 · 发送不可用</string>
+    <string name="composer_input_hint_accept">点按采纳</string>
     <!-- 发送失败持久错误行（U-6：草稿已回填 + 重试；拒因原文经 %1$s 透传，无在案拒因用通用行） -->
     <string name="chat_send_undelivered_generic">消息未送达 · 已恢复草稿</string>
     <string name="chat_send_undelivered_reason">消息未送达 · %1$s</string>

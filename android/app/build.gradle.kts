@@ -91,4 +91,7 @@ tasks.withType<KotlinCompile>().configureEach {
 // JVM 单测平台（testDebugUnitTest/testReleaseUnitTest）：与 store/connection 模块同口径。
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    // 替身活体宿主开关（StubLiveServerTest 文档口径 `gradle -D… -Dbiuz.stubLive=true`）：
+    // gradle -D 落在 daemon JVM，不自动透传 fork 的 test worker——显式转发
+    System.getProperty("biuz.stubLive")?.let { systemProperty("biuz.stubLive", it) }
 }

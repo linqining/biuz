@@ -68,6 +68,7 @@
     <string name="composer_send">Send</string>
     <string name="composer_sending">Sending…</string>
     <string name="composer_readonly">Desktop is read-only · sending unavailable</string>
+    <string name="composer_input_hint_accept">Tap to accept</string>
     <string name="chat_send_undelivered_generic">Message not delivered · draft restored</string>
     <string name="chat_send_undelivered_reason">Message not delivered · %1$s</string>
     <string name="composer_retry">Retry</string>

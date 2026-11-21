@@ -21,6 +21,18 @@ class StubLiveServerTest {
     @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "biuz.stubLive", matches = "true")
     fun hostStubUntilSentinel() {
         val server = E2EStubServer()
+        // 3.17.2 输入预测：Host 能力宣告 + 回执注水（模拟器 ghost hint 冒烟）
+        server.serverCapabilities["inputPrediction"] = JSONValue.Bool(true)
+        server.methodHandlers["conversationInputPredictionV4"] = { args ->
+            stubObj(
+                "decision" to JSONValue.Str("show"),
+                "candidates" to JSONValue.Arr(
+                    listOf(stubObj("text" to JSONValue.Str(" 替身预测续写文本"), "confidence" to JSONValue.Double(0.9))),
+                ),
+                "topConfidence" to JSONValue.Double(0.9),
+                "requestId" to JSONValue.Str(args?.get("requestId")?.stringValue ?: ""),
+            )
+        }
         val port = server.start()
         server.setSessionsIndexSnapshot(snapshot(server.workspacePath))
         File(PORT_FILE).writeText(port.toString())

@@ -96,6 +96,7 @@ enum class ResponseType(val rawValue: Int) {
     promiseError(202),
     promiseErrorObj(203),
     eventFire(204),
+    eventError(205),
     ;
 
     companion object {
@@ -177,7 +178,19 @@ fun interface WebSocketTransportFactory {
 interface RPCChannelTransport {
     suspend fun call(channel: String, command: String, arg: RPCValue = RPCValue.Undefined, timeout: Duration = 30.seconds): RPCValue
 
-    suspend fun listen(channel: String, event: String, arg: RPCValue = RPCValue.Undefined, handler: (RPCValue) -> Unit): EventSubscription
+    /**
+     * EventListen 一次，服务端按原 id 持续 EventFire（serialization：[102, id, channel, event] + arg）。
+     * [onError]：EventError(205) 订阅失败终态回调——服务端已终结订阅（channelClient.ts:176-185
+     * 同构：handler 移除、不写入正常事件流、不保留旧请求、无需回 dispose）；
+     * iOS ChannelClient.listen onError :271-279 双传输同构。
+     */
+    suspend fun listen(
+        channel: String,
+        event: String,
+        arg: RPCValue = RPCValue.Undefined,
+        handler: (RPCValue) -> Unit,
+        onError: ((RPCError) -> Unit)? = null,
+    ): EventSubscription
 
     suspend fun disconnect()
 }
@@ -228,6 +241,9 @@ class ChannelClient(
     private val pendingResponses = HashMap<Int, CompletableDeferred<RPCValue>>()
     private val initializeWaiters = ArrayList<CompletableDeferred<Unit>>()
     private val eventHandlers = HashMap<Int, (RPCValue) -> Unit>()
+
+    /** EventError(205) 订阅失败终态回调（id 键控；iOS eventErrorHandlers :141 同构）。 */
+    private val eventErrorHandlers = HashMap<Int, (RPCError) -> Unit>()
     private var onClosed: ((Throwable?) -> Unit)? = null
 
     /** Swift actor 串行化的 Kotlin 等价物；锁内禁挂起（send 为非挂起回调式）。 */
@@ -309,6 +325,7 @@ class ChannelClient(
             failPendingLocked(closedError)
             failInitializeWaitersLocked(closedError)
             eventHandlers.clear()
+            eventErrorHandlers.clear()
             closedCallback = onClosed
         }
         // 回调在锁外调用（回调可能重入本类；Swift actor 可重入挂起，Kotlin Mutex 不可重入）
@@ -326,6 +343,7 @@ class ChannelClient(
             failPendingLocked(rpcError)
             failInitializeWaitersLocked(rpcError)
             eventHandlers.clear()
+            eventErrorHandlers.clear()
             errorCallback = onClosed
         }
         errorCallback?.invoke(error)
@@ -410,6 +428,7 @@ class ChannelClient(
         event: String,
         arg: RPCValue,
         handler: (RPCValue) -> Unit,
+        onError: ((RPCError) -> Unit)?,
     ): EventSubscription {
         val body = RPCSerialization.serialize(arg)
         val id: Int
@@ -417,6 +436,7 @@ class ChannelClient(
             id = lastRequestId
             lastRequestId += 1
             eventHandlers[id] = handler
+            if (onError != null) eventErrorHandlers[id] = onError
             val header = RPCSerialization.serialize(
                 RPCValue.Arr(
                     listOf(
@@ -437,6 +457,7 @@ class ChannelClient(
 
     private suspend fun disposeEvent(id: Int) {
         mutex.withLock {
+            eventErrorHandlers.remove(id)
             val removed = eventHandlers.remove(id) != null
             if (!removed || state != State.Idle) return
             val header = RPCSerialization.serialize(
@@ -522,6 +543,17 @@ class ChannelClient(
                 // 多投递一条事件，与 store 层幂等消费兼容。
                 val handler = mutex.withLock { eventHandlers[id] }
                 handler?.invoke(body)
+            }
+            ResponseType.eventError -> {
+                // EventError(205)：订阅失败终态——移除 handler 并经 onError 上抛
+                // （channelClient.ts:176-185 同构：不写入正常事件流、不保留旧请求；
+                // 服务端已终结订阅，无需回 dispose。iOS ChannelClient.swift:364-368 同构）
+                val id = headerItems.getOrNull(1)?.intValue ?: return
+                val onError = mutex.withLock {
+                    eventHandlers.remove(id)
+                    eventErrorHandlers.remove(id)
+                }
+                onError?.invoke(decodeError(body))
             }
         }
     }

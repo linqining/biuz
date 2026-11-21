@@ -78,6 +78,7 @@ internal class FakeRemoteTransport : RPCChannelTransport {
         event: String,
         arg: RPCValue,
         handler: (RPCValue) -> Unit,
+        onError: ((RPCError) -> Unit)?,
     ): EventSubscription {
         if (event == RemoteSessionsIndexStore.EVENT_SESSIONS_INDEX_FRAME) {
             sessionsFrameHandler = handler

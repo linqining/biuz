@@ -332,6 +332,38 @@ data class FileContentPage(
     val isTruncated: Boolean,
 )
 
+// MARK: - 输入预测 ghost hint（3.17.2；iOS Models.swift:373-390 对位）
+
+/**
+ * 输入预测候选（mobile-input-prediction.md 线格式：0..3 个，confidence 降序；
+ * text 长度 1..40、单行、非纯空白、不 trim——接在草稿后面）。
+ */
+data class InputPredictionCandidate(
+    val text: String,
+    val confidence: Double,
+)
+
+/**
+ * 输入预测回执投影（spec「手机端建议⑤」）：仅 decision=="show" 展示首候选；
+ * `topText` 供 VM 直接拼接（draft + text，不 trim）。suppress 族（置信度不足/上下文
+ * 不足）/unavailable/cancelled 一律不展示（VM 侧任何异常/非 show = 无 hint，
+ * 不提示用户、不重试）。
+ */
+data class InputPredictionResult(
+    val decision: String,
+    val candidates: List<InputPredictionCandidate>,
+    val requestId: String?,
+    val revision: Long,
+) {
+    val topText: String?
+        get() {
+            if (decision != "show") return null
+            val first = candidates.firstOrNull() ?: return null
+            if (first.text.isBlank()) return null
+            return first.text
+        }
+}
+
 // MARK: - 会话存储协议（StoreProtocols.swift:15-292 + extension 默认 :326-507）
 
 /**
@@ -442,6 +474,20 @@ interface ConversationStore {
 
     /** 待处理交互投影列表（连接态 conversation state.pendingInteractions；演示态空）。（:81-82/:369-370） */
     suspend fun pendingInteractionList(conversationId: String): List<RemotePendingInteraction> = emptyList()
+
+    /**
+     * 3.17.2 输入预测（ghost hint）：只读、无状态查询，不改会话、不做 CAS。
+     * 能力门 `hello.capabilities.inputPrediction === true` 才发（连接装配注入；
+     * iOS inputPredictionAvailable :250-253 同口径）；任何异常 / 非 show 决策一律
+     * null（无 hint），不提示用户、不重试【实证·上游仓
+     * docs/web-remote-control/mobile-input-prediction.md +
+     * zcode-protocol-v4/input-prediction/contract.ts strict schema + spec 失败语义】。
+     * 请求 = 会话 target（workspace 寻址，A7）+ revision（当前 state 缓存，缓存键的一部分）
+     * + draft（超 4000 截断；空 = 预测下一条完整输入）+ requestId（原样回声供调用方丢过期）。
+     * （iOS RemoteConversationStore.inputPrediction :2924-2964 对位）
+     */
+    suspend fun inputPrediction(conversationId: String, draft: String, requestId: String): InputPredictionResult? =
+        null
 
     /** 重命名会话（连接态 zcode-task.renameTask 双写；演示态本地改）。（:83-84/:372-373） */
     suspend fun renameConversation(title: String, conversationId: String) {}

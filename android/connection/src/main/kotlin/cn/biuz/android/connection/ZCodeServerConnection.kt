@@ -392,6 +392,15 @@ class ZCodeServerConnection(
 
     private var helloMessage: V4HelloMessage? = null
 
+    /**
+     * 3.17.2 输入预测能力位（hello.capabilities.inputPrediction === true 才发请求；
+     * spec「能力探测」——false/缺席（旧 Host）不得发起；iOS
+     * ZCodeServerConnection.inputPredictionAvailable :250-253 直译）。装配层在
+     * assembleStores 时读取（握手完成后装配，hello 已定案）。
+     */
+    fun inputPredictionAvailable(): Boolean =
+        helloMessage?.capabilities?.get("inputPrediction") == true
+
     @Volatile
     private var frameSubscription: EventSubscription? = null
 
@@ -1252,9 +1261,18 @@ class ZCodeServerConnection(
         // 分片账本不跨流混用）；handler 仍按 frame.topic 精确匹配（routeFrame）
         val subscription = current.listen(
             "zcode-agent", "onDynamicConversationFrame", arg,
-        ) { payload ->
-            routeFrame(payload, assemblerKey = "conversation/$streamKey", handlerKey = null)
-        }
+            handler = { payload ->
+                routeFrame(payload, assemblerKey = "conversation/$streamKey", handlerKey = null)
+            },
+            onError = { error ->
+                scope.launch {
+                    log(ConnectLogLine.Kind.error, "conversation 帧流 EventError · $streamKey · ${error.message}")
+                    // 服务端已终结该订阅；清记账使下次会话订阅前 ensure 幂等重挂
+                    // （iOS ZCodeServerConnection.swift:1012-1019 同构）
+                    synchronized(routingLock) { conversationFrameStreams.remove(streamKey) }
+                }
+            },
+        )
         var superseded: EventSubscription? = null
         synchronized(routingLock) {
             superseded = conversationFrameStreams.put(streamKey, subscription)
@@ -1284,23 +1302,47 @@ class ZCodeServerConnection(
                 set("workspaceIdentity", identity)
             }
         }
-        val conversationSub = client.listen("zcode-agent", "onDynamicConversationFrame", arg) { payload ->
-            routeFrame(payload, assemblerKey = "conversation", handlerKey = null)
-        }
+        val conversationSub = client.listen(
+            "zcode-agent", "onDynamicConversationFrame", arg,
+            handler = { payload ->
+                routeFrame(payload, assemblerKey = "conversation", handlerKey = null)
+            },
+            onError = { error ->
+                scope.launch {
+                    log(ConnectLogLine.Kind.error, "conversation 帧流 EventError · ${error.message}")
+                    synchronized(routingLock) { conversationFrameStreams.remove(wsPath) }
+                }
+            },
+        )
         synchronized(routingLock) { conversationFrameStreams[wsPath] = conversationSub }
-        val sessionsSub = client.listen("zcode-agent", "onDynamicSessionsIndexFrame", arg) { payload ->
-            routeFrame(payload, assemblerKey = "sessions", handlerKey = "sessions-index")
-        }
-        val configSub = client.listen("zcode-agent", "onDynamicWorkspaceConfigFrame", arg) { payload ->
-            routeFrame(payload, assemblerKey = "workspace-config", handlerKey = "workspace-config")
-        }
+        val sessionsSub = client.listen(
+            "zcode-agent", "onDynamicSessionsIndexFrame", arg,
+            handler = { payload ->
+                routeFrame(payload, assemblerKey = "sessions", handlerKey = "sessions-index")
+            },
+            onError = { error ->
+                scope.launch { log(ConnectLogLine.Kind.error, "sessions-index 帧流 EventError · ${error.message}") }
+            },
+        )
+        val configSub = client.listen(
+            "zcode-agent", "onDynamicWorkspaceConfigFrame", arg,
+            handler = { payload ->
+                routeFrame(payload, assemblerKey = "workspace-config", handlerKey = "workspace-config")
+            },
+            onError = { error ->
+                scope.launch { log(ConnectLogLine.Kind.error, "workspace-config 帧流 EventError · ${error.message}") }
+            },
+        )
         // zcode-task.onError：固定事件（无参），错误文本进连接日志面板
-        val taskErrorSub = client.listen("zcode-task", "onError", RPCValue.Undefined) { payload ->
-            val message = payload.jsonValue?.get("message")?.stringValue
-                ?: payload.stringValue
-                ?: "未知错误"
-            scope.launch { log(ConnectLogLine.Kind.error, "zcode-task.onError · $message") }
-        }
+        val taskErrorSub = client.listen(
+            "zcode-task", "onError", RPCValue.Undefined,
+            handler = { payload ->
+                val message = payload.jsonValue?.get("message")?.stringValue
+                    ?: payload.stringValue
+                    ?: "未知错误"
+                scope.launch { log(ConnectLogLine.Kind.error, "zcode-task.onError · $message") }
+            },
+        )
         // workspace-config 订阅（promise 面）：runtimePolicy=existing-only，
         // 被动观察者禁止为订阅拉起 Agent（zcodeAgent.ts:527-529 注释口径）。
         // 服务端为 additive 演进面，旧版本不支持时订阅静默失败（chips 回退演示值）。
@@ -1504,10 +1546,11 @@ class ZCodeServerConnection(
         event: String,
         arg: RPCValue = RPCValue.Undefined,
         handler: (RPCValue) -> Unit,
+        onError: ((RPCError) -> Unit)? = null,
     ): EventSubscription? {
         val current = client
         if (current == null || !isActive) return null
-        return current.listen(channel, event, arg, handler = handler)
+        return current.listen(channel, event, arg, handler = handler, onError = onError)
     }
 
     /** 曾连接后的真实传输中断 → 通知装配层切 .disconnected（横幅）。

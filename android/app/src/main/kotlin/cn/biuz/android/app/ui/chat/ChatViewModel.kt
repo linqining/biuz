@@ -71,6 +71,9 @@ class ChatViewModel(
         /** 撤焦→呈现延迟（iOS ChatView.swift:2187：120_000_000 ns）。 */
         const val PANEL_DELAY_MS = 120L
 
+        /** 输入预测防抖窗（spec 手机端建议② 600–800ms 中值；iOS ChatViewModel :1355 700ms 同值）。 */
+        const val INPUT_PREDICTION_DEBOUNCE_MS = 700L
+
         /** 斜杠提示 3s 自动清除（iOS ChatViewModel.swift:1112）。 */
         const val SLASH_HINT_CLEAR_MS = 3_000L
 
@@ -209,6 +212,22 @@ class ChatViewModel(
     /** composer 草稿（发送先清稿、失败回填 U-6）。 */
     private val _draft = MutableStateFlow("")
     val draft: StateFlow<String> get() = _draft
+
+    // MARK: 3.17.2 输入预测 ghost hint（iOS ChatViewModel :1345-1390 直译）
+
+    /**
+     * 灰字续写 hint（decision=="show" 首候选；点按采纳拼到草稿尾部，不 trim）。
+     * 任何异常 / 非 show 决策 = null，不提示用户【实证·上游仓
+     * docs/web-remote-control/mobile-input-prediction.md】。
+     */
+    private val _inputHint = MutableStateFlow<String?>(null)
+    val inputHint: StateFlow<String?> get() = _inputHint
+
+    /** 在途防抖 Job（新输入即取消——不再匹配当前草稿）。 */
+    private var predictionJob: Job? = null
+
+    /** 请求序号（requestId "r-N"；迟到回包按非最新丢弃，spec 手机端建议③）。 */
+    private var predictionSeq = 0
 
     val isSending: StateFlow<Boolean> get() = _sending
     private val _sending = MutableStateFlow(false)
@@ -629,6 +648,8 @@ class ChatViewModel(
         isReadOnly = store.isReadOnly
         // 换源即重置投影（防旧 Store 残影混入新源）
         _messages.value = emptyList()
+        // 切会话：作废在途预测并清 hint（iOS send/attach 同口径——requestId 自增失配）
+        invalidateInputHint()
         _loadFailure.value = null
         _pendingInteractions.value = emptyList()
         _decidedInteractionIds.value = emptySet()
@@ -701,6 +722,12 @@ class ChatViewModel(
             val current = _messages.value
             val reduced = reduceMessages(current, event, conversationId)
             if (reduced !== current) _messages.value = reduced
+            if (event is ConversationEvent.MessageAppended && event.conversationId == conversationId) {
+                // 新行 = revision 前进：仅清已显示 hint，不取消在途预测/防抖——取消会让
+                // 有活动期间永远不出 hint（iOS :831-838 v1.39 E2E 实测同口径）；在途结果
+                // 仍受 requestId + 草稿快照双重校验（spec「不是最新的就丢弃」由这两道守卫承担）
+                clearInputHintDisplay()
+            }
             applyConversationRowProjection(event)
             // 面板/模式/模型 chip/队列投影逐事件覆盖（iOS refreshPendingInteractions /
             // refreshCollaborationModeProjection / refreshSessionModelOverlay 同挂点——
@@ -805,6 +832,59 @@ class ChatViewModel(
         }
     }
 
+    // MARK: 输入预测（3.17.2 ghost hint；iOS ChatViewModel :1349-1390 直译）
+
+    /**
+     * 草稿变化触发（Composer onChange）：防抖 ~700ms 后请求续写预测。每次变化
+     * 先清旧 hint（不再匹配当前草稿）；演示态/无能力门由 store 侧返 null 兜底。
+     * 触发口径（spec 手机端建议②）：非空草稿停顿即预测续写；空草稿仅在失焦时
+     * 预测下一条输入——聚焦清空〔发送后〕不立即触发（焦点条件由 UI 承担）。
+     */
+    fun scheduleInputPrediction() {
+        predictionJob?.cancel()
+        _inputHint.value = null
+        if (!isReadOnly) return
+        val snapshot = _draft.value
+        predictionJob = scope.launch {
+            delay(INPUT_PREDICTION_DEBOUNCE_MS)
+            requestInputPrediction(snapshot)
+        }
+    }
+
+    private suspend fun requestInputPrediction(snapshot: String) {
+        predictionSeq += 1
+        val seq = predictionSeq
+        val requestId = "r-$seq"
+        val store = attachedStore ?: return
+        val result = store.inputPrediction(conversationId, draft = snapshot, requestId = requestId)
+        // 过期丢弃（spec 手机端建议③⑤）：requestId 非最新 / 草稿已变 / 决策非 show
+        if (seq != predictionSeq || _draft.value != snapshot) return
+        val text = result?.topText ?: return
+        _inputHint.value = text
+    }
+
+    /** 点按采纳：续写拼到草稿尾部（spec：draft + text，不 trim——英文续写可空格起头）；清 hint。 */
+    fun acceptInputHint() {
+        val text = _inputHint.value ?: return
+        _draft.value += text
+        _inputHint.value = null
+    }
+
+    /** 发送/新 revision/切会话：作废在途预测并清 hint（requestId 自增使迟到回包失配）。 */
+    fun invalidateInputHint() {
+        predictionJob?.cancel()
+        predictionSeq += 1
+        _inputHint.value = null
+    }
+
+    /**
+     * 仅清显示（不取消在途/防抖）：新行到达时 revision 前进，旧 hint 不该继续显示，
+     * 但用户草稿未变——在途预测仍可落地（spec 丢弃语义由 requestId/草稿校验承担）。
+     */
+    fun clearInputHintDisplay() {
+        _inputHint.value = null
+    }
+
     /**
      * 发送入口（UI 在自身作用域 launch）。返回是否进入送达链（仅用于测试断言；
      * 失败反馈全部落 StateFlow 由 UI 呈现）。
@@ -813,6 +893,7 @@ class ChatViewModel(
         if (_sending.value) return false
         val text = _draft.value.trim()
         if (text.isEmpty()) return false
+        invalidateInputHint()
         val intent = parseSlashIntent(text)
         if (intent is SlashIntent.Plan) {
             return sendPlanBranch(intent, originalText = text)

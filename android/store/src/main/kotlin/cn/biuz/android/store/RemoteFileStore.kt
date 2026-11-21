@@ -172,9 +172,10 @@ class RemoteFileStore(
             if (id != null) eventFields["id"] = JSONValue.Str(id)
             handle = transport.listen(
                 "file-watcher", "onDynamicChange", RPCValue.json(JSONValue.Obj(eventFields)),
-            ) { _ ->
-                scope.launch { invalidateTree() }
-            }
+                handler = { _ ->
+                    scope.launch { invalidateTree() }
+                },
+            )
             mutex.withLock {
                 if (watcherStarted) {
                     handle.cancel() // 并发竞态：后来者让位并释放重复句柄

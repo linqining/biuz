@@ -28,7 +28,7 @@ struct ConversationListView: View {
     @State private var collapsedGroups: Set<String> = []
 
     /// 列表视图（web home「筛选视图」四档，`ProjectSidebarListHeader.tsx:87-102` 逐字同名）。
-    /// `.grouped` 需要 task-groups 数据源（移动端未接入），选中时给如实提示而非空列表。
+    /// `.grouped` 由 task-groups.read 驱动（P-013 iOS 同构已落；viewMode 切换即拉数据）。
     enum ListViewMode: String, CaseIterable, Identifiable {
         case projects, grouped, timeline, unread
         var id: String { rawValue }

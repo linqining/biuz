@@ -83,9 +83,9 @@
       "app": {
         "ios": "RootView VersionNoticeOverlay（阻断层，仅重新加载）",
         "android": "BiuZApp versionMismatch 阻断层",
-        "miniprogram": "pages/devices/devices#version"
+        "miniprogram": "待建（008-版本提示；P-016）"
       },
-      "note": "桌面版本不匹配时阻塞交互的原生 dialog；双端缺失"
+      "note": "桌面版本不匹配时阻塞交互的原生 dialog；iOS（RootView VersionNoticeOverlay）/Android（VersionGuard）已在位，小程序待接（2026-11-21 按代码实态校正——原 miniprogram 行与实态不符）"
     },
     {
       "key": "009-分享落地",

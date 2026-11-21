@@ -12,6 +12,8 @@ import cn.biuz.android.store.AttachmentUploadService
 import cn.biuz.android.store.ConversationEvent
 import cn.biuz.android.store.ConversationQueueInfo
 import cn.biuz.android.store.ConversationStore
+import cn.biuz.android.store.InputPredictionCandidate
+import cn.biuz.android.store.InputPredictionResult
 import cn.biuz.android.store.ModelPlanGroup
 import cn.biuz.android.store.ModelSelectionInfo
 import cn.biuz.android.store.NewSessionModelSelection
@@ -19,9 +21,11 @@ import cn.biuz.android.store.OutgoingAttachment
 import cn.biuz.android.store.RemoteQueueItem
 import cn.biuz.android.store.SessionModelSelection
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -244,6 +248,43 @@ private class FakeConversationStore(
     override suspend fun setAutoDrain(conversationId: String, enabled: Boolean): JSONValue? {
         queueCalls.add("autoDrain" to enabled.toString())
         return queueAck
+    }
+
+    // MARK: 3.17.2 输入预测（ghost hint）
+
+    /** 连接态只读边界（VM scheduleInputPrediction 门 = isReadOnly）。 */
+    override val isReadOnly: Boolean get() = readOnly
+
+    var readOnly: Boolean = false
+
+    @Volatile
+    var predictionResult: InputPredictionResult? = null
+
+    /** 非空 = 预测请求抛错（spec 失败语义注水）。 */
+    @Volatile
+    var predictionError: Throwable? = null
+
+    /**
+     * 在途时延（ms；模拟 CLI 20s 慢回包）。VM 侧 Job 取消时吞掉 CancellationException
+     * 模拟「RPC 不可立即取消」的迟到回包——过期丢弃守卫（requestId/草稿快照）由此可测。
+     */
+    var predictionDelayMs: Long = 0
+
+    val predictionCalls = CopyOnWriteArrayList<Triple<String, String, String>>() // conv|draft|requestId
+
+    override suspend fun inputPrediction(
+        conversationId: String,
+        draft: String,
+        requestId: String,
+    ): InputPredictionResult? {
+        predictionCalls.add(Triple(conversationId, draft, requestId))
+        try {
+            if (predictionDelayMs > 0) delay(predictionDelayMs)
+        } catch (e: CancellationException) {
+            // 模拟桌面同会话替代的迟到回包：取消不中断回执（守卫面由此可测）
+        }
+        predictionError?.let { throw it }
+        return predictionResult
     }
 }
 
@@ -864,6 +905,155 @@ class ChatViewModelTest {
         assertFalse(vm.enqueueAttachment(name = "big.mp4", mediaType = "video/mp4", data = oversize))
         assertTrue(vm.uploadsSnapshot().isEmpty())
         assertTrue(vm.uploadHint.value?.contains("20MB") == true)
+    }
+
+    // MARK: 3.17.2 输入预测 ghost hint（spec 手机端建议②③⑤；iOS :1349-1390 直译）
+
+    private fun predictionStore(): FakeConversationStore =
+        FakeConversationStore().apply {
+            readOnly = true // VM 门 = isReadOnly（连接态只读边界）
+            predictionResult = InputPredictionResult(
+                decision = "show",
+                candidates = listOf(InputPredictionCandidate(text = " 再跑一遍测试", confidence = 0.9)),
+                requestId = "r-1",
+                revision = 0,
+            )
+        }
+
+    @Test
+    fun inputHintArrivesAfterDebounceAndAcceptAppendsUntrimmed() = runTest {
+        val store = predictionStore()
+        val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm.attach(store)
+        advanceUntilIdle()
+
+        vm.updateDraft("帮我")
+        vm.scheduleInputPrediction()
+        // 防抖窗内无请求、无 hint（每次变化先清旧 hint）
+        assertNull(vm.inputHint.value)
+        assertTrue(store.predictionCalls.isEmpty())
+
+        advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
+        runCurrent()
+        assertEquals(1, store.predictionCalls.size)
+        assertEquals("sess-1", store.predictionCalls[0].first)
+        assertEquals("帮我", store.predictionCalls[0].second)
+        // attach 重绑已自增一次序号（切会话作废在途语义），首个请求 = r-2
+        assertEquals("r-2", store.predictionCalls[0].third)
+        assertEquals(" 再跑一遍测试", vm.inputHint.value)
+
+        // 点按采纳：draft + text 不 trim（英文续写可空格起头）+ hint 出账
+        vm.acceptInputHint()
+        assertEquals("帮我 再跑一遍测试", vm.draft.value)
+        assertNull(vm.inputHint.value)
+    }
+
+    @Test
+    fun readOnlyGateBlocksPredictionRequests() = runTest {
+        val store = predictionStore().apply { readOnly = false } // 演示态口径
+        val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm.attach(store)
+        advanceUntilIdle()
+        vm.updateDraft("帮我")
+        vm.scheduleInputPrediction()
+        advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
+        advanceUntilIdle()
+        assertTrue(store.predictionCalls.isEmpty(), "非只读态（演示/未连接）不得发预测请求")
+        assertNull(vm.inputHint.value)
+    }
+
+    @Test
+    fun staleReplyDroppedAfterNewerRequest() = runTest {
+        val store = predictionStore().apply { predictionDelayMs = 5_000 } // call1 慢回包
+        val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm.attach(store)
+        advanceUntilIdle()
+
+        vm.updateDraft("aaa")
+        vm.scheduleInputPrediction()
+        advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
+        runCurrent() // call1 在途
+        assertEquals(1, store.predictionCalls.size)
+
+        // 新请求（同会话替代语义）：call2 快回包换新结果；call1 迟到回包 = requestId 非最新 → 丢弃
+        store.predictionResult = InputPredictionResult(
+            decision = "show",
+            candidates = listOf(InputPredictionCandidate(text = " fresh", confidence = 0.9)),
+            requestId = "r-2",
+            revision = 0,
+        )
+        vm.updateDraft("aaa bbb")
+        vm.scheduleInputPrediction()
+        advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
+        advanceUntilIdle() // call1 迟到回包落放
+        assertEquals(2, store.predictionCalls.size)
+        assertEquals(" fresh", vm.inputHint.value, "迟到回包按非最新 requestId 丢弃（spec 手机端建议③）")
+    }
+
+    @Test
+    fun draftMismatchDropsHint() = runTest {
+        val store = predictionStore().apply { predictionDelayMs = 5_000 }
+        val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm.attach(store)
+        advanceUntilIdle()
+
+        vm.updateDraft("aaa")
+        vm.scheduleInputPrediction()
+        advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
+        runCurrent() // 在途
+        // 用户继续输入（草稿快照失配）→ 迟到回包不得上屏
+        vm.updateDraft("aaa2")
+        advanceUntilIdle()
+        assertNull(vm.inputHint.value, "草稿已变 = 回包过期（spec 手机端建议③）")
+    }
+
+    @Test
+    fun nonShowDecisionNeverDisplaysHint() = runTest {
+        val store = predictionStore().apply {
+            predictionResult = InputPredictionResult(
+                decision = "suppress_below_threshold",
+                candidates = listOf(InputPredictionCandidate(text = " 不展示", confidence = 0.5)),
+                requestId = "r-1",
+                revision = 0,
+            )
+        }
+        val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm.attach(store)
+        advanceUntilIdle()
+        vm.updateDraft("帮我")
+        vm.scheduleInputPrediction()
+        advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
+        advanceUntilIdle()
+        assertEquals(1, store.predictionCalls.size)
+        assertNull(vm.inputHint.value, "仅 decision==show 展示首候选（spec 手机端建议⑤）")
+    }
+
+    @Test
+    fun sendAndRebindInvalidateHint() = runTest {
+        val store = predictionStore()
+        val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm.attach(store)
+        advanceUntilIdle()
+        vm.updateDraft("待发送")
+        vm.scheduleInputPrediction()
+        advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
+        runCurrent()
+        assertEquals(" 再跑一遍测试", vm.inputHint.value)
+
+        // 发送入口作废在途 + 清 hint（iOS send :1273 同口径）
+        vm.send()
+        advanceUntilIdle()
+        assertNull(vm.inputHint.value)
+
+        // 换源重绑（attach 新实例）同样出账
+        vm.updateDraft("重绑前草稿")
+        vm.scheduleInputPrediction()
+        advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
+        runCurrent()
+        assertEquals(" 再跑一遍测试", vm.inputHint.value)
+        vm.attach(FakeConversationStore().apply { readOnly = true })
+        advanceUntilIdle()
+        assertNull(vm.inputHint.value, "切会话/换源：作废在途预测并清 hint")
     }
 }
 

@@ -124,9 +124,12 @@ class RemoteSessionsIndexStore(
         // 帧 handler 先于订阅注册：中继桥快照帧在 subscribe 回执前即推，
         // 对未注册 topic 的帧会丢弃（workspace-config 的 replay 机制同一动因）
         val listenArg = RPCValue.json(JSONValue.Obj(LinkedHashMap(fields)))
-        val handle = transport.listen("zcode-agent", EVENT_SESSIONS_INDEX_FRAME, listenArg) { payload ->
-            scope.launch { handleSessionsIndexPayload(payload.jsonValue) }
-        }
+        val handle = transport.listen(
+            "zcode-agent", EVENT_SESSIONS_INDEX_FRAME, listenArg,
+            handler = { payload ->
+                scope.launch { handleSessionsIndexPayload(payload.jsonValue) }
+            },
+        )
         mutex.withLock {
             if (subscription != null) {
                 handle.cancel()

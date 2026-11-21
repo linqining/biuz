@@ -456,6 +456,7 @@ class WorkflowRunsArbitrationTest {
             event: String,
             arg: RPCValue,
             handler: (RPCValue) -> Unit,
+            onError: ((RPCError) -> Unit)?,
         ): cn.biuz.android.protocol.EventSubscription = cn.biuz.android.protocol.EventSubscription { }
 
         override suspend fun disconnect() {}

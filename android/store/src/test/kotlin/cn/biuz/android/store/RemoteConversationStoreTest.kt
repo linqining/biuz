@@ -310,6 +310,7 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
         event: String,
         arg: RPCValue,
         handler: (RPCValue) -> Unit,
+        onError: ((RPCError) -> Unit)?,
     ): EventSubscription {
         if (event == RemoteSessionsIndexStore.EVENT_SESSIONS_INDEX_FRAME) {
             sessionsIndexFrameHandler = handler

@@ -63,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -136,6 +137,8 @@ fun ChatScreen(
     val surface by session.storeSurface.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val focusManager: FocusManager = LocalFocusManager.current
+    // 输入框聚焦态（ghost hint 触发口径：空草稿仅失焦时预测下一条——spec 手机端建议②）
+    var composerFocused by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     // VM 宿主 = 路由会话；store 换源（StoreSurface.epoch 换装配世代 → conversation 新实例）
     // 走 attach 重绑（同实例幂等短路）
@@ -155,6 +158,8 @@ fun ChatScreen(
     val pendingInteractions by viewModel.pendingInteractions.collectAsStateWithLifecycle()
     val decidedIds by viewModel.decidedInteractionIds.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
+    // 3.17.2 输入预测 ghost hint（灰字续写，点按采纳；iOS ComposerBar 05-input-hint 同构）
+    val inputHint by viewModel.inputHint.collectAsStateWithLifecycle()
     val sending by viewModel.isSending.collectAsStateWithLifecycle()
     val sendFailureReason by viewModel.sendFailureReason.collectAsStateWithLifecycle()
     val feedbackFailure by viewModel.feedbackFailure.collectAsStateWithLifecycle()
@@ -698,6 +703,41 @@ fun ChatScreen(
                     )
                 }
             }
+            // 3.17.2 输入预测 ghost hint（灰字续写，点按采纳拼到草稿尾部）。仅连接态 +
+            // Host 能力门开启时 store 才返候选；无 hint 不渲染整行（同附件条「无排队不渲染」）
+            val ghostHint = inputHint
+            if (readOnly && ghostHint != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            viewModel.acceptInputHint()
+                        }
+                        .testTag("05-input-hint"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "⌨",
+                        fontSize = 11.sp,
+                        color = BiuZText3,
+                    )
+                    Spacer(Modifier.size(BiuZSpacing.sm))
+                    Text(
+                        text = ghostHint,
+                        style = TextStyle(fontSize = 13.sp),
+                        color = BiuZText2,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.size(BiuZSpacing.sm))
+                    Text(
+                        text = stringResource(R.string.composer_input_hint_accept),
+                        style = TextStyle(fontSize = 10.5.sp),
+                        color = BiuZText3,
+                    )
+                }
+            }
             // 输入行（附件钮 + 输入框 + 发送钮；iOS ComposerBar inputRow 同构）
             Row(verticalAlignment = Alignment.Bottom) {
                 // 附件钮（＋；系统 photo picker 承载——ImageAndVideo 过滤含视频）
@@ -722,10 +762,21 @@ fun ChatScreen(
                 }
                 BasicTextField(
                     value = draft,
-                    onValueChange = viewModel::updateDraft,
+                    onValueChange = { text ->
+                        viewModel.updateDraft(text)
+                        // 3.17.2 输入预测：非空草稿停顿即预测续写；空草稿仅失焦+空闲时预测
+                        // 下一条（spec「输入框为空、失焦且会话空闲」——聚焦清空〔发送后〕
+                        // 不立即触发）。iOS ChatView onChange :1806-1813 同口径
+                        if (text.isNotEmpty() || !composerFocused) {
+                            viewModel.scheduleInputPrediction()
+                        } else {
+                            viewModel.invalidateInputHint()
+                        }
+                    },
                     textStyle = TextStyle(fontSize = 14.5.sp, color = BiuZText, lineHeight = 20.sp),
                     modifier = Modifier
                         .weight(1f)
+                        .onFocusChanged { composerFocused = it.isFocused }
                         .clip(BiuZRadius.medium)
                         .background(BiuZBgInput)
                         .border1()

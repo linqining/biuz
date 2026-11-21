@@ -164,6 +164,13 @@ class RemoteConversationStore(
      * 构造注入即单一来源。
      */
     private val clientId: String,
+    /**
+     * 3.17.2 输入预测能力门：hello.capabilities.inputPrediction === true 才发请求
+     * （spec「手机端建议①」）。装配层在握手完成后从连接实例注入
+     * （connection.inputPredictionAvailable()——iOS :250-253 同口径）；Store 与连接
+     * 同生命周期重建，构造注入即单一来源。false = 恒 null（旧 Host / 未宣告）。
+     */
+    private val inputPredictionEnabled: Boolean = false,
     backgroundDispatcher: CoroutineDispatcher = Dispatchers.Default,
     /**
      * keep-warm 租约窗（毫秒）。上游 sessionDataLayer.ts:30-31：生产 30_000 / E2E 1_000；
@@ -1821,6 +1828,69 @@ class RemoteConversationStore(
     }
 
     /**
+     * 3.17.2 输入预测（ghost hint）真实实现（iOS RemoteConversationStore.inputPrediction
+     * :2924-2964 直译）。只读、无状态查询：请求 = 会话 target（A7 寻址）+ revision
+     * （当前 state 缓存，参与服务端缓存键）+ draft（≤4000 截断；空省略 = 预测下一条
+     * 完整输入）+ requestId（≤128，原样回声供 VM 丢过期）【实证·上游仓
+     * docs/web-remote-control/mobile-input-prediction.md 线格式 +
+     * zcode-protocol-v4/input-prediction/contract.ts strict schema】。
+     * 手机侧超时 25s 略长于 CLI 20s（spec 手机端建议④——让服务端降级结果先到达）。
+     * service 层失败统一回 unavailable 不抛错；RPC 错误（断连/超时）按 spec 失败语义
+     * 「任何异常 = 无 hint」吞掉返回 null，不提示用户、不重试。
+     */
+    override suspend fun inputPrediction(conversationId: String, draft: String, requestId: String): InputPredictionResult? {
+        if (!inputPredictionEnabled) return null
+        val revision = mutex.withLock { conversationStateRevisions[conversationId] ?: 0L }
+        val fields = LinkedHashMap<String, JSONValue>()
+        applySessionTarget(fields, conversationId)
+        // revision 32 位值域口径（RPCSerialization.kt:30-32：域外整数落 integral double）
+        fields["revision"] = if (revision in Int.MIN_VALUE..Int.MAX_VALUE) {
+            JSONValue.Int(revision.toInt())
+        } else {
+            JSONValue.Double(revision.toDouble())
+        }
+        val clampedDraft = draft.take(INPUT_PREDICTION_MAX_DRAFT_CHARS)
+        if (clampedDraft.isNotEmpty()) {
+            fields["draft"] = JSONValue.Str(clampedDraft)
+        }
+        fields["requestId"] = JSONValue.Str(requestId.take(INPUT_PREDICTION_MAX_REQUEST_ID_CHARS))
+        return try {
+            val result = transport.call(
+                "zcode-agent", "conversationInputPredictionV4",
+                RPCValue.json(JSONValue.Obj(fields)),
+                timeout = 25.seconds,
+            )
+            parseInputPrediction(result.jsonValue, revision)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * 输入预测回执解析（contract.ts 回执宽容读面）：decision 必填（缺席/形状不识别
+     * → null 无 hint）；candidates {text, confidence} 逐元素宽容；requestId 原样回声
+     * ——过期丢弃（requestId 非最新 / 草稿已变）由 VM 承担（spec「手机端建议③」）。
+     */
+    fun parseInputPrediction(json: JSONValue?, revision: Long): InputPredictionResult? {
+        val dict = json?.objectValue ?: return null
+        val decision = dict["decision"]?.stringValue ?: return null
+        val candidates = (dict["candidates"]?.arrayValue ?: emptyList()).mapNotNull { item ->
+            val obj = item.objectValue ?: return@mapNotNull null
+            val text = obj["text"]?.stringValue ?: return@mapNotNull null
+            val confidence = obj["confidence"]?.doubleValue ?: return@mapNotNull null
+            InputPredictionCandidate(text = text, confidence = confidence)
+        }
+        return InputPredictionResult(
+            decision = decision,
+            candidates = candidates,
+            requestId = dict["requestId"]?.stringValue,
+            revision = revision,
+        )
+    }
+
+    /**
      * workspaceHookReview 审核项宽容解析（iOS :2982-3008）：列表键链
      * reviewItems|items|hooks|reviewFlowItems（payload 优先、顶层次之）；元素 id 链
      * reviewItemId|id|hookId（reviewItemId 为 web 应答键实证，排首位）。
@@ -3427,12 +3497,13 @@ class RemoteConversationStore(
         if (modelSelectionSubscription != null) return
         val subscription = transport.listen(
             "model-selection", "onDidChange", RPCValue.Undefined,
-        ) { _ ->
-            scope.launch {
-                modelSelectionCache = null
-                modelSelectionView()
-            }
-        }
+            handler = { _ ->
+                scope.launch {
+                    modelSelectionCache = null
+                    modelSelectionView()
+                }
+            },
+        )
         // 双重检查（并发订阅竞态：后来者让位并立即释放重复句柄）
         if (modelSelectionSubscription != null) {
             subscription.cancel()
@@ -4085,6 +4156,12 @@ class RemoteConversationStore(
     companion object {
         /** keep-warm 租约窗缺省（上游 sessionDataLayer.ts:30 SESSION_DATA_LAYER_KEEP_WARM_MS）。 */
         const val DEFAULT_KEEP_WARM_MS = 30_000L
+
+        /** 输入预测草稿上限（contract.ts INPUT_PREDICTION_MAX_DRAFT_CHARS；超长手机侧截断）。 */
+        private const val INPUT_PREDICTION_MAX_DRAFT_CHARS = 4000
+
+        /** 输入预测请求号上限（contract.ts INPUT_PREDICTION_MAX_REQUEST_ID_CHARS）。 */
+        private const val INPUT_PREDICTION_MAX_REQUEST_ID_CHARS = 128
 
         /** 上游 E2E 档（sessionDataLayer.ts:31 E2E_SESSION_DATA_LAYER_KEEP_WARM_MS）。 */
         const val E2E_KEEP_WARM_MS = 1_000L

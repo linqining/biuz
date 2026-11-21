@@ -132,6 +132,9 @@ class RelayChannelClient(
     private val initializeWaiters = ArrayList<CompletableDeferred<Unit>>()
     private val eventHandlers = HashMap<Int, (RPCValue) -> Unit>()
 
+    /** EventError(205) 订阅失败终态回调（id 键控；iOS RelayChannelClient 同构）。 */
+    private val eventErrorHandlers = HashMap<Int, (RPCError) -> Unit>()
+
     /** 活跃订阅参数表（桥重建后在新区重发，恢复 sessions-index/conversation 推流）（:82）。 */
     private class ActiveListener(
         val channel: String,
@@ -451,6 +454,7 @@ class RelayChannelClient(
             failPendingLocked(error)
             failInitializeWaitersLocked(error)
             eventHandlers.clear()
+            eventErrorHandlers.clear()
             closedCallback = onClosed
         }
         closedCallback?.invoke(null)
@@ -700,6 +704,7 @@ class RelayChannelClient(
             failPendingLocked(error)
             failInitializeWaitersLocked(error)
             eventHandlers.clear()
+            eventErrorHandlers.clear()
         }
         transport.close()
     }
@@ -784,6 +789,7 @@ class RelayChannelClient(
         event: String,
         arg: RPCValue,
         handler: (RPCValue) -> Unit,
+        onError: ((RPCError) -> Unit)?,
     ): EventSubscription {
         val header: ByteArray
         val body: ByteArray
@@ -792,6 +798,7 @@ class RelayChannelClient(
             id = lastRequestId
             lastRequestId += 1
             eventHandlers[id] = handler
+            if (onError != null) eventErrorHandlers[id] = onError
             activeEventListeners[id] = ActiveListener(channel, event, arg)
             header = RPCSerialization.serialize(
                 RPCValue.Arr(
@@ -822,6 +829,7 @@ class RelayChannelClient(
     private suspend fun disposeEvent(id: Int) {
         val frame: ByteArray
         mutex.withLock {
+            eventErrorHandlers.remove(id)
             if (eventHandlers.remove(id) == null) return
             activeEventListeners.remove(id)
             if (state != State.Idle) return
@@ -898,6 +906,16 @@ class RelayChannelClient(
                 val id = headerItems.getOrNull(1)?.intValue ?: return
                 val handler = mutex.withLock { eventHandlers[id] }
                 handler?.invoke(body)
+            }
+            ResponseType.eventError -> {
+                // EventError(205)：订阅失败终态——移除 handler 并经 onError 上抛
+                // （channelClient.ts:176-185 同构；中继路径 rpc-frame 透传原样到达）。
+                val id = headerItems.getOrNull(1)?.intValue ?: return
+                val onError = mutex.withLock {
+                    eventHandlers.remove(id)
+                    eventErrorHandlers.remove(id)
+                }
+                onError?.invoke(decodeError(body))
             }
         }
     }

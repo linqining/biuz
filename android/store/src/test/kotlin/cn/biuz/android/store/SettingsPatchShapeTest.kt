@@ -49,7 +49,8 @@ class SettingsPatchShapeTest {
             event: String,
             arg: RPCValue,
             handler: (RPCValue) -> Unit,
-        ): EventSubscription = EventSubscription { }
+        onError: ((RPCError) -> Unit)?,
+    ): EventSubscription = EventSubscription { }
 
         override suspend fun disconnect() {}
     }
