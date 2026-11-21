@@ -54,7 +54,7 @@ app:
     module: ZCodeMobile                  # PRODUCT_NAME（工程 scheme: ZCodeMobile）
   android:
     dir: android                         # 工程根；app 模块在 android/app
-    package: cn.biuz.android             # applicationId；namespace = cn.biuz.android.app
+    package: cn.zhupi.android             # applicationId；namespace = cn.zhupi.android.app
   miniprogram:
     dir: miniprogram                     # 新建（当前不存在）
     appid: "wxd12bbd2e769dfd44"                            # 待用户提供；开发测试可先用测试号

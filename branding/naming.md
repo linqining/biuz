@@ -70,3 +70,21 @@
 4. 应用内第三方服务引用（如「使用 Z.ai 账号登录」）属功能性描述可保留；商店元数据不做品牌联动暗示。
 5. 图标替换：`AppIcon` 资产用 `png/appicon-1024.png`；登录页 84px 品牌位用 `biuz-mark.svg` 对应的 PNG/PDF 切图。
 6. 商标检索：中国商标网 9/42 类查「BiuZ」「Biu」家族（重点 biubiu 加速器近似判断），通过后再定提交。
+
+
+---
+
+## 修订记录
+
+### 2026-11-22 · 品牌更名为「朱批 / Seal」（feat/zhupi-brand-upgrade 分支）
+
+本报告推荐定名 BiuZ 的结论**由用户裁决推翻**：三端品牌全面升级为「朱批 / Seal」（印系品牌，
+规格出处 `brand/seal/`——印面母版/印谱/盖章动效规格）。本报告历史结论（含「上架合规清单」）
+保留不回改；更名落地口径：
+
+- 包名：iOS `cn.zhupi.mobile(.tests/.uitests)`；Android `cn.zhupi.android`；小程序 projectname 朱批
+- 显示名：iOS CFBundleDisplayName 朱批（zh）/ Seal（en）；Android label 朱批
+- 图标：主印「批」墨底（brand/seal/png/appicon-pi-1024.png）；branding/logo/ 全量替换为 zhupi-* 印系资产
+- 主题：三端 token 单点重映射——浅色=纸底墨字、深色=墨底纸字、朱磦 #D2402E 为印系强调色
+- 源码内部符号（BiuZPalette / cn.biuz.android.* 源码包 / ZCodeBrandMark 等）沿用不更名（无用户可见差异）
+- 存储键兼容层不动（LEGACY biuz.jwt 迁移标记等历史事实不可改）

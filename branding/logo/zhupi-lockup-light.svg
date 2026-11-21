@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 160" role="img" aria-label="朱批 lockup（纸底）">
+  <rect width="560" height="160" fill="#F7F3EC"/>
+  <g transform="translate(24,24) scale(1.12)">
+    <path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
+    <path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+  </g>
+  <text x="150" y="86" font-family="Songti SC, Noto Serif SC, serif" font-weight="900" font-size="58" fill="#17181A">朱批</text>
+  <text x="152" y="122" font-family="JetBrains Mono, Menlo, monospace" font-size="17" letter-spacing="8" fill="#D2402E">SEAL</text>
+</svg>
