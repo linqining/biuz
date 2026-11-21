@@ -162,6 +162,174 @@ function connectRelayDesktop(params) {
   });
 }
 
+// MARK: - 审批卡数据面（盖章子轮 2026-11-22；取证出处协议文档 §7.1/§9.1.1/§10 +
+// iOS RemoteConversationStore.ensureConversationSubscribed 同构）
+
+/** 连接级写面/订阅面上下文（wireSources 装配；断开置 null）。 */
+const commandFace = {
+  client: null,
+  workspacePath: '',
+  clientId: '',
+  frameStreamKey: '',
+  subscriptionId: '',
+  watermarkSeq: 0,
+};
+
+/** resyncConversationV4（§9.1.2）：base=null 全量重发快照——快照缺
+ * pendingInteractions 键时补一次（iOS「重连后审核弹窗不显示」修复同构）。 */
+function resyncConversation(sessionId) {
+  const face = commandFace;
+  if (!face.client || !face.subscriptionId || !face.workspacePath) return;
+  face.client
+    .call('zcode-agent', 'resyncConversationV4', [{
+      subscriptionId: face.subscriptionId,
+      base: null,
+      workspacePath: face.workspacePath,
+    }])
+    .catch(function (err) {
+      console.error('[朱批] resync 失败（丢帧自愈不可用，如实记录）', err);
+    });
+}
+
+/**
+ * conversation 帧流挂载（幂等；§9.1.1 帧 handler 先于订阅注册【工程纪律 3】）。
+ * 事件形状取证：listen('zcode-agent', 'onDynamicConversationFrame',
+ * {workspacePath}, handler)——iOS ensureConversationFrameStream 逐字同构；
+ * payload = topic 帧流（frame.topic 精确匹配 conversation/<sessionId>）。
+ */
+function ensureConversationFrames(sessionId) {
+  const face = commandFace;
+  if (!face.client || !face.workspacePath) return;
+  if (face.frameStreamKey === face.workspacePath) return; // 幂等
+  face.frameStreamKey = face.workspacePath;
+  face.client.listen(
+    'zcode-agent',
+    'onDynamicConversationFrame',
+    { workspacePath: face.workspacePath },
+    function (frame) {
+      if (!frame || typeof frame !== 'object') return;
+      if (frame.topic !== 'conversation/' + sessionId) return; // 帧按 topic 精确路由
+      // subscriptionId 过滤（旧订阅迟到帧丢；帧缺 subId 不过滤——iOS 同口径）
+      if (face.subscriptionId && frame.subscriptionId
+        && frame.subscriptionId !== face.subscriptionId) return;
+      // 水位/断档（A9 精简版）：delta 断档不猜，转全量 resync
+      if (frame.snapshot == null && typeof frame.toSeq === 'number') {
+        if (frame.toSeq <= face.watermarkSeq) return;
+        if (typeof frame.fromSeq === 'number' && frame.fromSeq > face.watermarkSeq + 1) {
+          resyncConversation(sessionId);
+          return;
+        }
+      }
+      face.watermarkSeq = typeof frame.toSeq === 'number' ? frame.toSeq : face.watermarkSeq;
+      // pendingInteractions 提取（v1.30③ 双形态宽容：state 嵌套 ∪ 顶层扁平）
+      const snap = frame.snapshot && typeof frame.snapshot === 'object' ? frame.snapshot : null;
+      const delta = frame.delta && typeof frame.delta === 'object' ? frame.delta : null;
+      const source = snap || delta;
+      if (!source) return;
+      const state = source.state && typeof source.state === 'object' ? source.state : null;
+      const raw = (state && state.pendingInteractions) != null
+        ? state.pendingInteractions
+        : source.pendingInteractions;
+      if (raw === undefined || raw === null) {
+        // 快照带 state 但缺该键：桌面投影无变化，本地不清（iOS 纪律：不剥既有值）
+        if (snap && !delta) resyncConversation(sessionId);
+        return;
+      }
+      const chatModel = require('./chat-model.js');
+      chatStore.setPendingInteractions(chatModel.parsePendingInteractions(raw));
+    },
+  );
+}
+
+/**
+ * 订阅单会话（§9.1.1）：帧流先挂 → call subscribeConversationV4
+ * {topic, sessionId, workspacePath} → subscriptionId 宽容提取（ack 包裹/顶层双形态）。
+ * 取不到 subId = 丢帧自愈链不可用（AGENTS §5-7）——如实上屏，不静默。
+ */
+function subscribeConversation(sessionId) {
+  const face = commandFace;
+  if (!face.client || !sessionId || !face.workspacePath) {
+    return Promise.resolve({ ok: false, failure: { kind: 'undelivered', text: '未连接桌面端' } });
+  }
+  ensureConversationFrames(sessionId);
+  return face.client
+    .call('zcode-agent', 'subscribeConversationV4', [{
+      topic: 'conversation/' + sessionId,
+      sessionId: sessionId,
+      workspacePath: face.workspacePath,
+    }])
+    .then(function (reply) {
+      const sub = ackStatusValue(reply);
+      const subscriptionId = (reply && typeof reply === 'object')
+        ? ((reply.ack && reply.ack.subscriptionId) || reply.subscriptionId)
+        : null;
+      if (!subscriptionId) {
+        return { ok: false, failure: { kind: 'unknown', text: '订阅回执缺 subscriptionId（丢帧自愈链不可用）' } };
+      }
+      face.subscriptionId = subscriptionId;
+      void sub;
+      return { ok: true, subscriptionId: subscriptionId };
+    })
+    .catch(function (err) {
+      return { ok: false, failure: { kind: 'undelivered', text: (err && err.message) || String(err) } };
+    });
+}
+
+/** 宽容 ack 包裹提取（订阅回执面）。 */
+function ackStatusValue(reply) {
+  if (!reply || typeof reply !== 'object') return null;
+  if (reply.ack && typeof reply.ack === 'object') return reply.ack;
+  return reply;
+}
+
+/**
+ * resolveInteraction 写面（§7.2【实证】：payload 恒 {interactionId, answer} 两键，
+ * answer 恒为对象三族分形——权限 {optionId}/计划 {action}/提问 {freeText}|{optionId}）。
+ * 信封走 sendConversationCommandV4（A1-A3：嵌套 envelope + sessionId 键恒在场 +
+ * clientId 逐字相等 + issuedAt 毫秒 int；非 CAS 不带 base*）；ACK A13 判定——
+ * 权威成功返回 {ok:true}，失败/未知态如实透出（U-5：写面禁止静默吞错）。
+ */
+function resolveInteraction(sessionId, interactionId, answer) {
+  const face = commandFace;
+  if (!face.client) {
+    return Promise.resolve({ ok: false, failure: { kind: 'undelivered', text: '未连接桌面端，批准需要在连接后操作' } });
+  }
+  const rpcCommand = require('./rpc-command.js');
+  const args = rpcCommand.makeSendConversationArgs({
+    clientId: face.clientId,
+    type: 'resolveInteraction',
+    payload: { interactionId: interactionId, answer: answer },
+    sessionId: sessionId,
+    workspacePath: face.workspacePath,
+  });
+  return face.client
+    .call('zcode-agent', 'sendConversationCommandV4', args)
+    .then(function (ack) {
+      const status = rpcCommand.ackStatus(ack);
+      if (rpcCommand.isAuthoritativeSuccess(status)) return { ok: true, status: status };
+      if (rpcCommand.isFailureStatus(status)) {
+        const detail = (ack && (ack.reasonCode || (ack.ack && ack.ack.reasonCode)))
+          || status || '?';
+        const message = (ack && (ack.message || (ack.ack && ack.ack.message))) || '';
+        return { ok: false, failure: { kind: 'rejected', text: detail + (message ? ' ' + message : '') } };
+      }
+      return { ok: false, failure: { kind: 'unknown', text: '回执状态缺席（旧桌面），视为未定案' } };
+    })
+    .catch(function (err) {
+      return { ok: false, failure: { kind: 'undelivered', text: (err && err.message) || '命令未送达' } };
+    });
+}
+
+/** 断开时清写面上下文（store 断开路径统一调用）。 */
+function disposeCommandFace() {
+  commandFace.client = null;
+  commandFace.workspacePath = '';
+  commandFace.clientId = '';
+  commandFace.frameStreamKey = '';
+  commandFace.subscriptionId = '';
+  commandFace.watermarkSeq = 0;
+}
+
 /** 桥内 rpc 客户端包装（auth 配对后的二进制 rpc-frame 面）。 */
 function makeRpcSocketClient(result) {
   const rpcClient = require('./rpc-client.js');
@@ -176,6 +344,12 @@ function makeRpcSocketClient(result) {
 function wireSources(result) {
   const client = result.client;
   const workspacePath = result.workspace && result.workspace.path;
+  // 盖章子轮（2026-11-22）：审批卡数据面上下文——clientId 为握手注册值（A2：
+  // 信封 clientId 必须逐字相等），workspace 为连接主工作区（单 workspace 场景
+  // 即会话归属；多区归属寻址待片四后续波次）
+  commandFace.client = client;
+  commandFace.workspacePath = workspacePath || '';
+  commandFace.clientId = result.clientId || '';
   store.setSource(function () {
     return client
       .call('zcode-task', 'listTaskList', [{ scope: 'all' }])
@@ -261,6 +435,8 @@ function disconnect() {
     active.client.close();
   }
   active = null;
+  disposeCommandFace();
+  chatStore.setPendingInteractions([]);
   store.setSource(null);
   store.refresh();
 }
@@ -483,4 +659,7 @@ module.exports = {
   getState: getState,
   lastAddress: lastAddress,
   mapTaskRows: mapTaskRows,
+  subscribeConversation: subscribeConversation,
+  resolveInteraction: resolveInteraction,
+  disposeCommandFace: disposeCommandFace,
 };

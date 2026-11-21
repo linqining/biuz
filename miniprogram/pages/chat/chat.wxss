@@ -218,3 +218,135 @@
 .md-table__cell--head { font-weight: 600; }
 
 .msg__action--active { color: #2563eb; font-weight: bold; }
+
+/* ---- 审批卡区（盖章子轮 2026-11-22；token 用 app.wxss 印系变量） ---- */
+.cards {
+  padding: 0 24rpx 12rpx;
+}
+.card {
+  position: relative;
+  background: var(--color-card);
+  border: 1rpx solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 20rpx 22rpx;
+  margin-bottom: 16rpx;
+}
+.card__head { margin-bottom: 10rpx; }
+.card__title {
+  font-size: var(--font-base);
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+.card__cmd {
+  background: var(--color-code);
+  border: 1rpx solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 10rpx 14rpx;
+  margin-bottom: 14rpx;
+}
+.card__cmd-text {
+  font-size: var(--font-xs);
+  color: var(--color-muted);
+  word-break: break-all;
+}
+.card__impact {
+  font-size: var(--font-sm);
+  color: var(--color-muted);
+  margin-bottom: 12rpx;
+}
+.card__chips { display: flex; gap: 12rpx; margin-bottom: 16rpx; flex-wrap: wrap; }
+.chip {
+  font-size: var(--font-sm);
+  padding: 10rpx 26rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid var(--color-border-strong);
+  color: var(--color-foreground);
+  background: var(--color-card);
+}
+.chip--on { background: var(--color-accent); color: var(--color-on-accent); }
+.card__actions { display: flex; gap: 16rpx; }
+.btn {
+  font-size: var(--font-sm);
+  padding: 14rpx 34rpx;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.btn--ghost { background: var(--color-card); color: var(--color-foreground); border: 1rpx solid var(--color-border-strong); }
+.card__input {
+  border: 1rpx solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-background);
+  padding: 14rpx 18rpx;
+  font-size: var(--font-sm);
+  color: var(--color-foreground);
+  margin-bottom: 14rpx;
+}
+.card__plan {
+  background: var(--color-code);
+  border-radius: var(--radius-sm);
+  padding: 14rpx 18rpx;
+  margin-bottom: 14rpx;
+}
+.card__plan-text { font-size: var(--font-sm); color: var(--color-muted); white-space: pre-wrap; }
+.card__error {
+  margin-top: 14rpx;
+  border: 1rpx solid rgba(210, 64, 46, 0.3);
+  background: var(--color-seal-dim);
+  border-radius: var(--radius-sm);
+  padding: 10rpx 14rpx;
+}
+.card__error-text { font-size: var(--font-xs); color: var(--color-seal); word-break: break-all; }
+
+/* ---- 朱批盖章（motion-spec：460ms 三段 + 外溢圈 520ms/180ms；落印恒 −2.5°） ---- */
+.stamp {
+  position: absolute;
+  right: 16rpx;
+  top: 50%;
+  margin-top: -66rpx;
+  width: 132rpx;
+  height: 132rpx;
+  pointer-events: none;
+}
+.stamp__face {
+  width: 132rpx;
+  height: 132rpx;
+  /* 印面含右下残边（brand/seal 母版 polygon 近似：圆角直折，残边是签名不得修复） */
+  clip-path: polygon(14% 0%, 86% 0%, 100% 14%, 100% 84%, 91% 86%, 94% 94%, 85% 96%, 82% 100%, 14% 100%, 0% 86%, 0% 14%);
+  background: var(--color-seal);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: stamp-in 460ms cubic-bezier(0.22, 0.68, 0.32, 1) both;
+}
+.stamp--mo .stamp__face { background: var(--color-foreground); }
+.stamp__ch {
+  font-size: 34rpx;
+  font-weight: 900;
+  color: var(--color-on-seal);
+  font-family: "Songti SC", serif;
+  line-height: 1.15;
+}
+.stamp--mo .stamp__ch { color: var(--color-background); }
+.stamp__ring {
+  position: absolute;
+  left: 10%;
+  top: 10%;
+  width: 80%;
+  height: 80%;
+  border: 3rpx solid var(--color-seal);
+  border-radius: 50%;
+  animation: stamp-ring 520ms ease-out 180ms both;
+}
+.stamp--mo .stamp__ring { border-color: var(--color-foreground); }
+@keyframes stamp-in {
+  0% { transform: scale(1.6) rotate(-10deg); opacity: 0; }
+  55% { transform: scale(0.96) rotate(-2deg); opacity: 1; }
+  76% { transform: scale(1.04) rotate(-3.2deg); }
+  100% { transform: scale(1) rotate(-2.5deg); opacity: 0.94; }
+}
+@keyframes stamp-ring {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  100% { transform: scale(1.45); opacity: 0; }
+}

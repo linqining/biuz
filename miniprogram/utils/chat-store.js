@@ -69,6 +69,12 @@ function refresh(sessionId) {
 }
 
 /** 连接层/测试注入真实回执（不伪造）。 */
+/** 挂起交互投影（审批卡数据源；§10 宽容解析后的规整数组）。 */
+function setPendingInteractions(list) {
+  patch({ pendingInteractions: list || [] });
+}
+
+/** 连接层/测试注入真实回执（不伪造）。 */
 function setMessages(messages, title) {
   patch({
     status: 'ready',
@@ -82,6 +88,7 @@ module.exports = {
   getState: getState,
   subscribe: subscribe,
   setSource: setSource,
+  setPendingInteractions: setPendingInteractions,
   setMessages: setMessages,
   refresh: refresh,
 };

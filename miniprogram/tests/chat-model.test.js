@@ -2,6 +2,7 @@
 // 对位：Android `ui/chat/ChatMessageViews.kt`（用户气泡/助手正文/工具卡/思考块）+ web 会话页。
 const assert = require('assert');
 const model = require('../utils/chat-model.js');
+const chatModel = model;
 
 let passed = 0;
 function test(name, fn) {
@@ -123,4 +124,55 @@ test('行内：未闭合标记按字面量保留', () => {
   assert.deepStrictEqual(md.parseInline('2 * 3 = 6').map((s) => s.text), ['2 * 3 = 6']);
   assert.deepStrictEqual(md.parseInline('反引号 `未闭合').map((s) => s.text), ['反引号 `未闭合']);
   assert.deepStrictEqual(md.parseInline('a**b').map((s) => s.text), ['a**b']);
+});
+
+// ---- 挂起交互宽容解析（盖章子轮 2026-11-22；§10 宽容链 + iOS parseInteraction 同构） ----
+
+test('parsePendingInteraction：permission 基本形状（id/kind/title/options 对象链）', function () {
+  const parsed = chatModel.parsePendingInteraction({
+    id: 'i-1', kind: 'permission', title: '执行 shell',
+    command: 'npm test', impact: '写入 node_modules',
+    options: [{ id: 'allowOnce', label: 'Allow once' }, { id: 'rejectOnce', label: 'Reject' }],
+  });
+  if (!parsed || parsed.id !== 'i-1' || parsed.kind !== 'permission') throw new Error('基本字段丢失');
+  if (parsed.options.length !== 2 || parsed.options[0].id !== 'allowOnce') throw new Error('options 解析失败');
+});
+
+test('parsePendingInteraction：id 链宽容（interactionId / payload.interactionId）', function () {
+  const a = chatModel.parsePendingInteraction({ interactionId: 'x', kind: 'permission' });
+  const b = chatModel.parsePendingInteraction({ payload: { interactionId: 'y' }, kind: 'permission' });
+  if (!a || a.id !== 'x') throw new Error('interactionId 链失效');
+  if (!b || b.id !== 'y') throw new Error('payload.interactionId 链失效');
+});
+
+test('ExitPlanMode 归位：kind="userInput" + schema.interaction="plan_approval" → plan_approval（实证 product-projection.ts:3117-3134）', function () {
+  const parsed = chatModel.parsePendingInteraction({
+    id: 'p-1', kind: 'userInput',
+    payload: {
+      schema: { interaction: 'plan_approval' },
+      prompt: '审核原因标题',
+      input: { plan: '第一步…\n第二步…' },
+    },
+  });
+  if (!parsed || parsed.kind !== 'plan_approval') throw new Error('schema 归位失效');
+  if (parsed.title !== '审核原因标题') throw new Error('标题应取 payload.prompt');
+  if (parsed.plan !== '第一步…\n第二步…') throw new Error('计划正文应取 payload.input.plan');
+});
+
+test('提问族：questions 数组宽容（question/multiSelect/options.value）+ options 裸字符串', function () {
+  const parsed = chatModel.parsePendingInteraction({
+    id: 'q-1', kind: 'userInput',
+    questions: [{ question: '用哪个版本？', multiSelect: false, options: [{ value: 'v1', label: 'V1' }] }],
+    options: ['由你定夺'],
+  });
+  if (!parsed || parsed.questions.length !== 1) throw new Error('questions 解析失败');
+  if (parsed.questions[0].options[0].id !== 'v1') throw new Error('question options.value 映射失败');
+  if (parsed.options[0].id !== '由你定夺') throw new Error('options 裸字符串应 id=label=该串');
+});
+
+test('坏形状跳过：非对象/null/缺 id 或 kind → null（不造假卡）', function () {
+  if (chatModel.parsePendingInteraction(null) !== null) throw new Error('null 应跳过');
+  if (chatModel.parsePendingInteraction({ id: 'i', kind: '' }) !== null) throw new Error('缺 kind 应跳过');
+  const arr = chatModel.parsePendingInteractions([null, { id: 'ok', kind: 'permission' }, 'junk']);
+  if (arr.length !== 1 || arr[0].id !== 'ok') throw new Error('数组级宽容失败');
 });

@@ -219,6 +219,85 @@ function headerTitle(session) {
   return title || '任务会话';
 }
 
+
+// MARK: - 挂起交互解析（审批卡数据面；§10 宽容链 + iOS parseInteraction 同构）
+
+/**
+ * 宽容解析单条挂起交互（形状【移植·iOS parseInteraction 同构】）：
+ * - id 链：id | interactionId | payload.interactionId（§10）
+ * - kind 链：kind | payload.kind；⚠ ExitPlanMode 真实形态 kind="userInput"、
+ *   plan_approval 只在 payload.schema.interaction、正文在 payload.input.plan
+ *   【实证·上游仓 product-projection.ts:3117-3134】——按 schema 归位 kind，
+ *   标题优先 payload.prompt（审核原因）
+ * - options 链：对象取 id|optionId + label|title，或裸字符串（元素形状未取证，宽容）
+ * - questions 链（提问族）：{question, multiSelect?, options?}（iOS 同构宽容）
+ */
+function parsePendingInteraction(json) {
+  if (!json || typeof json !== 'object') return null;
+  const payload = json.payload && typeof json.payload === 'object' ? json.payload : {};
+  const id = json.id || json.interactionId || payload.interactionId;
+  let kind = json.kind || payload.kind;
+  if (!id || !kind) return null;
+  let title = json.title || json.toolName || payload.title || payload.toolName || '';
+  const schema = (json.schema && typeof json.schema === 'object' ? json.schema : null)
+    || (payload.schema && typeof payload.schema === 'object' ? payload.schema : null);
+  if (kind === 'userInput' && schema && schema.interaction === 'plan_approval') {
+    kind = 'plan_approval';
+    if (payload.prompt) title = payload.prompt;
+  }
+  const command = json.command || json.inputText || payload.command
+    || payload.inputText || payload.text || '';
+  const impact = json.impact || json.description || payload.impact
+    || payload.description || '';
+  const rawOptions = json.options || payload.options || [];
+  const options = (Array.isArray(rawOptions) ? rawOptions : []).map(function (el) {
+    if (typeof el === 'string') return el ? { id: el, label: el } : null;
+    if (!el || typeof el !== 'object') return null;
+    const optId = el.id || el.optionId;
+    if (!optId) return null;
+    return { id: optId, label: el.label || el.title || optId };
+  }).filter(function (o) { return !!o; });
+  const rawQuestions = (json.questions && Array.isArray(json.questions)) ? json.questions
+    : ((payload.questions && Array.isArray(payload.questions)) ? payload.questions : []);
+  const questions = rawQuestions.map(function (q) {
+    if (!q || typeof q !== 'object' || !q.question) return null;
+    return {
+      question: q.question,
+      multiSelect: q.multiSelect === true,
+      options: (Array.isArray(q.options) ? q.options : []).map(function (o) {
+        if (typeof o === 'string') return { id: o, label: o };
+        return (o && o.value) ? { id: o.value, label: o.label || o.value } : null;
+      }).filter(function (o) { return !!o; }),
+    };
+  }).filter(function (q) { return !!q; });
+  const rawReviewItems = json.reviewItems || json.items || json.hooks || json.reviewFlowItems;
+  const reviewItems = (Array.isArray(rawReviewItems) ? rawReviewItems : []).map(function (r) {
+    if (!r || typeof r !== 'object') return null;
+    const itemId = r.reviewItemId || r.id || r.hookId;
+    if (!itemId) return null;
+    return { reviewItemId: itemId, title: r.title || r.name || String(itemId) };
+  }).filter(function (r) { return !!r; });
+  const plan = (payload.input && typeof payload.input === 'object' && payload.input.plan)
+    || (schema && schema.plan) || '';
+  return {
+    id: id,
+    kind: kind,
+    title: title,
+    command: command,
+    impact: impact,
+    options: options,
+    questions: questions,
+    reviewItems: reviewItems,
+    plan: typeof plan === 'string' ? plan : JSON.stringify(plan),
+  };
+}
+
+/** 数组级宽容：非数组/坏元素跳过（§10 缺键不出卡，不造假卡）。 */
+function parsePendingInteractions(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.map(parsePendingInteraction).filter(function (p) { return !!p; });
+}
+
 module.exports = {
   parseInline: parseInline,
   normalizeMessage: normalizeMessage,
@@ -226,4 +305,6 @@ module.exports = {
   decorateMessage: decorateMessage,
   formatMessageTime: formatMessageTime,
   headerTitle: headerTitle,
+  parsePendingInteraction: parsePendingInteraction,
+  parsePendingInteractions: parsePendingInteractions,
 };

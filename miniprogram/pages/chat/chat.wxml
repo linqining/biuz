@@ -94,6 +94,73 @@
     <view class="chat-list__pad"></view>
   </scroll-view>
 
+  <!-- 审批卡区（盖章子轮 2026-11-22）：composer 上方常驻；permission/plan/question 三卡
+       （hook kind 依赖 M8e 九键基座与 reviewItems 未取证键，本轮不落——如实登记）；
+       落印 = ACK 权威成功后（U-5），墨印深色档由 token 翻转保对比 -->
+  <view class="cards" wx:if="{{cards.length}}">
+    <view class="card" wx:for="{{cards}}" wx:key="id">
+      <view class="card__head">
+        <text class="card__title">{{item.title}}</text>
+      </view>
+
+      <!-- 权限审批族：命令行 + 影响 + 范围 chips + 批准/拒绝 -->
+      <block wx:if="{{item.kind === 'permission'}}">
+        <view class="card__cmd" wx:if="{{item.command}}">
+          <text class="card__cmd-text">{{item.command}}</text>
+        </view>
+        <text class="card__impact" wx:if="{{item.impact}}">{{item.impact}}</text>
+        <view class="card__chips">
+          <text class="chip {{item.scope === 'once' ? 'chip--on' : ''}}" data-id="{{item.id}}"
+            data-scope="once" bind:tap="onScope">仅一次</text>
+          <text class="chip {{item.scope === 'always' ? 'chip--on' : ''}}" data-id="{{item.id}}"
+            data-scope="always" bind:tap="onScope">始终允许</text>
+        </view>
+        <view class="card__actions">
+          <text class="btn" data-id="{{item.id}}" bind:tap="onPermissionApprove">批准执行</text>
+          <text class="btn btn--ghost" data-id="{{item.id}}" bind:tap="onPermissionReject">拒绝</text>
+        </view>
+      </block>
+
+      <!-- 计划确认族：计划正文 + 放行/驳回（ExitPlanMode 归位 kind，正文 payload.input.plan） -->
+      <block wx:elif="{{item.kind === 'plan_approval'}}">
+        <view class="card__plan">
+          <text class="card__plan-text">{{item.plan}}</text>
+        </view>
+        <view class="card__actions">
+          <text class="btn" data-id="{{item.id}}" bind:tap="onPlanAccept">放行计划</text>
+          <text class="btn btn--ghost" data-id="{{item.id}}" bind:tap="onPlanDecline">驳回计划</text>
+        </view>
+      </block>
+
+      <!-- 提问族：选项点选即发 + 自由文本（userInput/elicitation/question） -->
+      <block wx:elif="{{item.kind === 'userInput' || item.kind === 'question' || item.kind === 'elicitation'}}">
+        <view class="card__chips" wx:if="{{item.options.length}}">
+          <text class="chip" wx:for="{{item.options}}" wx:for-item="opt" wx:key="id"
+            data-id="{{item.id}}" data-option="{{opt.id}}" bind:tap="onQuestionOption">{{opt.label}}</text>
+        </view>
+        <input class="card__input" placeholder="或在此自由作答……" value="{{questionDraft}}"
+          bindinput="onQuestionInput" />
+        <view class="card__actions">
+          <text class="btn" data-id="{{item.id}}" bind:tap="onQuestionSubmit">提交回答</text>
+        </view>
+      </block>
+
+      <!-- 决议错误行（U-5：写面失败如实上屏，不静默） -->
+      <view class="card__error" wx:if="{{item.error}}">
+        <text class="card__error-text">{{item.error}}</text>
+      </view>
+
+      <!-- 朱批盖章（motion-spec：朱印「照办」/墨印「不准」；颜色随印、深色档 token 翻转） -->
+      <view class="stamp stamp--{{stamps[item.id] ? 'zhu' : 'mo'}}" wx:if="{{stamps[item.id] !== undefined}}">
+        <view class="stamp__ring"></view>
+        <view class="stamp__face">
+          <text class="stamp__ch">{{stamps[item.id] ? '照' : '不'}}</text>
+          <text class="stamp__ch">{{stamps[item.id] ? '办' : '准'}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
   <!-- composer（web：圆角输入区 + 工具行；未连接如实禁用） -->
   <view class="composer">
     <view class="composer__box">
