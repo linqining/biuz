@@ -71,6 +71,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // MARK: - 桌面端只读信息模型（oauth / usage-stats 投影；AppSession.swift:4-160 直译）
 
@@ -823,7 +824,13 @@ class AppSession(
         return connection.connect(server = server, preferredWorkspace = server.preferredWorkspacePath)
     }
 
-    private suspend fun connectToSaved(server: ServerConfig) {
+    private suspend fun connectToSaved(server: ServerConfig) = withContext(backgroundDispatcher) {
+        // 全连接入口（手动 Fill-and-connect / 扫码 / 冷启自动重连 / 中继链接）单点收敛：
+        // UI 层经 rememberCoroutineScope(Main) 直调 connect 时，server-info 探测
+        // （HttpURLConnection）必须离开主线程——Android 主线程禁网络
+        // （NetworkOnMainThreadException 被旧 catch 吞成 Timeout 假象，手动连接
+        // 链路从未真正可用；iOS 无此限制，Kotlin 直译踩坑。2026-11-21 ghost hint
+        // 模拟器 UI 轮实测真因，错误面上屏取证）。
         var result = connectOnce(server)
         // 云中继链路偶发瞬断（桌面端重启/网络抖动）：短退避自动重试两次再判失败（iOS :431-438）
         if (result is ConnectResult.Failure && server.relay != null) {
@@ -844,7 +851,7 @@ class AppSession(
                 // 先装配 Store 再切 mode（iOS :441 注：装配完成后 UI 才切换数据源）
                 val connected = connection.state.value
                     as? ZCodeServerConnection.ConnectionState.Connected
-                assembleStores(workspace = connected?.workspace ?: return)
+                assembleStores(workspace = connected?.workspace ?: return@withContext)
                 _mode.value = Mode.Connected(server)
                 // 版本守卫（web webRemoteControlVersion：链接声明 vs 实际桌面版本）
                 val mismatch = VersionGuard.mismatch(

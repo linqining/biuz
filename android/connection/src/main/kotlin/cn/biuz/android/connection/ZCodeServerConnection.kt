@@ -18,6 +18,7 @@ import cn.biuz.android.relay.RelayLogKind
 import cn.biuz.android.relay.RelayTransport
 import cn.biuz.android.store.ConversationFrameSurface
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
@@ -211,11 +212,22 @@ object ServerInfoClient {
             ProbeResult(info = info, status = status, latencyMs = latency, error = null)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Throwable) {
-            // iOS：URLSession 抛错（网络/超时/无响应）统一 → .timeout
+        } catch (e: SocketTimeoutException) {
+            // 真·超时保持 Timeout 语义（P-017 失败文案映射「响应超时」依赖此形）
             val latency = (System.currentTimeMillis() - started).toInt()
             ProbeResult(info = null, status = null, latencyMs = latency,
                 error = ConnectError.Timeout(endpoint = "GET /api/server-info"))
+        } catch (e: Throwable) {
+            // 非超时网络异常（NetworkOnMainThreadException/ConnectException/安全策略…）
+            // 如实带原始类名上错误面——旧实现全吞成 Timeout 假象，分诊误导
+            // （2026-11-21 模拟器实测：手动连接 NetworkOnMainThreadException 被误报
+            // 「桌面端响应超时」，错误面上屏取证）（§5-12 同精神——禁静默吞真因）
+            println("cn.biuz.android [relay-log][probe] GET /api/server-info failed: " +
+                "${e.javaClass.name}: ${e.message}")
+            val latency = (System.currentTimeMillis() - started).toInt()
+            ProbeResult(info = null, status = null, latencyMs = latency,
+                error = ConnectError.Transport(
+                    "server-info probe: ${e.javaClass.simpleName}: ${e.message ?: "no message"}"))
         } finally {
             runCatching { connection?.disconnect() }
         }

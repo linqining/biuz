@@ -94,4 +94,5 @@ tasks.withType<Test>().configureEach {
     // 替身活体宿主开关（StubLiveServerTest 文档口径 `gradle -D… -Dbiuz.stubLive=true`）：
     // gradle -D 落在 daemon JVM，不自动透传 fork 的 test worker——显式转发
     System.getProperty("biuz.stubLive")?.let { systemProperty("biuz.stubLive", it) }
+    System.getProperty("biuz.stubLiveMinutes")?.let { systemProperty("biuz.stubLiveMinutes", it) }
 }

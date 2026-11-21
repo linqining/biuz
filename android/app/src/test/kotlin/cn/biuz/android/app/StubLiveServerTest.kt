@@ -20,7 +20,9 @@ class StubLiveServerTest {
     @org.junit.jupiter.api.Test
     @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "biuz.stubLive", matches = "true")
     fun hostStubUntilSentinel() {
-        val server = E2EStubServer()
+        // 模拟器可达绑定：0.0.0.0（模拟器 10.0.2.2 → 宿主 loopback 对 HttpURLConnection
+        // 间歇不可达实机实证，LAN IP 直连为既有已验路径——2026-11-21 ghost hint UI 轮）
+        val server = E2EStubServer(host = "0.0.0.0")
         // 3.17.2 输入预测：Host 能力宣告 + 回执注水（模拟器 ghost hint 冒烟）
         server.serverCapabilities["inputPrediction"] = JSONValue.Bool(true)
         server.methodHandlers["conversationInputPredictionV4"] = { args ->
@@ -37,7 +39,9 @@ class StubLiveServerTest {
         server.setSessionsIndexSnapshot(snapshot(server.workspacePath))
         File(PORT_FILE).writeText(port.toString())
         println("STUB-LIVE port=$port workspace=${server.workspacePath}")
-        val deadline = System.currentTimeMillis() + 10 * 60_000L
+        // 存活窗可配置（-Dbiuz.stubLiveMinutes；缺省 10min——模拟器 UI 链路验证轮延长到 60）
+        val minutes = System.getProperty("biuz.stubLiveMinutes")?.toLongOrNull() ?: 10L
+        val deadline = System.currentTimeMillis() + minutes * 60_000L
         while (System.currentTimeMillis() < deadline && !File(STOP_SENTINEL).exists()) {
             Thread.sleep(500)
         }
