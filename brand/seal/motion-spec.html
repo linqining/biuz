@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>盖章动效 · 规格表 — 朱批 / Seal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --zhu:#D2402E; --zhu-deep:#B03020; --mo:#17181A; --mo-soft:#2A2B2E;
+    --zhi:#F7F3EC; --zhi-dim:#EFE9DF; --hui:#8A8F98;
+    --hairline:rgba(23,24,26,.14); --hairline-dark:rgba(247,243,236,.16);
+    --serif:"Songti SC","Noto Serif SC","Source Han Serif SC",serif;
+    --sans:"PingFang SC","Noto Sans SC",-apple-system,sans-serif;
+    --mono:"JetBrains Mono","SF Mono",Menlo,monospace;
+    --ack-latency:380ms; --stamp-dur:460ms; --hold:700ms; --fold:180ms;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--zhi);color:var(--mo);font-family:var(--sans);line-height:1.65}
+  ::selection{background:var(--zhu);color:var(--zhi)}
+
+  .hero{padding:7vh 8vw 5vh;border-bottom:1px solid var(--hairline)}
+  .hero .meta{font-family:var(--mono);font-size:11px;color:var(--hui);letter-spacing:.14em}
+  .hero h1{font-family:var(--serif);font-weight:900;font-size:clamp(34px,5vw,52px);margin:18px 0 10px}
+  .hero h1 .zhu{color:var(--zhu)}
+  .hero p.lede{max-width:38em;font-size:16px}
+  .hero .backrow{margin-top:14px;display:flex;gap:22px}
+  .hero .back{font-family:var(--mono);font-size:12px;color:var(--hui);text-decoration:none;border-bottom:1px solid var(--hairline)}
+  .hero .back:focus-visible{outline:2px solid var(--zhu);outline-offset:2px}
+
+  main{max-width:1040px;margin:0 auto;padding:0 24px 80px}
+  section{padding:52px 0 46px;border-top:1px solid var(--hairline)}
+  section:first-of-type{border-top:none}
+  h2{font-family:var(--serif);font-weight:900;font-size:25px;margin:8px 0 22px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.28em;color:var(--zhu);display:block;margin-bottom:6px}
+  .note{font-size:13px;color:var(--hui);margin-top:12px}
+
+  /* 规格 + 时间轴 */
+  .spec-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+  .spec-table{border:1px solid var(--hairline);font-size:13px;background:var(--zhi-dim)}
+  .spec-table div{display:flex;justify-content:space-between;gap:16px;padding:10px 14px;border-top:1px solid var(--hairline)}
+  .spec-table div:first-child{border-top:none}
+  .spec-table span:last-child{font-family:var(--mono);font-size:12px}
+  .timeline{border:1px solid var(--hairline);background:var(--zhi-dim);padding:20px 18px 16px}
+  .tl-bar{display:flex;height:34px;border-radius:6px;overflow:hidden;font-family:var(--mono);font-size:10px;color:var(--zhi)}
+  .tl-bar span{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden}
+  .tl-cap{display:flex;margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--hui)}
+  .tl-cap b{font-weight:400}
+  .tl-cap span{flex:none;text-align:center}
+
+  /* 状态机 */
+  .fsm{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+  .branch{border:1px solid var(--hairline);background:var(--zhi-dim);padding:18px 18px 14px}
+  .branch h3{font-family:var(--serif);font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px}
+  .branch h3 i{width:9px;height:9px;border-radius:50%;flex:none;font-style:normal}
+  .branch ol{margin-top:10px}
+  .branch li{list-style:none;font-size:13px;padding:7px 0;border-top:1px dashed var(--hairline)}
+  .branch li:first-child{border-top:none}
+  .branch li code{font-family:var(--mono);font-size:11.5px;color:var(--zhu-deep)}
+  .branch.win h3 i{background:var(--zhu)}
+  .branch.rej h3 i{background:var(--mo)}
+  .branch.fail h3 i{background:var(--hui)}
+
+  /* 演示面 */
+  .demo-wrap{display:grid;gap:26px}
+  .demo{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:24px;align-items:start}
+  .demo-head{display:flex;align-items:baseline;gap:12px;margin-bottom:12px}
+  .demo-head .no{font-family:var(--mono);font-size:12px;color:var(--zhu);letter-spacing:.14em}
+  .demo-head h3{font-family:var(--serif);font-weight:700;font-size:17px}
+  .demo-note{font-size:13px;color:var(--hui)}
+  .demo-note code{font-family:var(--mono);font-size:11.5px;color:var(--mo);background:var(--zhi-dim);padding:1px 5px;border-radius:4px}
+
+  .mock-card{position:relative;background:#fff;border:1px solid var(--hairline);
+             box-shadow:0 1px 0 rgba(23,24,26,.06),0 12px 32px rgba(23,24,26,.08);
+             padding:20px 22px 18px;max-width:460px;
+             transition:opacity var(--fold) ease-out,transform var(--fold) ease-out}
+  .mock-card.folded{opacity:0;transform:scale(.96);pointer-events:none}
+  .card-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--zhu)}
+  .card-eyebrow.deciding{color:var(--hui)}
+  .card-eyebrow.done{color:var(--hui)}
+  .card-title{font-family:var(--serif);font-weight:700;font-size:16px;margin:8px 0 14px}
+  .card-title.struck{text-decoration:line-through;text-decoration-color:rgba(23,24,26,.35)}
+  .card-cmd{font-family:var(--mono);font-size:11.5px;color:var(--mo);background:var(--zhi);
+            border:1px solid var(--hairline);border-radius:6px;padding:7px 10px;margin-bottom:14px;word-break:break-all}
+  .chips{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .chip{font-size:12px;padding:5px 14px;border-radius:99px;border:1px solid var(--mo);background:transparent;color:var(--mo)}
+  .chip.sel{background:var(--mo);color:var(--zhi)}
+  .chip:disabled{opacity:.4;cursor:default}
+  .card-actions{display:flex;gap:10px;flex-wrap:wrap}
+  .card-actions button{font-family:var(--sans);font-size:13.5px;padding:8px 18px;cursor:pointer;
+                       border:1px solid var(--mo);background:var(--mo);color:var(--zhi)}
+  .card-actions button.ghost{background:transparent;color:var(--mo)}
+  .card-actions button:focus-visible{outline:2px solid var(--zhu);outline-offset:2px}
+  .card-actions button:disabled{opacity:.4;cursor:default}
+  .card-input{width:100%;font-family:var(--sans);font-size:13px;padding:9px 12px;margin-bottom:12px;
+              border:1px solid var(--hairline);border-radius:8px;background:var(--zhi);color:var(--mo)}
+  .card-input:focus{outline:2px solid var(--zhu);outline-offset:1px}
+  .fail-row{display:none;font-family:var(--mono);font-size:11.5px;color:var(--zhu-deep);
+            background:rgba(210,64,46,.08);border:1px solid rgba(210,64,46,.3);border-radius:6px;
+            padding:8px 10px;margin-top:12px;word-break:break-all}
+  .fail-row.show{display:block}
+  .stamp-zone{position:absolute;right:12px;top:42%;width:124px;height:124px;transform:translateY(-50%);pointer-events:none}
+  .stamp-svg{width:100%;height:100%;opacity:.94;animation:stamp-in var(--stamp-dur) cubic-bezier(.22,.68,.32,1) both}
+  .stamp-ring{position:absolute;inset:6%;border:2px solid var(--zhu);border-radius:50%;
+              animation:ring-out .52s ease-out .18s both}
+  .stamp-ring.ink{border-color:var(--mo)}
+  .folded-note{display:none;max-width:460px;font-family:var(--mono);font-size:12px;color:var(--hui);
+               border:1px dashed var(--hairline);border-radius:8px;padding:12px 14px}
+  .folded-note.show{display:block}
+  .demo-tools{display:flex;gap:18px;align-items:center;margin-top:12px}
+  .fail-toggle{font-family:var(--mono);font-size:12px;color:var(--hui);display:flex;gap:7px;align-items:center;cursor:pointer}
+  .fail-toggle input:focus-visible{outline:2px solid var(--zhu);outline-offset:2px}
+  .reset-link{font-family:var(--mono);font-size:12px;color:var(--hui);background:none;border:none;cursor:pointer;
+              text-decoration:underline;display:none}
+  .reset-link.show{display:inline}
+  .reset-link:focus-visible{outline:2px solid var(--zhu);outline-offset:2px}
+
+  /* 实现注记 */
+  .impl-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .impl{border:1px solid var(--hairline);background:var(--zhi-dim);padding:22px 24px}
+  .impl h3{font-family:var(--mono);font-size:12px;letter-spacing:.3em;margin-bottom:12px;color:var(--zhu)}
+  .impl li{list-style:none;font-size:13px;padding:8px 0;border-top:1px dashed var(--hairline)}
+  .impl li:first-child{border-top:none}
+  .impl li code{font-family:var(--mono);font-size:11.5px;background:#fff;padding:1px 5px;border-radius:4px}
+
+  footer{border-top:1px solid var(--hairline);margin-top:8px;padding:34px 24px 60px;text-align:center;
+         font-family:var(--mono);font-size:12px;color:var(--hui);letter-spacing:.08em}
+
+  @keyframes stamp-in{
+    0%{transform:scale(1.6) rotate(-10deg);opacity:0}
+    55%{transform:scale(.96) rotate(-2deg);opacity:1}
+    76%{transform:scale(1.04) rotate(-3.2deg)}
+    100%{transform:scale(1) rotate(-2.5deg);opacity:.94}
+  }
+  @keyframes ring-out{
+    0%{transform:scale(.9);opacity:.7}
+    100%{transform:scale(1.45);opacity:0}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
+    .stamp-svg{opacity:.94}
+  }
+  @media (max-width:860px){
+    .hero{padding:48px 24px 32px}
+    .spec-grid,.fsm,.impl-grid{grid-template-columns:1fr}
+    .demo{grid-template-columns:1fr}
+    .mock-card{max-width:none}
+    .folded-note{max-width:none}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="meta">朱批 / SEAL · 动效规格 · 2026-11 · 覆盖全部决议面</div>
+  <h1>盖章动效 <span class="zhu">·</span> 规格表</h1>
+  <p class="lede">印随批准权走：落印只发生在回执权威成功之后，绝不延迟命令下发。
+  批准落朱印「照办」，拒绝落墨印「不准」，失败与未送达不落印——错误行如实上屏（U-5 口径）。</p>
+  <div class="backrow">
+    <a class="back" href="brand-sheet.html">← 品牌规格表</a>
+    <a class="back" href="registry.html">← 印谱 · 字口注册表</a>
+  </div>
+</header>
+
+<main>
+
+  <section id="spec">
+    <span class="eyebrow">规格</span>
+    <h2>一段落印，两拍离场</h2>
+    <div class="spec-grid">
+      <div class="spec-table">
+        <div><span>落印总时长</span><span>460ms</span></div>
+        <div><span>落印路径</span><span>scale 1.6 → 0.96 → 1.04 → 1.0</span></div>
+        <div><span>旋转</span><span>−10° → −2.5°（终态恒 −2.5°）</span></div>
+        <div><span>缓动</span><span>cubic-bezier(.22,.68,.32,1)</span></div>
+        <div><span>印泥外溢</span><span>外圈 520ms · 延迟 180ms（墨印同步墨色）</span></div>
+        <div><span>停驻</span><span>700ms（印留住，卡不撤）</span></div>
+        <div><span>离场</span><span>180ms · opacity + scale(.96)</span></div>
+        <div><span>触觉</span><span>沿用既有 success/error 通知触觉，落印即触发</span></div>
+        <div><span>减弱动态</span><span>全部停用 · 印以终态直出 · 停驻缩短</span></div>
+      </div>
+      <div class="timeline">
+        <div class="tl-bar">
+          <span style="width:26%;background:var(--mo-soft)">点击 · deciding</span>
+          <span style="width:18%;background:var(--hui)">ACK 真实延迟</span>
+          <span style="width:20%;background:var(--zhu)">落印 460ms</span>
+          <span style="width:24%;background:var(--mo)">停驻 700ms</span>
+          <span style="width:12%;background:var(--zhu-deep)">离场 180</span>
+        </div>
+        <div class="tl-cap">
+          <span style="width:26%">按钮禁用</span>
+          <span style="width:18%">等待回执</span>
+          <span style="width:20%">印落 · 触觉</span>
+          <span style="width:24%">卡不撤 · 等对账</span>
+          <span style="width:12%">收卡</span>
+        </div>
+        <p class="note">离场后卡片位置由「已收卡」占位行接管并复位；桌面 pendingInteractions 投影回流与本地停驻互不等待，停驻期满即收。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="fsm">
+    <span class="eyebrow">状态机</span>
+    <h2>ACK 之后分三路</h2>
+    <div class="fsm">
+      <div class="branch win">
+        <h3><i></i>权威成功</h3>
+        <ol>
+          <li>落印：<code>照办</code> 朱印 + success 触觉</li>
+          <li>停驻 700ms，卡面保持可读</li>
+          <li>离场 180ms；本地停驻期 ≠ 等投影</li>
+          <li>投影回流对账：缺席即永久收卡</li>
+        </ol>
+      </div>
+      <div class="branch rej">
+        <h3><i></i>拒绝（权威成功）</h3>
+        <ol>
+          <li>落印：<code>不准</code> 墨印 + 标题划除</li>
+          <li>同款停驻 / 离场 / 对账</li>
+          <li>外溢圈同步墨色，不共用朱色</li>
+        </ol>
+      </div>
+      <div class="branch fail">
+        <h3><i></i>失败 / 未送达</h3>
+        <ol>
+          <li>不落印 —— 印是权威成功专属</li>
+          <li><code>reasonCode + message</code> 原文上屏错误行</li>
+          <li>按钮即刻恢复，可重发</li>
+          <li>卡片保持在场（U-5 口径）</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section id="demos">
+    <span class="eyebrow">演示</span>
+    <h2>五个决议面 · 活体</h2>
+    <p class="note" style="margin:0 0 22px">演示用 380ms 模拟 ACK 延迟以呈现 deciding 态；真实链路里这段是网络回执时长。
+    每面右侧开关可切到失败分支。印文为图形不译；VoiceOver 由容器 label「已批准 / 已拒绝」播报。</p>
+
+    <div class="demo-wrap">
+
+      <!-- ① 普通审批卡 -->
+      <div class="demo">
+        <div>
+          <div class="demo-head"><span class="no">①</span><h3>普通审批卡</h3></div>
+          <div class="mock-card" data-demo>
+            <div class="card-eyebrow" data-eyebrow>审批 · EXECUTESHELL</div>
+            <div class="card-title" data-title>是否允许执行 shell 命令？</div>
+            <div class="card-cmd">npm test -- --coverage（工作区 zcode_mobile）</div>
+            <div class="chips">
+              <button class="chip sel" data-chip>仅一次</button>
+              <button class="chip" data-chip>始终允许</button>
+            </div>
+            <div class="card-actions">
+              <button data-decide="approve">批准执行</button>
+              <button data-decide="reject" class="ghost">拒绝</button>
+              <button class="ghost" disabled>稍后处理</button>
+            </div>
+            <div class="fail-row" data-failrow>rejected · interactionAlreadyResolved —— 该交互已被桌面端决议，请刷新后重试</div>
+            <div class="stamp-zone" data-stampzone aria-hidden="true"></div>
+          </div>
+          <div class="folded-note" data-foldednote>已收卡 · 本地停驻期满。桌面投影回流后此卡不再出现。</div>
+          <div class="demo-tools">
+            <label class="fail-toggle"><input type="checkbox" data-failtoggle>模拟失败（ACK 拒绝）</label>
+            <button class="reset-link" data-reset>再来一次</button>
+          </div>
+        </div>
+        <p class="demo-note">工程锚点：<code>ApprovalInteractionCard</code>（ChatView.swift:740），批准 <code>05-act-approve</code> / 拒绝 <code>05-act-reject</code>，决议走 <code>decide → resolveInteractionRaw</code>（ChatViewModel.swift:916-925）。当前现状：确认后零动画、卡片由桌面投影回流瞬时撤下——本动效即插在 ACK 与投影之间。</p>
+      </div>
+
+      <!-- ② 计划审批卡 -->
+      <div class="demo">
+        <div>
+          <div class="demo-head"><span class="no">②</span><h3>计划审批卡</h3></div>
+          <div class="mock-card" data-demo>
+            <div class="card-eyebrow" data-eyebrow>审批 · EXITPLANMODE</div>
+            <div class="card-title" data-title>计划待你定夺</div>
+            <div class="card-cmd">① 跑通 E2E 门禁（test05/08/16）② 更新协议文档 §13 ③ 交付说明附自测证据</div>
+            <div class="card-actions">
+              <button data-decide="approve">放行计划</button>
+              <button data-decide="reject" class="ghost">驳回计划</button>
+            </div>
+            <div class="fail-row" data-failrow>undelivered · connectionBusy —— 命令未送达桌面端，请检查连接后重试</div>
+            <div class="stamp-zone" data-stampzone aria-hidden="true"></div>
+          </div>
+          <div class="folded-note" data-foldednote>已收卡 · 决议已上行，桌面以 plan 模式继续。</div>
+          <div class="demo-tools">
+            <label class="fail-toggle"><input type="checkbox" data-failtoggle>模拟失败（未送达）</label>
+            <button class="reset-link" data-reset>再来一次</button>
+          </div>
+        </div>
+        <p class="demo-note">工程锚点：<code>PlanApprovalCard</code>（ChatView.swift:1010），<code>05-act-plan-approve</code> / <code>05-act-plan-reject</code>，决议走 <code>decidePlan</code>（answer={action:"accept"|"decline"}，ChatViewModel.swift:929-938）。放行 = 朱印「照办」，驳回 = 墨印「不准」+ 标题划除。</p>
+      </div>
+
+      <!-- ③ 提问卡 -->
+      <div class="demo">
+        <div>
+          <div class="demo-head"><span class="no">③</span><h3>提问卡（userInput / AskUserQuestion）</h3></div>
+          <div class="mock-card" data-demo>
+            <div class="card-eyebrow" data-eyebrow>提问 · ASKUSERQUESTION</div>
+            <div class="card-title" data-title>发布说明用哪个版本号？</div>
+            <div class="chips">
+              <button class="chip" data-decide="approve">v1.40</button>
+              <button class="chip" data-decide="approve">v1.41-rc1</button>
+              <button class="chip" data-decide="approve">由你定夺</button>
+            </div>
+            <input class="card-input" data-input placeholder="或在此自由作答……" aria-label="自由作答">
+            <div class="card-actions">
+              <button data-decide="approve" data-requires-input>提交回答</button>
+            </div>
+            <div class="fail-row" data-failrow>unknown · status absent —— 回执状态缺席，视为未定案，卡片不撤</div>
+            <div class="stamp-zone" data-stampzone aria-hidden="true"></div>
+          </div>
+          <div class="folded-note" data-foldednote>已收卡 · 回答已随 resolveInteraction 上行。</div>
+          <div class="demo-tools">
+            <label class="fail-toggle"><input type="checkbox" data-failtoggle>模拟失败（状态缺席）</label>
+            <button class="reset-link" data-reset>再来一次</button>
+          </div>
+        </div>
+        <p class="demo-note">点选即发（options）与自由文本提交同走 <code>resolveInteraction</code>，answer 分形见 A-3（ChatMessageViews.kt:1490-1510 为 Android 同构）。口径：提交型决议一律朱印「照办」——印文不译，「照办」=「就这么办」，适配回答语义。</p>
+      </div>
+
+      <!-- ④ hook 审核卡 -->
+      <div class="demo">
+        <div>
+          <div class="demo-head"><span class="no">④</span><h3>hook 审核卡</h3></div>
+          <div class="mock-card" data-demo>
+            <div class="card-eyebrow" data-eyebrow>审核 · WORKSPACEHOOK</div>
+            <div class="card-title" data-title>外部工具请求放行？</div>
+            <div class="card-cmd">gh pr create --repo zai-org/ZCode --title "feat: ghost hint"</div>
+            <div class="card-actions">
+              <button data-decide="approve">放行</button>
+              <button data-decide="reject" class="ghost">拒绝</button>
+            </div>
+            <div class="fail-row" data-failrow>rejected · hookAdmissionDenied —— 该 hook 已在工作区规则中禁止</div>
+            <div class="stamp-zone" data-stampzone aria-hidden="true"></div>
+          </div>
+          <div class="folded-note" data-foldednote>已收卡 · 审核结论已写回工作区规则。</div>
+          <div class="demo-tools">
+            <label class="fail-toggle"><input type="checkbox" data-failtoggle>模拟失败</label>
+            <button class="reset-link" data-reset>再来一次</button>
+          </div>
+        </div>
+        <p class="demo-note">工程锚点：<code>WorkspaceHookReviewCard</code> / <code>respondWorkspaceHookReview</code>（Android 同名 StoreProtocols.kt:687）。外部工具放行 = 朱印；拒绝 = 墨印——hook 是最高风险面，印文手势在这里分量最重。</p>
+      </div>
+
+      <!-- ⑤ 任务页 ApprovalSheet -->
+      <div class="demo">
+        <div>
+          <div class="demo-head"><span class="no">⑤</span><h3>任务页 ApprovalSheet（逐文件批准）</h3></div>
+          <div class="mock-card" data-demo>
+            <div class="card-eyebrow" data-eyebrow>文件 · GITCHANGES</div>
+            <div class="card-title" data-title>3 个待批准变更</div>
+            <div class="card-cmd">ChatView.swift · ChatViewModel.swift · ProtocolSchemaTests.swift</div>
+            <div class="card-actions">
+              <button data-decide="approve">批准</button>
+              <button data-decide="reject" class="ghost">拒绝</button>
+              <button data-decide="approve" data-batch class="ghost">全部批准</button>
+            </div>
+            <div class="fail-row" data-failrow>rejected · git.stagePaths.locked —— 变更集已被桌面端锁定</div>
+            <div class="stamp-zone" data-stampzone aria-hidden="true"></div>
+          </div>
+          <div class="folded-note" data-foldednote>已收卡 · 批量批准与单条批准同印（照办），不另造词。</div>
+          <div class="demo-tools">
+            <label class="fail-toggle"><input type="checkbox" data-failtoggle>模拟失败</label>
+            <button class="reset-link" data-reset>再来一次</button>
+          </div>
+        </div>
+        <p class="demo-note">工程锚点：<code>ApprovalSheetView</code>——它已有「成功后延迟 0.7s dismiss」先例（ApprovalSheetView.swift:457-460），盖章停驻与其天然同构，复用同一时长。批量批准落同一枚「照办」，批量不稀释印文。</p>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="impl">
+    <span class="eyebrow">实现注记</span>
+    <h2>留给工程轮的锚点</h2>
+    <div class="impl-grid">
+      <div class="impl">
+        <h3>iOS（本轮不实施）</h3>
+        <ul>
+          <li>插入点：<code>ChatViewModel.decide / decidePlan</code>（ChatViewModel.swift:916-938）需透出 ack 权威态（<code>isAuthoritativeSuccess</code>，CommandSchemas.swift:379）；成功路径置 <code>stamping[interactionId] = approved</code>。</li>
+          <li>停驻 = 本地遮罩：沿用 snooze 本地遮罩口径（ChatViewModel.swift:464-475，store 投影不动）；<code>refreshPendingInteractions</code> 对「投影已撤但停驻未满」的卡保留本地副本，期满 Task 自行摘除（无卡死风险）。</li>
+          <li>StampView：SwiftUI <code>keyframeAnimator</code>（部署目标 17.0）实现 1.6→0.96→1.04→1.0 + 旋转；印面 Path（含残边）+ <code>Text(verbatim:)</code> 直刻印文——印文不译、不进 xcstrings，视图 <code>accessibilityHidden</code>，容器 label「已批准/已拒绝」新键手工入目录（AGENTS §5-18）。</li>
+          <li>0.7s 收卡先例：<code>ApprovalSheetView.dismissAfterDecision</code>（ApprovalSheetView.swift:457-460）——sheet 面直接沿用。</li>
+          <li>E2E 兼容：现有等待全部有界轮询（test05 <code>waitGoneQuickly</code> 4s / Login test16 <code>waitDisappear</code> 10s / Matrix test08 <code>waitUntil</code> 10s），700ms 停驻不破。验证建议 <code>-ZCodeE2EStampHold</code> 拉长停驻后断言 <code>05-approval-stamp</code> 在场。</li>
+        </ul>
+      </div>
+      <div class="impl">
+        <h3>Android（本轮不实施）</h3>
+        <ul>
+          <li>撤卡遮罩已有：<code>decidedInteractionIds</code>（ChatViewModel.kt:1356-1377 权威成功即移除）——改为「标记 + 延迟移除」即得停驻窗口。</li>
+          <li>动画零基建，需以 <code>Animatable</code> + <code>graphicsLayer</code> 手搭同款 keyframes；外溢圈用 <code>Canvas</code> 圆环 alpha 动画。</li>
+          <li>触觉零基建：首例 <code>LocalHapticFeedback.performHapticFeedback(LongPress)</code> 于落印帧。</li>
+          <li>色 token 需新增朱磦/墨印色（BiuZPalette 现无朱红语义位，destructive 红不挪用）。</li>
+          <li>组合层零测试：自测以模拟器截图目检为准（§5-1 口径：不可 XCUITest 时显式声明）。</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">跨端恒定：印面含残边、印文恒 −2.5°、外溢圈颜色随印、失败永不落印、印文图形不译。平台字口不进盖章（R-5：盖章永不平台化）。</p>
+  </section>
+
+  <footer>印随批准权走 —— 权威成功才落印，失败如实上屏　｜　brand/seal/motion-spec.html · 2026-11</footer>
+</main>
+
+<script>
+  // 印面与印文常量（与 seal-mark.svg / brand-sheet.html 逐字一致）
+  var FACE = "M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z";
+  var ACK_MS = 380, HOLD_MS = 700, FOLD_MS = 180;
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function stampSVG(ground, ink, chars, ringClass) {
+    return '<svg viewBox="0 0 100 100" class="stamp-svg">' +
+      '<path d="' + FACE + '" fill="' + ground + '"/>' +
+      '<text x="50" y="45" text-anchor="middle" font-family="Songti SC, Noto Serif SC, serif" font-weight="900" font-size="30" fill="' + ink + '">' + chars[0] + '</text>' +
+      '<text x="50" y="79" text-anchor="middle" font-family="Songti SC, Noto Serif SC, serif" font-weight="900" font-size="30" fill="' + ink + '">' + chars[1] + '</text>' +
+      '</svg><div class="stamp-ring ' + ringClass + '"></div>';
+  }
+
+  document.querySelectorAll("[data-demo]").forEach(function(card) {
+    var scope = card.closest(".demo");
+    var eyebrow = card.querySelector("[data-eyebrow]");
+    var title = card.querySelector("[data-title]");
+    var zone = card.querySelector("[data-stampzone]");
+    var failRow = card.querySelector("[data-failrow]");
+    var failToggle = scope.querySelector("[data-failtoggle]");
+    var reset = scope.querySelector("[data-reset]");
+    var foldedNote = scope.querySelector("[data-foldednote]");
+    var eyebrowText = eyebrow.textContent;
+    var decided = false;
+
+    function setButtons(disabled) {
+      card.querySelectorAll("[data-decide]").forEach(function(b){ b.disabled = disabled; });
+    }
+
+    card.querySelectorAll("[data-decide]").forEach(function(btn) {
+      if (!btn.classList.contains("chip")) btn.addEventListener("click", function(){ decide(btn); });
+      else btn.addEventListener("click", function(){ if (!decided) decide(btn, true); });
+    });
+    card.querySelectorAll("[data-chip]").forEach(function(chip) {
+      chip.addEventListener("click", function(){
+        card.querySelectorAll("[data-chip]").forEach(function(c){ c.classList.remove("sel"); });
+        chip.classList.add("sel");
+      });
+    });
+
+    function decide(btn, isChip) {
+      if (decided) return;
+      var approved = btn.getAttribute("data-decide") === "approve";
+      decided = true;
+      setButtons(true);
+      card.querySelectorAll("[data-chip]").forEach(function(c){ c.disabled = true; });
+      eyebrow.textContent = "已受理 · 等待回执…";
+      eyebrow.classList.add("deciding");
+
+      setTimeout(function() {
+        if (failToggle.checked) { // 失败分支：不落印、错误行、按钮恢复
+          eyebrow.textContent = eyebrowText;
+          eyebrow.classList.remove("deciding");
+          failRow.classList.add("show");
+          setButtons(false);
+          card.querySelectorAll("[data-chip]").forEach(function(c){ c.disabled = false; });
+          decided = false;
+          reset.classList.add("show");
+          return;
+        }
+        var isReject = !approved;
+        var ground = isReject ? "#17181A" : "#D2402E";
+        var chars  = isReject ? ["不","准"] : ["照","办"];
+        zone.innerHTML = stampSVG(ground, "#F7F3EC", chars, isReject ? "ink" : "");
+        if (reduceMotion) { zone.firstElementChild.style.animation = "none"; zone.lastElementChild.style.display = "none"; }
+        eyebrow.textContent = isReject ? "已拒绝 · 墨印" : "已批准 · 阴文落印";
+        eyebrow.classList.remove("deciding");
+        eyebrow.classList.add("done");
+        if (isReject) title.classList.add("struck");
+        if (btn.hasAttribute("data-batch")) {
+          // 批量：印随卡落，行不在本演示展开
+        }
+        setTimeout(function() {
+          card.classList.add("folded");
+          setTimeout(function() {
+            foldedNote.classList.add("show");
+            reset.classList.add("show");
+          }, reduceMotion ? 0 : FOLD_MS);
+        }, reduceMotion ? 200 : HOLD_MS);
+      }, ACK_MS);
+    }
+
+    reset.addEventListener("click", function() {
+      decided = false;
+      zone.innerHTML = "";
+      failRow.classList.remove("show");
+      eyebrow.textContent = eyebrowText;
+      eyebrow.classList.remove("deciding", "done");
+      title.classList.remove("struck");
+      setButtons(false);
+      card.querySelectorAll("[data-chip]").forEach(function(c){ c.disabled = false; });
+      card.classList.remove("folded");
+      foldedNote.classList.remove("show");
+      reset.classList.remove("show");
+    });
+  });
+</script>
+</body>
+</html>

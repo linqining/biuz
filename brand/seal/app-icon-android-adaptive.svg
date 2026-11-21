@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" role="img" aria-label="朱批 Android Adaptive 图标（背景层 + 前景层 + 66dp 安全区标注）">
+  <!-- 背景层：墨，整幅出血 -->
+  <g id="background-layer">
+    <rect width="108" height="108" fill="#17181A"/>
+  </g>
+  <!-- 前景层：印面 42dp，圆心 (54,54)；66dp 安全区内 -->
+  <g id="foreground-layer" transform="translate(33,33) scale(0.42)">
+    <path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
+    <path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+  </g>
+  <!-- 以下为交接标注（导出资源时删除 .spec 元素） -->
+  <g class="spec" data-spec="true" opacity="0.9">
+    <circle cx="54" cy="54" r="33" fill="none" stroke="#8A8F98" stroke-width="0.5" stroke-dasharray="2 2"/>
+    <text x="54" y="94" fill="#8A8F98" font-size="4" font-family="Menlo, monospace" text-anchor="middle">66dp safe zone</text>
+  </g>
+</svg>

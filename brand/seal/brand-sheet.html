@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>朱批 · SEAL — 品牌规格表</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --zhu:#D2402E;        /* 朱磦：印泥红，品牌主色 */
+    --zhu-deep:#B03020;   /* 朱磦加深：按压/悬停态 */
+    --mo:#17181A;         /* 墨：主文字与深色底 */
+    --mo-soft:#2A2B2E;    /* 墨·柔：深色底上的次级面板 */
+    --zhi:#F7F3EC;        /* 纸：浅色底 */
+    --zhi-dim:#EFE9DF;    /* 纸·暗一档：卡面 */
+    --hui:#8A8F98;        /* 钤灰：断线/次级信息 */
+    --hairline:rgba(23,24,26,.14);
+    --hairline-dark:rgba(247,243,236,.16);
+    --serif:"Songti SC","Noto Serif SC","Source Han Serif SC",serif;
+    --sans:"PingFang SC","Noto Sans SC",-apple-system,sans-serif;
+    --mono:"JetBrains Mono","SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{background:var(--zhi);color:var(--mo);font-family:var(--sans);line-height:1.65}
+  ::selection{background:var(--zhu);color:var(--zhi)}
+  a{color:inherit}
+
+  /* ---------- Hero：公文式构图（竖排 + 钤印），刻意避开横排居中模板 ---------- */
+  .hero{min-height:92vh;display:flex;justify-content:space-between;align-items:stretch;
+        padding:7vh 8vw;background:var(--zhi);position:relative;overflow:hidden}
+  .hero-left{align-self:flex-end;display:flex;flex-direction:column;gap:18px;padding-bottom:4vh}
+  .hero-en{font-family:var(--mono);font-size:15px;letter-spacing:.42em;color:var(--zhu);font-weight:500}
+  .hero-tag{font-family:var(--serif);font-weight:700;font-size:clamp(18px,2.4vw,26px);color:var(--mo)}
+  .hero-sub{font-family:var(--mono);font-size:12px;color:var(--hui);letter-spacing:.06em}
+  .hero-right{display:flex;align-items:flex-start;position:relative;align-self:flex-start}
+  .hero-zh{writing-mode:vertical-rl;text-orientation:upright;font-family:var(--serif);font-weight:900;
+           font-size:clamp(88px,16vw,168px);line-height:1.06;letter-spacing:.1em;color:var(--mo)}
+  .hero-stamp{position:absolute;width:clamp(120px,17vw,190px);left:calc(-1 * clamp(120px,17vw,190px) * .58);
+              bottom:2vh;transform:rotate(-2.5deg)}
+  .hero-stamp svg{width:100%;height:auto;display:block;
+    animation:stamp-in .56s cubic-bezier(.22,.68,.32,1) .35s both}
+  .hero-rule{position:absolute;left:8vw;right:8vw;top:calc(7vh - 0px);border-top:1px solid var(--hairline)}
+  .hero-meta{position:absolute;top:calc(7vh + 14px);left:8vw;font-family:var(--mono);font-size:11px;
+             color:var(--hui);letter-spacing:.14em}
+
+  /* ---------- 版心与节 ---------- */
+  main{max-width:1040px;margin:0 auto;padding:0 24px 96px}
+  section{padding:64px 0 56px;border-top:1px solid var(--hairline)}
+  section:first-of-type{border-top:none}
+  h2{font-family:var(--serif);font-weight:900;font-size:28px;margin:10px 0 26px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.28em;color:var(--zhu);display:block;margin-bottom:6px}
+  .lede{font-size:16px;max-width:34em;color:var(--mo)}
+  .note{font-size:13px;color:var(--hui);margin-top:14px}
+
+  /* ---------- 拆开看 ---------- */
+  .build-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+  .tile{background:var(--zhi-dim);border:1px solid var(--hairline);padding:26px 22px;display:flex;
+        flex-direction:column;gap:14px;min-height:250px}
+  .tile svg{width:118px;height:118px}
+  .tile h3{font-family:var(--serif);font-weight:700;font-size:17px}
+  .tile p{font-size:13px;color:var(--hui)}
+  .tile.mono-tag{font-family:var(--mono);font-size:11px;color:var(--zhu);letter-spacing:.08em}
+
+  /* ---------- 阴阳文（深色带演示） ---------- */
+  .yy-band{background:var(--mo);color:var(--zhi);margin:0 -24px;padding:48px 24px}
+  .yy-inner{max-width:992px;margin:0 auto}
+  .yy-band h2{color:var(--zhi)}
+  .yy-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .yy-tile{border:1px solid var(--hairline-dark);background:var(--mo-soft);padding:30px 26px;
+           display:flex;gap:26px;align-items:center}
+  .yy-tile svg{width:104px;height:104px;flex:none}
+  .yy-tile h3{font-family:var(--serif);font-weight:700;font-size:17px;color:var(--zhi)}
+  .yy-tile p{font-size:13px;color:rgba(247,243,236,.62);margin-top:6px}
+
+  /* ---------- 色板 ---------- */
+  .color-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+  .swatch{border:1px solid var(--hairline)}
+  .swatch .chip{height:108px}
+  .swatch .body{padding:14px 16px;background:var(--zhi-dim)}
+  .swatch .name{font-family:var(--serif);font-weight:700;font-size:15px}
+  .swatch .hex{font-family:var(--mono);font-size:12px;color:var(--hui);margin-top:2px}
+  .swatch .use{font-size:12px;color:var(--hui);margin-top:8px}
+
+  /* ---------- 字 ---------- */
+  .type-row{display:flex;gap:28px;align-items:baseline;border-top:1px dashed var(--hairline);padding:22px 0}
+  .type-row:first-child{border-top:none}
+  .type-label{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--hui);flex:none;width:120px}
+  .type-display{font-family:var(--serif);font-weight:900;font-size:44px}
+  .type-display .zhu{color:var(--zhu)}
+  .type-body{font-size:16px}
+  .type-mono{font-family:var(--mono);font-size:13px;color:var(--mo);word-break:break-all}
+  .type-mono .ok{color:var(--zhu)}
+
+  /* ---------- 动 ---------- */
+  .motion-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:26px;align-items:start}
+  .approval-card{position:relative;background:#fff;border:1px solid var(--hairline);
+                 box-shadow:0 1px 0 rgba(23,24,26,.06),0 12px 32px rgba(23,24,26,.08);
+                 padding:22px 22px 20px;max-width:430px}
+  .card-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--zhu)}
+  .card-eyebrow.done{color:var(--hui)}
+  .card-title{font-family:var(--serif);font-weight:700;font-size:17px;margin:8px 0 16px}
+  .card-actions{display:flex;gap:10px}
+  .card-actions button{font-family:var(--sans);font-size:14px;padding:8px 20px;cursor:pointer;
+                       border:1px solid var(--mo);background:var(--mo);color:var(--zhi)}
+  .card-actions button.ghost{background:transparent;color:var(--mo)}
+  .card-actions button:focus-visible{outline:2px solid var(--zhu);outline-offset:2px}
+  .card-actions button:disabled{opacity:.4;cursor:default}
+  .reset-link{font-family:var(--mono);font-size:12px;color:var(--hui);margin-top:14px;
+              background:none;border:none;cursor:pointer;text-decoration:underline;display:none}
+  .stamp-zone{position:absolute;right:14px;top:44%;width:132px;height:132px;transform:translateY(-50%);
+              pointer-events:none}
+  .stamp-svg{width:100%;height:100%;opacity:.94;
+             animation:stamp-in .46s cubic-bezier(.22,.68,.32,1) both}
+  .stamp-ring{position:absolute;inset:6%;border:2px solid var(--zhu);border-radius:50%;
+              animation:ring-out .52s ease-out .18s both}
+  .spec-table{border:1px solid var(--hairline);font-size:13px;background:var(--zhi-dim)}
+  .spec-table div{display:flex;justify-content:space-between;gap:16px;padding:10px 14px;border-top:1px solid var(--hairline)}
+  .spec-table div:first-child{border-top:none}
+  .spec-table span:last-child{font-family:var(--mono);font-size:12px;color:var(--mo)}
+  .hb{display:flex;align-items:center;gap:12px;margin-top:22px;font-family:var(--mono);font-size:12px;color:var(--hui)}
+  .hb-dot{width:10px;height:10px;border-radius:50%;background:var(--zhu);
+          animation:hb 5s ease-in-out infinite;flex:none}
+
+  /* ---------- 图标 ---------- */
+  .icon-grid{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-end}
+  .icon-case{text-align:center}
+  .icon-case img,.icon-case svg{display:block;width:150px;height:150px;border-radius:22px}
+  .icon-case.small svg,.icon-case.small img{width:64px;height:64px;border-radius:14px}
+  .icon-case figcaption{font-family:var(--mono);font-size:11px;color:var(--hui);margin-top:10px;letter-spacing:.06em}
+
+  /* ---------- 边界 ---------- */
+  .edge-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .edge{border:1px solid var(--hairline);padding:24px 24px 20px;background:var(--zhi-dim)}
+  .edge h3{font-family:var(--mono);font-size:12px;letter-spacing:.3em;margin-bottom:14px}
+  .edge.do h3{color:var(--zhu)}
+  .edge.dont h3{color:var(--mo)}
+  .edge li{list-style:none;font-size:14px;padding:7px 0 7px 22px;position:relative;border-top:1px dashed var(--hairline)}
+  .edge li:first-of-type{border-top:none}
+  .edge.do li::before{content:"✓";position:absolute;left:0;color:var(--zhu);font-family:var(--mono)}
+  .edge.dont li::before{content:"✕";position:absolute;left:0;color:var(--hui);font-family:var(--mono)}
+
+  footer{border-top:1px solid var(--hairline);margin-top:8px;padding:34px 24px 60px;text-align:center;
+         font-family:var(--mono);font-size:12px;color:var(--hui);letter-spacing:.08em}
+
+  /* ---------- 动效 ---------- */
+  @keyframes stamp-in{
+    0%{transform:scale(1.6) rotate(-10deg);opacity:0}
+    55%{transform:scale(.96) rotate(-2deg);opacity:1}
+    76%{transform:scale(1.04) rotate(-3.2deg)}
+    100%{transform:scale(1) rotate(-2.5deg);opacity:.94}
+  }
+  @keyframes ring-out{
+    0%{transform:scale(.9);opacity:.7}
+    100%{transform:scale(1.45);opacity:0}
+  }
+  @keyframes hb{
+    0%{transform:scale(1)}2%{transform:scale(1.4);opacity:.85}6%{transform:scale(1)}
+    10%{transform:scale(1.28);opacity:.9}15%{transform:scale(1)}100%{transform:scale(1)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
+    .hero-stamp svg,.stamp-svg{opacity:.94}
+  }
+
+  @media (max-width:820px){
+    .hero{flex-direction:column;gap:8vh;min-height:0;padding:64px 24px}
+    .hero-left{align-self:flex-start;order:2}
+    .hero-right{order:1;align-self:flex-end}
+    /* 移动端钤印：完整入画，压在竖排「批」字左下 */
+    .hero-stamp{left:calc(-1 * clamp(120px,17vw,190px) * .78);bottom:-4vh}
+    .build-grid,.yy-grid,.color-grid,.motion-grid,.edge-grid{grid-template-columns:1fr}
+    .color-grid{grid-template-columns:repeat(2,1fr)}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-rule" aria-hidden="true"></div>
+  <div class="hero-meta">ZCODE 社区版 · 移动遥控台 · 品牌提案 2026-11</div>
+
+  <div class="hero-left">
+    <span class="hero-en">S E A L</span>
+    <p class="hero-tag">朱批一落，代理照办。</p>
+    <p class="hero-sub">名字抓关系，不抓功能 —— 批准权在掌上。</p>
+  </div>
+
+  <div class="hero-right">
+    <div class="hero-zh">朱批</div>
+    <div class="hero-stamp" aria-hidden="true">
+      <svg viewBox="0 0 100 100">
+        <path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
+        <path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+      </svg>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <section id="pin">
+    <p class="lede">产品最有辨识度的手势是审批卡：桌面代理把工作铺到你面前，落印与否由你决定。
+    印，就是这份批准权的形状 —— 所以品牌从「钤印」长出来，而不是从「遥控器」。</p>
+  </section>
+
+  <section id="build">
+    <span class="eyebrow">印面</span>
+    <h2>拆开看</h2>
+    <div class="build-grid">
+      <div class="tile">
+        <svg viewBox="0 0 100 100" aria-label="印面与残边">
+          <path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
+        </svg>
+        <h3>印面 · 残边</h3>
+        <p>右下角整段磕缺，是手工钤印的意外感。任何尺寸、任何场合，残边不得修复。</p>
+      </div>
+      <div class="tile">
+        <svg viewBox="0 0 100 100" aria-label="字口与刀口">
+          <path fill="#17181A" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+        </svg>
+        <h3>字口 · 刀口</h3>
+        <p>右上、左下是直角刀背，左上、右下是斜刃口 —— 一刀刻成的不对称，就是刻痕。</p>
+      </div>
+      <div class="tile">
+        <svg viewBox="0 0 100 100" aria-label="合印">
+          <path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
+          <path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+        </svg>
+        <h3>合印</h3>
+        <p class="mono-tag">Z = ZCode 血统记号，只与印面成对出现</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="yinyang" style="padding:0;border-top:none;margin-top:56px">
+    <div class="yy-band"><div class="yy-inner">
+      <span class="eyebrow">文 · 底</span>
+      <h2>阴阳文</h2>
+      <div class="yy-grid">
+        <div class="yy-tile">
+          <svg viewBox="0 0 100 100" aria-label="阴文：朱底白字">
+            <path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
+            <path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+          </svg>
+          <div><h3>阴文 · 朱底白字</h3><p>主态。待批准、进行中、一切需要你落印的时刻。</p></div>
+        </div>
+        <div class="yy-tile">
+          <svg viewBox="0 0 100 100" aria-label="阳文：纸底朱字">
+            <path fill="#F7F3EC" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
+            <path fill="#D2402E" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+          </svg>
+          <div><h3>阳文 · 纸底朱字</h3><p>已批态与深色行内。同一残边、同一字口，只翻底色与字色。</p></div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <section id="color">
+    <span class="eyebrow">色</span>
+    <h2>四色到顶</h2>
+    <div class="color-grid">
+      <div class="swatch"><div class="chip" style="background:#D2402E"></div>
+        <div class="body"><div class="name">朱磦</div><div class="hex">#D2402E</div>
+        <div class="use">印泥红。品牌、在线点、批准动作。</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#B03020"></div>
+        <div class="body"><div class="name">朱磦 · 加深</div><div class="hex">#B03020</div>
+        <div class="use">按压与悬停态，不做渐变。</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#17181A"></div>
+        <div class="body"><div class="name">墨</div><div class="hex">#17181A</div>
+        <div class="use">主文字、图标深色底。</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#F7F3EC;border-bottom:1px solid var(--hairline)"></div>
+        <div class="body"><div class="name">纸</div><div class="hex">#F7F3EC</div>
+        <div class="use">浅色底。钤灰 #8A8F98 只用于断线与次级信息。</div></div></div>
+    </div>
+    <p class="note">纸色不是默认米色：它在这里有出处 —— 印落在纸上。去掉印，就别用这套底色。</p>
+  </section>
+
+  <section id="type">
+    <span class="eyebrow">字</span>
+    <h2>宋体刻字，等宽执令</h2>
+    <div class="type-row">
+      <span class="type-label">DISPLAY</span>
+      <div class="type-display">朱批 <span class="zhu">·</span> Seal</div>
+    </div>
+    <div class="type-row">
+      <span class="type-label">BODY</span>
+      <div class="type-body">连接已断开 · 正在自动重连… 3/6</div>
+    </div>
+    <div class="type-row">
+      <span class="type-label">MONO</span>
+      <div class="type-mono">sendConversationCommandV4 · baseRevision=12119 · status:<span class="ok">"accepted"</span></div>
+    </div>
+    <p class="note">思源宋体 Heavy 承印面气质；正文 PingFang/思源黑体；协议串、命令 ID、水位一律等宽 —— 单空格字体在这个产品里是功能必需。</p>
+  </section>
+
+  <section id="motion">
+    <span class="eyebrow">动</span>
+    <h2>盖章，是唯一的冒险</h2>
+    <div class="motion-grid">
+      <div class="approval-card" id="approvalCard">
+        <div class="card-eyebrow" id="cardEyebrow">审批 · EXITPLANMODE</div>
+        <div class="card-title" id="cardTitle">执行既定计划：跑通 E2E 门禁并交付</div>
+        <div class="card-actions">
+          <button id="btnApprove">批准</button>
+          <button id="btnReject" class="ghost">拒绝</button>
+        </div>
+        <button class="reset-link" id="btnReset">再来一次</button>
+        <div class="stamp-zone" id="stampZone" aria-hidden="true"></div>
+      </div>
+      <div>
+        <div class="spec-table">
+          <div><span>总时长</span><span>460ms</span></div>
+          <div><span>落印路径</span><span>1.6 → 0.96 → 1.04 → 1.0</span></div>
+          <div><span>旋转</span><span>−10° → −2.5°</span></div>
+          <div><span>缓动</span><span>cubic-bezier(.22,.68,.32,1)</span></div>
+          <div><span>印泥外溢</span><span>外圈扩散 520ms · 延迟 180ms</span></div>
+        </div>
+        <div class="hb"><span class="hb-dot"></span>在线 · 心跳 5s（lub-dub 双搏后静默）</div>
+        <p class="note">系统开启「减弱动态效果」时，动效全部停用，印直接以终态出现。
+        五个决议面的完整盖章规格与活体演示见 <a href="motion-spec.html" style="color:var(--zhu)">盖章动效 · 规格表</a>。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="icons">
+    <span class="eyebrow">图标</span>
+    <h2>墨底主推，纸底随系统</h2>
+    <div class="icon-grid">
+      <figure class="icon-case">
+        <svg viewBox="0 0 1024 1024" aria-label="墨底图标"><rect width="1024" height="1024" fill="#17181A"/><g transform="translate(232,232) scale(5.6)"><path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/><path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/></g></svg>
+        <figcaption>墨底 · 主推 1024</figcaption>
+      </figure>
+      <figure class="icon-case">
+        <svg viewBox="0 0 1024 1024" aria-label="纸底图标"><rect width="1024" height="1024" fill="#F7F3EC"/><g transform="translate(232,232) scale(5.6)"><path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/><path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/></g></svg>
+        <figcaption>纸底 · 浅色环境</figcaption>
+      </figure>
+      <figure class="icon-case small">
+        <svg viewBox="0 0 1024 1024" aria-label="墨底小尺寸"><rect width="1024" height="1024" fill="#17181A"/><g transform="translate(232,232) scale(5.6)"><path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/><path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/></g></svg>
+        <figcaption>64px 仍可辨残边</figcaption>
+      </figure>
+      <figure class="icon-case">
+        <img src="app-icon-android-adaptive.svg" alt="Android adaptive 分层标注" style="border-radius:0;border:1px solid var(--hairline)">
+        <figcaption>Android adaptive · 108dp 分层</figcaption>
+      </figure>
+    </div>
+    <p class="note">交付前把 SVG 母版导出 PNG（iOS 1024、Android 前景/背景各一层，记得删掉 .spec 标注层）。</p>
+  </section>
+
+  <section id="edges">
+    <span class="eyebrow">边界</span>
+    <h2>Do / Don't</h2>
+    <div class="edge-grid">
+      <div class="edge do">
+        <h3>DO</h3>
+        <ul>
+          <li>印面永远右下带残边，尺寸再小也一样</li>
+          <li>Z 与印面成对使用，阴文为主态</li>
+          <li>深浅双态成对交付，随系统切换</li>
+          <li>协议串、命令 ID 一律等宽字体</li>
+        </ul>
+      </div>
+      <div class="edge dont">
+        <h3>DON'T</h3>
+        <ul>
+          <li>不加渐变、投影、描边 —— 印是平的</li>
+          <li>旋转不超过 ±8°，落印之外的场合一律 −2.5°</li>
+          <li>不把 Z 从印面里抠出来单独当图标</li>
+          <li>不用纯白 #FFFFFF 替代纸色，不用亮绿/蓝做强调色</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>资产 · brand/seal/ —— 印面母版 ×2 · 图标 ×3 · 本页　｜　迁移口径：先显示名 → 图标 → 审批卡盖章动效 → bundle id 最后迁</footer>
+</main>
+
+<script>
+  // 母版路径常量（与 seal-mark.svg 逐字一致；改动请同步三处：两个 SVG + 本文件）
+  var FACE = "M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z";
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function stampSVG(ground, ink, chars) {
+    return '<svg viewBox="0 0 100 100" class="stamp-svg">' +
+      '<path d="' + FACE + '" fill="' + ground + '"/>' +
+      '<text x="50" y="45" text-anchor="middle" font-family="Songti SC, Noto Serif SC, serif" font-weight="900" font-size="30" fill="' + ink + '">' + chars[0] + '</text>' +
+      '<text x="50" y="79" text-anchor="middle" font-family="Songti SC, Noto Serif SC, serif" font-weight="900" font-size="30" fill="' + ink + '">' + chars[1] + '</text>' +
+      '</svg>';
+  }
+
+  var zone = document.getElementById("stampZone");
+  var eyebrow = document.getElementById("cardEyebrow");
+  var title = document.getElementById("cardTitle");
+  var btnA = document.getElementById("btnApprove");
+  var btnR = document.getElementById("btnReject");
+  var btnReset = document.getElementById("btnReset");
+
+  function drop(ground, ink, chars, label, done) {
+    if (zone.childElementCount) return;
+    zone.innerHTML = stampSVG(ground, ink, chars) + '<div class="stamp-ring"></div>';
+    eyebrow.textContent = label;
+    eyebrow.classList.add("done");
+    title.style.textDecoration = done ? "line-through" : "none";
+    title.style.textDecorationColor = "rgba(23,24,26,.35)";
+    btnA.disabled = btnR.disabled = true;
+    btnReset.style.display = "inline";
+    if (reduceMotion) { // 终态直出
+      zone.firstElementChild.style.animation = "none";
+      zone.lastElementChild.style.display = "none";
+    }
+  }
+
+  btnA.addEventListener("click", function(){ drop("#D2402E", "#F7F3EC", ["照","办"], "已批准 · 阴文落印", false); });
+  btnR.addEventListener("click", function(){ drop("#17181A", "#F7F3EC", ["不","准"], "已拒绝 · 墨印", true); });
+  btnReset.addEventListener("click", function(){
+    zone.innerHTML = "";
+    eyebrow.textContent = "审批 · EXITPLANMODE";
+    eyebrow.classList.remove("done");
+    title.style.textDecoration = "none";
+    btnA.disabled = btnR.disabled = false;
+    btnReset.style.display = "none";
+  });
+</script>
+</body>
+</html>

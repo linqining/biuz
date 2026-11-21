@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="字口 #002 · D（DeepSeek 借刻）">
+  <!-- D 字口：拉丁刀口规则 —— 左上/左下直角刀背，右上/右下斜刃口；fill-rule 必须为 evenodd（含内孔） -->
+  <path fill="#D2402E" fill-rule="evenodd"
+        d="M16 19 H70 L83 32 V62 L74 83 H16 Z M30.5 33.5 H56 L66 42 V56 L56 68.5 H30.5 Z"/>
+</svg>
