@@ -2,7 +2,7 @@ plugins {
     kotlin("jvm")
 }
 
-group = "cn.biuz.android"
+group = "cn.zhupi.android"
 version = "0.1.0-SNAPSHOT"
 
 kotlin {

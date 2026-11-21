@@ -85,6 +85,7 @@ import cn.biuz.android.app.ui.chat.ChatViewModel
 import cn.biuz.android.app.ui.chat.InteractionActions
 import cn.biuz.android.app.ui.chat.InteractionCard
 import cn.biuz.android.app.ui.chat.MessageRow
+import cn.biuz.android.app.ui.chat.SealStamp
 import cn.biuz.android.app.ui.chat.ModelOptionSection
 import cn.biuz.android.app.ui.chat.ModelRefetchRow
 import cn.biuz.android.app.ui.chat.PendingAttachmentThumb
@@ -242,8 +243,13 @@ fun ChatScreen(
             },
         )
     }
-    val visibleInteractions = remember(pendingInteractions, decidedIds) {
-        pendingInteractions.filter { it.id !in decidedIds }
+    // 盖章停驻（motion-spec）：权威成功后卡留 700ms 供落印——投影已撤但停驻未满
+    // 的卡由 stampHolds 本地副本顶住，期满 VM 摘除并入账 decidedIds 收卡
+    val stampHolds by viewModel.stampHolds.collectAsStateWithLifecycle()
+    val visibleInteractions = remember(pendingInteractions, decidedIds, stampHolds) {
+        pendingInteractions.filter { it.id !in decidedIds } +
+            stampHolds.values.map { it.interaction }
+                .filter { hold -> pendingInteractions.none { it.id == hold.id } }
     }
 
     Column(
@@ -525,7 +531,15 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
             ) {
                 visibleInteractions.forEach { interaction ->
-                    InteractionCard(interaction = interaction, actions = actions)
+                    val hold = stampHolds[interaction.id]
+                    Box {
+                        InteractionCard(interaction = interaction, actions = actions)
+                        // 盖章动效（motion-spec）：ACK 权威成功后落印「照办/不准」，
+                        // 停驻期满由 VM 入账 decidedIds 收卡；失败不落印（U-5）
+                        hold?.let {
+                            SealStamp(approved = it.approved, modifier = Modifier.align(Alignment.Center))
+                        }
+                    }
                 }
             }
         }

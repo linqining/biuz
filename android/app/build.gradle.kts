@@ -12,9 +12,9 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        // 命名裁决（branding/naming.md）：上架名 BiuZ，applicationId 自有域名反写；
+        // 命名裁决（branding/naming.md）：上架名 朱批 / Seal（cn.zhupi.android；朱批品牌升级 2026-11-21）；
         // namespace（代码/R 类）为 cn.biuz.android.app，与模块目录一致。
-        applicationId = "cn.biuz.android"
+        applicationId = "cn.zhupi.android"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

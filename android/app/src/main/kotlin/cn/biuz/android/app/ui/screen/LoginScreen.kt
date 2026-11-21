@@ -148,7 +148,7 @@ fun LoginScreen(
                                 ): Boolean {
                                     val target = request?.url?.toString() ?: return false
                                     if (isOAuthCallback(target)) {
-                                        android.util.Log.i("BiuZ", "oauth callback intercepted: " + target.substringBefore('?'))
+                                        android.util.Log.i("zhupi", "oauth callback intercepted: " + target.substringBefore('?'))
                                         finishWithCallback(target)
                                         return true
                                     }
@@ -156,7 +156,7 @@ fun LoginScreen(
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
-                                    android.util.Log.i("BiuZ", "oauth webview finished: " + url?.substringBefore('?'))
+                                    android.util.Log.i("zhupi", "oauth webview finished: " + url?.substringBefore('?'))
                                 }
 
                                 override fun onReceivedError(
@@ -165,13 +165,13 @@ fun LoginScreen(
                                     error: android.webkit.WebResourceError?,
                                 ) {
                                     if (request?.isForMainFrame != true) return
-                                    android.util.Log.e("BiuZ", "oauth webview error: " + error?.description + " @ " + request.url)
+                                    android.util.Log.e("zhupi", "oauth webview error: " + error?.description + " @ " + request.url)
                                     errorText = "无法打开授权页（${error?.description ?: "网络错误"}）"
                                 }
                             }
                             webChromeClient = object : android.webkit.WebChromeClient() {
                                 override fun onConsoleMessage(msg: android.webkit.ConsoleMessage?): Boolean {
-                                    android.util.Log.i("BiuZ", "webview console: " + msg?.message())
+                                    android.util.Log.i("zhupi", "webview console: " + msg?.message())
                                     return true
                                 }
                             }

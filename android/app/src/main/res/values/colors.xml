@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- qoder 参考深色 bg 令牌近黑 #080807（XML 注释内禁双连字符，故不写原令牌名）：
+    <!-- 朱批印系墨底 #17181A（2026-11-21 品牌升级，原 qoder 近黑 #080807 作废）：
          窗口底色 + 启动图标底（与 Color.kt BiuZBg 一致，避免启动闪色）。 -->
-    <color name="biuz_bg">#080807</color>
-    <color name="ic_launcher_background">#080807</color>
+    <color name="biuz_bg">#17181A</color>
+    <color name="ic_launcher_background">#17181A</color>
 </resources>

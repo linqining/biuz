@@ -858,7 +858,7 @@ class AppSession(
                     linkVersion = server.relay?.desktopAppVersion,
                     desktopVersion = result.info.version,
                 )
-                println("[BiuZ] version guard link=" + server.relay?.desktopAppVersion +
+                println("[朱批] version guard link=" + server.relay?.desktopAppVersion +
                     " actual=" + result.info.version + " mismatch=" + mismatch)
                 _versionMismatch.value = mismatch
                 // 连接成功收口：注册表更新（名称回填 + 最近连接时间 + 选中台）

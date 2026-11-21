@@ -377,7 +377,7 @@ class RelayTransport(
                         clientTsSeconds = System.currentTimeMillis() / 1000,
                         platform = "android",
                         appVersion = clientAppVersion,
-                        clientName = "BiuZ",
+                        clientName = "朱批",
                     ),
                 )
                 log(RelayLogKind.working, "auth_init · v2(ws2) · sid=${config.deviceSid.take(12)}…")

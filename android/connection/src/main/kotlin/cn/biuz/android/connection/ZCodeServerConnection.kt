@@ -222,7 +222,7 @@ object ServerInfoClient {
             // 如实带原始类名上错误面——旧实现全吞成 Timeout 假象，分诊误导
             // （2026-11-21 模拟器实测：手动连接 NetworkOnMainThreadException 被误报
             // 「桌面端响应超时」，错误面上屏取证）（§5-12 同精神——禁静默吞真因）
-            println("cn.biuz.android [relay-log][probe] GET /api/server-info failed: " +
+            println("cn.zhupi.android [relay-log][probe] GET /api/server-info failed: " +
                 "${e.javaClass.name}: ${e.message}")
             val latency = (System.currentTimeMillis() - started).toInt()
             ProbeResult(info = null, status = null, latencyMs = latency,

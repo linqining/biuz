@@ -18,7 +18,7 @@
         android:name=".BiuzApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="BiuZ"
+        android:label="朱批"
         android:supportsRtl="true"
         android:theme="@style/Theme.BiuZ"
         android:usesCleartextTraffic="true">

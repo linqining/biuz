@@ -75,7 +75,7 @@ class RelayV2Test {
             clientTsSeconds = 1_700_000_000L,
             platform = "android",
             appVersion = "1.0.0",
-            clientName = "BiuZ",
+            clientName = "朱批",
         )
         assertEquals("auth_init", map["type"]?.stringValue)
         assertEquals("sid-1", map["device_sid"]?.stringValue)
@@ -84,7 +84,7 @@ class RelayV2Test {
         assertEquals(1_700_000_000, map["client_ts"]?.intValue)
         val meta = map["meta"]?.objectValue
         assertEquals("android", meta?.get("platform")?.stringValue)
-        assertEquals("BiuZ", meta?.get("name")?.stringValue)
+        assertEquals("朱批", meta?.get("name")?.stringValue)
     }
 
     @Test

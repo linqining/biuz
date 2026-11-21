@@ -64,15 +64,15 @@ class RelayDeviceCatalog(
                 .execute()
                 .use { response ->
                     val body = response.body?.string()
-                    println("[BiuZ] device catalog http=" + response.code + " len=" + (body?.length ?: 0))
+                    println("[朱批] device catalog http=" + response.code + " len=" + (body?.length ?: 0))
                     if (response.code !in 200..299) {
-                        println("[BiuZ] device catalog body=" + (body?.take(160) ?: ""))
+                        println("[朱批] device catalog body=" + (body?.take(160) ?: ""))
                         return null
                     }
                     parseDevices(body)
                 }
         } catch (err: Exception) {
-            println("[BiuZ] device catalog failed: " + err::class.simpleName + ": " + err.message)
+            println("[朱批] device catalog failed: " + err::class.simpleName + ": " + err.message)
             null
         }
     }

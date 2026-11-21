@@ -228,7 +228,7 @@ fun ConnectScreen(
             // MARK: 品牌区（商标红线：works with ZCode 描述性表述；开发者模式切换
             // 手势唯一落位在设置页品牌行——连接页不放，保持默认简洁态）
             Text(
-                text = "BiuZ",
+                text = "朱批",
                 style = MaterialTheme.typography.displayLarge,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.testTag("l1-brand"),

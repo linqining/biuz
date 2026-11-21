@@ -230,9 +230,9 @@
 
     <!-- 品牌/跨屏共享（商标红线 branding/naming.md：应用内禁独立「ZCode」字样，
          仅以描述性 works with ZCode 表达社区版身份） -->
-    <string name="app_tagline">移动遥控台 · 把任务 biu 地发给你的 coding agent</string>
+    <string name="app_tagline">朱批一落，代理照办。</string>
     <string name="app_works_with">A mobile remote console that works with ZCode</string>
-    <string name="app_foot_data_source">BiuZ · 指令经桌面端执行</string>
+    <string name="app_foot_data_source">朱批 · 指令经桌面端执行</string>
     <string name="app_foot_boundary">凭据仅保存在本机 · 连接仅面向可信局域网 · 只读边界由桌面端强制</string>
 
     <!-- 会话列表分组标签（kind → 资源；ConversationGrouping.SectionKind 渲染面） -->
@@ -248,14 +248,14 @@
     <string name="settings_row_usage_sub">连接后同步桌面用量</string>
     <string name="settings_group_basic">基础设置</string>
     <string name="settings_group_about">关于</string>
-    <string name="settings_row_about">关于 BiuZ</string>
+    <string name="settings_row_about">关于朱批</string>
     <string name="settings_row_about_sub">版本与执行边界</string>
     <string name="settings_dev_group_title">开发者</string>
     <string name="settings_row_dev_mode">开发者模式</string>
     <string name="settings_row_dev_mode_sub">连接页显示手动输入 / 桌面端开启指引 / 令牌说明</string>
     <string name="settings_dev_announce_on">开发者模式已开启</string>
     <string name="settings_dev_announce_off">开发者模式已关闭</string>
-    <string name="settings_foot_brand">BiuZ · works with ZCode</string>
+    <string name="settings_foot_brand">朱批 · works with ZCode</string>
 
     <!-- 语言设置（zh/en 固定档 + 跟随系统；生效面 MainActivity attachBaseContext 注入） -->
     <string name="language_title">语言</string>
@@ -264,9 +264,9 @@
     <string name="language_opt_chinese">简体中文</string>
     <string name="language_opt_english">English</string>
     <string name="language_note_title">界面语言跟随系统</string>
-    <string name="language_note_body">默认随系统语言自动切换（简体中文 / English）。选择固定语言后，BiuZ 将始终以该语言显示；文案覆盖范围见版本说明。</string>
+    <string name="language_note_body">默认随系统语言自动切换（简体中文 / English）。选择固定语言后，朱批 将始终以该语言显示；文案覆盖范围见版本说明。</string>
 
-    <!-- 关于页（BiuZ · works with ZCode） -->
+    <!-- 关于页（朱批 · works with ZCode） -->
     <string name="about_title">关于</string>
     <string name="about_version_fmt">版本 %1$s</string>
 

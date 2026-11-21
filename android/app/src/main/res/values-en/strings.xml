@@ -156,9 +156,9 @@
     <string name="action_connect_desktop">Connect desktop</string>
 
     <!-- 品牌/跨屏共享 -->
-    <string name="app_tagline">Mobile remote console · beam tasks to your coding agent</string>
+    <string name="app_tagline">One stamp, and the agent delivers.</string>
     <string name="app_works_with">A mobile remote console that works with ZCode</string>
-    <string name="app_foot_data_source">BiuZ · commands are executed by the desktop</string>
+    <string name="app_foot_data_source">Seal · commands are executed by the desktop</string>
     <string name="app_foot_boundary">Credentials stay on this device · connections only over trusted LAN · read-only boundary enforced by the desktop</string>
 
     <!-- 会话列表分组标签 -->
@@ -174,14 +174,14 @@
     <string name="settings_row_usage_sub">Syncs desktop usage once connected</string>
     <string name="settings_group_basic">Basic</string>
     <string name="settings_group_about">About</string>
-    <string name="settings_row_about">About BiuZ</string>
+    <string name="settings_row_about">About Seal</string>
     <string name="settings_row_about_sub">Version and execution boundary</string>
     <string name="settings_dev_group_title">Developer</string>
     <string name="settings_row_dev_mode">Developer mode</string>
     <string name="settings_row_dev_mode_sub">Shows manual address entry / desktop setup guide / token notes on the connect screen</string>
     <string name="settings_dev_announce_on">Developer mode enabled</string>
     <string name="settings_dev_announce_off">Developer mode disabled</string>
-    <string name="settings_foot_brand">BiuZ · works with ZCode</string>
+    <string name="settings_foot_brand">Seal · works with ZCode</string>
 
     <!-- 语言设置 -->
     <string name="language_title">Language</string>
@@ -190,7 +190,7 @@
     <string name="language_opt_chinese">简体中文</string>
     <string name="language_opt_english">English</string>
     <string name="language_note_title">Interface language follows the system</string>
-    <string name="language_note_body">Defaults to the system language (简体中文 / English). Once a fixed language is chosen, BiuZ always displays in that language; see release notes for string coverage.</string>
+    <string name="language_note_body">Defaults to the system language (简体中文 / English). Once a fixed language is chosen, Seal always displays in that language; see release notes for string coverage.</string>
 
     <!-- 关于页 -->
     <string name="about_title">About</string>

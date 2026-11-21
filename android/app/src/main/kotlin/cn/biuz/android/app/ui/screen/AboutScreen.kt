@@ -23,7 +23,7 @@ import cn.biuz.android.app.ui.theme.BiuZText3
 
 /**
  * 关于页（本轮任务面）：品牌自我指称 + works-with 描述 + 版本 + 数据边界页脚。
- * 商标红线（branding/naming.md）：应用名 BiuZ；「ZCode」仅允许出现在描述性
+ * 商标红线（branding/naming.md + brand/seal/README.md）：应用名 朱批 / Seal（2026-11-21 朱批品牌升级）；「ZCode」仅允许出现在描述性
  * works with ZCode 短语内，禁独立字样——iOS 原文「为 ZCode 社区版桌面端打造的
  * 移动遥控台」按红线改为 works-with 表述（与连接页品牌区同口径）。
  */
@@ -47,7 +47,7 @@ fun AboutScreen(
             Spacer(Modifier.height(BiuZSpacing.xxl))
             // 品牌名（应用自我指称）
             Text(
-                text = "BiuZ",
+                text = "朱批",
                 style = MaterialTheme.typography.displayLarge,
                 color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center,

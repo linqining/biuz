@@ -2,17 +2,12 @@ package cn.biuz.android.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// 色板 —— **完全对齐 ZCode web**（用户裁决 2026-11-09「整个 app 与 ZCode web 设计样式保持一致，
-// 先不用之前设计的 UI，完全复刻」；原 qoder 色板作废）。
-//
-// 取值来源：线上手机壳实测（`zcode.z.ai/remote/v4` 390×844 计算样式）+ web `packages/ui/src/styles.css`
-// 的 :root / .dark 块；light 档与 iOS `Theme.swift:68-95`（同为 web 实测）逐值对齐：
-//   dark : bg #161616 · card/popover #171717 · surface #262626 · 正文 #d4d4d4(oklch .87)
-//          次级 = 正文 60% alpha · 最弱 = 正文 30% alpha · brand #e5e5e5(oklch .922) · destructive #ff6467
-//   分隔线 = 白 10% alpha · 输入/强边 = 白 15% alpha
-//   light: bg #fafafa · card/popover/surface #ffffff · 正文 #404040 · 次级 60% · 最弱 40%
-//          brand #171717 · destructive #dc2626 · 分隔线 黑 10% · 输入 黑 15%
-//   任务轨道实测：running #46bf72 / attention #ff8a30（web task-item 站点灯）
+// 色板 —— **朱批印系**（2026-11-21 朱批品牌升级，原「ZCode web 对齐板」作废；出处 brand/seal/README.md，
+// 与 iOS Theme.swift 同构映射）：
+//   light: 纸底 #F7F3EC · 卡 #FFFDF9 · 输入 #EFE9DF · 正文墨 #17181A（次级 62% / 最弱 40%）
+//   dark : 墨底 #17181A · 卡 #1C1D20 · 面 #232428 · 正文纸 #F7F3EC（次级 62% / 最弱 30%）
+//   印色 : 朱磦 #D2402E（加深 #B03020）——盖章/审批/品牌位专用，destructive red 分工不变
+//   状态色族沿用 web 口径：running #46bf72 / attention #ff8a30 等。
 //
 // 【P-003 主题切换】此前所有色是**顶层常量**（650 处引用）→ 无法切浅色。现改为
 // 顶层 getter 读 [BiuZColors.current]（调色板快照），[BiuZTheme] 在组合前写入对应档：
@@ -48,24 +43,28 @@ data class BiuZPalette(
     val add: Color,
     val del: Color,
     val lightAccent: Color,
+    val seal: Color,
+    val sealPress: Color,
+    val sealDim: Color,
+    val onSeal: Color,
 )
 
 val BiuZDarkPalette = BiuZPalette(
-    bg = Color(0xFF161616), // --color-background
-    bgCard = Color(0xFF171717), // --color-card / --color-popover
-    bgElevated = Color(0xFF262626), // --color-surface（浮层/Sheet）
-    bgInput = Color(0x26FFFFFF), // --color-input = 白 15% alpha
-    bgCode = Color(0xFF171717), // 代码块底（同 card）
-    bgTerm = Color(0xFF0F0F0F), // 终端底
-    border = Color(0x1AFFFFFF), // 白 10% alpha
-    borderStrong = Color(0x26FFFFFF), // 白 15% alpha
-    text = Color(0xFFD4D4D4),
-    text2 = Color(0x99D4D4D4),
-    text3 = Color(0x4DD4D4D4),
-    accent = Color(0xFFE5E5E5),
-    accentPress = Color(0xFFD4D4D4),
-    accentDim = Color(0x1AFFFFFF),
-    onAccent = Color(0xFF171717),
+    bg = Color(0xFF17181A), // 墨底（印系）
+    bgCard = Color(0xFF1C1D20), // 卡
+    bgElevated = Color(0xFF232428), // 浮层/Sheet
+    bgInput = Color(0xFF222326), // 输入底
+    bgCode = Color(0xFF1B1C1F), // 代码块底
+    bgTerm = Color(0xFF131416), // 终端底
+    border = Color(0x1FF7F3EC), // 纸 12% alpha
+    borderStrong = Color(0x2EF7F3EC), // 纸 18% alpha
+    text = Color(0xFFF7F3EC),
+    text2 = Color(0x9EF7F3EC),
+    text3 = Color(0x4DF7F3EC),
+    accent = Color(0xFFF0EDE6),
+    accentPress = Color(0xFFD8D5CE),
+    accentDim = Color(0x1AF7F3EC),
+    onAccent = Color(0xFF17181A),
     green = Color(0xFF46BF72),
     greenDim = Color(0x2446BF72),
     blue = Color(0xFF60A5FA),
@@ -78,25 +77,29 @@ val BiuZDarkPalette = BiuZPalette(
     violet = Color(0xFFC792FF),
     add = Color(0xFF22C55E),
     del = Color(0xFFFF6467),
-    lightAccent = Color(0xFF171717),
+    lightAccent = Color(0xFF17181A),
+    seal = Color(0xFFD2402E), // 朱磦（印系主印色）
+    sealPress = Color(0xFFB03020), // 朱磦加深（按压）
+    sealDim = Color(0x29D2402E), // 朱磦 16% alpha（深档 dim）
+    onSeal = Color(0xFFF7F3EC), // 印面纸字
 )
 
 val BiuZLightPalette = BiuZPalette(
-    bg = Color(0xFFFAFAFA),
-    bgCard = Color(0xFFFFFFFF),
+    bg = Color(0xFFF7F3EC),
+    bgCard = Color(0xFFFFFDF9),
     bgElevated = Color(0xFFFFFFFF),
-    bgInput = Color(0x26000000), // 黑 15% alpha
-    bgCode = Color(0xFFF5F5F5),
-    bgTerm = Color(0xFFFBFBFC),
-    border = Color(0x1A000000), // 黑 10% alpha
-    borderStrong = Color(0x26000000),
-    text = Color(0xFF404040),
-    text2 = Color(0x99404040),
-    text3 = Color(0x66404040), // light 档最弱 40%
-    accent = Color(0xFF171717),
+    bgInput = Color(0xFFEFE9DF), // 纸·暗一档
+    bgCode = Color(0xFFF1ECE3),
+    bgTerm = Color(0xFFF2EEE6),
+    border = Color(0x1F17181A), // 墨 12% alpha
+    borderStrong = Color(0x2E17181A), // 墨 18% alpha
+    text = Color(0xFF17181A),
+    text2 = Color(0x9E17181A),
+    text3 = Color(0x6617181A), // light 档最弱 40%
+    accent = Color(0xFF17181A),
     accentPress = Color(0xFF000000),
-    accentDim = Color(0x1A000000),
-    onAccent = Color(0xFFFFFFFF),
+    accentDim = Color(0x1A17181A),
+    onAccent = Color(0xFFF7F3EC),
     green = Color(0xFF16A34A),
     greenDim = Color(0x1A16A34A),
     blue = Color(0xFF3B82F6),
@@ -109,7 +112,11 @@ val BiuZLightPalette = BiuZPalette(
     violet = Color(0xFF7C3AED),
     add = Color(0xFF16A34A),
     del = Color(0xFFDC2626),
-    lightAccent = Color(0xFFE5E5E5),
+    lightAccent = Color(0xFFF0EDE6),
+    seal = Color(0xFFD2402E),
+    sealPress = Color(0xFFB03020),
+    sealDim = Color(0x1AD2402E), // 朱磦 10% alpha（浅档 dim）
+    onSeal = Color(0xFFF7F3EC),
 )
 
 /** 当前生效调色板（[BiuZTheme] 在组合前写入；默认深色）。 */
@@ -146,3 +153,7 @@ val BiuZViolet: Color get() = BiuZColors.current.violet
 val BiuZAdd: Color get() = BiuZColors.current.add
 val BiuZDel: Color get() = BiuZColors.current.del
 val BiuZLightAccent: Color get() = BiuZColors.current.lightAccent
+val BiuZSeal: Color get() = BiuZColors.current.seal
+val BiuZSealPress: Color get() = BiuZColors.current.sealPress
+val BiuZSealDim: Color get() = BiuZColors.current.sealDim
+val BiuZOnSeal: Color get() = BiuZColors.current.onSeal

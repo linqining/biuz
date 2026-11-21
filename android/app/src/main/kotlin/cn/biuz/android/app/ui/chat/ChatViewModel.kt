@@ -243,6 +243,15 @@ class ChatViewModel(
     private val _decidedInteractionIds = MutableStateFlow<Set<String>>(emptySet())
     val decidedInteractionIds: StateFlow<Set<String>> get() = _decidedInteractionIds
 
+    /**
+     * 盖章停驻（motion-spec，朱批品牌升级 2026-11-21）：ACK 权威成功后卡面落印
+     * 「照办/不准」并停驻 700ms 再入账 [decidedInteractionIds] 收卡——替代即时撤卡。
+     * duplicate ack 去重：同一交互首次权威成功定案，重试不重置停驻。
+     */
+    data class StampHold(val interaction: RemotePendingInteraction, val approved: Boolean)
+    private val _stampHolds = MutableStateFlow<Map<String, StampHold>>(emptyMap())
+    val stampHolds: StateFlow<Map<String, StampHold>> get() = _stampHolds
+
     /** 只读边界（连接态远端 Store 可能为 true；UI 据此禁用发送/审批并提示）。 */
     var isReadOnly: Boolean = false
         private set
@@ -1369,7 +1378,7 @@ class ChatViewModel(
                 commandAck.failureText ?: "桌面端拒绝",
             )
             commandAck.isAuthoritativeSuccess -> {
-                _decidedInteractionIds.value = _decidedInteractionIds.value + interaction.id
+                beginStampHold(interaction, approved = stampApprovedFor(answer))
                 null
             }
             else -> InteractionFailure.UnknownState
@@ -1389,10 +1398,34 @@ class ChatViewModel(
                 commandAck.failureText ?: "桌面端拒绝",
             )
             commandAck.isAuthoritativeSuccess -> {
-                _decidedInteractionIds.value = _decidedInteractionIds.value + interaction.id
+                beginStampHold(interaction, approved = true) // hook 信任 = 朱印「照办」
                 null
             }
             else -> InteractionFailure.UnknownState
+        }
+    }
+
+    /**
+     * 印向推导（motion-spec：批准=朱印「照办」，拒绝=墨印「不准」，提交型一律照办）：
+     * reject 前缀 optionId（权限四族）/ action=decline（计划驳回）→ 不准；其余（提交
+     * 型回答、原生 optionId 单选即决、hook 信任）→ 照办。
+     */
+    private fun stampApprovedFor(answer: JSONValue): Boolean {
+        val fields = (answer as? JSONValue.Obj)?.fields ?: return true
+        val optionId = fields["optionId"]?.stringValue
+        if (optionId?.startsWith("reject") == true) return false
+        if (fields["action"]?.stringValue == "decline") return false
+        return true
+    }
+
+    /** 落印 + 停驻 700ms → 入账 decidedIds 收卡（去重：首印定案，duplicate 不重置）。 */
+    private fun beginStampHold(interaction: RemotePendingInteraction, approved: Boolean) {
+        if (_stampHolds.value.containsKey(interaction.id)) return
+        _stampHolds.value = _stampHolds.value + (interaction.id to StampHold(interaction, approved))
+        scope.launch {
+            kotlinx.coroutines.delay(700)
+            _stampHolds.value = _stampHolds.value - interaction.id
+            _decidedInteractionIds.value = _decidedInteractionIds.value + interaction.id
         }
     }
 
