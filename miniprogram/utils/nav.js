@@ -17,7 +17,7 @@ function push(url) {
 function acceptanceRoute(key, routes) {
   const url = routes[key];
   if (!url) {
-    console.warn("[BiuZ] unknown acceptance key", key);
+    console.warn("[朱批] unknown acceptance key", key);
     return false;
   }
   wx.reLaunch({ url });

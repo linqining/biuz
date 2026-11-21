@@ -79,7 +79,7 @@ function wxSocketFactory(params) {
       if (closeNotified) return;
       closeNotified = true;
       closeCbs.forEach(function (cb) {
-        try { cb(); } catch (e) { console.error('[BiuZ] close cb', e); }
+        try { cb(); } catch (e) { console.error('[朱批] close cb', e); }
       });
     }
 
@@ -97,13 +97,13 @@ function wxSocketFactory(params) {
         if (data instanceof ArrayBuffer) {
           const bytes = new Uint8Array(data);
           messageCbs.forEach(function (cb) {
-            try { cb(bytes); } catch (e) { console.error('[BiuZ] message cb', e); }
+            try { cb(bytes); } catch (e) { console.error('[朱批] message cb', e); }
           });
         } else if (typeof data === 'string') {
           // 中继 V2 auth 面走文本帧（auth_init/auth_ack JSON——RelayTransport
           // sendJSONLocked 同口径）；rpc 桥内帧仍为二进制
           messageCbs.forEach(function (cb) {
-            try { cb(data); } catch (e) { console.error('[BiuZ] message cb', e); }
+            try { cb(data); } catch (e) { console.error('[朱批] message cb', e); }
           });
         }
       });

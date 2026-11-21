@@ -4,7 +4,7 @@ const listeners = new Set();
 let source = null;
 
 function getState() { return state; }
-function emit() { listeners.forEach(function (fn) { try { fn(state); } catch (e) { console.error('[BiuZ] diff store listener failed', e); } }); }
+function emit() { listeners.forEach(function (fn) { try { fn(state); } catch (e) { console.error('[朱批] diff store listener failed', e); } }); }
 function patch(next) { Object.assign(state, next); emit(); }
 function subscribe(fn) { listeners.add(fn); return function () { listeners.delete(fn); }; }
 function setSource(fn) { source = fn || null; if (!source) patch({ status: 'disconnected', files: [], error: '' }); }

@@ -29,7 +29,7 @@ function write(key, value) {
   try {
     wx.setStorageSync(key, value);
   } catch (err) {
-    console.error('[BiuZ] settings write failed', err);
+    console.error('[朱批] settings write failed', err);
   }
 }
 

@@ -63,7 +63,7 @@ function createRpcClient(transport, options) {
       const eventName = parsed.header[3];
       const handlers = eventHandlers.get(key(channelName, eventName));
       if (handlers) handlers.forEach(function (fn) {
-        try { fn(parsed.body); } catch (err) { console.error('[BiuZ] event handler failed', err); }
+        try { fn(parsed.body); } catch (err) { console.error('[朱批] event handler failed', err); }
       });
     }
   }
@@ -103,7 +103,7 @@ function createRpcClient(transport, options) {
       try {
         transport.send(rpc.buildEventListenFrame(id, channel, event, arg === undefined ? [] : arg));
       } catch (err) {
-        console.error('[BiuZ] eventListen send failed', err);
+        console.error('[朱批] eventListen send failed', err);
       }
       return function unsubscribe() {
         const handlers = eventHandlers.get(k);

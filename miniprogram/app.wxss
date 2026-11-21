@@ -1,38 +1,38 @@
-/* BiuZ 设计 token —— **完全对齐 ZCode web**（用户裁决 2026-11-09「整个 app 与 ZCode web 设计样式保持一致，
- * 先不用之前设计的 UI，完全复刻」；作废原 qoder 色板）。
+/* 朱批设计 token —— 印系纸/墨/朱磦（2026-11-21 朱批品牌升级，原「ZCode web 对齐板」作废；
+ * 出处 brand/seal/README.md，与 iOS Theme.swift / Android Color.kt 同构映射）。
  *
- * 取值来源：线上手机壳实测（`zcode.z.ai/remote/v4`，390×844，测量 body/侧栏/行/分区标题的计算样式）
- * + `packages/ui/src/styles.css` 的 :root / .dark 块：
- *   dark : bg #161616 · card/popover #171717 · surface #262626 · 正文 #d4d4d4(oklch .87)
- *          次级 = 正文 60% alpha · 最弱 = 正文 30% alpha · brand #e5e5e5(oklch .922) · destructive #ff6467
- *   分隔线 = 白 10% alpha · 输入/强边 = 白 15% alpha
- *   light: bg neutral-50 #fafafa · card #ffffff · 正文 neutral-700 #404040 · 次级 60% · 最弱 40%
- *          destructive red-600 #dc2626 · success green-600 #16a34a · warning yellow-600 #ca8a04
+ *   light: 纸底 #F7F3EC · 卡 #FFFDF9 · 输入 #EFE9DF · 正文墨 #17181A（次级 62% / 最弱 40%）
+ *   dark : 墨底 #17181A · 卡 #1C1D20 · 面 #232428 · 正文纸 #F7F3EC（次级 62% / 最弱 30%）
+ *   印色 : 朱磦 #D2402E（加深 #B03020）——盖章/审批/品牌位专用，destructive 分工不变
+ *   状态色族沿用 web 口径。
  *
  * 换算口径：web 手机壳固定 390pt 视口；小程序 750rpx = 屏宽 → 1px ≈ 1.923rpx。
  */
 page {
   /* 浅色档（默认，跟随系统）—— 对齐 web :root */
-  --color-background: #fafafa;
-  --color-card: #ffffff;
+  --color-background: #f7f3ec;
+  --color-card: #fffdf9;
   --color-elevated: #ffffff;
-  --color-input: rgba(0, 0, 0, 0.06);
-  --color-code: #f5f5f5;
-  --color-border: rgba(0, 0, 0, 0.1);
-  --color-border-strong: rgba(0, 0, 0, 0.15);
-  --color-foreground: #404040;
-  --color-muted: rgba(64, 64, 64, 0.6);
-  --color-muted-2: rgba(64, 64, 64, 0.4);
-  --color-accent: #e5e5e5;
-  --color-on-accent: #171717;
-  --color-accent-press: #d4d4d4;
-  --color-accent-pill-border: rgba(23, 23, 23, 0.3);
-  --color-accent-pill-text: rgba(23, 23, 23, 0.65);
+  --color-input: #efe9df;
+  --color-code: #f1ece3;
+  --color-border: rgba(23, 24, 26, 0.12);
+  --color-border-strong: rgba(23, 24, 26, 0.18);
+  --color-foreground: #17181a;
+  --color-muted: rgba(23, 24, 26, 0.62);
+  --color-muted-2: rgba(23, 24, 26, 0.4);
+  --color-accent: #17181a;
+  --color-on-accent: #f7f3ec;
+  --color-accent-press: #000000;
+  --color-accent-pill-border: rgba(23, 24, 26, 0.3);
+  --color-accent-pill-text: rgba(23, 24, 26, 0.65);
   --color-info: #0ea5e9;
   --color-warning: #ca8a04;
   --color-destructive: #dc2626;
   --color-success: #16a34a;
   --color-violet: #7c3aed;
+  --color-seal: #d2402e;
+  --color-on-seal: #f7f3ec;
+  --color-seal-dim: rgba(210, 64, 46, 0.1);
 
   --space-1: 8rpx;
   --space-2: 16rpx;
@@ -59,26 +59,29 @@ page {
 /* 深色档：与 iOS Theme.swift / Android Color.kt 的 dark 值逐字一致 */
 @media (prefers-color-scheme: dark) {
   page {
-    --color-background: #161616;
-    --color-card: #171717;
-    --color-elevated: #262626;
-    --color-input: rgba(255, 255, 255, 0.15);
-    --color-code: #171717;
-    --color-border: rgba(255, 255, 255, 0.1);
-    --color-border-strong: rgba(255, 255, 255, 0.15);
-    --color-foreground: #d4d4d4;
-    --color-muted: rgba(212, 212, 212, 0.6);
-    --color-muted-2: rgba(212, 212, 212, 0.3);
-    --color-accent: #e5e5e5;
-    --color-on-accent: #171717;
-    --color-accent-press: #d4d4d4;
-    --color-accent-pill-border: rgba(23, 23, 23, 0.3);
-    --color-accent-pill-text: rgba(23, 23, 23, 0.65);
+    --color-background: #17181a;
+    --color-card: #1c1d20;
+    --color-elevated: #232428;
+    --color-input: #222326;
+    --color-code: #1b1c1f;
+    --color-border: rgba(247, 243, 236, 0.12);
+    --color-border-strong: rgba(247, 243, 236, 0.18);
+    --color-foreground: #f7f3ec;
+    --color-muted: rgba(247, 243, 236, 0.62);
+    --color-muted-2: rgba(247, 243, 236, 0.3);
+    --color-accent: #f0ede6;
+    --color-on-accent: #17181a;
+    --color-accent-press: #d8d5ce;
+    --color-accent-pill-border: rgba(247, 243, 236, 0.3);
+    --color-accent-pill-text: rgba(247, 243, 236, 0.65);
     --color-info: #38bdf8;
     --color-warning: #eab308;
     --color-destructive: #ff6467;
     --color-success: #22c55e;
     --color-violet: #c792ff;
+    --color-seal: #d2402e;
+    --color-on-seal: #f7f3ec;
+    --color-seal-dim: rgba(210, 64, 46, 0.16);
   }
 }
 

@@ -54,13 +54,13 @@ test('buildSocketUrl：替换 token/mid 查询项 + 保留其余', function () {
 
 test('buildAuthInitText：无 role + meta 身份 + client_ts 秒（V2 严格拒毫秒）', function () {
   const config = relay.parseRelayLink('https://zcode.z.ai/remote/v4?sid=t_ABC');
-  const text = relay.buildAuthInitText(config, 1731200000, 'miniprogram', '1.0', 'BiuZ');
+  const text = relay.buildAuthInitText(config, 1731200000, 'miniprogram', '1.0', '朱批');
   const obj = JSON.parse(text);
   assert.strictEqual(obj.type, 'auth_init');
   assert.strictEqual(obj.device_sid, 't_ABC');
   assert.strictEqual(obj.role, undefined, 'V2 auth_init 不带 role');
   assert.strictEqual(obj.client_ts, 1731200000, 'client_ts 为秒');
-  assert.deepStrictEqual(obj.meta, { platform: 'miniprogram', version: '1.0', name: 'BiuZ' });
+  assert.deepStrictEqual(obj.meta, { platform: 'miniprogram', version: '1.0', name: '朱批' });
 });
 
 test('parseTokenResponse：{code:0,data.token} 提取；code!=0/坏体 null', function () {

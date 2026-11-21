@@ -32,7 +32,7 @@ function emit() {
     try {
       fn(state);
     } catch (err) {
-      console.error('[BiuZ] store listener failed', err);
+      console.error('[朱批] store listener failed', err);
     }
   });
 }

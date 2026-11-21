@@ -15,7 +15,7 @@
 const credentialStore = require('../../utils/credential-store.js');
 
 const COPY = {
-  brand: 'ZCode',
+  brand: '朱批',
   loginTitle: '登录后继续使用 Web 远程控制',
   loginDescription: '请选择与电脑端相同的登录平台，并使用同一账号。',
   providers: [
@@ -208,6 +208,6 @@ Page({
     this.setData({ submitting: true });
     wx.showToast({ title: 'OAuth 授权待接入；请先粘贴 JWT', icon: 'none' });
     this.setData({ submitting: false });
-    console.log('[BiuZ] login intent', provider);
+    console.log('[朱批] login intent', provider);
   },
 });

@@ -126,7 +126,7 @@ function connectRelayV2(params) {
   const socketFactory = params.socketFactory;
   const platform = params.platform || 'miniprogram';
   const appVersion = params.appVersion || '1.0';
-  const clientName = params.clientName || 'BiuZ';
+  const clientName = params.clientName || '朱批';
 
   return httpPost(config.httpOrigin + '/api/v1/remote/token', params.jwt, { role: 'terminal' })
     .then(function (response) {

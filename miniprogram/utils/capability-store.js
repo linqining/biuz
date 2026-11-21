@@ -16,7 +16,7 @@ function getState() { return state; }
 
 function emit() {
   listeners.forEach(function (fn) {
-    try { fn(state); } catch (err) { console.error('[BiuZ] capability listener failed', err); }
+    try { fn(state); } catch (err) { console.error('[朱批] capability listener failed', err); }
   });
 }
 

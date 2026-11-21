@@ -69,7 +69,7 @@ Page({
 
   onOpenAbout() {
     wx.showModal({
-      title: 'BiuZ',
+      title: '朱批',
       content: '版本 ' + this.data.version + '\nZCode 桌面端移动遥控台',
       showCancel: false,
     });

@@ -71,7 +71,7 @@
     </view>
 
     <view class="brand" bind:tap="onBrandTap">
-      <text class="brand__name">BiuZ</text>
+      <text class="brand__name">朱批</text>
       <text class="brand__meta">ZCode 桌面端 · 移动遥控台</text>
     </view>
   </scroll-view>

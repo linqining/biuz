@@ -22,7 +22,7 @@ function emit() {
     try {
       fn(state);
     } catch (err) {
-      console.error('[BiuZ] chat store listener failed', err);
+      console.error('[朱批] chat store listener failed', err);
     }
   });
 }

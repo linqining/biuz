@@ -17,7 +17,7 @@ function getState() {
 
 function emit() {
   listeners.forEach(function (fn) {
-    try { fn(state); } catch (err) { console.error('[BiuZ] files store listener failed', err); }
+    try { fn(state); } catch (err) { console.error('[朱批] files store listener failed', err); }
   });
 }
 

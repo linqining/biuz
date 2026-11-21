@@ -2,7 +2,7 @@
 <view class="page login-page" style="padding-top: {{statusBarHeight}}px">
   <view class="login-card">
     <view class="login-head">
-      <view class="login-logo">Z</view>
+      <view class="login-logo">批</view>
       <view class="login-head__text">
         <text class="login-brand">{{copy.brand}}</text>
         <text class="login-title">{{copy.loginTitle}}</text>
