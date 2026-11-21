@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>BiuZ</string>
+	<string>朱批</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -22,7 +22,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>cn.biuz.mobile.oauth</string>
+			<string>cn.zhupi.mobile.oauth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>zcode</string>

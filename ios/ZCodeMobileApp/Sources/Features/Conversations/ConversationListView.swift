@@ -58,7 +58,7 @@ struct ConversationListView: View {
     @State private var taskGroupsError: String?
 
     /// 来源过滤口径（项 5）：all=全部（默认）；mac=已配对桌面端（局域网/云中继，source=="mac"）；
-    /// cloud=云端沙盒（source=="cloud"，BiuZ 尚无云端会话数据源，选中显示对应空态提示）
+    /// cloud=云端沙盒（source=="cloud"，朱批 尚无云端会话数据源，选中显示对应空态提示）
     enum SourceFilter: String, CaseIterable, Identifiable {
         case all, mac, cloud
         /// HIDDEN(对齐修复) H7/L-4：「云端沙盒」档隐藏（无 cloud 会话数据源，恒空档；
@@ -640,7 +640,7 @@ struct ConversationListView: View {
     }
 
     /// 来源过滤 chips（全部 / 我的 Mac；选中深色实底胶囊，Qoder 屏 1 口径）。
-    /// HIDDEN(对齐修复) H7/L-4：「云端沙盒」档整档不渲染（BiuZ 无 cloud 会话数据源，
+    /// HIDDEN(对齐修复) H7/L-4：「云端沙盒」档整档不渲染（朱批 无 cloud 会话数据源，
     /// 恒空档/置灰死档，审查报告 §六 L-4）· 恢复条件：cloud 会话源接入（还原
     /// visibleCases 过滤与 cloud 空态分支即可）。
             // APP-DIFF[D009] business: web home 恒单源无来源概念；iOS 同时支持 mac 与 cloud

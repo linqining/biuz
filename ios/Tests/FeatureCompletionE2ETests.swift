@@ -719,7 +719,9 @@ final class FeatureCompletionE2ETests: XCTestCase {
     // MARK: - 项 3：流程面板——行级 plan 行 → 任务拆解卡计数 / 折叠 / 展开
 
     func test05_planTodoPanelRendersCountCollapseExpand() throws {
-        let application = connectAndEnterMain(launchFresh())
+        // -ZCodeE2EStampHold：停驻拉长到 5s——XCUITest 快照延迟在重载环境下
+        // 会错过 700ms 停驻窗（实测首次快照 ≥1s），断言窗内印必须稳定在场
+        let application = connectAndEnterMain(launchFresh(), extraArguments: ["-ZCodeE2EStampHold"])
         let planRow = element(application, "04-row-sess-e2e-plan")
         XCTAssertTrue(planRow.waitForExistence(timeout: 15),
                       "重连后列表应呈现流程面板投影会话（sess-e2e-plan）")
@@ -751,9 +753,17 @@ final class FeatureCompletionE2ETests: XCTestCase {
         // 全高、头部直接可见。顺带回归 resolveInteraction 链（决议 → 卡片撤下）
         let rejectButton = element(application, "05-act-plan-reject")
         XCTAssertTrue(rejectButton.waitForExistence(timeout: 8), "计划审批卡应有驳回入口")
+        // 盖章动效（motion-spec/朱批品牌升级）：驳回 = ACK 权威成功后墨印「不准」
+        // 落卡 + 停驻 700ms 再收卡——tapUntil 判定窗内印应已在场
+        // 盖章动效（motion-spec/朱批品牌升级）：驳回 = ACK 权威成功后墨印「不准」
+        // 落卡 + 停驻（本用例经 -ZCodeE2EStampHold 拉长到 5s）再收卡
+        let stampSeen = tapUntil(rejectButton, timeout: 8) {
+            element(application, "05-approval-stamp").waitForExistence(timeout: 3)
+        }
+        XCTAssertTrue(stampSeen, "驳回后应落墨印（05-approval-stamp）")
         XCTAssertTrue(tapUntil(rejectButton, timeout: 8) {
-            self.waitGoneQuickly(element(application, "05-approval-card"), within: 4)
-        }, "驳回计划后审批卡应撤下")
+            self.waitGoneQuickly(element(application, "05-approval-card"), within: 6)
+        }, "驳回计划后审批卡应随停驻期满撤下")
         XCTAssertTrue(waitGoneQuickly(element(application, "05-act-plan-reject"), within: 4),
                       "驳回按钮应随卡撤下")
 

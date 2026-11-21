@@ -460,7 +460,7 @@ struct FilePreviewView: View {
         }
         let sanitized = node.name.replacingOccurrences(of: "/", with: "_")
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("biuz-share-\(UUID().uuidString.prefix(6))")
+            .appendingPathComponent("zhupi-share-\(UUID().uuidString.prefix(6))")
             .appendingPathComponent(sanitized)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         do {

@@ -61,6 +61,7 @@
 		99CCADF8C16F3D0C4D2451B0 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B73673A2FFE2C16D419AB4C /* Theme.swift */; };
 		9E7DC5B9286AC5BBE67244D7 /* ConnectURLParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53692FEEF92BB75CC70D0DF4 /* ConnectURLParser.swift */; };
 		9F36080B2718AF3F86F191BF /* ActorTranscriptMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD3E39DF0F4EED99EE81AF07 /* ActorTranscriptMappingTests.swift */; };
+		A15EC746D843E4D4D4A6037A /* StampView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC4DCC2C00C26A558769B6CA /* StampView.swift */; };
 		A44E5D73A46148CE24068C6E /* RemoteSettingsParsersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CE4B774CB91B26D472F4FD /* RemoteSettingsParsersTests.swift */; };
 		A5DB59F32254FC3A043F7BAD /* TaskBoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4027129C01F9B0252616410F /* TaskBoardView.swift */; };
 		AB4BD9C2CF9DFF938C936B10 /* ProtocolSchemaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07B769B58FCBAA1A0DA1B8A9 /* ProtocolSchemaTests.swift */; };
@@ -223,6 +224,7 @@
 		E5D3452730837A1E840BA9F3 /* CredentialReadPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialReadPolicyTests.swift; sourceTree = "<group>"; };
 		E67D51DAE7C814996BEB7EA9 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		EAB8BEF41A67253CF6180862 /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
+		EC4DCC2C00C26A558769B6CA /* StampView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StampView.swift; sourceTree = "<group>"; };
 		F252A2EC57A59DD22405D33D /* BackgroundWorkPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkPanelTests.swift; sourceTree = "<group>"; };
 		F4D0EFC01CC7EA3E6A1C779E /* LoginFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginFlowView.swift; sourceTree = "<group>"; };
 		F513D0940DD42550988A9351 /* RelayTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayTransport.swift; sourceTree = "<group>"; };
@@ -302,6 +304,7 @@
 			isa = PBXGroup;
 			children = (
 				E67D51DAE7C814996BEB7EA9 /* Components.swift */,
+				EC4DCC2C00C26A558769B6CA /* StampView.swift */,
 				76CB6BD150DFF56D790C0DED /* TinyMarkdown.swift */,
 				558246B41B120EC68EB3C059 /* TinySyntax.swift */,
 			);
@@ -788,6 +791,7 @@
 				096A2BC7145DBEFA1A9EBC13 /* ServerViews.swift in Sources */,
 				05565D541E975E664A34E318 /* SessionPanelsView.swift in Sources */,
 				086FD4E9F567588B9134DB15 /* SettingsView.swift in Sources */,
+				A15EC746D843E4D4D4A6037A /* StampView.swift in Sources */,
 				DB8B93A52D6302E05E71E248 /* StoreEnvironment.swift in Sources */,
 				C97617519263B388A53759C9 /* StoreProtocols.swift in Sources */,
 				A5DB59F32254FC3A043F7BAD /* TaskBoardView.swift in Sources */,
@@ -929,7 +933,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = cn.biuz.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.zhupi.mobile;
 				PRODUCT_NAME = ZCodeMobile;
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -951,7 +955,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = cn.biuz.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.zhupi.mobile;
 				PRODUCT_NAME = ZCodeMobile;
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -969,7 +973,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = cn.biuz.mobile.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.zhupi.mobile.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ZCodeMobile.app/ZCodeMobile";
@@ -1046,7 +1050,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = cn.biuz.mobile.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.zhupi.mobile.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ZCodeMobile;
@@ -1063,7 +1067,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = cn.biuz.mobile.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.zhupi.mobile.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ZCodeMobile.app/ZCodeMobile";
@@ -1080,7 +1084,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = cn.biuz.mobile.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.zhupi.mobile.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ZCodeMobile;

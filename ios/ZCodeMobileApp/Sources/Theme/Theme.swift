@@ -40,35 +40,35 @@ extension Color {
     }
 }
 
-// MARK: - 设计令牌（qoder 参考： monochrome 主色 + 语义状态色）
+// MARK: - 设计令牌（朱批印系：纸 / 墨 / 朱磦 / 钤灰，monochrome 主色 + 语义状态色）
 //
-// 设计参照 qoder app（2026-11-08 提炼）：极简近白/近黑中性色、monochrome 近黑主按钮，
-// 语义状态色独立保留——running #2FBF71 / completed #3B82F6 / error #EF4444 /
-// attention #F5A623。accent 收敛为 monochrome 主色（浅档近黑、深档近白），active/
-// selected/connected/主按钮统一走它；运行态绿另由 green 承担。圆角靠拢 ~16dp。
+// 2026-11-21 朱批品牌升级：色板自「ZCode web 对齐灰板」重映射为 brand/seal 印系四色
+// （朱磦 #D2402E / 墨 #17181A / 纸 #F7F3EC / 钤灰 #8A8F98）——浅色档 = 纸底墨字，
+// 深色档 = 墨底纸字（深色为设计默认档）。主按钮仍走 monochrome accent（浅档墨、
+// 深档纸，onAccent 取反），朱磦以 seal 系 token 承担品牌/审批/印面语义（盖章动效、
+// 在线点、审批卡 eyebrow），与 destructive red 分工不混用。状态色族沿用 web 口径。
 
 enum T {
-    // 色板 —— 完全对齐 ZCode web（用户裁决 2026-11-09「与 ZCode web 设计一致，先不用之前设计的 UI」；
-    // 原 qoder 色板作废）。取值 = 线上手机壳实测 + packages/ui/src/styles.css :root/.dark：
-    //   dark : bg #161616 · card/popover #171717 · surface #262626 · 正文 #d4d4d4(oklch .87)
-    //          次级 60% alpha · 最弱 30% alpha · brand #e5e5e5(oklch .922) · destructive #ff6467
-    //   light: bg #fafafa · card #ffffff · 正文 #404040 · 次级 60% · 最弱 40%
-    static let bg            = Color(light: "fafafa", dark: "161616")
-    static let bgCard        = Color(light: "ffffff", dark: "171717")
-    static let bgElevated    = Color(light: "ffffff", dark: "262626")
-    static let bgInput       = Color(light: "f5f5f5", dark: "393939")
-    static let bgCode        = Color(light: "f5f5f5", dark: "171717")
-    static let bgTerm        = Color(light: "fbfbfc", dark: "0f0f0f")
-    static let border        = Color(light: "000000", dark: "ffffff", lightAlpha: 0.10, darkAlpha: 0.10)
-    static let borderStrong  = Color(light: "000000", dark: "ffffff", lightAlpha: 0.15, darkAlpha: 0.15)
-    static let text          = Color(light: "404040", dark: "d4d4d4")
-    static let text2         = Color(light: "404040", dark: "d4d4d4", lightAlpha: 0.60, darkAlpha: 0.60)
-    static let text3         = Color(light: "404040", dark: "d4d4d4", lightAlpha: 0.40, darkAlpha: 0.30)
+    // 色板 —— 朱批印系（2026-11-21 品牌升级，原 ZCode web 对齐板作废；出处 brand/seal/README.md）：
+    //   light: 纸底 #F7F3EC · 卡 #FFFDF9 · 输入 #EFE9DF · 正文墨 #17181A（次级 62% / 最弱 40%）
+    //   dark : 墨底 #17181A · 卡 #1C1D20 · 面 #232428 · 正文纸 #F7F3EC（次级 62% / 最弱 30%）
+    //   印色 : 朱磦 #D2402E（加深 #B03020）——盖章/审批/品牌位专用，destructive red 独立不混用
+    static let bg            = Color(light: "f7f3ec", dark: "17181a")
+    static let bgCard        = Color(light: "fffdf9", dark: "1c1d20")
+    static let bgElevated    = Color(light: "ffffff", dark: "232428")
+    static let bgInput       = Color(light: "efe9df", dark: "222326")
+    static let bgCode        = Color(light: "f1ece3", dark: "1b1c1f")
+    static let bgTerm        = Color(light: "f2eee6", dark: "131416")
+    static let border        = Color(light: "17181a", dark: "f7f3ec", lightAlpha: 0.12, darkAlpha: 0.12)
+    static let borderStrong  = Color(light: "17181a", dark: "f7f3ec", lightAlpha: 0.18, darkAlpha: 0.18)
+    static let text          = Color(light: "17181a", dark: "f7f3ec")
+    static let text2         = Color(light: "17181a", dark: "f7f3ec", lightAlpha: 0.62, darkAlpha: 0.62)
+    static let text3         = Color(light: "17181a", dark: "f7f3ec", lightAlpha: 0.40, darkAlpha: 0.30)
     // monochrome 主色（web --color-brand）：浅档近黑/深档近白；onAccent 取反
-    static let accent        = Color(light: "171717", dark: "e5e5e5")
-    static let accentText    = Color(light: "171717", dark: "e5e5e5")
-    static let accentPress   = Color(light: "000000", dark: "d4d4d4")
-    static let accentDim     = Color(light: "171717", dark: "ffffff", lightAlpha: 0.10, darkAlpha: 0.10)
+    static let accent        = Color(light: "17181a", dark: "f0ede6")
+    static let accentText    = Color(light: "17181a", dark: "f0ede6")
+    static let accentPress   = Color(light: "000000", dark: "d8d5ce")
+    static let accentDim     = Color(light: "17181a", dark: "f7f3ec", lightAlpha: 0.10, darkAlpha: 0.10)
     // 语义状态色（web）：completed 蓝 / attention 琥珀（实测 #ff8a30）/ error 红（#ff6467）/ running 绿（#46bf72）
     static let blue          = Color(light: "3b82f6", dark: "60a5fa")
     static let blueDim       = Color(light: "3b82f6", dark: "60a5fa", lightAlpha: 0.10, darkAlpha: 0.14)
@@ -90,24 +90,29 @@ enum T {
     static let codeKw        = Color(light: "7c3aed", dark: "c792ff")
     static let codeLab       = Color(light: "1a6fd4", dark: "8f9bdd")
     static let codeLabDim    = Color(light: "1a6fd4", dark: "7d8bdd", lightAlpha: 0.08, darkAlpha: 0.08)
-    static let badgeFg       = Color(light: "ffffff", dark: "171717")
-    static let onAccent      = Color(light: "ffffff", dark: "171717")
+    static let badgeFg       = Color(light: "ffffff", dark: "17181a")
+    static let onAccent      = Color(light: "f7f3ec", dark: "17181a")
     static let onOrange      = Color(light: "ffffff", dark: "1a0f00")
+    // 朱磦印系（2026-11-21）：盖章动效 / 审批卡 eyebrow / 在线心跳点 / 品牌位专用
+    static let seal           = Color(light: "d2402e", dark: "d2402e")
+    static let sealPress      = Color(light: "b03020", dark: "b03020")
+    static let sealDim        = Color(light: "d2402e", dark: "d2402e", lightAlpha: 0.10, darkAlpha: 0.16)
+    static let onSeal         = Color(light: "f7f3ec", dark: "f7f3ec")
 
     static let tabbarBg      = Color(uiColor: UIColor { trait in
         trait.userInterfaceStyle == .dark
-            ? UIColor(hex: "161616", alpha: 0.92)
-            : UIColor(hex: "ffffff", alpha: 0.92)
+            ? UIColor(hex: "17181a", alpha: 0.92)
+            : UIColor(hex: "fffdf9", alpha: 0.92)
     })
 
     static let gradAvatar = LinearGradient(
         colors: [Color(light: "52525b", dark: "a1a1aa"), Color(light: "71717a", dark: "71717a")],
         startPoint: .topLeading, endPoint: .bottomTrailing)
     static let gradBubble = LinearGradient(
-        colors: [Color(light: "f5f5f5", dark: "171717"), Color(light: "e5e5e5", dark: "262626")],
+        colors: [Color(light: "f1ece3", dark: "1c1d20"), Color(light: "e9e3d8", dark: "232428")],
         startPoint: .topLeading, endPoint: .bottomTrailing)
     static let gradUserCard = LinearGradient(
-        colors: [Color(light: "f5f5f5", dark: "171717"), Color(light: "ffffff", dark: "171717")],
+        colors: [Color(light: "f1ece3", dark: "1c1d20"), Color(light: "fffdf9", dark: "17181a")],
         startPoint: .top, endPoint: .bottom)
 
     static let rS: CGFloat = 8
@@ -133,7 +138,7 @@ enum T {
     static let shadowFab = Color(light: "000000", dark: "000000", lightAlpha: 0.18, darkAlpha: 0.50)
 }
 
-// MARK: - 外观偏好（跟随系统 / Zai Light / Zai Dark）
+// MARK: - 外观偏好（跟随系统 / 朱批 · 浅色 / 朱批 · 深色）
 
 enum AppearanceMode: String, CaseIterable, Identifiable, Codable {
     case system, light, dark
@@ -141,8 +146,8 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Codable {
     var label: String {
         switch self {
         case .system: return String(localized: "跟随系统")
-        case .light: return "Zai Light"
-        case .dark: return "Zai Dark"
+        case .light: return String(localized: "朱批 · 浅色")
+        case .dark: return String(localized: "朱批 · 深色")
         }
     }
     var colorScheme: ColorScheme? {

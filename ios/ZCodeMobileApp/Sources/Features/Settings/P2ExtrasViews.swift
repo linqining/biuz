@@ -917,7 +917,7 @@ struct DiagnosticsExportView: View {
 
     private func exportDiagnostics() {
         var lines: [String] = []
-        lines.append("BiuZ Diagnostics · \(Date())")
+        lines.append("朱批 Diagnostics · \(Date())")
         let info = Bundle.main.infoDictionary
         lines.append("appVersion: \(info?["CFBundleShortVersionString"] ?? "?") (\(info?["CFBundleVersion"] ?? "?"))")
         lines.append("osVersion: \(ProcessInfo.processInfo.operatingSystemVersionString)")
@@ -940,7 +940,7 @@ struct DiagnosticsExportView: View {
         }
         let body = lines.joined(separator: "\n")
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("biuz-diagnostics-\(Int(Date().timeIntervalSince1970)).txt")
+            .appendingPathComponent("zhupi-diagnostics-\(Int(Date().timeIntervalSince1970)).txt")
         do {
             try body.write(to: url, atomically: true, encoding: .utf8)
             exportURL = url

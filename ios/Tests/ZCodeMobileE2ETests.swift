@@ -280,15 +280,15 @@ final class ZCodeMobileE2ETests: XCTestCase {
                              "文件页应存在可走查的可见操作（isHittable 命中 \(checkedCount) 个）")
     }
 
-    // MARK: - 流程 6：品牌回归（品牌名 BiuZ + 主界面可见文案不含 ZCode）
+    // MARK: - 流程 6：品牌回归（品牌名 朱批 + 主界面可见文案不含 ZCode）
 
     /// 本轮品牌变更回归（冷启动、演示模式）：
     /// ① 主界面（会话 Tab 根页 + TabBar）全部可见文案不含 "ZCode"；
-    /// ② 设置页品牌名行（12-brand-name）以 BiuZ 开头（works-with 桌面端为描述性引用，不在主界面）；
-    /// ③ 设置页数据源页脚自称为 "BiuZ for iOS · …"。
-    /// App 图标资产（AppIcon-1024.png ← branding/logo biuz-icon）属构建产物层面，
+    /// ② 设置页品牌名行（12-brand-name）以 朱批 开头（works-with 桌面端为描述性引用，不在主界面）；
+    /// ③ 设置页数据源页脚自称为 "朱批 for iOS · …"。
+    /// App 图标资产（AppIcon-1024.png ← brand/seal/png/appicon-pi-1024.png）属构建产物层面，
     /// 由门禁在仓库 Assets 目录断言，不做 UI 断言。
-    func test06_brandShowsBiuZAndMainScreenHasNoZCodeCopy() throws {
+    func test06_brandShowsZhuPiAndMainScreenHasNoZCodeCopy() throws {
         let app = launch()
 
         // 主界面（会话 Tab 根页）加载完成
@@ -313,17 +313,17 @@ final class ZCodeMobileE2ETests: XCTestCase {
         XCTAssertGreaterThan(checkedCount, 0,
                              "主界面应存在可断言的可见文案（isHittable 命中 \(checkedCount) 条）")
 
-        // ② 设置页品牌名行以 BiuZ 开头
+        // ② 设置页品牌名行以 朱批 开头
         element(app, "12-tab-me").tap()
         let brandRow = element(app, "12-brand-name")
         XCTAssertTrue(scrollToReveal(brandRow, app: app),
                       "设置页应有品牌名行（12-brand-name，滚动到底可见）")
-        XCTAssertTrue(brandRow.label.hasPrefix("BiuZ"),
-                      "品牌名行应以 BiuZ 开头（实际：\(brandRow.label)）")
+        XCTAssertTrue(brandRow.label.hasPrefix("朱批"),
+                      "品牌名行应以 朱批 开头（实际：\(brandRow.label)）")
 
-        // ③ 数据源页脚自称为 BiuZ for iOS（演示模式后缀 · 演示数据由本地 Mock 提供）
-        waitLabel(element(app, "12-foot-data-source"), contains: "BiuZ for iOS",
-                  timeout: 6, "设置页页脚应自称为 BiuZ for iOS")
+        // ③ 数据源页脚自称为 朱批 for iOS（演示模式后缀 · 演示数据由本地 Mock 提供）
+        waitLabel(element(app, "12-foot-data-source"), contains: "朱批 for iOS",
+                  timeout: 6, "设置页页脚应自称为 朱批 for iOS")
     }
 
     /// 循环上滑直到元素进入屏幕可视区（设置页为 ScrollView，品牌行在首屏窗口外），最多 maxSwipes 次

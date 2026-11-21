@@ -155,7 +155,7 @@ struct ConnectHomeView: View {
         VStack(spacing: 12) {
             ZCodeBrandMark(size: 76)
             VStack(spacing: 3) {
-                Text("BiuZ")
+                Text("朱批")
                     .font(T.font(22, .heavy))
                     .foregroundColor(T.text)
                 Text(String(localized: "连接桌面端 Agent 服务（ZCode 社区版），开始遥控与审批"))

@@ -33,11 +33,11 @@ enum KeychainStore {
         return outcome
     }
 
-    /// 与 bundle id（cn.biuz.mobile）对齐的 Keychain service 标识。
+    /// 与 bundle id（cn.zhupi.mobile）对齐的 Keychain service 标识。
     /// 切换前的旧条目（service=cn.zcode.mobile）对新标识不可见——本机需重新 OAuth 登录与
     /// 重新配对桌面端；属品牌切换的预期一次性成本（工程未上架、无外部存量用户）。
     /// E2E 不受影响：每用例以 -ZCodeE2EResetState 清空凭据态，不依赖存量 Keychain。
-    private static let service = "cn.biuz.mobile"
+    private static let service = "cn.zhupi.mobile"
 
     static func save(_ data: Data, account: String) throws {
         let query: [String: Any] = [

@@ -150,7 +150,7 @@ struct ScanView: View {
                     Text("相机权限已关闭")
                         .font(T.font(15, .bold))
                         .foregroundColor(T.text)
-                    Text("扫码需要在 系统设置 → BiuZ 中开启相机；\n也可以不扫码，直接输入桌面端地址连接")
+                    Text("扫码需要在 系统设置 → 朱批 中开启相机；\n也可以不扫码，直接输入桌面端地址连接")
                         .font(T.font(11.5))
                         .foregroundColor(T.text3)
                         .multilineTextAlignment(.center)
@@ -308,7 +308,7 @@ struct CameraScannerView: UIViewRepresentable {
         /// **严禁主线程**——模拟器相机服务卡死时 startRunning 无限挂起主队列（
         /// _buildAndRunGraph → _waitInMode，2026-10-08 test16 sample 实证 1867/1917
         /// 采样困于该栈），表象 = 整个 UI 触摸/更新停摆而动画与 AX 照常，极难排查
-        private let sessionQueue = DispatchQueue(label: "cn.biuz.scan.sessionQueue")
+        private let sessionQueue = DispatchQueue(label: "cn.zhupi.scan.sessionQueue")
         private var previewLayer: AVCaptureVideoPreviewLayer?
         private var configured = false
         private var lastEmitted = TimeInterval(0)

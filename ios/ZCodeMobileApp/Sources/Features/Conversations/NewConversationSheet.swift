@@ -522,7 +522,7 @@ struct NewConversationSheet: View {
         }
     }
 
-    /// 账号层：BiuZ 账号唯一 Z.ai（BigModel 为高级入口），胶囊常显当前账号、无可切换项
+    /// 账号层：朱批 账号唯一 Z.ai（BigModel 为高级入口），胶囊常显当前账号、无可切换项
     private var accountCapsule: some View {
         Menu {
             if let userInfo = session.oauthUserInfo {
@@ -544,7 +544,7 @@ struct NewConversationSheet: View {
     }
 
     /// 机器层候选（用户裁决 2026-10-07「新建会话要隐藏云端沙盒」）：云端沙盒档隐藏
-    /// （BiuZ 无云端会话数据源，选中创建的会话落桌面看不见的沙盒区——H7 同口径）；
+    /// （朱批 无云端会话数据源，选中创建的会话落桌面看不见的沙盒区——H7 同口径）；
     /// -ZCodeDemoData 演示开关保留（E2E Matrix 断言 03-pill-machine-cloud 依赖）
     private var availableMachines: [DeviceOption] {
         DeviceDirectory.machines().filter {

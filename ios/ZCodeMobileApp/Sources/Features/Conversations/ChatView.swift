@@ -180,6 +180,9 @@ struct ChatView: View {
                     // 键盘上方（fixedSize：卡片高度自适应内容、不超上限不占死块）
                     .modifier(ApprovalCardKeyboardBound(
                         maxHeight: interaction.isUserInput ? 360 : 240))
+                    // 盖章动效（motion-spec）：ACK 权威成功后落印「照办/不准」，
+                    // 停驻 700ms 由 VM stampHolds 驱动；失败不落印（U-5）
+                    .modifier(ApprovalStampOverlay(viewModel: viewModel, interactionId: interaction.id))
                     .padding(.horizontal, T.sp4)
                     .padding(.top, T.sp2)
                 }
@@ -818,7 +821,8 @@ struct ApprovalInteractionCard: View {
                 // 单选即决（自带方向语义，点选即发原生 optionId），批准/拒绝两钮整组隐藏
                 FlowChips(items: matrix.customOptions.map(\.label), identifierPrefix: "05-choice") { label in
                     if let option = matrix.customOptions.first(where: { $0.label == label }) {
-                        decideWith(optionId: option.id)
+                        // 原生 optionId 单选即决：提交型决议落朱印「照办」（motion-spec 口径）
+                        decideWith(optionId: option.id, approved: true)
                     }
                 }
             } else {
@@ -933,7 +937,8 @@ struct ApprovalInteractionCard: View {
     /// 服务端自定义选项 chip（单选即决：点选即发该原生 optionId）
     private func directChip(_ option: RemoteInteractionOption) -> some View {
         Button {
-            decideWith(optionId: option.id)
+            // 服务端自定义直选 chip：同「单选即决」口径，落朱印「照办」
+            decideWith(optionId: option.id, approved: true)
         } label: {
             Text(option.label)
                 .font(T.font(12, .medium))
@@ -971,15 +976,15 @@ struct ApprovalInteractionCard: View {
             decisionError = String(localized: "该授权范围无对应选项，请切换范围")
             return
         }
-        decideWith(optionId: optionId)
+        decideWith(optionId: optionId, approved: approved)
     }
 
-    /// 决议下发 + 如实回执（U-5：失败不撤卡、错误行透出 reasonCode；成功卡片由
-    /// 桌面 pendingInteractions 回流撤下）
-    private func decideWith(optionId: String) {
+    /// 决议下发 + 如实回执（U-5：失败不撤卡、错误行透出 reasonCode；权威成功 →
+    /// VM 置盖章停驻，卡面落印 700ms 后随投影/停驻离场）
+    private func decideWith(optionId: String, approved: Bool) {
         deciding = true
         Task {
-            if let failure = await viewModel.decide(interaction, optionId: optionId) {
+            if let failure = await viewModel.decide(interaction, optionId: optionId, approved: approved) {
                 decisionError = failure
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
             } else {

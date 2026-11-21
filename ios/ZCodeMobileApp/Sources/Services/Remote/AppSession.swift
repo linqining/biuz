@@ -1169,7 +1169,7 @@ final class AppSession {
         case week = "WEEK"
     }
 
-    private static let usageStatsLogger = Logger(subsystem: "cn.biuz.mobile", category: "usage-stats")
+    private static let usageStatsLogger = Logger(subsystem: "cn.zhupi.mobile", category: "usage-stats")
 
     /// 使用重置卡（桌面代执行三步，web reset-cards 同构；用户要求仅接线不自动触发）。
     /// 参数口径【实证·bundle 逆向 2026-10-06，审查报告 B-6——原嵌套 scope 形态推翻】：

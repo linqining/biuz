@@ -2232,7 +2232,10 @@ private var _recordedPinned: [String: Bool] = [:]
             _resolveInteractionCount += 1
             _lastResolveInteraction = (interactionId, payloadJSON)
             lock.unlock()
-            reply(["result": ["ok": true]])
+            // ACK 形状对齐真实桌面（A13 六态词表）：status=accepted——盖章动效
+            // 的权威成功判定（isAuthoritativeSuccess）以此为准，status 缺席 =
+            // 未知态不落印（motion-spec U-5 口径）
+            reply(["status": "accepted", "result": ["ok": true]])
             // 应答生效：清空该会话 pendingInteractions 并回推 state.updated（审批卡/角标撤下）
             if let sessionId {
                 lock.lock()

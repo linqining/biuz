@@ -1752,64 +1752,64 @@
         }
       }
     },
-    "BiuZ" : {
+    "朱批" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "BiuZ"
+            "value" : "Seal"
           }
         }
       }
     },
-    "BiuZ · 为 ZCode 社区版桌面端打造的移动遥控台" : {
+    "朱批 · 为 ZCode 社区版桌面端打造的移动遥控台" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "BiuZ · mobile remote console for the ZCode community desktop"
+            "value" : "Seal · mobile remote console for the ZCode community desktop"
           }
         }
       }
     },
-    "BiuZ for iOS · 已连接桌面端 · 指令经桌面端执行，文件保持只读" : {
+    "朱批 for iOS · 已连接桌面端 · 指令经桌面端执行，文件保持只读" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "BiuZ for iOS · desktop connected · commands run on desktop, files stay read-only"
+            "value" : "Seal for iOS · desktop connected · commands run on desktop, files stay read-only"
           }
         }
       }
     },
-    "BiuZ for iOS · 指令经桌面端执行" : {
+    "朱批 for iOS · 指令经桌面端执行" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "BiuZ for iOS · commands run on your desktop"
+            "value" : "Seal for iOS · commands run on your desktop"
           }
         }
       }
     },
-    "BiuZ for iOS · 演示数据由本地 Mock 提供" : {
+    "朱批 for iOS · 演示数据由本地 Mock 提供" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "BiuZ for iOS · demo data provided by local mock"
+            "value" : "Seal for iOS · demo data provided by local mock"
           }
         }
       }
     },
-    "BiuZ 不提供应用内语言切换：界面语言随 iOS 系统语言自动切换（简体中文 / English）。需要更换语言时，请在系统「设置 → BiuZ → 语言」中选择（iOS 13+ 每应用语言设置），修改后重启应用生效。" : {
+    "朱批 不提供应用内语言切换：界面语言随 iOS 系统语言自动切换（简体中文 / English）。需要更换语言时，请在系统「设置 → 朱批 → 语言」中选择（iOS 13+ 每应用语言设置），修改后重启应用生效。" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "BiuZ has no in-app language switch: the UI follows the iOS system language (Simplified Chinese / English). To change it, pick a language in Settings → BiuZ → Language (per-app language, iOS 13+), then relaunch."
+            "value" : "Seal has no in-app language switch: the UI follows the iOS system language (Simplified Chinese / English). To change it, pick a language in Settings → Seal → Language (per-app language, iOS 13+), then relaunch."
           }
         }
       }
@@ -8802,12 +8802,12 @@
         }
       }
     },
-    "扫码需要在 系统设置 → BiuZ 中开启相机；\n也可以不扫码，直接输入桌面端地址连接" : {
+    "扫码需要在 系统设置 → 朱批 中开启相机；\n也可以不扫码，直接输入桌面端地址连接" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Camera access is required in Settings → BiuZ;\\nyou can also skip scanning and enter the desktop address"
+            "value" : "Camera access is required in Settings → Seal;\\nyou can also skip scanning and enter the desktop address"
           }
         }
       }
@@ -12338,12 +12338,12 @@
         }
       }
     },
-    "登录 BiuZ" : {
+    "登录朱批" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sign in to BiuZ"
+            "value" : "Sign in to Seal"
           }
         }
       }
@@ -13968,6 +13968,46 @@
         }
       }
     },
+    "已批准" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approved"
+          }
+        }
+      }
+    },
+    "已拒绝" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejected"
+          }
+        }
+      }
+    },
+    "朱批 · 浅色" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal · Light"
+          }
+        }
+      }
+    },
+    "朱批 · 深色" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal · Dark"
+          }
+        }
+      }
+    },
     "跟随系统" : {
       "localizations" : {
         "en" : {
@@ -15334,12 +15374,12 @@
         }
       }
     },
-    "默认随 iOS 系统语言自动切换（简体中文 / English）。选择固定语言后，BiuZ 将始终以该语言显示（重启生效）；文案覆盖范围见版本说明。" : {
+    "默认随 iOS 系统语言自动切换（简体中文 / English）。选择固定语言后，朱批 将始终以该语言显示（重启生效）；文案覆盖范围见版本说明。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Follows the iOS system language by default (Simplified Chinese / English). After choosing a fixed language, BiuZ always displays in it (effective on relaunch); see release notes for coverage."
+            "value" : "Follows the iOS system language by default (Simplified Chinese / English). After choosing a fixed language, Seal always displays in it (effective on relaunch); see release notes for coverage."
           }
         }
       }

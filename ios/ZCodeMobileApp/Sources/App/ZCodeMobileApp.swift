@@ -120,7 +120,7 @@ struct ZCodeMobileApp: App {
         if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-acceptance-route"),
            index + 1 < ProcessInfo.processInfo.arguments.count,
            !router.applyAcceptanceRoute(ProcessInfo.processInfo.arguments[index + 1]) {
-            print("[BiuZ] unknown acceptance route: \(ProcessInfo.processInfo.arguments[index + 1])")
+            print("[朱批] unknown acceptance route: \(ProcessInfo.processInfo.arguments[index + 1])")
         }
     }
 

@@ -34,6 +34,9 @@ struct ApprovalSheetView: View {
     @State private var decisionToast: String?
     /// U-5：决议进行中（两钮禁用，防重复下发）
     @State private var deciding = false
+    /// 盖章动效（motion-spec）：.accepted 权威成功 → 落印「照办/不准」，
+    /// 既有 0.7s dismissAfterDecision 停驻与其同构，印在收卡前呈现
+    @State private var stampApproved: Bool?
     /// 服务端 options 投影（A-3：渲染服务端选项；加载失败/演示态为空 → 默认两档矩阵）
     @State private var interactionOptions: [RemoteInteractionOption] = []
     /// workspaceHookReview 信任审核（kind 分派：在场时渲染专属卡，授权范围矩阵
@@ -127,6 +130,13 @@ struct ApprovalSheetView: View {
                 interactionOptions = interaction.options
                 scope = PermissionOptionMatrix(options: interaction.options)
                     .defaultScopeAlways() ? .always : .once
+            }
+        }
+        // 盖章动效（motion-spec）：.accepted 落印「照办/不准」，0.7s 停驻与
+        // dismissAfterDecision 同构——印在收卡前呈现
+        .overlay {
+            if let stampApproved {
+                SealStampView(approved: stampApproved, size: 116)
             }
         }
     }
@@ -412,6 +422,7 @@ struct ApprovalSheetView: View {
                 decisionToast = approved == false
                     ? String(localized: "已拒绝 · \(scopeLabel)")
                     : String(localized: "已批准执行 · \(scopeLabel)")
+                stampApproved = approved != false
                 dismissAfterDecision()
             case .interactionMissing:
                 // U-5 根治：不再无条件假成功——如实提示 + 后台刷新任务状态

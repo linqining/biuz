@@ -348,7 +348,7 @@ actor RelayTransport {
             object["meta"] = .object([
                 "platform": .string("ios"),
                 "version": .string(Self.clientAppVersion),
-                "name": .string("BiuZ"),
+                "name": .string("朱批"),
             ])
         } else {
             object["role"] = .string("terminal")

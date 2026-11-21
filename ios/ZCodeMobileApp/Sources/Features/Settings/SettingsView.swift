@@ -33,8 +33,8 @@ struct SettingsView: View {
                 // 「文件保持只读」表述已移除（2026-10-08 用户裁决：git/设置等桌面代
                 // 执行写族已开放，只读描述不准确且对用户无价值）
                 Text(session.isDemo
-                     ? "BiuZ for iOS · 演示数据由本地 Mock 提供"
-                     : "BiuZ for iOS · 指令经桌面端执行")
+                     ? "朱批 for iOS · 演示数据由本地 Mock 提供"
+                     : "朱批 for iOS · 指令经桌面端执行")
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -56,7 +56,7 @@ struct SettingsView: View {
                         }
                 }
                 // 品牌名独立可测锚点（e2e 断言 App 自我指称，works-with 桌面端描述性引用另行表述）
-                Text("BiuZ · 为 ZCode 社区版桌面端打造的移动遥控台")
+                Text("朱批 · 为 ZCode 社区版桌面端打造的移动遥控台")
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -1111,7 +1111,7 @@ struct LanguageSettingsView: View {
                     Text("界面语言跟随系统")
                         .font(T.font(13, .semibold))
                         .foregroundColor(T.text3)
-                    Text("默认随 iOS 系统语言自动切换（简体中文 / English）。选择固定语言后，BiuZ 将始终以该语言显示（重启生效）；文案覆盖范围见版本说明。")
+                    Text("默认随 iOS 系统语言自动切换（简体中文 / English）。选择固定语言后，朱批 将始终以该语言显示（重启生效）；文案覆盖范围见版本说明。")
                         .font(T.font(12))
                         .foregroundColor(T.text2)
                         .lineSpacing(4)

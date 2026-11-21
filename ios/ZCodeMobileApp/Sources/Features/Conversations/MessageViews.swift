@@ -1194,7 +1194,7 @@ struct FileTypeBadgeView: View {
 }
 
 // MARK: - todo 拆解卡（项 3 双态卡：头部可点折叠/展开；done 划线 / now 蓝框 spinner / todo 空框 / failed 红叉）
-// 口径（Qoder 官方三态 + BiuZ failed 扩展）：空心圆=未开始、旋转圆=进行中、复选框=已完成；
+// 口径（Qoder 官方三态 + 朱批 failed 扩展）：空心圆=未开始、旋转圆=进行中、复选框=已完成；
 // 新计划/进行中默认展开，全部完成自动折叠只留头部；用户手动切换后以用户为准。
 
 struct TodoCardView: View {
@@ -1707,7 +1707,7 @@ struct AttachmentThumbView: View {
         }
     }
 
-    /// 视频数据落**稳定缓存路径**（Caches/biuz-video/<会话-附件键>.<ext>——原实现写
+    /// 视频数据落**稳定缓存路径**（Caches/zhupi-video/<会话-附件键>.<ext>——原实现写
     /// temporaryDirectory + 随机 UUID：iOS 可随时回收 tmp，切后台回来文件已失而封面
     /// 仍在内存，点按即黑屏；稳定键跨视图重建/返场复用同一路径，不叠随机文件垃圾）
     /// → AVAssetImageGenerator 抽 0s 帧（背景线程回调，单帧即收）。失败静默走兜底格；
@@ -1725,9 +1725,9 @@ struct AttachmentThumbView: View {
         let safeKey = ("\(sessionID)-\(ref)")
             .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "att"
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("biuz-video", isDirectory: true)
+            .appendingPathComponent("zhupi-video", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("biuz-\(safeKey).\(ext)")
+        let url = dir.appendingPathComponent("zhupi-\(safeKey).\(ext)")
         do {
             try preview.data.write(to: url, options: .atomic)
         } catch {

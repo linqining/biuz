@@ -133,7 +133,7 @@ struct LoginFlowView: View {
 
     private var title: String {
         switch step {
-        case .home, .authorizing: return String(localized: "登录 BiuZ")
+        case .home, .authorizing: return String(localized: "登录朱批")
         case .exchanging: return String(localized: "正在完成登录")
         case .success: return String(localized: "登录成功")
         case .failure: return String(localized: "登录未完成")
@@ -355,7 +355,7 @@ struct LoginHomeView: View {
         VStack(spacing: 14) {
             ZCodeBrandMark(size: 84)
             VStack(spacing: 4) {
-                Text("BiuZ")
+                Text("朱批")
                     .font(T.font(24, .heavy))
                     .foregroundColor(T.text)
                     .accessibilityIdentifier("o1-brand-name")
@@ -456,14 +456,15 @@ struct LoginHomeView: View {
     }
 }
 
-// MARK: - 品牌标（84px/76px 品牌位共用；BiuzMark 资产切图，源 branding/logo/png/mark-960.png）
-// 结构体名沿用 ZCodeBrandMark（内部符号，无用户可见差异；视觉本体已换 BiuZ 单标）
+// MARK: - 品牌标（84px/76px 品牌位共用；ZhupiSeal 资产切图，源 brand/seal/png/mark-pi-960.png，
+// 朱磦印面 + 白刻「批」主印——朱批品牌升级 2026-11-21）
+// 结构体名沿用 ZCodeBrandMark（内部符号，无用户可见差异；视觉本体已换朱批主印）
 
 struct ZCodeBrandMark: View {
     var size: CGFloat = 84
 
     var body: some View {
-        Image("BiuzMark")
+        Image("ZhupiSeal")
             .resizable()
             .interpolation(.high)
             .frame(width: size, height: size)
@@ -916,8 +917,8 @@ enum AgreementPage: String, Identifiable {
     /// 当前为占位地址（可配置点）；404/断网由 WebView 失败态兜底呈现
     var url: URL {
         switch self {
-        case .terms: return URL(string: "https://biuz.app/legal/terms")!
-        case .privacy: return URL(string: "https://biuz.app/legal/privacy")!
+        case .terms: return URL(string: "https://zhupi.app/legal/terms")!
+        case .privacy: return URL(string: "https://zhupi.app/legal/privacy")!
         }
     }
 }

@@ -22,7 +22,7 @@ struct ToolCall: Identifiable, Codable, Equatable {
     var workflowRunId: String?
 }
 
-/// todo/plan 步骤状态：done/now/todo 为既有三态；failed 为 BiuZ 扩展
+/// todo/plan 步骤状态：done/now/todo 为既有三态；failed 为 朱批 扩展
 /// （映射 Qoder Error 态；桌面 v4 state.todos 的 status 仅 pending|in_progress|completed，
 /// failed 供宽容解析 error|failed 等扩展值使用）
 enum TodoState: String, Codable { case done, now, todo, failed }
@@ -561,7 +561,7 @@ struct Conversation: Identifiable, Equatable {
     var taskProgress: Double?
     var todoSummary: String?
     /// 会话来源（项 5 来源过滤 chips 数据口径）："mac" = 已配对桌面端（局域网/云中继均属
-    /// 我的 Mac），"cloud" = 云端沙盒（BiuZ 尚无云端会话数据源，预留），nil = 未知/演示态。
+    /// 我的 Mac），"cloud" = 云端沙盒（朱批 尚无云端会话数据源，预留），nil = 未知/演示态。
     var source: String?
     /// 通路 A：sessions-index 行自带 workflowActivity（G-007；随既有订阅到达零新增订阅）。
     /// 无 run 时 nil → 行不渲染占位。

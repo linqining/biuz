@@ -1968,7 +1968,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         return todos.isEmpty ? nil : todos
     }
 
-    /// 步骤状态宽容映射：completed→done；in_progress/running→now；failed/error→failed（BiuZ 扩展）
+    /// 步骤状态宽容映射：completed→done；in_progress/running→now；failed/error→failed（朱批 扩展）
     static func mapTodoStatus(_ raw: String) -> TodoState {
         switch raw.lowercased() {
         case "completed", "done", "success": return .done

@@ -76,6 +76,15 @@ final class ChatViewModel {
     /// permission 类渲染审批卡，其余类型暂以折叠卡呈现）
     var pendingInteractions: [RemotePendingInteraction] = []
 
+    /// 盖章停驻（motion-spec：ACK 权威成功后卡面落印并停驻 700ms 再收卡）。
+    /// id → 停驻中的交互 + 印向；refreshPendingInteractions 对「投影已撤、停驻
+    /// 未满」的卡以本地副本顶住（snooze 遮罩同款口径），期满摘除 Task 收卡。
+    struct StampHold {
+        let interaction: RemotePendingInteraction
+        let approved: Bool
+    }
+    var stampHolds: [String: StampHold] = [:]
+
     /// 运行时初始化态（3.16.2 snapshot.runtimeInitialization；nil = 旧桌面未投影）
     var runtimeInitialization: RuntimeInitializationInfo?
 
@@ -906,20 +915,58 @@ final class ChatViewModel {
     func refreshPendingInteractions() async {
         guard isReadOnly else { return }
         let all = await store.pendingInteractionList(in: conversationID)
-        pendingInteractions = all.filter { !snoozedInteractionIds.contains($0.id) }
+        var merged = all.filter { !snoozedInteractionIds.contains($0.id) }
+        // 盖章停驻（motion-spec）：ACK 权威成功后卡面落印并停驻 700ms——投影已撤
+        // 但停驻未满的卡由本地副本顶住（snooze 遮罩同款口径，store 投影不动）；
+        // 期满由 beginStampIfAuthoritative 的摘除 Task 收卡，桌面回流与本地停驻互不等待
+        for hold in stampHolds.values
+        where !merged.contains(where: { $0.id == hold.interaction.id }) {
+            merged.append(hold.interaction)
+        }
+        pendingInteractions = merged
         runtimeInitialization = await store.runtimeInitialization(in: conversationID)
+    }
+
+    /// 盖章停驻窗口（E2E 验证钩子 -ZCodeE2EStampHold：拉长到 5s 供 XCUITest
+    /// 断言印在场；默认 700ms = motion-spec 停驻口径。XCUITest 快照延迟在重载
+    /// 环境下 ≥1s，700ms 停驻窗会被整体错过——断言用例须携带该参数）
+    static var stampHoldNanos: UInt64 {
+        ProcessInfo.processInfo.arguments.contains("-ZCodeE2EStampHold")
+            ? 5_000_000_000 : 700_000_000
+    }
+
+    /// ACK 权威成功 → 置盖章停驻并排期满摘除；失败/未知态不落印（U-5：印是
+    /// 权威成功专属——accepted/duplicate/noop 落印，rejected/stale/failed/缺席不落）
+    private func beginStampIfAuthoritative(
+        _ interaction: RemotePendingInteraction, ack: JSONValue?, approved: Bool
+    ) {
+        guard let ack, CommandAck(ack).isAuthoritativeSuccess else { return }
+        // 去重：同一交互首次权威成功定案——重试 tap 的 duplicate ack 不重置停驻
+        // （否则 tapUntil 类重试循环会让卡片永不离场）
+        guard stampHolds[interaction.id] == nil else { return }
+        stampHolds[interaction.id] = StampHold(interaction: interaction, approved: approved)
+        let id = interaction.id
+        Task {
+            try? await Task.sleep(nanoseconds: Self.stampHoldNanos)
+            stampHolds[id] = nil
+            await refreshPendingInteractions()
+        }
     }
 
     /// 审批卡决议（A-3：权限族 answer={optionId}——四族 allowOnce/allowAlways/
     /// rejectOnce/rejectAlways 由 UI 按服务端 options 组合拼好传入）。
-    /// 返回失败文案（nil = 成功/已受理；未送达与拒绝均如实透出，U-5 同口径）
+    /// 返回失败文案（nil = 成功/已受理；未送达与拒绝均如实透出，U-5 同口径）。
+    /// 权威成功 → 盖章停驻（朱印「照办」/墨印「不准」，motion-spec R-5）
     @discardableResult
-    func decide(_ interaction: RemotePendingInteraction, optionId: String) async -> String? {
+    func decide(
+        _ interaction: RemotePendingInteraction, optionId: String, approved: Bool
+    ) async -> String? {
         let ack = await store.resolveInteractionRaw(
             conversationID,
             interactionId: interaction.id,
             answer: .object(["optionId": .string(optionId)]))
         recordControlDiag("resolve optionId=\(optionId)", workId: interaction.id, ack: ack)
+        beginStampIfAuthoritative(interaction, ack: ack, approved: approved)
         await refreshPendingInteractions()
         return Self.controlFeedback(ack, verb: "审批")
     }
@@ -933,12 +980,14 @@ final class ChatViewModel {
             interactionId: interaction.id,
             answer: .object(["action": .string(action)]))
         recordControlDiag("planResolve action=\(action)", workId: interaction.id, ack: ack)
+        beginStampIfAuthoritative(interaction, ack: ack, approved: action == "accept")
         await refreshPendingInteractions()
         return Self.controlFeedback(ack, verb: "计划决议")
     }
 
     /// userInput / AskUserQuestion / MCP elicitation 应答（上游 resolveInteraction：
     /// 单题走 optionId/freeText；多题/表单走 action:"accept" + content）。
+    /// action:"cancel"（跳过）不是批准决议——不落印。
     @discardableResult
     func resolveUserInput(_ interaction: RemotePendingInteraction, answer: JSONValue) async -> String? {
         let ack = await store.resolveInteractionRaw(
@@ -946,6 +995,9 @@ final class ChatViewModel {
             interactionId: interaction.id,
             answer: answer)
         recordControlDiag("userInput resolve", workId: interaction.id, ack: ack)
+        if answer["action"]?.stringValue != "cancel" {
+            beginStampIfAuthoritative(interaction, ack: ack, approved: true)
+        }
         await refreshPendingInteractions()
         return Self.controlFeedback(ack, verb: "回答")
     }
@@ -954,14 +1006,15 @@ final class ChatViewModel {
     // nil = 成功/已受理——与 decide/decidePlan 同口径）
 
     /// 信任所选审核项（respondWorkspaceHookReview decision:{action:'trust_selected',
-    /// reviewItemIds}，web 实证唯一 action）。成功后卡片由桌面 pendingInteractions
-    /// 回流撤下（refresh 兜底）。
+    /// reviewItemIds}，web 实证唯一 action）。权威成功 → 盖章停驻（朱印「照办」）；
+    /// 成功后卡片由桌面 pendingInteractions 回流撤下（refresh 兜底）。
     @discardableResult
     func trustWorkspaceHooks(
         _ interaction: RemotePendingInteraction, reviewItemIds: [String]
     ) async -> String? {
         let ack = await store.respondWorkspaceHookReview(conversationID, reviewItemIds: reviewItemIds)
         recordControlDiag("hookTrust ids=\(reviewItemIds.count)", workId: interaction.id, ack: ack)
+        beginStampIfAuthoritative(interaction, ack: ack, approved: true)
         await refreshPendingInteractions()
         return Self.controlFeedback(ack, verb: "信任")
     }
