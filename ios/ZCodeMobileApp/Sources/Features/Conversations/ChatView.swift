@@ -34,6 +34,11 @@ struct ChatView: View {
     /// fork 成功提示（新会话 id；用户从列表打开派生会话——原地切换属 UI 重构阶段）
     @State private var forkNotice: String?
     @State private var forkNoticeFailure: String?
+    /// 划词「引用到输入框」待追加尾块（追加到 composer draft）
+    @State private var composerDraftQuote: String?
+    /// 划词「在新会话询问」待询问消息（呈现期捕获，§5-15）
+    @State private var askInNewSessionMessage: ChatMessage?
+    @State private var askQuestionDraft = ""
 
     var body: some View {
         Group {
@@ -113,6 +118,67 @@ struct ChatView: View {
             guard let remote = store as? RemoteConversationStore else { return }
             remote.showThinkingProcess = show
             Task { await viewModel?.load() }
+        }
+        .onChange(of: composerDraftQuote) { _, quote in
+            // 划词「引用到输入框」：userselect 尾块追加 composer 草稿 + 聚焦
+            guard let quote, !quote.isEmpty else { return }
+            let current = viewModel?.draft ?? ""
+            let joined = current.isEmpty ? quote : current + "\n\n" + quote
+            viewModel?.draft = joined
+            draft = joined
+            composerDraftQuote = nil
+            composerFocused = true
+        }
+        .sheet(item: $askInNewSessionMessage) { message in
+            // 划词「在新会话询问」：呈现期捕获 message（§5-15）；提交走
+            // createSelectionSideSession（firstInput = 引用尾块 + 用户问题）
+            VStack(alignment: .leading, spacing: T.sp3) {
+                Text(String(localized: "在新会话询问"))
+                    .font(T.font(15, .bold))
+                    .foregroundColor(T.text)
+                Text(message.text)
+                    .font(T.font(11.5))
+                    .foregroundColor(T.text3)
+                    .lineLimit(4)
+                    .padding(.horizontal, T.sp2)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(T.bgCode)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                TextField(String(localized: "要询问的问题"), text: $askQuestionDraft, axis: .vertical)
+                    .font(T.font(13))
+                    .foregroundColor(T.text)
+                    .lineLimit(2...5)
+                    .padding(.horizontal, T.sp2)
+                    .padding(.vertical, 8)
+                    .background(T.bgInput)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                HStack(spacing: T.sp3) {
+                    Button(String(localized: "取消")) { askInNewSessionMessage = nil }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                    Button(String(localized: "询问")) {
+                        let question = askQuestionDraft
+                        askInNewSessionMessage = nil
+                        Task {
+                            let sid = await viewModel?.askInNewSession(message, question: question)
+                            if let sid {
+                                forkNotice = sid // 复用提示行（child id 从列表打开）
+                            } else {
+                                forkNoticeFailure = String(localized: "派生会话创建失败（桌面端版本或连接状态）")
+                            }
+                        }
+                    }
+                    .disabled(askQuestionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(askQuestionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? T.bgInput : T.accent)
+                    .foregroundStyle(askQuestionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? T.text3 : T.onAccent)
+                    .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                }
+            }
+            .padding(T.sp4)
+            .presentationDetents([.medium])
+            .accessibilityIdentifier("l6-ask-new-sheet")
         }
     }
 
@@ -488,6 +554,15 @@ struct ChatView: View {
                                 } else if let failure = result.failure {
                                     forkNoticeFailure = failure
                                 }
+                            } : nil,
+                            // 划词菜单（移动适配：行级长按/上下文菜单承载 web 划词动作）
+                            onQuoteToComposer: viewModel.isReadOnly ? { [weak viewModel] in
+                                guard let viewModel else { return }
+                                composerDraftQuote = viewModel.quoteToComposer(message)
+                                composerFocused = true
+                            } : nil,
+                            onAskInNewSession: viewModel.isReadOnly ? {
+                                askInNewSessionMessage = message
                             } : nil,
                             // 工作流完成卡四格 join（活投影按 runId 对位；冷恢复 run 被
                             // 8 条上限淘汰 = 三格「—」桌面同口径）+ ⤢ 门控（仅卡对应 run

@@ -419,6 +419,28 @@ final class ChatViewModel {
         return (newSessionId, nil)
     }
 
+    /// 引用尾块构造（转发 store 纯函数；quote=整条消息文本，来源=assistant 行无 path）
+    func selectionPrompt(for message: ChatMessage, question: String?) -> String {
+        let prompt = RemoteConversationStore.buildPromptWithConversationSelections(
+            visibleContent: question ?? "",
+            selections: [(text: message.text, path: nil)])
+        return prompt
+    }
+
+    /// 划词派生（web handleOpenSelectionSideConversationWithPrompt 同构）：
+    /// createSelectionSideSession firstInput = 引用尾块 + 用户问题 → child sessionId
+    func askInNewSession(_ message: ChatMessage, question: String) async -> String? {
+        let prompt = selectionPrompt(for: message, question: question)
+        return await store.createSelectionSideSession(conversationID, firstInputText: prompt)
+    }
+
+    /// 引用到当前输入框（返回尾块文本由页面追加 draft）
+    func quoteToComposer(_ message: ChatMessage) -> String {
+        return RemoteConversationStore.buildPromptWithConversationSelections(
+            visibleContent: "",
+            selections: [(text: message.text, path: nil)])
+    }
+
     func setAssistantFeedback(_ message: ChatMessage, value: Bool?) async -> String? {
         guard let rowId = Self.messageRowId(message), let entityId = message.entityId, !entityId.isEmpty else {
             return String(localized: "该消息缺少行游标，无法反馈")

@@ -104,6 +104,24 @@ struct MessageView: View {
                             text: genUiProjection.visible,
                             streaming: message.status == .streaming)
                     }
+                    .contextMenu {
+                        if onQuoteToComposer != nil {
+                            Button {
+                                onQuoteToComposer?()
+                            } label: {
+                                Label(String(localized: "引用到输入框"), systemImage: "text.quote")
+                            }
+                            .accessibilityIdentifier("05-msg-act-quote")
+                        }
+                        if onAskInNewSession != nil {
+                            Button {
+                                onAskInNewSession?()
+                            } label: {
+                                Label(String(localized: "在新会话询问"), systemImage: "plus.bubble")
+                            }
+                            .accessibilityIdentifier("05-msg-act-ask-new")
+                        }
+                    }
                 }
                 if !genUiProjection.references.isEmpty {
                     VStack(alignment: .leading, spacing: T.sp2) {
@@ -197,7 +215,11 @@ struct MessageFeedbackRow: View {
     /// 点按回调；返回失败文案（nil = 成功）
     let onAction: (Bool?) async -> String?
     /// fork 会话派生（web 完成态 assistant 行同口径；nil = 不渲染）
-    var onFork: (() async -> Void)? = nil
+    var onFork: (() async -> Void)?
+    /// 引用到当前输入框（划词菜单；nil = 不渲染入口）
+    var onQuoteToComposer: (() -> Void)?
+    /// 在新会话询问（划词派生；nil = 不渲染入口）
+    var onAskInNewSession: (() -> Void)? = nil
 
     @State private var failure: String?
     @State private var failureClear: Task<Void, Never>?

@@ -170,6 +170,9 @@ protocol ConversationStore: AnyObject, Sendable {
     /// 队列条目文本编辑（editorId：持有编辑锁时必携——原地替换后同一命令释放锁）
     @discardableResult
     func editQueueItem(_ conversationID: String, queueItemId: String, newText: String, editorId: String?) async -> JSONValue?
+    /// 划词派生会话（createSelectionSideSession：firstInput{text}，父会话由信封 sessionId 指定）
+    @discardableResult
+    func createSelectionSideSession(_ conversationID: String, firstInputText: String) async -> JSONValue?
     /// 进入队列项编辑（持锁；CLI 内存权威，冻结期间自动续跑停在该项前）
     @discardableResult
     func lockQueueItemEdit(_ conversationID: String, queueItemId: String, editorId: String) async -> JSONValue?
@@ -453,6 +456,7 @@ extension ConversationStore {
     func queueInfo(in conversationID: String) async -> ConversationQueueInfo? { nil }
     func sendQueuedNow(_ conversationID: String, queueItemId: String) async -> JSONValue? { nil }
     func editQueueItem(_ conversationID: String, queueItemId: String, newText: String, editorId: String?) async -> JSONValue? { nil }
+    func createSelectionSideSession(_ conversationID: String, firstInputText: String) async -> JSONValue? { nil }
     func lockQueueItemEdit(_ conversationID: String, queueItemId: String, editorId: String) async -> JSONValue? { nil }
     func releaseQueueItemEdit(_ conversationID: String, queueItemId: String) async -> JSONValue? { nil }
     func deleteQueueItem(_ conversationID: String, queueItemId: String) async -> JSONValue? { nil }

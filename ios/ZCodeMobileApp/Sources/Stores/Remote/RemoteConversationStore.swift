@@ -4131,6 +4131,52 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             payload: .object(payload))
     }
 
+    // MARK: 划词派生（web handleOpenSelectionSideConversationWithPrompt 同构
+    // 【实证·上游仓 SessionPane.tsx:2945-2952 + conversationSelection.ts:31-55】）
+
+    /// 划词引用尾块构造（上游 buildPromptWithConversationSelections 逐字移植）：
+    /// 引用对象仅保留 {path?, text, agent?, comment?}（内部身份字段不发送）；
+    /// 限额 text≤8000/count≤8/总长≤16000 由调用方把关
+    nonisolated static func buildPromptWithConversationSelections(
+        visibleContent: String, selections: [(text: String, path: String?)]
+    ) -> String {
+        guard !selections.isEmpty else { return visibleContent }
+        // 引用对象仅保留 {path?, text}（内部身份字段不发送）；Codable 属性序 =
+        // 上游 stringify 插入序（path 前 text 后）
+        struct SelectionQuote: Encodable {
+            var path: String?
+            var text: String
+        }
+        let quotes = selections.map { selection in
+            SelectionQuote(
+                path: selection.path?.trimmingCharacters(in: .whitespaces).isEmpty == true
+                    ? nil : selection.path?.trimmingCharacters(in: .whitespaces),
+                text: selection.text)
+        }
+        guard let jsonData = try? JSONEncoder().encode(quotes),
+              let jsonString = String(data: jsonData, encoding: .utf8) else { return visibleContent }
+        let block = [
+            "# userselect:",
+            "```userselect",
+            jsonString,
+            "```",
+        ].joined(separator: "\n")
+        return visibleContent.isEmpty ? block : "\(visibleContent)\n\n\(block)"
+    }
+
+    /// 新建划词派生会话（createSelectionSideSession【实证·上游仓 command.ts:130-136】：
+    /// payload {firstInput:{text, modelSelection?}}，父会话由 envelope.sessionId 指定；
+    /// ack.result.sessionId = child 会话 id）。modelSelection 缺省保留父 runtime 继承。
+    func createSelectionSideSession(_ conversationID: String, firstInputText: String) async -> String? {
+        await ensureStateRevision(conversationID)
+        let ack = await sendCASWithRetry(
+            "createSelectionSideSession", sessionId: conversationID,
+            payload: .object(["firstInput": .object(["text": .string(firstInputText)])]))
+        let result = ack?["result"]?.objectValue
+        guard result?["type"]?.stringValue == "createSelectionSideSession" else { return nil }
+        return result?["sessionId"]?.stringValue
+    }
+
     /// 进入队列项编辑（持锁；CLI 内存权威，冻结期间自动续跑停在该项前【实证·上游仓
     /// command.ts:282 + snapshot.ts:230-236】；非 CAS 15 词表，携 base 对两代桌面均合法）
     func lockQueueItemEdit(_ conversationID: String, queueItemId: String, editorId: String) async -> JSONValue? {
