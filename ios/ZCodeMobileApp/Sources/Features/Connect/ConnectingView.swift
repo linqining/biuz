@@ -260,6 +260,7 @@ struct ConnectFailureView: View {
     var onRetry: () -> Void
     var onDone: () -> Void
 
+    // session 属性声明在结构体尾部（历史样式）；登录 CTA 经它唤起 O1
     @Environment(AppSettingsModel.self) private var settings
     @State private var showDeleteConfirm = false
 
@@ -386,15 +387,28 @@ struct ConnectFailureView: View {
             return String(localized: "v4 握手失败（\(detail)）。请确认桌面端版本支持 v4 协议后重试。")
         case .transport(let detail):
             return String(localized: "无法建立 WebSocket（\(detail)）。请确认桌面端 zcode --web 进程运行中且端口可达。")
+        case .relayAuthRequired:
+            return String(localized: "云中继 V2 链接需要手机端已登录 Z.ai 账号（JWT 换一次性 token）。换包/重装后登录态不随迁移，登录成功后会自动重连；也可改用桌面端局域网二维码直连（免登录）。")
         }
     }
 
-    /// 主 CTA 随错误类型切换（401 → 重新扫码；超时 → 原配置重试；协议不符 → 升级指引）
+    /// 主 CTA 随错误类型切换（401 → 重新扫码；云中继登录门槛 → 登录 Z.ai 账号；
+    /// 超时/传输 → 原配置重试；协议不符 → 升级指引）。次按钮行按主 CTA 互补取 action
+    /// （修复 transport/timeout 下主次同文案「原配置重试」重复——真机截图实证）：
+    /// 非 401 的次按钮 = 重新扫码（换新令牌 / 改扫桌面局域网码直连）。
     private var recoveryActions: some View {
         VStack(spacing: 10) {
             switch error {
             case .http(let status, _) where status == 401:
                 PrimaryButton(title: "重新扫码更新令牌", identifier: "l3-btn-rescan", action: onRescan)
+            case .relayAuthRequired:
+                // 朱批品牌升级（2026-11-22）：A/B 双恢复路径——A 登录 Z.ai 账号
+                // （O1 授权页，成功后 autoConnectAfterLogin 自动建 ws2）；
+                // B 改用桌面局域网二维码直连（免登录）。不设「原配置重试」
+                // （登录前重试必撞同一门槛）。
+                PrimaryButton(title: "登录 Z.ai 账号", identifier: "l3-btn-relay-login", action: onRelayLogin)
+                secondaryButton(title: String(localized: "改用局域网直连 · 扫码"), icon: "wifi",
+                                identifier: "l3-btn-lan") { onRescan() }
             case .protocolVersion:
                 primaryButton(title: String(localized: "升级后重试"), identifier: "l3-btn-retry", action: onRetry)
             case .timeout:
@@ -403,8 +417,13 @@ struct ConnectFailureView: View {
                 primaryButton(title: String(localized: "原配置重试"), identifier: "l3-btn-retry", action: onRetry)
             }
             HStack(spacing: 10) {
-                secondaryButton(title: String(localized: "原配置重试"), icon: "arrow.clockwise", identifier: "l3-btn-retry-secondary") {
-                    Task { onRetry() }
+                // relayAuthRequired 分支不设重试：登录后 autoConnectAfterLogin 自动接管
+                // （O3 成功页触发），本页会被登录 cover 替换——重试按钮不可达；
+                // 登录前重试必撞同一门槛。其它错误主 CTA=原配置重试，次位给重新扫码互补。
+                if !error.isRelayAuthRequired {
+                    secondaryButton(title: String(localized: "重新扫码"), icon: "qrcode.viewfinder", identifier: "l3-btn-rescan-secondary") {
+                        onRescan()
+                    }
                 }
                 // 手动更新令牌 = 手动输入族入口：仅开发者模式（正式用户 401 恢复走
                 // 「重新扫码」主 CTA；二按钮单列时全宽）
@@ -413,6 +432,13 @@ struct ConnectFailureView: View {
                 }
             }
         }
+    }
+
+    /// A 路径：唤起 O1 登录主页（根层 fullScreenCover 承载）；O3 授权成功页的
+    /// autoConnectAfterLogin（OAuthResultView）会按设备目录自动建 ws2 连接——
+    /// 登录成功即恢复，无需回本页手动重试。
+    private func onRelayLogin() {
+        session.requestLoginFlow()
     }
 
     private func primaryButton(title: String, identifier: String, action: @escaping () -> Void) -> some View {

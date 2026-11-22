@@ -176,6 +176,33 @@ final class RelayLinkE2ETests: XCTestCase {
                        "token= 链接不得触发中继连接（不应出现 L3 失败态）")
     }
 
+    // MARK: - 用例 3：云中继登录门槛失败页（朱批品牌升级 2026-11-22：A/B 双恢复路径）
+
+    /// V2 链接（无 hash/t）→ fetchV2Token 无 Keychain JWT（ResetState 已清）→
+    /// RelayAuthRequired 在 ws2 建连前确定性抛出（不触网）→ L3 失败页
+    /// relayAuthRequired 分支：主 CTA「登录 Z.ai 账号」（A）+ 次「改用局域网直连 · 扫码」（B）。
+    /// 回归门（真机截图实证缺陷）：transport 类错误曾出现主次同文案「原配置重试」双按钮。
+    func test03_relayAuthFailureShowsLoginCTAAndLANFallback() throws {
+        let app = launch(args: ["-ZCodeOpenConnectFlow"])
+        openManualConnect(app)
+
+        let v2ProbeLink = "https://127.0.0.1/remote/v4?sid=d_e2e_relayauth_1&name=RelayAuthProbe"
+        let hostField = element(app, "l1-field-host")
+        XCTAssertTrue(typeInto(app, hostField, text: v2ProbeLink), "地址栏应可输入 V2 探针链接")
+        submitManualConnect(app)
+
+        XCTAssertTrue(element(app, "l3-btn-relay-login").waitForExistence(timeout: 30),
+                      "登录门槛失败应给「登录 Z.ai 账号」主 CTA（A 路径，O1 授权页入口）")
+        XCTAssertTrue(element(app, "l3-err-code").label.contains("RELAY AUTH"),
+                      "错误码行应为 RELAY AUTH（relayAuthRequired 专属分支）")
+        XCTAssertTrue(element(app, "l3-btn-lan").waitForExistence(timeout: 5),
+                      "应提供「改用局域网直连 · 扫码」次路径（B，免登录）")
+        XCTAssertFalse(element(app, "l3-btn-retry").exists,
+                       "登录门槛分支不应渲染「原配置重试」主按钮（登录前重试必撞同一门槛）")
+        XCTAssertFalse(element(app, "l3-btn-retry-secondary").exists,
+                       "relayAuthRequired 分支不得出现主次重复的重试按钮（真机截图实证缺陷已修）")
+    }
+
     // MARK: - 用例 3：-ZCodeRelayLink 冷启动钩子（有效链接 → 发起中继连接 → 失败回退演示）
 
     /// 真机验证入口的回归（docs/relay-handoff.md §3.4：simctl launch -ZCodeRelayLink + 截图）：

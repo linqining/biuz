@@ -54,6 +54,13 @@ enum ConnectError: Error, Equatable {
     case emptyWorkspaces                       // workspaces 为空
     case handshakeFailed(String)               // v4 握手失败
     case transport(String)                     // WS 升级失败
+    case relayAuthRequired                     // 云中继 V2：无 Z.ai 登录态（换包后 Keychain 不随迁）
+
+    /// 云中继登录门槛错误（失败页给「登录 Z.ai 账号」专属 CTA）
+    var isRelayAuthRequired: Bool {
+        if case .relayAuthRequired = self { return true }
+        return false
+    }
 
     var headline: String {
         switch self {
@@ -64,6 +71,7 @@ enum ConnectError: Error, Equatable {
         case .emptyWorkspaces: return String(localized: "工作区列表为空")
         case .handshakeFailed: return String(localized: "协议握手失败")
         case .transport: return String(localized: "无法建立 WebSocket")
+        case .relayAuthRequired: return String(localized: "云中继需要登录 Z.ai 账号")
         }
     }
 
@@ -76,6 +84,7 @@ enum ConnectError: Error, Equatable {
         case .emptyWorkspaces: return "workspaces=[]"
         case .handshakeFailed(let detail): return "HANDSHAKE · \(detail)"
         case .transport(let detail): return "WS · \(detail)"
+        case .relayAuthRequired: return "RELAY AUTH · Z.ai 登录态缺失"
         }
     }
 }
@@ -900,6 +909,10 @@ final class ZCodeServerConnection {
         switch error.name {
         case "TimeoutError":
             return .timeout(endpoint: String(localized: "中继 auth/bridge"))
+        case "RelayAuthRequired":
+            // 云中继 V2 登录门槛（换包后 Keychain 凭据不随迁——naming.md 修订记录
+            // 一次性成本）：失败页给「登录 Z.ai 账号」专属 CTA + 局域网直连次路径
+            return .relayAuthRequired
         case "RelayFailure", "RelayClosed":
             return .handshakeFailed(error.message)
         default:

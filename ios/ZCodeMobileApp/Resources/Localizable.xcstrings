@@ -31,6 +31,9 @@
         }
       }
     },
+    " · %@" : {
+
+    },
     " · ⚠ 桌面版本与配对链接不一致" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -73,6 +76,7 @@
       }
     },
     " ✓" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -190,6 +194,7 @@
       }
     },
     "；且清理新组失败（%@）" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -219,7 +224,9 @@
         }
       }
     },
-    "· %@" : {},
+    "· %@" : {
+
+    },
     "（回滚原工作区亦失败：%@，可断开重连恢复）" : {
       "localizations" : {
         "en" : {
@@ -452,6 +459,7 @@
       }
     },
     "%@ " : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -508,6 +516,9 @@
           }
         }
       }
+    },
+    "%@ · Z.ai" : {
+
     },
     "%@ · 云中继 · %@" : {
       "localizations" : {
@@ -872,6 +883,16 @@
         }
       }
     },
+    "%@（%lld）" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@（%2$lld）"
+          }
+        }
+      }
+    },
     "%@%@" : {
       "localizations" : {
         "en" : {
@@ -1008,6 +1029,26 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$lld 个任务进行中 · %2$lld 个待操作"
+          }
+        }
+      }
+    },
+    "%lld 个会话" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sessions"
+          }
+        }
+      }
+    },
+    "%lld 个工具" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld tools"
           }
         }
       }
@@ -1352,6 +1393,9 @@
         }
       }
     },
+    "⑂" : {
+
+    },
     "✕ / 下拉 / 页内取消 → 未产生 code → 重新登录" : {
       "localizations" : {
         "en" : {
@@ -1559,6 +1603,16 @@
         }
       }
     },
+    "Agent 提问" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent question"
+          }
+        }
+      }
+    },
     "Agent 能力" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1720,6 +1774,7 @@
       }
     },
     "bash — %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1739,77 +1794,21 @@
         }
       }
     },
-    "BigModel 个人套餐" : {},
-    "BigModel 体验套餐" : {},
-    "BigModel 团队套餐" : {},
+    "BigModel 个人套餐" : {
+
+    },
+    "BigModel 体验套餐" : {
+
+    },
+    "BigModel 团队套餐" : {
+
+    },
     "BigModel（中国）" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "BigModel (China)"
-          }
-        }
-      }
-    },
-    "朱批" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seal"
-          }
-        }
-      }
-    },
-    "朱批 · 为 ZCode 社区版桌面端打造的移动遥控台" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seal · mobile remote console for the ZCode community desktop"
-          }
-        }
-      }
-    },
-    "朱批 for iOS · 已连接桌面端 · 指令经桌面端执行，文件保持只读" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seal for iOS · desktop connected · commands run on desktop, files stay read-only"
-          }
-        }
-      }
-    },
-    "朱批 for iOS · 指令经桌面端执行" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seal for iOS · commands run on your desktop"
-          }
-        }
-      }
-    },
-    "朱批 for iOS · 演示数据由本地 Mock 提供" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seal for iOS · demo data provided by local mock"
-          }
-        }
-      }
-    },
-    "朱批 不提供应用内语言切换：界面语言随 iOS 系统语言自动切换（简体中文 / English）。需要更换语言时，请在系统「设置 → 朱批 → 语言」中选择（iOS 13+ 每应用语言设置），修改后重启应用生效。" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seal has no in-app language switch: the UI follows the iOS system language (Simplified Chinese / English). To change it, pick a language in Settings → Seal → Language (per-app language, iOS 13+), then relaunch."
           }
         }
       }
@@ -2395,6 +2394,16 @@
         }
       }
     },
+    "Shell 命令" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shell command"
+          }
+        }
+      }
+    },
     "SQL 优化" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2683,9 +2692,15 @@
         }
       }
     },
-    "Z.ai 个人套餐" : {},
-    "Z.ai 体验套餐" : {},
-    "Z.ai 团队套餐" : {},
+    "Z.ai 个人套餐" : {
+
+    },
+    "Z.ai 体验套餐" : {
+
+    },
+    "Z.ai 团队套餐" : {
+
+    },
     "Z.ai 账号" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3001,6 +3016,26 @@
         }
       }
     },
+    "个性化" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personalization"
+          }
+        }
+      }
+    },
+    "个性化指令仅支持在本地桌面端设置，请前往本地桌面端的「个性化」设置。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personalization instructions can only be set in the local desktop app. Open the “Personalization” settings on the desktop."
+          }
+        }
+      }
+    },
     "中" : {
       "localizations" : {
         "en" : {
@@ -3047,6 +3082,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "relay bootstrap missing activeWorkspaceKey"
+          }
+        }
+      }
+    },
+    "中继 token 回执无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid relay token response"
+          }
+        }
+      }
+    },
+    "中继 token 端点无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid relay token endpoint"
+          }
+        }
+      }
+    },
+    "中继 token 请求失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relay token request failed: %@"
+          }
+        }
+      }
+    },
+    "中继 token 请求失败（HTTP %lld）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relay token request failed (HTTP %lld)"
           }
         }
       }
@@ -3224,12 +3299,52 @@
         }
       }
     },
+    "云中继登录已失效，请重新登录 Z.ai 账号" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relay login expired. Please sign in to Z.ai again."
+          }
+        }
+      }
+    },
     "云中继直连 wss · auth 握手与桥建立中" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Relay direct wss · auth handshake and bridge setup"
+          }
+        }
+      }
+    },
+    "云中继需要登录 Z.ai 账号：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud relay requires a Z.ai account: %@"
+          }
+        }
+      }
+    },
+    "云中继需要登录 Z.ai 账号（缺少登录凭据）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud relay requires a Z.ai account (missing credentials)"
+          }
+        }
+      }
+    },
+    "云中继需要登录 Z.ai 账号（请在设置中登录后重试）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud relay requires a Z.ai account (sign in from Settings and retry)"
           }
         }
       }
@@ -3429,6 +3544,16 @@
         }
       }
     },
+    "仅本地桌面端可设置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set up in the local desktop app"
+          }
+        }
+      }
+    },
     "仅本次" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3457,6 +3582,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Only clears the bound user identity and bot session state; the bot configuration is kept. The user must bind again to use it."
+          }
+        }
+      }
+    },
+    "仅移除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove only"
           }
         }
       }
@@ -3648,6 +3783,12 @@
         }
       }
     },
+    "任务会话" : {
+
+    },
+    "任务列表" : {
+
+    },
     "任务在等待你的批准" : {
       "localizations" : {
         "en" : {
@@ -3732,6 +3873,9 @@
         }
       }
     },
+    "任务生命周期钩子（只读）" : {
+
+    },
     "任务运行时保持电脑唤醒" : {
       "localizations" : {
         "en" : {
@@ -3743,6 +3887,7 @@
       }
     },
     "会话" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3973,6 +4118,16 @@
         }
       }
     },
+    "侧栏项目与已移除项目（只读）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sidebar and removed projects (read-only)"
+          }
+        }
+      }
+    },
     "保存" : {
       "localizations" : {
         "en" : {
@@ -3982,6 +4137,9 @@
           }
         }
       }
+    },
+    "保存失败 · %@" : {
+
     },
     "保存相册" : {
       "localizations" : {
@@ -4196,7 +4354,6 @@
       }
     },
     "停用" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4319,6 +4476,16 @@
         }
       }
     },
+    "全部工具" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All tools"
+          }
+        }
+      }
+    },
     "全部批准" : {
       "localizations" : {
         "en" : {
@@ -4362,6 +4529,26 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "共 %1$lld 个通道 · %2$lld 个绑定上下文"
+          }
+        }
+      }
+    },
+    "共 %lld 个钩子 · 总开关已关闭" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld hooks · master switch disabled"
+          }
+        }
+      }
+    },
+    "共 %lld 个钩子 · 总开关已启用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld hooks · master switch enabled"
           }
         }
       }
@@ -4436,6 +4623,26 @@
         }
       }
     },
+    "内置子智能体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Built-in subagents"
+          }
+        }
+      }
+    },
+    "内联可视化 · 请在桌面端查看" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inline visualization · Open on desktop"
+          }
+        }
+      }
+    },
     "再点一次取消反馈" : {
       "localizations" : {
         "en" : {
@@ -4483,6 +4690,9 @@
           }
         }
       }
+    },
+    "最近更新" : {
+
     },
     "最近运行" : {
       "localizations" : {
@@ -4595,7 +4805,9 @@
         }
       }
     },
-    "凭据校验失败" : {},
+    "凭据校验失败" : {
+
+    },
     "凭据经桌面端代存（凭据存储），不落本机；保存后可用「测试连接」验证。" : {
       "localizations" : {
         "en" : {
@@ -4677,6 +4889,16 @@
         }
       }
     },
+    "分组名称需为 1–200 个字符" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group name must be 1–200 characters"
+          }
+        }
+      }
+    },
     "分组显示探索工具" : {
       "localizations" : {
         "en" : {
@@ -4703,6 +4925,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Group terminal commands"
+          }
+        }
+      }
+    },
+    "分组颜色不支持（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unsupported group color (%@)"
           }
         }
       }
@@ -4888,6 +5120,26 @@
         }
       }
     },
+    "删除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        }
+      }
+    },
+    "删除 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete %@"
+          }
+        }
+      }
+    },
     "删除 Bot" : {
       "localizations" : {
         "en" : {
@@ -4908,12 +5160,53 @@
         }
       }
     },
+    "删除「%@」的数据？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete data of “%@”?"
+          }
+        }
+      }
+    },
+    "删除会从桌面端移除该 md 文件，此操作无法撤销。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleting removes the md file on the desktop. This cannot be undone."
+          }
+        }
+      }
+    },
     "删除分组失败（%@）" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Failed to delete group (%@)"
+          }
+        }
+      }
+    },
+    "删除取消 · 有 %lld 个会话仍在运行（项目保持已移除，可稍后重试）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete cancelled — %lld sessions still running (project stays removed; retry later)"
+          }
+        }
+      }
+    },
+    "删除取消 · 有 %lld 个会话被其他项目引用（项目保持已移除）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete cancelled — %lld sessions referenced by other projects (project stays removed)"
           }
         }
       }
@@ -4938,12 +5231,42 @@
         }
       }
     },
+    "删除子智能体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Subagent"
+          }
+        }
+      }
+    },
+    "删除子智能体「%@」？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete subagent “%@”?"
+          }
+        }
+      }
+    },
     "删除服务器" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Delete server"
+          }
+        }
+      }
+    },
+    "删除未完成 · %lld 项失败（项目保持已移除，可稍后重试）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete incomplete — %lld items failed (project stays removed; retry later)"
           }
         }
       }
@@ -4965,6 +5288,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Delete this bot?"
+          }
+        }
+      }
+    },
+    "删除钩子？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete hook?"
           }
         }
       }
@@ -5413,6 +5746,16 @@
         }
       }
     },
+    "发现多个在线桌面端，选择一个连接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multiple desktops online. Choose one to connect."
+          }
+        }
+      }
+    },
     "发现服务" : {
       "localizations" : {
         "en" : {
@@ -5498,6 +5841,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cancel"
+          }
+        }
+      }
+    },
+    "取消分组失败（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to ungroup (%@)"
           }
         }
       }
@@ -5630,6 +5983,16 @@
         }
       }
     },
+    "可视化内容" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Visualization"
+          }
+        }
+      }
+    },
     "可粘贴完整链接（http/https/ws/wss）或云中继配对链接（https://…/remote/v4?…）；端口默认 3030，仅输 host:port 时补 http://" : {
       "localizations" : {
         "en" : {
@@ -5715,6 +6078,16 @@
         }
       }
     },
+    "名称" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
+          }
+        }
+      }
+    },
     "后台" : {
       "localizations" : {
         "en" : {
@@ -5726,11 +6099,23 @@
       }
     },
     "后台 Bash" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Background shell"
+          }
+        }
+      }
+    },
+    "后台任务" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background work"
           }
         }
       }
@@ -5776,7 +6161,6 @@
       }
     },
     "启用" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5969,6 +6353,16 @@
         }
       }
     },
+    "在有风险时询问" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask when there's risk"
+          }
+        }
+      }
+    },
     "在桌面端 Bots 面板创建飞书 / Telegram / 微信通道后，此处同步" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5980,12 +6374,32 @@
         }
       }
     },
+    "在桌面端创建子智能体后，此处同步显示清单" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagents created on the desktop appear here"
+          }
+        }
+      }
+    },
     "在桌面端创建自动化任务后，此处同步显示调度与历史" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Create automations on the desktop; schedules and history sync here"
+          }
+        }
+      }
+    },
+    "在桌面端创建钩子后，此处同步显示事件与命令" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks created on the desktop appear here with their events and commands"
           }
         }
       }
@@ -6266,7 +6680,6 @@
       }
     },
     "子智能体" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6282,6 +6695,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Subagent test-runner running (46 regression cases)"
+          }
+        }
+      }
+    },
+    "子智能体定义存于桌面端；连接后此处同步清单" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagent definitions live on the desktop; connect to sync the list here"
+          }
+        }
+      }
+    },
+    "子智能体定义清单（只读）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagent definitions (read-only)"
+          }
+        }
+      }
+    },
+    "它会从侧栏和项目选择器中移除，会话仍保留在最近和搜索中，磁盘上的文件不受影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It will be removed from the sidebar and project picker. Sessions remain in recents and search; files on disk are not affected."
           }
         }
       }
@@ -6644,6 +7087,16 @@
         }
       }
     },
+    "将永久删除该项目在桌面端磁盘上的会话与数据，此操作无法撤销（项目本身保持已移除状态）。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This permanently deletes the project's sessions and data on the desktop disk. This cannot be undone (the project stays removed)."
+          }
+        }
+      }
+    },
     "将清除本机 Keychain 中的访问令牌与最近连接记录；桌面端服务不受影响，可随时重新扫码添加。" : {
       "localizations" : {
         "en" : {
@@ -6967,6 +7420,9 @@
         }
       }
     },
+    "工作流运行中 · %@" : {
+
+    },
     "工作目录" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7025,6 +7481,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ticket %@ · updated %@"
+          }
+        }
+      }
+    },
+    "已%@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$@ %1$@"
           }
         }
       }
@@ -7211,6 +7677,26 @@
         }
       }
     },
+    "已删除 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted %@"
+          }
+        }
+      }
+    },
+    "已删除 %@ 及其数据" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted %@ and its data"
+          }
+        }
+      }
+    },
     "已加入排队" : {
       "localizations" : {
         "en" : {
@@ -7241,7 +7727,9 @@
         }
       }
     },
-    "已取消" : {},
+    "已取消" : {
+
+    },
     "已取消重连" : {
       "localizations" : {
         "en" : {
@@ -7415,6 +7903,19 @@
         }
       }
     },
+    "已恢复 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restored %@"
+          }
+        }
+      }
+    },
+    "已恢复继承默认" : {
+
+    },
     "已截断" : {
       "localizations" : {
         "en" : {
@@ -7489,6 +7990,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Follow-up sent to the agent; task stays pending"
+          }
+        }
+      }
+    },
+    "已拒绝" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejected"
           }
         }
       }
@@ -7666,6 +8178,16 @@
         }
       }
     },
+    "已添加到聊天附件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added to chat attachments"
+          }
+        }
+      }
+    },
     "已生成 WEEK-40.md 并同步到桌面端。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -7734,12 +8256,42 @@
         }
       }
     },
+    "已移除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed"
+          }
+        }
+      }
+    },
+    "已移除 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed %@"
+          }
+        }
+      }
+    },
     "已移除密钥 · %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Secret removed · %@"
+          }
+        }
+      }
+    },
+    "已移除的项目（%lld）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed projects (%lld)"
           }
         }
       }
@@ -7765,6 +8317,36 @@
         }
       }
     },
+    "已置顶" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pinned"
+          }
+        }
+      }
+    },
+    "已自动连接桌面端" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connected to desktop automatically"
+          }
+        }
+      }
+    },
+    "已补全" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filled"
+          }
+        }
+      }
+    },
     "已解绑 · %@" : {
       "localizations" : {
         "en" : {
@@ -7784,6 +8366,9 @@
           }
         }
       }
+    },
+    "已设置 %@" : {
+
     },
     "已识别云中继配对链接 · %@" : {
       "localizations" : {
@@ -8006,6 +8591,16 @@
         }
       }
     },
+    "建组回执缺 id" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create-group response is missing id"
+          }
+        }
+      }
+    },
     "开" : {
       "localizations" : {
         "en" : {
@@ -8089,7 +8684,6 @@
       }
     },
     "异常" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8349,6 +8943,16 @@
         }
       }
     },
+    "待回答" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting answer"
+          }
+        }
+      }
+    },
     "待审批" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8547,6 +9151,9 @@
           }
         }
       }
+    },
+    "恢复失败 · %@" : {
+
     },
     "恢复失败 · 桌面端拒绝或连接异常" : {
       "localizations" : {
@@ -8989,6 +9596,9 @@
         }
       }
     },
+    "按分组加载失败 · %@" : {
+
+    },
     "换个关键词试试（匹配文件名或路径）" : {
       "localizations" : {
         "en" : {
@@ -9149,6 +9759,16 @@
         }
       }
     },
+    "描述" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Description"
+          }
+        }
+      }
+    },
     "描述你要做的事…" : {
       "localizations" : {
         "en" : {
@@ -9185,6 +9805,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Commit to %@"
+          }
+        }
+      }
+    },
+    "提交回答" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Submit answer"
           }
         }
       }
@@ -9255,6 +9885,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Auto-continue questions"
+          }
+        }
+      }
+    },
+    "插件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plugins"
+          }
+        }
+      }
+    },
+    "插件 profile" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plugin profiles"
           }
         }
       }
@@ -9389,6 +10039,9 @@
           }
         }
       }
+    },
+    "操作失败 · %@" : {
+
     },
     "收起" : {
       "localizations" : {
@@ -9622,6 +10275,16 @@
         }
       }
     },
+    "新建" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Created"
+          }
+        }
+      }
+    },
     "新建 Bot 请在桌面端 Bots 面板完成，创建后自动同步到此处" : {
       "localizations" : {
         "en" : {
@@ -9652,7 +10315,21 @@
         }
       }
     },
+    "新建失败 · %@" : {
+
+    },
+    "新建子智能体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Subagent"
+          }
+        }
+      }
+    },
     "无上限" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9752,12 +10429,25 @@
         }
       }
     },
+    "无法读取本机登录凭据" : {
+
+    },
     "无法验证访问令牌" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cannot verify the access token"
+          }
+        }
+      }
+    },
+    "旧版" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Legacy"
           }
         }
       }
@@ -9896,12 +10586,25 @@
         }
       }
     },
+    "暂无分组" : {
+
+    },
     "暂无可用项目" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "No projects available"
+          }
+        }
+      }
+    },
+    "暂无子智能体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No subagents"
           }
         }
       }
@@ -9936,6 +10639,9 @@
         }
       }
     },
+    "暂无未读会话" : {
+
+    },
     "暂无转录" : {
       "localizations" : {
         "en" : {
@@ -9962,6 +10668,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No runs yet · pull to refresh"
+          }
+        }
+      }
+    },
+    "暂无钩子" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hooks"
+          }
+        }
+      }
+    },
+    "暂无项目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No projects"
           }
         }
       }
@@ -10171,7 +10897,9 @@
         }
       }
     },
-    "服务返回 HTTP %lld。请确认桌面端 zcode --web 进程存活后重试。" : {},
+    "服务返回 HTTP %lld。请确认桌面端 zcode --web 进程存活后重试。" : {
+
+    },
     "服务返回错误" : {
       "localizations" : {
         "en" : {
@@ -10344,8 +11072,12 @@
         }
       }
     },
-    "未订阅该套餐" : {},
-    "未认证" : {},
+    "未订阅该套餐" : {
+
+    },
+    "未认证" : {
+
+    },
     "未识别到有效连接链接，请对准二维码后重试" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10357,6 +11089,9 @@
         }
       }
     },
+    "未读" : {
+
+    },
     "未返回 expires_in" : {
       "localizations" : {
         "en" : {
@@ -10367,7 +11102,9 @@
         }
       }
     },
-    "未连接" : {},
+    "未连接" : {
+
+    },
     "未连接桌面端" : {
       "localizations" : {
         "en" : {
@@ -10448,6 +11185,9 @@
         }
       }
     },
+    "未连接设备" : {
+
+    },
     "未配置服务器" : {
       "localizations" : {
         "en" : {
@@ -10516,6 +11256,9 @@
         }
       }
     },
+    "本机保存的登录凭据已损坏，无法解密；请重新登录" : {
+
+    },
     "本机终端 Shell" : {
       "localizations" : {
         "en" : {
@@ -10552,6 +11295,88 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "This session"
+          }
+        }
+      }
+    },
+    "朱批" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal"
+          }
+        }
+      }
+    },
+    "朱批 · 为 ZCode 社区版桌面端打造的移动遥控台" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal · mobile remote console for the ZCode community desktop"
+          }
+        }
+      }
+    },
+    "朱批 · 浅色" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal · Light"
+          }
+        }
+      }
+    },
+    "朱批 · 深色" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal · Dark"
+          }
+        }
+      }
+    },
+    "朱批 for iOS · 已连接桌面端 · 指令经桌面端执行，文件保持只读" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal for iOS · desktop connected · commands run on desktop, files stay read-only"
+          }
+        }
+      }
+    },
+    "朱批 for iOS · 指令经桌面端执行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal for iOS · commands run on your desktop"
+          }
+        }
+      }
+    },
+    "朱批 for iOS · 演示数据由本地 Mock 提供" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal for iOS · demo data provided by local mock"
+          }
+        }
+      }
+    },
+    "朱批 不提供应用内语言切换：界面语言随 iOS 系统语言自动切换（简体中文 / English）。需要更换语言时，请在系统「设置 → 朱批 → 语言」中选择（iOS 13+ 每应用语言设置），修改后重启应用生效。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seal has no in-app language switch: the UI follows the iOS system language (Simplified Chinese / English). To change it, pick a language in Settings → Seal → Language (per-app language, iOS 13+), then relaunch."
           }
         }
       }
@@ -10667,7 +11492,9 @@
         }
       }
     },
-    "桌面 v%@" : {},
+    "桌面 v%@" : {
+
+    },
     "桌面 v%lld" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -10709,6 +11536,16 @@
         }
       }
     },
+    "桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际选择为准" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop acknowledgment status unknown (status missing) · not applied locally; the desktop's actual selection prevails"
+          }
+        }
+      }
+    },
     "桌面宿主 %@" : {
       "localizations" : {
         "en" : {
@@ -10739,6 +11576,9 @@
         }
       }
     },
+    "桌面当前版本为 %@。任务操作已暂停，请重新加载以继续。未发送的附件不会保留。" : {
+
+    },
     "桌面机启动局域网服务" : {
       "localizations" : {
         "en" : {
@@ -10748,6 +11588,9 @@
           }
         }
       }
+    },
+    "桌面版本已更新" : {
+
     },
     "桌面端" : {
       "localizations" : {
@@ -11006,6 +11849,16 @@
         }
       }
     },
+    "桌面端的侧栏项目会同步显示在这里" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sidebar projects from the desktop appear here"
+          }
+        }
+      }
+    },
     "桌面端终端" : {
       "localizations" : {
         "en" : {
@@ -11186,6 +12039,16 @@
         }
       }
     },
+    "检查桌面端是否在线后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check that the desktop is online and retry"
+          }
+        }
+      }
+    },
     "检查点" : {
       "localizations" : {
         "en" : {
@@ -11317,6 +12180,9 @@
         }
       }
     },
+    "模型覆盖" : {
+
+    },
     "模型设置" : {
       "localizations" : {
         "en" : {
@@ -11328,6 +12194,7 @@
       }
     },
     "模型轨迹" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11447,6 +12314,9 @@
         }
       }
     },
+    "正在读取分组…" : {
+
+    },
     "正在读取变更…" : {
       "localizations" : {
         "en" : {
@@ -11463,6 +12333,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reading subagent transcript…"
+          }
+        }
+      }
+    },
+    "正在读取子智能体…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading subagents…"
           }
         }
       }
@@ -11547,12 +12427,35 @@
         }
       }
     },
+    "正在读取模型目录…" : {
+
+    },
     "正在读取用量…" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reading usage…"
+          }
+        }
+      }
+    },
+    "正在读取钩子…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading hooks…"
+          }
+        }
+      }
+    },
+    "正在读取项目…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading projects…"
           }
         }
       }
@@ -11918,12 +12821,42 @@
         }
       }
     },
+    "添加到聊天" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add to chat"
+          }
+        }
+      }
+    },
+    "添加失败 · 附件被拒收" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to add — attachment was rejected"
+          }
+        }
+      }
+    },
     "添加服务器" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Add server"
+          }
+        }
+      }
+    },
+    "添加自定义指令来个性化 Agent 的回复，指令会应用到你本机 Agent 的后续会话；远程设备需单独配置。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add custom instructions to personalize the Agent's replies. Instructions apply to future sessions of the Agent on your machine; configure remote devices separately."
           }
         }
       }
@@ -11954,6 +12887,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clean up failed task"
+          }
+        }
+      }
+    },
+    "清空" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear"
           }
         }
       }
@@ -12016,6 +12959,9 @@
           }
         }
       }
+    },
+    "清除并重新登录" : {
+
     },
     "源码" : {
       "localizations" : {
@@ -12328,22 +13274,22 @@
         }
       }
     },
+    "留白" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Holes"
+          }
+        }
+      }
+    },
     "留空即可（--no-token 部署）" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leave empty (--no-token deployments)"
-          }
-        }
-      }
-    },
-    "登录朱批" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign in to Seal"
           }
         }
       }
@@ -12399,12 +13345,42 @@
         }
       }
     },
+    "登录朱批" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to Seal"
+          }
+        }
+      }
+    },
     "登录进度 · %lld/4" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sign-in progress · %lld/4"
+          }
+        }
+      }
+    },
+    "白板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whiteboard"
+          }
+        }
+      }
+    },
+    "目录缺失" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folder missing"
           }
         }
       }
@@ -12495,6 +13471,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Got it"
+          }
+        }
+      }
+    },
+    "确定删除「%@」钩子吗？删除会写入桌面端配置（可重新创建）。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the “%@” hook? This writes to the desktop config (it can be recreated)."
           }
         }
       }
@@ -12712,6 +13698,17 @@
         }
       }
     },
+    "移除" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove"
+          }
+        }
+      }
+    },
     "移除后 Bot 回到未配置凭据态，需重新填入 token 才能恢复连接。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -12722,6 +13719,9 @@
           }
         }
       }
+    },
+    "移除失败 · %@" : {
+
     },
     "移除密钥" : {
       "localizations" : {
@@ -12753,6 +13753,16 @@
         }
       }
     },
+    "移除并删除数据（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove and delete data (%@)"
+          }
+        }
+      }
+    },
     "移除访问密钥？" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -12760,6 +13770,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remove the access secret?"
+          }
+        }
+      }
+    },
+    "移除项目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Project"
+          }
+        }
+      }
+    },
+    "移除项目「%@」？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove project “%@”?"
+          }
+        }
+      }
+    },
+    "移除项目只会把它从侧栏和项目选择器中拿掉。会话仍保留在最近和搜索中，磁盘上的文件不受影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removing a project only removes it from the sidebar and project picker. Sessions remain in recents and search; files on disk are not affected."
           }
         }
       }
@@ -12916,6 +13956,19 @@
         }
       }
     },
+    "等待补全" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting to be filled"
+          }
+        }
+      }
+    },
+    "筛选视图" : {
+
+    },
     "简体中文" : {
       "localizations" : {
         "en" : {
@@ -12956,6 +14009,19 @@
           }
         }
       }
+    },
+    "系统提示词" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System prompt"
+          }
+        }
+      }
+    },
+    "系统钥匙串暂时不可用（可能已锁定）；登录态已保留，解锁后重试即可" : {
+
     },
     "累计 Token" : {
       "localizations" : {
@@ -13080,6 +14146,12 @@
         }
       }
     },
+    "继承模型默认档" : {
+
+    },
+    "继承默认" : {
+
+    },
     "继续" : {
       "localizations" : {
         "en" : {
@@ -13126,6 +14198,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Edit"
+          }
+        }
+      }
+    },
+    "编辑子智能体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Subagent"
           }
         }
       }
@@ -13208,6 +14290,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pinned"
+          }
+        }
+      }
+    },
+    "自主模式" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autonomous"
           }
         }
       }
@@ -13323,6 +14415,16 @@
         }
       }
     },
+    "自动重连失败 · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic reconnect failed: %@"
+          }
+        }
+      }
+    },
     "自定义代理证书" : {
       "localizations" : {
         "en" : {
@@ -13349,6 +14451,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Failed to get the desktop group structure (%@)"
+          }
+        }
+      }
+    },
+    "补充回答（可选）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Additional answer (optional)"
           }
         }
       }
@@ -13624,6 +14736,9 @@
         }
       }
     },
+    "设置失败 · %@" : {
+
+    },
     "设置项由桌面端 settingService 提供；修改即时生效，未知形态的值不在此展示。" : {
       "localizations" : {
         "en" : {
@@ -13876,6 +14991,16 @@
         }
       }
     },
+    "请输入（敏感内容）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter sensitive input"
+          }
+        }
+      }
+    },
     "请输入数字" : {
       "localizations" : {
         "en" : {
@@ -13912,6 +15037,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Read and modify desktop settings"
+          }
+        }
+      }
+    },
+    "读取失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to load"
           }
         }
       }
@@ -13968,42 +15103,52 @@
         }
       }
     },
-    "已批准" : {
+    "云中继需要登录 Z.ai 账号" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Approved"
+            "value" : "Cloud relay requires signing in with a Z.ai account"
           }
         }
       }
     },
-    "已拒绝" : {
+    "RELAY AUTH · Z.ai 登录态缺失" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rejected"
+            "value" : "RELAY AUTH · missing Z.ai sign-in"
           }
         }
       }
     },
-    "朱批 · 浅色" : {
+    "云中继 V2 链接需要手机端已登录 Z.ai 账号（JWT 换一次性 token）。换包/重装后登录态不随迁移，登录成功后会自动重连；也可改用桌面端局域网二维码直连（免登录）。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seal · Light"
+            "value" : "Relay V2 links require the phone to be signed in with a Z.ai account (JWT exchanged for a one-time token). Sign-in does not migrate across reinstall/rebrand; after signing in the app reconnects automatically. You can also scan the desktop LAN QR to connect directly (no sign-in)."
           }
         }
       }
     },
-    "朱批 · 深色" : {
+    "登录 Z.ai 账号" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seal · Dark"
+            "value" : "Sign in with Z.ai"
+          }
+        }
+      }
+    },
+    "改用局域网直连 · 扫码" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to LAN direct · scan"
           }
         }
       }
@@ -14018,6 +15163,16 @@
         }
       }
     },
+    "跟随默认" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use default"
+          }
+        }
+      }
+    },
     "路径" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -14025,6 +15180,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Path"
+          }
+        }
+      }
+    },
+    "跳过" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip"
           }
         }
       }
@@ -14076,6 +15241,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Input %lld · Output %lld · Total %@"
+          }
+        }
+      }
+    },
+    "输入回答" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type your answer"
           }
         }
       }
@@ -14182,6 +15357,26 @@
         }
       }
     },
+    "运行时初始化中…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Initializing runtime…"
+          }
+        }
+      }
+    },
+    "运行时初始化失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runtime initialization failed"
+          }
+        }
+      }
+    },
     "近 30 天 token 与任务数" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -14251,6 +15446,19 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No messages yet"
+          }
+        }
+      }
+    },
+    "这台电脑上有 %lld 个 ZCode 在线，选择要连接的一个" : {
+
+    },
+    "进程" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Process"
           }
         }
       }
@@ -14426,6 +15634,16 @@
         }
       }
     },
+    "连接已断开 · 正在自动重连…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disconnected · Reconnecting automatically…"
+          }
+        }
+      }
+    },
     "连接帮助" : {
       "localizations" : {
         "en" : {
@@ -14436,7 +15654,9 @@
         }
       }
     },
-    "连接态由桌面端绑定 · 请在会话输入区点模型胶囊切换" : {},
+    "连接态由桌面端绑定 · 请在会话输入区点模型胶囊切换" : {
+
+    },
     "连接未成功，桌面端可能未在线" : {
       "localizations" : {
         "en" : {
@@ -14972,12 +16192,38 @@
         }
       }
     },
+    "重试读取" : {
+
+    },
     "重连" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reconnect"
+          }
+        }
+      }
+    },
+    "钥匙串需要授权/解锁后才能读取登录凭据；登录态已保留" : {
+
+    },
+    "钩子" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks"
+          }
+        }
+      }
+    },
+    "钩子由桌面端管理；连接后此处同步清单" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks are managed on the desktop; connect to sync the list here"
           }
         }
       }
@@ -15181,6 +16427,26 @@
         }
       }
     },
+    "项目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projects"
+          }
+        }
+      }
+    },
+    "项目组织存于桌面端；连接后此处同步清单" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projects are organized on the desktop; connect to sync the list here"
+          }
+        }
+      }
+    },
     "预览" : {
       "localizations" : {
         "en" : {
@@ -15380,1076 +16646,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Follows the iOS system language by default (Simplified Chinese / English). After choosing a fixed language, Seal always displays in it (effective on relaunch); see release notes for coverage."
-          }
-        }
-      }
-    },
-    "桌面回执状态未知（status 缺席）· 本机不落盘，以桌面实际选择为准" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Desktop acknowledgment status unknown (status missing) · not applied locally; the desktop's actual selection prevails"
-          }
-        }
-      }
-    },
-    "自主模式" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Autonomous"
-          }
-        }
-      }
-    },
-    "在有风险时询问" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ask when there's risk"
-          }
-        }
-      }
-    },
-    "待回答" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Awaiting answer"
-          }
-        }
-      }
-    },
-    "跳过" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Skip"
-          }
-        }
-      }
-    },
-    "提交回答" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Submit answer"
-          }
-        }
-      }
-    },
-    "Agent 提问" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Agent question"
-          }
-        }
-      }
-    },
-    "请输入（敏感内容）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enter sensitive input"
-          }
-        }
-      }
-    },
-    "输入回答" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Type your answer"
-          }
-        }
-      }
-    },
-    "补充回答（可选）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Additional answer (optional)"
-          }
-        }
-      }
-    },
-    "运行时初始化中…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Initializing runtime…"
-          }
-        }
-      }
-    },
-    "运行时初始化失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Runtime initialization failed"
-          }
-        }
-      }
-    },
-    "留白" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Holes"
-          }
-        }
-      }
-    },
-    "等待补全" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Waiting to be filled"
-          }
-        }
-      }
-    },
-    "已补全" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Filled"
-          }
-        }
-      }
-    },
-    "可视化内容" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Visualization"
-          }
-        }
-      }
-    },
-    "内联可视化 · 请在桌面端查看" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Inline visualization · Open on desktop"
-          }
-        }
-      }
-    },
-    "中继 token 端点无效" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Invalid relay token endpoint"
-          }
-        }
-      }
-    },
-    "中继 token 请求失败：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Relay token request failed: %@"
-          }
-        }
-      }
-    },
-    "云中继登录已失效，请重新登录 Z.ai 账号" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Relay login expired. Please sign in to Z.ai again."
-          }
-        }
-      }
-    },
-    "中继 token 请求失败（HTTP %lld）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Relay token request failed (HTTP %lld)"
-          }
-        }
-      }
-    },
-    "中继 token 回执无效" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Invalid relay token response"
-          }
-        }
-      }
-    },
-    "云中继需要登录 Z.ai 账号（缺少登录凭据）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud relay requires a Z.ai account (missing credentials)"
-          }
-        }
-      }
-    },
-    "云中继需要登录 Z.ai 账号：%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud relay requires a Z.ai account: %@"
-          }
-        }
-      }
-    },
-    "云中继需要登录 Z.ai 账号（请在设置中登录后重试）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud relay requires a Z.ai account (sign in from Settings and retry)"
-          }
-        }
-      }
-    },
-    "后台任务" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Background work"
-          }
-        }
-      }
-    },
-    "跟随默认" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use default"
-          }
-        }
-      }
-    },
-    "已自动连接桌面端" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connected to desktop automatically"
-          }
-        }
-      }
-    },
-    "发现多个在线桌面端，选择一个连接" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Multiple desktops online. Choose one to connect."
-          }
-        }
-      }
-    },
-    "连接已断开 · 正在自动重连…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Disconnected · Reconnecting automatically…"
-          }
-        }
-      }
-    },
-    "自动重连失败 · %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatic reconnect failed: %@"
-          }
-        }
-      }
-    },
-    "分组名称需为 1–200 个字符" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Group name must be 1–200 characters"
-          }
-        }
-      }
-    },
-    "分组颜色不支持（%@）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unsupported group color (%@)"
-          }
-        }
-      }
-    },
-    "建组回执缺 id" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Create-group response is missing id"
-          }
-        }
-      }
-    },
-    "取消分组失败（%@）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to ungroup (%@)"
-          }
-        }
-      }
-    },
-    "添加自定义指令来个性化 Agent 的回复，指令会应用到你本机 Agent 的后续会话；远程设备需单独配置。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add custom instructions to personalize the Agent's replies. Instructions apply to future sessions of the Agent on your machine; configure remote devices separately."
-          }
-        }
-      }
-    },
-    "个性化指令仅支持在本地桌面端设置，请前往本地桌面端的「个性化」设置。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Personalization instructions can only be set in the local desktop app. Open the “Personalization” settings on the desktop."
-          }
-        }
-      }
-    },
-    "个性化" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Personalization"
-          }
-        }
-      }
-    },
-    "钩子" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hooks"
-          }
-        }
-      }
-    },
-    "钩子由桌面端管理；连接后此处同步清单" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hooks are managed on the desktop; connect to sync the list here"
-          }
-        }
-      }
-    },
-    "正在读取钩子…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading hooks…"
-          }
-        }
-      }
-    },
-    "暂无钩子" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No hooks"
-          }
-        }
-      }
-    },
-    "在桌面端创建钩子后，此处同步显示事件与命令" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hooks created on the desktop appear here with their events and commands"
-          }
-        }
-      }
-    },
-    "检查桌面端是否在线后重试" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Check that the desktop is online and retry"
-          }
-        }
-      }
-    },
-    "共 %lld 个钩子 · 总开关已启用" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld hooks · master switch enabled"
-          }
-        }
-      }
-    },
-    "共 %lld 个钩子 · 总开关已关闭" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld hooks · master switch disabled"
-          }
-        }
-      }
-    },
-    "插件" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Plugins"
-          }
-        }
-      }
-    },
-    "旧版" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Legacy"
-          }
-        }
-      }
-    },
-    "进程" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Process"
-          }
-        }
-      }
-    },
-    "Shell 命令" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shell command"
-          }
-        }
-      }
-    },
-    "子智能体定义存于桌面端；连接后此处同步清单" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Subagent definitions live on the desktop; connect to sync the list here"
-          }
-        }
-      }
-    },
-    "正在读取子智能体…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading subagents…"
-          }
-        }
-      }
-    },
-    "暂无子智能体" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No subagents"
-          }
-        }
-      }
-    },
-    "在桌面端创建子智能体后，此处同步显示清单" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Subagents created on the desktop appear here"
-          }
-        }
-      }
-    },
-    "内置子智能体" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Built-in subagents"
-          }
-        }
-      }
-    },
-    "插件 profile" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Plugin profiles"
-          }
-        }
-      }
-    },
-    "全部工具" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All tools"
-          }
-        }
-      }
-    },
-    "%lld 个工具" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld tools"
-          }
-        }
-      }
-    },
-    "项目" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Projects"
-          }
-        }
-      }
-    },
-    "项目组织存于桌面端；连接后此处同步清单" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Projects are organized on the desktop; connect to sync the list here"
-          }
-        }
-      }
-    },
-    "正在读取项目…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading projects…"
-          }
-        }
-      }
-    },
-    "移除项目只会把它从侧栏和项目选择器中拿掉。会话仍保留在最近和搜索中，磁盘上的文件不受影响。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removing a project only removes it from the sidebar and project picker. Sessions remain in recents and search; files on disk are not affected."
-          }
-        }
-      }
-    },
-    "暂无项目" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No projects"
-          }
-        }
-      }
-    },
-    "桌面端的侧栏项目会同步显示在这里" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sidebar projects from the desktop appear here"
-          }
-        }
-      }
-    },
-    "已置顶" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pinned"
-          }
-        }
-      }
-    },
-    "目录缺失" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Folder missing"
-          }
-        }
-      }
-    },
-    "%lld 个会话" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld sessions"
-          }
-        }
-      }
-    },
-    "已移除的项目（%lld）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removed projects (%lld)"
-          }
-        }
-      }
-    },
-    "已移除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removed"
-          }
-        }
-      }
-    },
-    "侧栏项目与已移除项目（只读）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sidebar and removed projects (read-only)"
-          }
-        }
-      }
-    },
-    "仅本地桌面端可设置" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Set up in the local desktop app"
-          }
-        }
-      }
-    },
-    "子智能体定义清单（只读）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Subagent definitions (read-only)"
-          }
-        }
-      }
-    },
-    "读取失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to load"
-          }
-        }
-      }
-    },
-    "白板" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Whiteboard"
-          }
-        }
-      }
-    },
-    "添加到聊天" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add to chat"
-          }
-        }
-      }
-    },
-    "已添加到聊天附件" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Added to chat attachments"
-          }
-        }
-      }
-    },
-    "添加失败 · 附件被拒收" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to add — attachment was rejected"
-          }
-        }
-      }
-    },
-    "清空" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear"
-          }
-        }
-      }
-    },
-    "移除项目" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove Project"
-          }
-        }
-      }
-    },
-    "移除项目「%@」？" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove project “%@”?"
-          }
-        }
-      }
-    },
-    "它会从侧栏和项目选择器中移除，会话仍保留在最近和搜索中，磁盘上的文件不受影响。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "It will be removed from the sidebar and project picker. Sessions remain in recents and search; files on disk are not affected."
-          }
-        }
-      }
-    },
-    "移除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove"
-          }
-        }
-      }
-    },
-    "已移除 %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removed %@"
-          }
-        }
-      }
-    },
-    "已恢复 %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restored %@"
-          }
-        }
-      }
-    },
-    "已%@ %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%2$@ %1$@"
-          }
-        }
-      }
-    },
-    "删除钩子？" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete hook?"
-          }
-        }
-      }
-    },
-    "确定删除「%@」钩子吗？删除会写入桌面端配置（可重新创建）。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete the “%@” hook? This writes to the desktop config (it can be recreated)."
-          }
-        }
-      }
-    },
-    "删除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete"
-          }
-        }
-      }
-    },
-    "已删除 %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deleted %@"
-          }
-        }
-      }
-    },
-    "新建子智能体" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "New Subagent"
-          }
-        }
-      }
-    },
-    "编辑子智能体" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Subagent"
-          }
-        }
-      }
-    },
-    "名称" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Name"
-          }
-        }
-      }
-    },
-    "描述" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Description"
-          }
-        }
-      }
-    },
-    "系统提示词" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "System prompt"
-          }
-        }
-      }
-    },
-    "删除子智能体" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Subagent"
-          }
-        }
-      }
-    },
-    "删除子智能体「%@」？" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete subagent “%@”?"
-          }
-        }
-      }
-    },
-    "删除会从桌面端移除该 md 文件，此操作无法撤销。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deleting removes the md file on the desktop. This cannot be undone."
-          }
-        }
-      }
-    },
-    "新建" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Created"
-          }
-        }
-      }
-    },
-    "移除并删除数据（%@）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove and delete data (%@)"
-          }
-        }
-      }
-    },
-    "仅移除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove only"
-          }
-        }
-      }
-    },
-    "删除「%@」的数据？" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete data of “%@”?"
-          }
-        }
-      }
-    },
-    "将永久删除该项目在桌面端磁盘上的会话与数据，此操作无法撤销（项目本身保持已移除状态）。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This permanently deletes the project's sessions and data on the desktop disk. This cannot be undone (the project stays removed)."
-          }
-        }
-      }
-    },
-    "删除 %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete %@"
-          }
-        }
-      }
-    },
-    "已删除 %@ 及其数据" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deleted %@ and its data"
-          }
-        }
-      }
-    },
-    "删除取消 · 有 %lld 个会话仍在运行（项目保持已移除，可稍后重试）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete cancelled — %lld sessions still running (project stays removed; retry later)"
-          }
-        }
-      }
-    },
-    "删除取消 · 有 %lld 个会话被其他项目引用（项目保持已移除）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete cancelled — %lld sessions referenced by other projects (project stays removed)"
-          }
-        }
-      }
-    },
-    "删除未完成 · %lld 项失败（项目保持已移除，可稍后重试）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete incomplete — %lld items failed (project stays removed; retry later)"
           }
         }
       }
