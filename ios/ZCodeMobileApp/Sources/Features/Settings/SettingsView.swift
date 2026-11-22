@@ -404,6 +404,13 @@ struct SettingsView: View {
                                 }
                             }),
                           identifier: "12-row-notify")
+                toggleRow(icon: "brain", title: "显示思考过程", subtitle: "关闭时会话页每轮只保留首条思考",
+                          isOn: Binding(
+                            get: { settings.value.showThinkingProcess },
+                            set: { newValue in
+                                settings.update { $0.showThinkingProcess = newValue }
+                            }),
+                          identifier: "12-row-thinking")
             }
             group("数据与统计") {
                 // H9（U-2）：假值三目（12.4M tokens/128 条等演示串）永久移除——

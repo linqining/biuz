@@ -164,6 +164,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 历史快照一次性到达的 done 行无开始时刻（首见即 done），UI 退化为仅字数摘要。
     private var reasoningStartedAt: [String: Date] = [:]
     private var reasoningDuration: [String: TimeInterval] = [:]
+    /// 「显示思考过程」设置镜像（web isConversationReasoningRowVisible 同口径；
+    /// ChatView 随 AppSettings 变更写入，rebuildMessages 每轮收敛 reasoning 呈现）
+    var showThinkingProcess = true
+
     private var pendingInteractions: [String: JSONValue] = [:]
     /// 会话级模型选择（state.modelSelection 键级替换；桌面 composer 变更随 delta 到达）
     private var sessionModelSelections: [String: JSONValue] = [:] // sessionId → 最新 pendingInteractions 数组
@@ -1792,6 +1796,20 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         // 项 3：会话 state.todos（桌面 v4 口径：todos 挂在 state 而非独立行）→ 流末尾
         // 常驻流程面板消息（id 固定 "state-todos"，随 state.updated 增量刷新）。
         // 置于回显插入之后：回显锚点语义仍基于行数，不受面板消息影响。
+        // 「显示思考过程」关闭（web isConversationReasoningRowVisible.tsx:2052-2056 同构）：
+        // 每轮（自上一条 user 行起计）只保留首条 reasoning，其余隐藏——不删投影行，
+        // 仅收敛消息流呈现（ChatView 随设置变更写入 showThinkingProcess 并触发重载）
+        if !showThinkingProcess {
+            var inTurnReasoningSeen = false
+            result = result.compactMap { message in
+                if message.role == .user { inTurnReasoningSeen = false; return message }
+                if message.thinking != nil {
+                    if inTurnReasoningSeen { return nil }
+                    inTurnReasoningSeen = true
+                }
+                return message
+            }
+        }
         if let stateTodos = Self.parseStateTodos(snapshotState[conversationID]) {
             result.removeAll { $0.id == "state-todos" }
             result.append(ChatMessage(
@@ -4701,15 +4719,21 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 回退：行表无可用游标（如 draft/未订阅行）时走原 channel RPC
     /// （"zcode-agent","forkAssistant"——文档记实证可用，但与 web 不同面，桌面收紧
     /// 即失效，仅作 v4 无 target 时的兜底）。
-    func forkConversation(_ conversationID: String) async -> String? {
+    func forkConversation(_ conversationID: String, explicitTarget: (rowId: Int, entityId: String)? = nil) async -> String? {
         let table = rows[conversationID] ?? [:]
-        let cursor = table.keys.sorted().reversed()
-            .compactMap { rowId -> (rowId: Int, entityId: String)? in
-                guard let row = table[rowId]?.json.objectValue,
-                      let entityId = row["entityId"]?.stringValue, !entityId.isEmpty else { return nil }
-                return (rowId, entityId)
-            }
-            .first
+        let cursor: (rowId: Int, entityId: String)?
+        if let explicitTarget {
+            // 显式行游标（UI「从某条消息 fork」入口；注释预告的形参扩展点）
+            cursor = explicitTarget
+        } else {
+            cursor = table.keys.sorted().reversed()
+                .compactMap { rowId -> (rowId: Int, entityId: String)? in
+                    guard let row = table[rowId]?.json.objectValue,
+                          let entityId = row["entityId"]?.stringValue, !entityId.isEmpty else { return nil }
+                    return (rowId, entityId)
+                }
+                .first
+        }
         if let cursor {
             await ensureStateRevision(conversationID)
             let ack = await sendCASWithRetry(

@@ -156,7 +156,7 @@ struct MessageView: View {
                 } // else（unreadable 兜底）闭合
                 if let onFeedback, message.rowKind == "assistantText",
                    rowId != nil, message.entityId != nil, !message.text.isEmpty {
-                    MessageFeedbackRow(state: feedbackState) { value in
+                    MessageFeedbackRow(state: feedbackState, onFork: onFork) { value in
                         await onFeedback(value)
                     }
                 }
@@ -196,6 +196,8 @@ struct MessageFeedbackRow: View {
     let state: Bool?
     /// 点按回调；返回失败文案（nil = 成功）
     let onAction: (Bool?) async -> String?
+    /// fork 会话派生（web 完成态 assistant 行同口径；nil = 不渲染）
+    var onFork: (() async -> Void)? = nil
 
     @State private var failure: String?
     @State private var failureClear: Task<Void, Never>?
@@ -209,6 +211,24 @@ struct MessageFeedbackRow: View {
                 feedbackButton(
                     icon: "hand.thumbsdown", selected: state == false, value: false,
                     identifier: "05-feedback-dislike")
+                if let onFork {
+                    Button {
+                        Task { await onFork() }
+                    } label: {
+                        HStack(spacing: 2) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 11))
+                            Text(String(localized: "Fork")).font(T.font(10.5, .semibold))
+                        }
+                        .foregroundColor(T.text2)
+                        .padding(.horizontal, T.sp2)
+                        .frame(minHeight: 28)
+                        .background(T.bgInput)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("05-feedback-fork")
+                }
                 Spacer(minLength: 0)
             }
             .padding(.top, -6) // 44pt 热区外扩后收紧行距（低调行不与正文拉开大空档）

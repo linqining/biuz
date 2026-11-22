@@ -11,6 +11,7 @@ struct ChatView: View {
     // 详情态连接横幅数据源（safeAreaInset 插入式承载——push 态 RootView 底部
     // overlay 横幅会盖住 composer 输入框，UI/UX 验收 P1 2026-10-07）
     @Environment(AppSession.self) private var session
+    @Environment(AppSettingsModel.self) private var appSettings
     let conversationID: String
 
     @State private var viewModel: ChatViewModel?
@@ -30,6 +31,9 @@ struct ChatView: View {
     /// 036 白板浮层（web 侧栏面板同位；零 RPC 纯客户端，语义见 WhiteboardModel）
     @State private var whiteboardOpen = false
     @State private var showBackToBottom = false
+    /// fork 成功提示（新会话 id；用户从列表打开派生会话——原地切换属 UI 重构阶段）
+    @State private var forkNotice: String?
+    @State private var forkNoticeFailure: String?
 
     var body: some View {
         Group {
@@ -99,7 +103,16 @@ struct ChatView: View {
                     group.addTask { await vm.observeModelSelection() }
                 }
             }
+            // 「显示思考过程」设置镜像（web 同名开关）：装配即写入 + 变更重载
+            if let remote = store as? RemoteConversationStore {
+                remote.showThinkingProcess = appSettings.value.showThinkingProcess
+            }
             await vm.load()
+        }
+        .onChange(of: appSettings.value.showThinkingProcess) { _, show in
+            guard let remote = store as? RemoteConversationStore else { return }
+            remote.showThinkingProcess = show
+            Task { await viewModel?.load() }
         }
     }
 
@@ -422,6 +435,29 @@ struct ChatView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("05-older-failure-text")
                     }
+                    // fork 结果提示（成功=新会话 id 从列表打开；失败=拒因原文；3s 自动清）
+                    if let forkNotice {
+                        Text(String(localized: "已创建 fork 会话 · \(forkNotice)"))
+                            .font(T.font(11, .regular))
+                            .foregroundColor(T.text2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("05-fork-notice")
+                            .task {
+                                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                                forkNotice = nil
+                            }
+                    }
+                    if let forkNoticeFailure {
+                        Text(String(localized: "fork 失败 · \(forkNoticeFailure)"))
+                            .font(T.font(11, .regular))
+                            .foregroundColor(T.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("05-fork-failure")
+                            .task {
+                                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                                forkNoticeFailure = nil
+                            }
+                    }
                     let visible = viewModel.searchQuery.isEmpty
                         ? viewModel.messages : viewModel.filteredMessages
                     ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
@@ -442,6 +478,16 @@ struct ChatView: View {
                             } : nil,
                             onEditResend: viewModel.isReadOnly ? { newText in
                                 await viewModel.editAndResend(message, newText: newText)
+                            } : nil,
+                            // fork 会话派生（web 完成态 assistant 行同口径；显式行游标 CAS）
+                            onFork: viewModel.isReadOnly ? { [weak viewModel] in
+                                guard let viewModel else { return }
+                                let result = await viewModel.forkFromMessage(message)
+                                if let sid = result.sessionId {
+                                    forkNotice = sid
+                                } else if let failure = result.failure {
+                                    forkNoticeFailure = failure
+                                }
                             } : nil,
                             // 工作流完成卡四格 join（活投影按 runId 对位；冷恢复 run 被
                             // 8 条上限淘汰 = 三格「—」桌面同口径）+ ⤢ 门控（仅卡对应 run

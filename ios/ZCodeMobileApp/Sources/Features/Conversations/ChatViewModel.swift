@@ -404,6 +404,21 @@ final class ChatViewModel {
     /// 点赞/点踩（setAssistantFeedback：CAS+row-target，store 侧 entityId 缺失拒发
     /// 返回 nil——UI 入口已按游标在场门槛渲染，此处兜底再查一次）。返回失败文案
     /// （nil = 成功静默，UI 自行高亮 + 震动）。
+    /// fork 会话派生（web ConversationRowView:1479-1501 完成态 assistant 行同口径）：
+    /// 显式行游标 forkAssistant CAS → ack.result.sessionId 即新会话 id。返回 (newSessionId, 失败文案)。
+    func forkFromMessage(_ message: ChatMessage) async -> (sessionId: String?, failure: String?) {
+        guard let rowId = Int(message.id.replacingOccurrences(of: "row-", with: "")),
+              let entityId = message.entityId, !entityId.isEmpty else {
+            return (nil, "该行不支持 fork（缺行游标）")
+        }
+        let newSessionId = await store.forkConversation(
+            conversationID, explicitTarget: (rowId, entityId))
+        guard let newSessionId else {
+            return (nil, "fork 未返回新会话（桌面端版本或行游标不支持）")
+        }
+        return (newSessionId, nil)
+    }
+
     func setAssistantFeedback(_ message: ChatMessage, value: Bool?) async -> String? {
         guard let rowId = Self.messageRowId(message), let entityId = message.entityId, !entityId.isEmpty else {
             return String(localized: "该消息缺少行游标，无法反馈")

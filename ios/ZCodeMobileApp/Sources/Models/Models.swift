@@ -687,6 +687,9 @@ struct AppSettings: Equatable, Codable {
     /// 桌面端开启指引 / 访问令牌说明等开发向入口。设置页品牌行连点 7 次切换；
     /// `-ZCodeDevMode` 启动参数可强制开启（E2E 手动链路用例依赖）
     var developerMode: Bool = false
+    /// 显示思考过程（默认开；web isConversationReasoningRowVisible 同口径）：关闭时
+    /// 会话页只保留每轮首条 reasoning，其余折叠隐藏
+    var showThinkingProcess: Bool = true
 
     init() {}
 
@@ -700,5 +703,6 @@ struct AppSettings: Equatable, Codable {
         thoughtLevel = try container.decodeIfPresent(ThoughtLevel.self, forKey: .thoughtLevel) ?? .medium
         language = try container.decodeIfPresent(String.self, forKey: .language) ?? "跟随系统"
         developerMode = try container.decodeIfPresent(Bool.self, forKey: .developerMode) ?? false
+        showThinkingProcess = try container.decodeIfPresent(Bool.self, forKey: .showThinkingProcess) ?? true
     }
 }
