@@ -82,6 +82,21 @@ struct MessageView: View {
             }
         case .agent:
             VStack(alignment: .leading, spacing: T.sp2) {
+                // 前向兼容兜底行（web ConversationRowView.tsx:2075-2076 unreadable 同构）：
+                // 服务端降级标记/worktreeCreated 等本端未渲染形态 → 中性提示卡，不静默丢行
+                if message.rowKind == "unreadable" {
+                    HStack(alignment: .top, spacing: T.sp2) {
+                        AgentAvatar(size: 22)
+                        Text(message.text)
+                            .font(T.font(12))
+                            .foregroundColor(T.text3)
+                            .padding(.horizontal, T.sp2)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(T.bgCode)
+                            .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                    }
+                } else {
                 if !message.text.isEmpty {
                     HStack(alignment: .top, spacing: T.sp2) {
                         AgentAvatar(size: 22)
@@ -138,6 +153,7 @@ struct MessageView: View {
                 // P1-3 反馈行（设计稿 §3.1 门槛：仅助手正文行——reasoning/subagent/
                 // artifact/state-todos 等合成消息 rowKind ≠ assistantText 天然排除；
                 // 游标缺失/非连接态不渲染；流式首帧行空文本不渲染，文本抵达随重建出现）
+                } // else（unreadable 兜底）闭合
                 if let onFeedback, message.rowKind == "assistantText",
                    rowId != nil, message.entityId != nil, !message.text.isEmpty {
                     MessageFeedbackRow(state: feedbackState) { value in

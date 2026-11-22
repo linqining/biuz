@@ -149,8 +149,22 @@ struct RemoteQueueItem: Equatable, Identifiable {
     var text: String
     /// delivery.admitted（"queue"=排队等待 / "guide"=引导模式待发）
     var admitted: String?
+    /// 编辑锁（CLI 内存权威【实证·上游仓 snapshot.ts:218-227】：冻结期间该项不能
+    /// 删除/重排/立即发送，自动续跑停在该项前；缺省 = 未锁。editorId 标识单个
+    /// 编辑器实例（clientId 同设备多窗口共享，不能单独作为锁归属））
+    var editLock: QueueItemEditLock?
 
     var isGuide: Bool { admitted == "guide" }
+    /// 锁定判定（web ConversationQueuePanel editLocked 同口径：有 editLock 即锁定行，
+    /// 归属由 UI 层按 editorId + 本端编辑态细分 self/other）
+    var isEditLocked: Bool { editLock != nil }
+}
+
+/// 队列项编辑锁（snapshot.ts:220-227 strict 三键；inputOrigin 由 Host 注入仅展示用）
+struct QueueItemEditLock: Equatable {
+    var editorId: String
+    var clientId: String
+    var inputOrigin: String?
 }
 
 struct ConversationQueueInfo: Equatable {

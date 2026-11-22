@@ -167,9 +167,15 @@ protocol ConversationStore: AnyObject, Sendable {
     /// 队列条目立即发送（CAS）
     @discardableResult
     func sendQueuedNow(_ conversationID: String, queueItemId: String) async -> JSONValue?
-    /// 队列条目文本编辑
+    /// 队列条目文本编辑（editorId：持有编辑锁时必携——原地替换后同一命令释放锁）
     @discardableResult
-    func editQueueItem(_ conversationID: String, queueItemId: String, newText: String) async -> JSONValue?
+    func editQueueItem(_ conversationID: String, queueItemId: String, newText: String, editorId: String?) async -> JSONValue?
+    /// 进入队列项编辑（持锁；CLI 内存权威，冻结期间自动续跑停在该项前）
+    @discardableResult
+    func lockQueueItemEdit(_ conversationID: String, queueItemId: String, editorId: String) async -> JSONValue?
+    /// 释放队列项编辑锁（取消编辑 / 解除其他端遗留锁）
+    @discardableResult
+    func releaseQueueItemEdit(_ conversationID: String, queueItemId: String) async -> JSONValue?
     /// 队列条目删除
     @discardableResult
     func deleteQueueItem(_ conversationID: String, queueItemId: String) async -> JSONValue?
@@ -446,7 +452,9 @@ extension ConversationStore {
     func thoughtLevels(for model: String) async -> [String] { [] }
     func queueInfo(in conversationID: String) async -> ConversationQueueInfo? { nil }
     func sendQueuedNow(_ conversationID: String, queueItemId: String) async -> JSONValue? { nil }
-    func editQueueItem(_ conversationID: String, queueItemId: String, newText: String) async -> JSONValue? { nil }
+    func editQueueItem(_ conversationID: String, queueItemId: String, newText: String, editorId: String?) async -> JSONValue? { nil }
+    func lockQueueItemEdit(_ conversationID: String, queueItemId: String, editorId: String) async -> JSONValue? { nil }
+    func releaseQueueItemEdit(_ conversationID: String, queueItemId: String) async -> JSONValue? { nil }
     func deleteQueueItem(_ conversationID: String, queueItemId: String) async -> JSONValue? { nil }
     func reorderQueueItem(_ conversationID: String, queueItemId: String, beforeQueueItemId: String?) async -> JSONValue? { nil }
     func setAutoDrain(_ conversationID: String, enabled: Bool) async -> JSONValue? { nil }

@@ -1712,6 +1712,23 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     text: "📦 产物 · \(name)（\(type)）",
                     timestamp: Date(),
                     attachments: Self.extractAttachmentRefs(row)))
+            case "unreadable":
+                // 服务端对新形态行的降级标记（web ConversationRowView.tsx:2075-2076
+                // 「本 build 读不懂该行」中性行同构）——前向兼容：不静默丢行
+                let detail = row["detail"]?.stringValue
+                    ?? row["message"]?.stringValue
+                    ?? String(localized: "本端暂不支持渲染该行")
+                result.append(ChatMessage(
+                    id: "row-\(rowId)", role: .agent, text: "⚠️ \(detail)",
+                    timestamp: Date(), rowKind: "unreadable"))
+            case "worktreeCreated":
+                // 可展开输出块（web ConversationRowView.tsx:1745-1747）——移动端暂无
+                // worktree 面板，按中性行兜底（不静默丢行）
+                let name = row["name"]?.stringValue ?? row["worktreeName"]?.stringValue ?? ""
+                result.append(ChatMessage(
+                    id: "row-\(rowId)", role: .agent,
+                    text: "🌿 新建工作树\(name.isEmpty ? "" : " · \(name)")",
+                    timestamp: Date(), rowKind: "unreadable"))
             case "turnHeader":
                 // 工作流完成通知轮（origin=backgroundResult + workflow 通知 terminal
                 // completed）→ 轮尾落完成卡；其余 turnHeader 维持不进消息流
@@ -4000,7 +4017,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 ?? o["newText"]?.stringValue
                 ?? ""
             let admitted = o["delivery"]?.objectValue?["admitted"]?.stringValue
-            return RemoteQueueItem(id: id, text: text, admitted: admitted)
+            // 编辑锁宽容解析（snapshot.ts:220-227 strict：editorId/clientId 必填）
+            var editLock: QueueItemEditLock?
+            if let lockObj = o["editLock"]?.objectValue,
+               let lockEditorId = lockObj["editorId"]?.stringValue,
+               let lockClientId = lockObj["clientId"]?.stringValue {
+                editLock = QueueItemEditLock(
+                    editorId: lockEditorId, clientId: lockClientId,
+                    inputOrigin: lockObj["inputOrigin"]?.stringValue)
+            }
+            return RemoteQueueItem(id: id, text: text, admitted: admitted, editLock: editLock)
         }
         guard !items.isEmpty else { return nil }
         return ConversationQueueInfo(items: items, autoDrain: d["autoDrain"]?.boolValue ?? true)
@@ -4071,11 +4097,38 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
 
     /// 队列条目文本编辑（CAS 类——桌面四件队列命令全部携 revision，缺一被拒）
     @discardableResult
-    func editQueueItem(_ conversationID: String, queueItemId: String, newText: String) async -> JSONValue? {
+    /// 编辑排队文本（editorId：持有编辑锁时必携——原地替换后同一命令释放锁
+    /// 【实证·上游仓 command.ts:280-287】；lockQueueItemEdit/releaseQueueItemEdit 同族）。
+    func editQueueItem(_ conversationID: String, queueItemId: String, newText: String, editorId: String? = nil) async -> JSONValue? {
         await ensureStateRevision(conversationID)
+        var payload: [String: JSONValue] = [
+            "queueItemId": .string(queueItemId),
+            "newText": .string(newText),
+        ]
+        if let editorId, !editorId.isEmpty {
+            payload["editorId"] = .string(editorId)
+        }
         return await sendCASWithRetry(
             "editQueueItem", sessionId: conversationID,
-            payload: .object(["queueItemId": .string(queueItemId), "newText": .string(newText)]))
+            payload: .object(payload))
+    }
+
+    /// 进入队列项编辑（持锁；CLI 内存权威，冻结期间自动续跑停在该项前【实证·上游仓
+    /// command.ts:282 + snapshot.ts:230-236】；非 CAS 15 词表，携 base 对两代桌面均合法）
+    func lockQueueItemEdit(_ conversationID: String, queueItemId: String, editorId: String) async -> JSONValue? {
+        await ensureStateRevision(conversationID)
+        return await sendCASWithRetry(
+            "lockQueueItemEdit", sessionId: conversationID,
+            payload: .object(["queueItemId": .string(queueItemId), "editorId": .string(editorId)]))
+    }
+
+    /// 释放队列项编辑锁（取消编辑 / 解除其他端遗留锁；payload 仅 queueItemId
+    /// 【实证·上游仓 useComposerEditMode.ts:341——无 editorId】）
+    func releaseQueueItemEdit(_ conversationID: String, queueItemId: String) async -> JSONValue? {
+        await ensureStateRevision(conversationID)
+        return await sendCASWithRetry(
+            "releaseQueueItemEdit", sessionId: conversationID,
+            payload: .object(["queueItemId": .string(queueItemId)]))
     }
 
     /// 队列条目删除（CAS 类）

@@ -29,6 +29,7 @@ struct ChatView: View {
     @State private var workflowArtifactSheet: WorkflowArtifactRequest?
     /// 036 白板浮层（web 侧栏面板同位；零 RPC 纯客户端，语义见 WhiteboardModel）
     @State private var whiteboardOpen = false
+    @State private var showBackToBottom = false
 
     var body: some View {
         Group {
@@ -203,10 +204,14 @@ struct ChatView: View {
                         onSendNow: { queueItemId in await viewModel.sendQueuedNow(queueItemId) },
                         onDelete: { queueItemId in await viewModel.deleteQueueItem(queueItemId) },
                         onEdit: { queueItemId, newText in
-                            await viewModel.editQueueItem(queueItemId, newText: newText)
+                            await viewModel.finishQueueItemEdit(queueItemId, newText: newText)
                         },
                         onMoveUp: { queueItemId in await viewModel.moveQueueItemUp(queueItemId) },
-                        onToggleAutoDrain: { enabled in await viewModel.setAutoDrain(enabled) })
+                        onToggleAutoDrain: { enabled in await viewModel.setAutoDrain(enabled) },
+                        onBeginEdit: { queueItemId in await viewModel.beginQueueItemEdit(queueItemId) },
+                        onCancelEdit: { queueItemId in await viewModel.cancelQueueItemEdit(queueItemId) },
+                        onReleaseLock: { queueItemId in await viewModel.releaseExternalEditLock(queueItemId) },
+                        lockOwner: { item in viewModel.editLockOwner(for: item) })
                 }
                 ComposerBar(viewModel: viewModel, inputFocused: $composerFocused)
             }
@@ -483,6 +488,29 @@ struct ChatView: View {
                 guard viewModel.canLoadOlder, !viewModel.isLoadingOlder else { return }
                 loadOlderAnchored(viewModel, proxy: proxy)
             })
+            // back-to-bottom（web ConversationTimeline back-to-bottom 同构）：距底
+            // > 400pt 时显示悬浮回底钮（长会话向上翻阅后一键回底；iOS18 API 低版本降级）
+            .modifier(BackToBottomVisibilityModifier(isVisible: $showBackToBottom))
+            .overlay(alignment: .bottomTrailing) {
+                if showBackToBottom {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) { scrollToBottom(proxy) }
+                    } label: {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 26))
+                            .foregroundColor(T.accentText)
+                            .frame(width: 44, height: 44)
+                            .background(T.bgCard.opacity(0.9))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(T.borderStrong, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("05-act-back-to-bottom")
+                    .padding(.trailing, T.sp3)
+                    .padding(.bottom, T.sp2)
+                    .transition(.opacity)
+                }
+            }
             .onChange(of: viewModel.messages.count) { _, _ in
                 // loadOlder 顶部插入：保持阅读位置——loadOlderAnchored 已锚定原顶部
                 // 消息并复位，这里不得滚底。旧守卫比较「新首条==旧首条」，插入后首条
@@ -553,6 +581,27 @@ struct ChatView: View {
 
 /// 「下拉到顶自动加载更早」手势（onScrollGeometryChange 为 iOS 18+ API）：
 /// 低版本系统降级为无自动触发（05-act-load-older 手动入口仍在），不阻断编译。
+/// back-to-bottom 显隐（距底 > 400pt；iOS18 onScrollGeometryChange，低版本不显示——
+/// defaultScrollAnchor(.bottom) 已保证进入即底部，低版本手动上翻后滚回即可）
+struct BackToBottomVisibilityModifier: ViewModifier {
+    @Binding var isVisible: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { geo in
+                let distanceFromBottom = geo.contentSize.height
+                    - geo.contentOffset.y - geo.containerSize.height
+                return distanceFromBottom > 400
+            } action: { _, isFar in
+                guard isFar != isVisible else { return }
+                withAnimation(.easeOut(duration: 0.15)) { isVisible = isFar }
+            }
+        } else {
+            content
+        }
+    }
+}
+
 struct ChatScrollToTopLoadModifier: ViewModifier {
     let onAtTop: () -> Void
 
@@ -1427,6 +1476,12 @@ struct QueueBarView: View {
     var onEdit: (String, String) async -> String?
     var onMoveUp: (String) async -> String?
     var onToggleAutoDrain: (Bool) async -> String?
+    // 编辑锁族（web composer-edit-mode 同构）：begin=持锁进入编辑 / cancel=释放 /
+    // releaseLock=解除其他端遗留锁 / lockOwner=归属三态判定
+    var onBeginEdit: (String) async -> String?
+    var onCancelEdit: (String) async -> Void
+    var onReleaseLock: (String) async -> String?
+    var lockOwner: (RemoteQueueItem) -> QueueEditLockOwner?
 
     @State private var editingItemId: String?
     @State private var editingText = ""
@@ -1524,6 +1579,7 @@ struct QueueBarView: View {
                     }
                     .buttonStyle(.plain)
                     Button {
+                        Task { await onCancelEdit(item.id) } // 释放编辑锁
                         editingItemId = nil
                     } label: {
                         Text(String(localized: "取消"))
@@ -1533,11 +1589,12 @@ struct QueueBarView: View {
                     .buttonStyle(.plain)
                 }
             } else {
+                let owner = lockOwner(item)
                 HStack(alignment: .top, spacing: T.sp2) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(item.text)
                             .font(T.font(12))
-                            .foregroundColor(T.text)
+                            .foregroundColor(owner == .other ? T.text2 : T.text)
                             .lineLimit(2)
                         if item.isGuide {
                             Text(String(localized: "引导模式"))
@@ -1546,27 +1603,47 @@ struct QueueBarView: View {
                         }
                     }
                     Spacer(minLength: 0)
-                    // 立即发送（桌面「立即」同语义：sendQueuedNow，CAS）
-                    rowAction(icon: "arrow.up.circle.fill", label: String(localized: "立即")) {
-                        let message = await onSendNow(item.id)
-                        showFeedback(message)
-                    }
-                    .accessibilityIdentifier("05-queue-act-send-\(item.id)")
-                    rowAction(icon: "pencil", label: String(localized: "编辑")) {
-                        editingText = item.text
-                        editingItemId = item.id
-                    }
-                    if queue.items.first?.id != item.id {
-                        rowAction(icon: "arrow.up.to.line", label: "") {
-                            let message = await onMoveUp(item.id)
+                    if owner == .other {
+                        // 其他端持锁（CLI 编辑锁）：锁定行隐藏 立即/编辑/删除/上移，
+                        // 显示「其他端编辑中」+「解除」（web ConversationQueuePanel:297-318 同构）
+                        Text(String(localized: "其他端编辑中"))
+                            .font(T.font(10.5))
+                            .foregroundColor(T.text3)
+                        rowAction(icon: "lock.open", label: String(localized: "解除")) {
+                            let message = await onReleaseLock(item.id)
                             showFeedback(message)
                         }
+                        .accessibilityIdentifier("05-queue-act-release-\(item.id)")
+                    } else {
+                        // 立即发送（桌面「立即」同语义：sendQueuedNow，CAS）
+                        rowAction(icon: "arrow.up.circle.fill", label: String(localized: "立即")) {
+                            let message = await onSendNow(item.id)
+                            showFeedback(message)
+                        }
+                        .accessibilityIdentifier("05-queue-act-send-\(item.id)")
+                        rowAction(icon: "pencil", label: String(localized: "编辑")) {
+                            Task {
+                                if let message = await onBeginEdit(item.id) {
+                                    showFeedback(message)
+                                } else {
+                                    editingText = item.text
+                                    editingItemId = item.id
+                                }
+                            }
+                        }
+                        .accessibilityIdentifier("05-queue-act-edit-\(item.id)")
+                        if queue.items.first?.id != item.id {
+                            rowAction(icon: "arrow.up.to.line", label: "") {
+                                let message = await onMoveUp(item.id)
+                                showFeedback(message)
+                            }
+                        }
+                        rowAction(icon: "trash", label: "") {
+                            let message = await onDelete(item.id)
+                            showFeedback(message)
+                        }
+                        .accessibilityIdentifier("05-queue-act-delete-\(item.id)")
                     }
-                    rowAction(icon: "trash", label: "") {
-                        let message = await onDelete(item.id)
-                        showFeedback(message)
-                    }
-                    .accessibilityIdentifier("05-queue-act-delete-\(item.id)")
                 }
                 .padding(.horizontal, T.sp2)
                 .padding(.vertical, 6)

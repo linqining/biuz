@@ -1,5 +1,11 @@
 import SwiftUI
 
+/// 队列项编辑锁归属（web resolveEditLockOwner 三态；self 为 Swift 保留字改 mine）
+enum QueueEditLockOwner {
+    case mine
+    case other
+}
+
 @MainActor
 @Observable
 final class ChatViewModel {
@@ -520,22 +526,83 @@ final class ChatViewModel {
         return Self.controlFeedback(ack, verb: verb)
     }
 
+    // MARK: 队列编辑锁（web composer-edit-mode 同构【实证·上游仓 useComposerEditMode.ts
+    // + ConversationQueuePanel.tsx:60-83】：editorId 归属 + 本端编辑态优先 + 其他端「解除」）
+
+    /// 编辑器实例标识（web sessionStorage per 标签页；移动端 per 会话页生命周期，
+    /// CLI 锁随进程死亡即丢，遗留锁由「解除」兜底）
+    let queueEditorId = UUID().uuidString
+    /// 本端正在行内编辑的队列项（lock ACK 早于投影时以本端编辑态为准
+    /// 【实证·上游仓 ConversationQueuePanel.tsx:60-83 Bug 根因注记】）
+    var activeEditQueueItemId: String?
+
+    /// 锁归属三态（resolveEditLockOwner 逐字移植）：self=本端编辑中 / other=其他端持锁 / nil=未锁
+    func editLockOwner(for item: RemoteQueueItem) -> QueueEditLockOwner? {
+        let editingHere = activeEditQueueItemId == item.id
+        guard let lock = item.editLock else {
+            return editingHere ? .mine : nil
+        }
+        return (editingHere && lock.editorId == queueEditorId) ? .mine : .other
+    }
+
+    /// 进入行内编辑：先持锁（成功才进入编辑态；失败反馈不改行状态）
+    func beginQueueItemEdit(_ queueItemId: String) async -> String? {
+        let message = await queueAction("lock") {
+            await store.lockQueueItemEdit(conversationID, queueItemId: queueItemId, editorId: queueEditorId)
+        }
+        if message == nil {
+            activeEditQueueItemId = queueItemId
+        }
+        return message
+    }
+
+    /// 取消行内编辑：释放锁（payload 仅 queueItemId——无 editorId【实证·上游仓
+    /// useComposerEditMode.ts:341】，CLI 释放该项锁）
+    func cancelQueueItemEdit(_ queueItemId: String) async {
+        activeEditQueueItemId = nil
+        _ = await queueAction("release") {
+            await store.releaseQueueItemEdit(conversationID, queueItemId: queueItemId)
+        }
+    }
+
+    /// 保存行内编辑：goal 项守卫（web kind 不变守卫——goal 队列项必须保留 /goal
+    /// 前缀【实证·上游仓 SessionPane.tsx:563-571】）+ 携 editorId（提交后同一命令释放锁）
+    func finishQueueItemEdit(_ queueItemId: String, newText: String) async -> String? {
+        guard let item = queueInfo?.items.first(where: { $0.id == queueItemId }) else {
+            return String(localized: "排队项已不在队列中")
+        }
+        let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return String(localized: "内容不能为空")
+        }
+        if item.text.hasPrefix("/goal") && !trimmed.hasPrefix("/goal") {
+            return String(localized: "goal 队列项需保留 /goal 前缀（命令形态不可变更）")
+        }
+        let message = await queueAction("edit") {
+            await store.editQueueItem(
+                conversationID, queueItemId: queueItemId, newText: newText,
+                editorId: item.editLock != nil ? queueEditorId : nil)
+        }
+        if message == nil {
+            activeEditQueueItemId = nil // editQueueItem 已释放锁（command.ts:280 注记）
+        }
+        return message
+    }
+
+    /// 解除其他端遗留锁（web「解除」同语义：release 仅 queueItemId）
+    func releaseExternalEditLock(_ queueItemId: String) async -> String? {
+        let message = await queueAction("releaseLock") {
+            await store.releaseQueueItemEdit(conversationID, queueItemId: queueItemId)
+        }
+        return message
+    }
+
     func sendQueuedNow(_ queueItemId: String) async -> String? {
         await queueAction("sendNow") { await store.sendQueuedNow(conversationID, queueItemId: queueItemId) }
     }
 
     func deleteQueueItem(_ queueItemId: String) async -> String? {
         await queueAction("delete") { await store.deleteQueueItem(conversationID, queueItemId: queueItemId) }
-    }
-
-    /// 编辑排队文本（保存后回流刷新；返回反馈）
-    func editQueueItem(_ queueItemId: String, newText: String) async -> String? {
-        guard !newText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return String(localized: "内容不能为空")
-        }
-        return await queueAction("edit") {
-            await store.editQueueItem(conversationID, queueItemId: queueItemId, newText: newText)
-        }
     }
 
     /// 队列条目上移（与前一位置交换 = reorder 到前一项之前）
