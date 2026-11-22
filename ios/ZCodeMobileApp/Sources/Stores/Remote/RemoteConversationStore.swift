@@ -4765,7 +4765,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// 回退：行表无可用游标（如 draft/未订阅行）时走原 channel RPC
     /// （"zcode-agent","forkAssistant"——文档记实证可用，但与 web 不同面，桌面收紧
     /// 即失效，仅作 v4 无 target 时的兜底）。
-    func forkConversation(_ conversationID: String, explicitTarget: (rowId: Int, entityId: String)? = nil) async -> String? {
+    func forkConversation(_ conversationID: String, explicitTarget: (rowId: Int, entityId: String)?) async -> String? {
         let table = rows[conversationID] ?? [:]
         let cursor: (rowId: Int, entityId: String)?
         if let explicitTarget {

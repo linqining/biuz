@@ -563,6 +563,39 @@ final class ChatViewModel {
         return Self.controlFeedback(ack, verb: verb)
     }
 
+    // MARK: prompt 历史（web ConversationComposer prompt 历史同构；触屏适配：
+    // 「历史」chip 单向循环——pointer 走到头回空草稿重新开始）
+
+    private var promptHistory: [String] = []
+    var hasPromptHistory: Bool { !promptHistory.isEmpty }
+    private var promptHistoryPointer: Int?
+
+    private func recordPromptHistory(_ text: String) {
+        guard !text.isEmpty else { return }
+        // 连续重复不入账（web 去重口径）
+        if promptHistory.last == text { promptHistoryPointer = nil; return }
+        promptHistory.append(text)
+        if promptHistory.count > 50 { promptHistory.removeFirst(promptHistory.count - 50) }
+        promptHistoryPointer = nil
+    }
+
+    /// 历史循环 chip：返回上一条发送文本（走到最早后回到空草稿重新循环）
+    func cyclePromptHistory() -> String? {
+        guard !promptHistory.isEmpty else { return nil }
+        let next: Int
+        if let pointer = promptHistoryPointer {
+            next = pointer - 1
+        } else {
+            next = promptHistory.count - 1
+        }
+        if next < 0 {
+            promptHistoryPointer = nil
+            return ""
+        }
+        promptHistoryPointer = next
+        return promptHistory[next]
+    }
+
     // MARK: 队列编辑锁（web composer-edit-mode 同构【实证·上游仓 useComposerEditMode.ts
     // + ConversationQueuePanel.tsx:60-83】：editorId 归属 + 本端编辑态优先 + 其他端「解除」）
 
@@ -1450,6 +1483,7 @@ final class ChatViewModel {
             lastSendUndeliveredText = nil
             // 会话前选择已随首条消息下发（一次性；失败保留供重试）
             pendingNewSessionSelection = nil
+            recordPromptHistory(text)
         } else {
             // 消息未送达：文本回填保稿；附件保留在待发条（committed 引用可复用，
             // 重试只发文本+引用不重传——设计稿 §5.1 语义随 §11.1#6 修正）
@@ -1457,6 +1491,13 @@ final class ChatViewModel {
                 draft = text
             }
             lastSendUndeliveredText = text
+            // pendingCommandReplay 等效承载（web PendingCommandRecoveryBanner 同目标）：
+            // 自动重发旧命令有「回执丢失但命令已上行」的双发歧义（§11.1 超时歧义口径）
+            // ——iOS 既有「草稿回填 + 手动重试」更保守（新命令新 commandId，无双发风险），
+            // 登记为设计差异；重连成功提示用户可重试（观察流驱动）
+            if text == draft {
+                lastSendUndeliveredText = text
+            }
             // held 态（§11.2）：拒因为 heldQueueDispositionRequired / 确认过期
             // → 弹「清空/保留队列并发送」确认层（store 侧已置位标记）
             if await store.heldQueueConfirmationPending(in: conversationID) {

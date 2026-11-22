@@ -930,7 +930,7 @@ struct ConversationListView: View {
             Button {
                 Task {
                     forking = true
-                    if let newID = await store.forkConversation(conversation.id) {
+                    if let newID = await store.forkConversation(conversation.id, explicitTarget: nil) {
                         showNewSheet = false
                         router.openChat(conversationID: newID)
                     }

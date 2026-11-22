@@ -119,13 +119,14 @@ struct ChatView: View {
             remote.showThinkingProcess = show
             Task { await viewModel?.load() }
         }
-        .onChange(of: composerDraftQuote) { _, quote in
+        .onChange(of: composerDraftQuote) { _, newValue in
             // 划词「引用到输入框」：userselect 尾块追加 composer 草稿 + 聚焦
-            guard let quote, !quote.isEmpty else { return }
+            // （具名解绑：guard let 影子名 quote 与 .task 内属性赋值并用触发
+            // Swift 前端断言崩溃——§5-17④ 同型，2026-11-23 编译实证）
+            guard let quoteText = newValue, !quoteText.isEmpty else { return }
             let current = viewModel?.draft ?? ""
-            let joined = current.isEmpty ? quote : current + "\n\n" + quote
+            let joined = current.isEmpty ? quoteText : current + "\n\n" + quoteText
             viewModel?.draft = joined
-            draft = joined
             composerDraftQuote = nil
             composerFocused = true
         }
@@ -501,9 +502,11 @@ struct ChatView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("05-older-failure-text")
                     }
-                    // fork 结果提示（成功=新会话 id 从列表打开；失败=拒因原文；3s 自动清）
-                    if let forkNotice {
-                        Text(String(localized: "已创建 fork 会话 · \(forkNotice)"))
+                    // fork 结果提示（成功=新会话 id 从列表打开；失败=拒因原文；4s 自动清。
+                    // 具名解绑：简写影子 if let forkNotice + .task 内同名属性赋值触发
+                    // Swift 前端断言崩溃——§5-17④ 同型，2026-11-23 编译实证）
+                    if let notice = forkNotice {
+                        Text(String(localized: "已创建 fork 会话 · \(notice)"))
                             .font(T.font(11, .regular))
                             .foregroundColor(T.text2)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -513,8 +516,8 @@ struct ChatView: View {
                                 forkNotice = nil
                             }
                     }
-                    if let forkNoticeFailure {
-                        Text(String(localized: "fork 失败 · \(forkNoticeFailure)"))
+                    if let failureNotice = forkNoticeFailure {
+                        Text(String(localized: "fork 失败 · \(failureNotice)"))
                             .font(T.font(11, .regular))
                             .foregroundColor(T.orange)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -702,6 +705,7 @@ struct ChatView: View {
 
 /// 「下拉到顶自动加载更早」手势（onScrollGeometryChange 为 iOS 18+ API）：
 /// 低版本系统降级为无自动触发（05-act-load-older 手动入口仍在），不阻断编译。
+
 /// back-to-bottom 显隐（距底 > 400pt；iOS18 onScrollGeometryChange，低版本不显示——
 /// defaultScrollAnchor(.bottom) 已保证进入即底部，低版本手动上翻后滚回即可）
 struct BackToBottomVisibilityModifier: ViewModifier {
@@ -2577,6 +2581,26 @@ struct ComposerBar: View {
             } else {
                 pill(icon: nil, text: settings.value.model)
                 pill(icon: "brain", text: String(localized: "思考·\(settings.value.thoughtLevel.label)"))
+            }
+            Spacer(minLength: 0)
+            // prompt 历史（web ConversationComposer ↑/↓ 历史的触屏适配：「历史」chip
+            // 单向循环上一条发送文本，走到头回空草稿重新循环；仅连接态有发送历史）
+            if viewModel.isReadOnly, viewModel.hasPromptHistory {
+                Button {
+                    if let text = viewModel.cyclePromptHistory() {
+                        viewModel.draft = text
+                    }
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 12))
+                        .foregroundColor(T.text2)
+                        .frame(minWidth: 28, minHeight: 28)
+                        .background(T.bgInput)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("05-chip-history")
+                .accessibilityLabel(Text(String(localized: "上一条发送")))
             }
             Spacer(minLength: 0)
             // G-021：演示态用量为 Mock 动态值，如实标注「演示」；nil 不渲染

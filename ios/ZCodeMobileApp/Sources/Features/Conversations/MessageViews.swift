@@ -19,6 +19,12 @@ struct MessageView: View {
     var onFeedback: ((Bool?) async -> String?)? = nil
     /// P1-3 编辑重发下发（新文本；返回失败文案）。nil 回调 = 长按菜单无「编辑重发」项
     var onEditResend: ((String) async -> String?)? = nil
+    /// fork 会话派生（web 完成态 assistant 行同口径；nil = 不渲染死入口）
+    var onFork: (() async -> Void)? = nil
+    /// 引用到当前输入框（划词菜单；nil = 不渲染入口）
+    var onQuoteToComposer: (() -> Void)? = nil
+    /// 在新会话询问（划词派生；nil = 不渲染入口）
+    var onAskInNewSession: (() -> Void)? = nil
     /// 工作流完成卡四格 join（活投影 run 按 runId 对位；nil = 拿不到的格写「—」）
     var workflowCompletionRun: WorkflowRunSummary? = nil
     /// 完成卡 ⤢ 打开工作流面板（宿主门控：仅卡对应 run 是面板当前 run 时接线——
@@ -174,9 +180,9 @@ struct MessageView: View {
                 } // else（unreadable 兜底）闭合
                 if let onFeedback, message.rowKind == "assistantText",
                    rowId != nil, message.entityId != nil, !message.text.isEmpty {
-                    MessageFeedbackRow(state: feedbackState, onFork: onFork) { value in
+                    MessageFeedbackRow(state: feedbackState, onAction: { value in
                         await onFeedback(value)
-                    }
+                    }, onFork: onFork)
                 }
             }
         }
@@ -215,11 +221,7 @@ struct MessageFeedbackRow: View {
     /// 点按回调；返回失败文案（nil = 成功）
     let onAction: (Bool?) async -> String?
     /// fork 会话派生（web 完成态 assistant 行同口径；nil = 不渲染）
-    var onFork: (() async -> Void)?
-    /// 引用到当前输入框（划词菜单；nil = 不渲染入口）
-    var onQuoteToComposer: (() -> Void)?
-    /// 在新会话询问（划词派生；nil = 不渲染入口）
-    var onAskInNewSession: (() -> Void)? = nil
+    var onFork: (() async -> Void)? = nil
 
     @State private var failure: String?
     @State private var failureClear: Task<Void, Never>?
