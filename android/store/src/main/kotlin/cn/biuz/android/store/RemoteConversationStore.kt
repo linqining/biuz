@@ -4004,17 +4004,27 @@ class RemoteConversationStore(
         val modelProvidersByPlan = LinkedHashMap<String, String>()
         val groupsByPlan = LinkedHashMap<String, MutableList<String>>()
 
-        fun planNameFor(providerId: String): String? = when {
+        // 套餐名判定。**非套餐 provider（自定义供应商 / ccgithub / API key 等）必须回退成
+        // 自己的分组名**，不能返 null——返 null 时该 provider 的模型只进裸表 `models` 而不进
+        // 任何 planGroups，而 UI 在 planGroups 非空时只渲染分组行 → **模型在面板里彻底消失**
+        // （用户报障「新建会话选不到 ccgithub 的 deepseek」根因；2026-11-24 本轮修复）。
+        // web 权威：`composerPlanGroups.ts:74-120` 把「非 individual/team 套餐」的一切都推进
+        // `others`（照样渲染），只有套餐才进 `plans`；分组标签取 `providerName || providerId`
+        // （`modelSelectionGroups.ts:59`）。
+        fun planNameFor(providerId: String, providerName: String?): String = when {
             providerId.contains("individual-coding-plan") -> "个人套餐"
             providerId.contains("start-plan") -> "体验套餐"
             providerId.contains("team-coding-plan") -> "团队套餐"
-            else -> null
+            else -> providerName?.trim()?.takeIf { it.isNotEmpty() } ?: providerId
         }
 
         for (provider in view["providers"]?.arrayValue ?: emptyList()) {
             val providerDict = provider.objectValue ?: continue
             val providerId = providerDict["providerId"]?.stringValue ?: ""
-            val plan = planNameFor(providerId)
+            val providerName = providerDict["providerName"]?.stringValue
+                ?: providerDict["name"]?.stringValue
+                ?: providerDict["label"]?.stringValue
+            val plan = planNameFor(providerId, providerName)
             // 思考档兜底源：provider config.optionSpecs.reasoningLevel.values
             val config = providerDict["config"]?.objectValue
                 ?: providerDict["effectiveConfig"]?.objectValue
@@ -4065,13 +4075,15 @@ class RemoteConversationStore(
                 if (label.isNullOrEmpty()) continue
                 if (!models.contains(label)) models.add(label)
                 if (providerId.isNotEmpty()) modelProviders[label] = providerId
-                if (plan != null) {
-                    val group = groupsByPlan.getOrPut(plan) { ArrayList() }
+                // 每个 provider 恒有一个分组（套餐或它自己的名字）——无分组 = UI 里消失
+                val groupName = plan.takeIf { it.isNotEmpty() } ?: providerId
+                if (groupName.isNotEmpty()) {
+                    val group = groupsByPlan.getOrPut(groupName) { ArrayList() }
                     if (!group.contains(label)) group.add(label)
                     // 复合键表：同名模型跨套餐各组各计（裸名表后到覆盖先到——
                     // 点个人套餐行发出体验套餐 providerId，2026-10-08 报障根因）
                     if (providerId.isNotEmpty()) {
-                        modelProvidersByPlan["$plan|$label"] = providerId
+                        modelProvidersByPlan["$groupName|$label"] = providerId
                     }
                 }
             }

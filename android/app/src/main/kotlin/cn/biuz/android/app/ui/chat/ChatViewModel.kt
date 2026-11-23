@@ -215,6 +215,13 @@ class ChatViewModel(
     private val _draft = MutableStateFlow("")
     val draft: StateFlow<String> get() = _draft
 
+    /**
+     * 会话前模型/思考选择（新建 sheet 交接而来；随本会话**首条** sendText 下发，
+     * 成功后清除、失败保留重试）。iOS `pendingNewSessionSelection` 同语义。
+     */
+    internal var pendingNewSessionSelection: cn.biuz.android.store.NewSessionModelSelection? = null
+        private set
+
     // MARK: 3.17.2 输入预测 ghost hint（iOS ChatViewModel :1345-1390 直译）
 
     /**
@@ -676,6 +683,12 @@ class ChatViewModel(
         isReadOnly = store.isReadOnly
         // 换源即重置投影（防旧 Store 残影混入新源）
         _messages.value = emptyList()
+        // 新建会话交接消费（iOS ChatViewModel.swift:803-818 同构）：sheet 的会话前
+        // 模型/思考选择 + 待补发草稿。take 即清（一次性），按 sessionId 键控。
+        NewSessionHandoffBox.take(conversationId)?.let { handoff ->
+            if (handoff.draftText.isNotEmpty()) _draft.value = handoff.draftText
+            pendingNewSessionSelection = handoff.modelSelection
+        }
         // 切会话：作废在途预测并清 hint（iOS send/attach 同口径——requestId 自增失配）
         invalidateInputHint()
         _loadFailure.value = null
@@ -1022,7 +1035,11 @@ class ChatViewModel(
                 text = text,
                 attachments = attachments,
                 requestedDelivery = null,
-                modelSelection = null,
+                // 会话前模型选择（新建 sheet 的交接，见 NewSessionHandoff）：随**首条**
+                // sendText 下发是上游唯一可用通道（empty firstInput 会让桌面开空轮，
+                // 所以 createSession 那条路只在有文本时才带）。发送成功即清（见下），
+                // 失败保留供重试——与 iOS pendingNewSessionSelection 同语义。
+                modelSelection = pendingNewSessionSelection,
                 conversationId = conversationId,
             ) ?: false
         } finally {
@@ -1032,6 +1049,8 @@ class ChatViewModel(
             // 成功才清已随消息下发的 committed 附件（失败保留可重发）
             uploads?.clearCommitted(attachments)
             bumpUploads()
+            // 会话前模型选择已随本条消息下发 → 消耗掉（失败路径保留供重试）
+            pendingNewSessionSelection = null
             _sendFailureReason.value = null
             // 发送成功：常驻失败反馈行一并出账（阻断已解除）
             if (_slashHint.value is SlashHint.Raw || _slashHint.value is SlashHint.PlanBlocked) {

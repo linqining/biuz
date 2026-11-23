@@ -734,14 +734,31 @@ private fun NewConversationSheet(
         if (submitting) return
         submitting = true
         try {
+            // 空描述 + 已选模型 = **模型无处可带**：createSession 的 firstInput.modelSelection
+            // 只在有文本时下发（空 firstInput 会让桌面开空轮）。iOS 早用交接箱修过
+            // （NewConversationSheet.swift:316-325 / AGENTS v1.21），Android 此前未移植——
+            // 实测「选 ccgithub/deepseek 建会话 → 会话回落 GLM-5.4」即此。改为 draft 创建
+            // 并把选择交给会话页，随首条 sendText.modelSelection 下发。
+            val trimmedTitle = title.trim()
+            val handoffNeeded = trimmedTitle.isEmpty() && selection != null
             val conversation = store.createConversation(
-                title = title.trim(),
+                title = trimmedTitle,
                 directory = "",
                 executor = ExecutorKind.cloudSandbox,
-                modelSelection = selection,
+                // 交接路径下 createSession 不带选择（空 firstInput 无通道）
+                modelSelection = if (handoffNeeded) null else selection,
             )
             if (conversation.id.isNotEmpty()) {
                 createFailureDetail = null
+                if (handoffNeeded) {
+                    cn.biuz.android.app.ui.chat.NewSessionHandoffBox.deposit(
+                        cn.biuz.android.app.ui.chat.NewSessionHandoff(
+                            draftText = "",
+                            modelSelection = selection,
+                        ),
+                        forSessionId = conversation.id,
+                    )
+                }
                 onCreated(conversation)
             } else {
                 // 拒因原文透传（空串 = 无在案拒因 → 渲染层用未连接泛因文案）

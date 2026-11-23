@@ -1126,9 +1126,16 @@ private fun PanelSpinner(size: Dp, color: Color) {
 
 // MARK: btw 后台工作面板
 //
-// UI 口径（本任务裁决「后台运行面板只显示运行中」）：**只渲染运行中条目**——已结束
-// （resultPending/failed/cancelled 等）不显示。iOS 原文另有「已完成与已停止」折叠组
-// （SessionPanelsView WorksPanelView :966-1099），按任务裁决裁撤（deviations 记录）。
+// **口径（2026-11-24 真机取证修复）**：运行中置顶 → 已结束（按 endedAt 降序）。
+//
+// 原实现「只渲染运行中条目」制造了一个自相矛盾的界面：chip 徽标统计**全部**条目
+// （`panelBadgeText` 的 Works 分支运行中优先、否则显总数），而面板体只画 running——
+// 徽标写着「后台 4」、展开却是**空白面板**（真机实测，4 条 bash 全为 resultPending）。
+// 用户无法判断是「没有内容」还是「渲染坏了」。
+//
+// 与 web 的对位：web 没有独立的后台胶囊，backgroundWorks 的 running 进 activity 胶囊的
+// 运行组、已结束进 `endedActivities`（ConversationStatusPanel.tsx:1064-1072）——**两者都
+// 可见**。移动端保留独立 chip（下钻入口更直接），因此面板必须同样把两类都列出来。
 // 运行中判定 = rawStatus == "running"（上游 backgroundWorkSummarySchema 官方派生口径）。
 
 @Composable
@@ -1138,16 +1145,26 @@ fun WorksPanelView(
     onResume: (String, String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val running = remember(works) { works.filter { it.isRunning } }
+    val ordered = remember(works) { orderWorksForPanel(works) }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .testTag("05-panel-works"),
         verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
     ) {
-        running.forEach { work -> WorkRow(work, onCancel, onResume) }
+        ordered.forEach { work -> WorkRow(work, onCancel, onResume) }
     }
 }
+
+/**
+ * 后台面板行序（纯函数，可单测）：运行中在前；已结束按 `endedAt`（缺席退 `startedAt`）
+ * 降序、再缺席沉底。与活动摘要的 `startedAt` 升序**不同**——面板看的是「最近发生了什么」。
+ */
+internal fun orderWorksForPanel(works: List<BackgroundWorkSummary>): List<BackgroundWorkSummary> =
+    works.sortedWith(
+        compareByDescending<BackgroundWorkSummary> { it.isRunning }
+            .thenByDescending { it.endedAt ?: it.startedAt ?: Long.MIN_VALUE },
+    )
 
 @Composable
 private fun WorkRow(
