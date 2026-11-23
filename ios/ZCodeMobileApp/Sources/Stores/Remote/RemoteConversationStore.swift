@@ -2523,7 +2523,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     private func performCreateConversation(title: String, directory: String, executor: ExecutorKind,
                                            modelSelection: NewSessionModelSelection? = nil) async -> Conversation {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 项 2：directory 参数承载项目层选择（屏 03 项目胶囊）→ createSession workspaceId；
+        // 项 2：directory 参数承载项目层选择（项目胶囊）→ createSession workspaceId；
         // 未绑定（空）时回退连接时装配的 workspace（既有口径不变）
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         var payload: [String: JSONValue] = [
@@ -3038,7 +3038,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             ?? payload["description"]?.stringValue
         interaction.options = (dict["options"]?.arrayValue ?? payload["options"]?.arrayValue ?? [])
             .compactMap { element -> RemoteInteractionOption? in
-                // A-3（设计稿 §3.2 规则 1）：options 保留 (id,label) 对——应答时原样回传
+                // A-3（A-3）：options 保留 (id,label) 对——应答时原样回传
                 // optionId，按钮 label 仅作展示。服务端 options 元素形状【未取证】（现有
                 // 解析只见过 label 键），按宽容链：对象取 id/optionId + label/title，
                 // 裸字符串 id=label=该串。
@@ -4232,10 +4232,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     // applyFileRewind，本节 type 构造性放行；ReadOnlyGateTests 已断言其中
     // editUserQuery/compact/sendGoalCommand/startSavedWorkflow）。payload 形状除逐条
     // 注明【实证】外均为【宽容】：协议文档 §7.2 只记词表、字段名零取证（桌面端不在线
-    // 无法活体补证），键名取仓内最强先例构造——接入 UI 前先探针定形（P1P2P3功能UI设计.md
-    // 各节「实施第一步即探针」口径），禁止把本节键名当唯一真相回写文档。
+    // 无法活体补证），键名取仓内最强先例构造——接入 UI 前先探针定形（「实施第一步即探针」口径），禁止把本节键名当唯一真相回写文档。
 
-    /// 协作模式切换（§2 设计稿「会话模式」胶囊）。§7.2:414 CAS 权威全集
+    /// 协作模式切换（「会话模式」胶囊）。§7.2:414 CAS 权威全集
     /// 成员【移植级】——ensureStateRevision + sendCASWithRetry（新 CAS 命令沿用纪律）。
     /// payload {mode}【实证 web bundle】：`switchCollaborationMode:Ta({mode:La([
     /// \`build\`,\`edit\`,\`plan\`,\`yolo\`])})`——4 档全集（Qme：build=Ask before
@@ -4249,7 +4248,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             payload: .object(["mode": .string(mode)]))
     }
 
-    /// 投递/跟随模式（§2 设计稿投递 Menu：立即/排队/引导）。CAS 权威全集成员。
+    /// 投递/跟随模式（投递 Menu：立即/排队/引导）。CAS 权威全集成员。
     /// A-2 修正（web 实证 bundle）：mode 枚举仅 `queue|guide`——「立即」不是
     /// followupMode 值（web 默认 queue，立即语义由 sendText 逐消息
     /// requestedDelivery:"startNow" 承载）。now 档由 ChatViewModel 拦截不下发
@@ -4263,7 +4262,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             payload: .object(["mode": .string(mode)]))
     }
 
-    /// 助手消息轻反馈（§3 设计稿点赞/点踩反馈行）。row-target + CAS 双类成员
+    /// 助手消息轻反馈（点赞/点踩反馈行）。row-target + CAS 双类成员
     /// （§7.2:414）。游标照 retryTurn 先例 {target:{rowId, entityId}}；value 三态：
     /// true=赞 / false=踩 / nil=取消（置 null）。A-1 修正（web 实证 bundle）：
     /// feedback 值域 `like|dislike`（可 null）——原 positive/negative 是协议文档
@@ -4283,7 +4282,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             "setAssistantFeedback", sessionId: conversationID, payload: .object(payload))
     }
 
-    /// 编辑用户消息并重发（§3 设计稿「编辑重发」sheet；§7.2:404「rewind 后以新文本
+    /// 编辑用户消息并重发（「编辑重发」sheet；§7.2:404「rewind 后以新文本
     /// 重发，与 retryTurn 同族」——CAS + row-target 双类）。游标 = 消息行 rowId +
     /// 行元数据 entityId（CAS 双字段 baseRevision/baseLogEpoch 由信封层自取，非本 API
     /// 参数）；新文本键名取同族实证先例 editQueueItem 的 newText【宽容：editUserQuery
@@ -4307,14 +4306,14 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             ]))
     }
 
-    /// 压缩上下文（§7A 设计稿 contextMeter 点击确认后下发）。非 CAS 全集成员——
-    /// 普通信封直发；payload {}【宽容：设计稿推测形态，未取证】。
+    /// 压缩上下文（contextMeter 点击确认后下发）。非 CAS 全集成员——
+    /// 普通信封直发；payload {}【宽容：早期推测形态，未取证】。
     @discardableResult
     func compact(_ conversationID: String) async -> JSONValue? {
         await sendCommand("compact", sessionId: conversationID, payload: .object([:]))
     }
 
-    /// 挂起交互「稍后处理」（§7B 设计稿审批卡第三动作）。协议文档 0 记录（仅
+    /// 挂起交互「稍后处理」（审批卡第三动作）。协议文档 0 记录（仅
     /// web接口对齐盘点报告.md:32/:82 词表提及）；payload {interactionId}【宽容：
     /// 键名照 resolveInteraction 实证先例，命令本体/回执/桌面重提醒行为全部未取证】。
     @discardableResult
@@ -4325,7 +4324,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             payload: .object(["interactionId": .string(interactionId)]))
     }
 
-    /// 目标下发（§5 设计稿 goal 面板「编辑目标」sheet）。§四口径清理：web CAS 词表
+    /// 目标下发（goal 面板「编辑目标」sheet）。§四口径清理：web CAS 词表
     /// （bundle Jle 15 命令实证）确无 sendGoalCommand——属 input 类，baseRevision
     /// 可选，改普通信封直发（原 ensureStateRevision+sendCASWithRetry 是超集做法）。
     /// payload {text}【宽容：键名取 state.goal 宽容解析键组首位
@@ -4337,7 +4336,7 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             payload: .object(["text": .string(text)]))
     }
 
-    /// 启动已保存工作流（§4 设计稿「工作流库」行卡「启动」）。§7.2:406 词表在列、
+    /// 启动已保存工作流（「工作流库」行卡「启动」）。§7.2:406 词表在列、
     /// 非 CAS 全集成员——普通信封直发。payload 形状对齐上游（2026-10-08 回归审核轮
     /// §11.1#9，command.ts:236-240【实证·上游仓】）：`{name: min(1), scope?:
     /// "project"|"global", args?}`——此前发 workflowId 为臆造键（schema 必填 name

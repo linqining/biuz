@@ -52,7 +52,7 @@ struct TabItemModel: Identifiable {
 }
 
 extension TabItemModel {
-    /// spec 3.1：图标 22px + 标签 10.5px；选择器沿用设计稿 5.10 标注
+    /// 图标 22px + 标签 10.5px；选择器沿用三段式 id 标注
     static let all: [TabItemModel] = [
         TabItemModel(tab: .chat, title: "会话",
                      icon: "bubble.left.and.text.bubble.right",

@@ -8,7 +8,7 @@ package cn.biuz.android.store
 // - 表 6：重置卡三步**平铺**（B-6）+ 扣费接口 uiConfirmed 闸门（未确认零 RPC）；
 // - 表 9：getEntitlementSnapshot 六键入参；回执解析禁找不存在的 entitlements[]（B-5）；
 // - settingService/setting 双候选 + resolved 频道粘滞（读写同频道）。
-// Mock 仅测试装配（红线 §0-4）。
+// Mock 仅测试装配（红线见 AGENTS §5-13）。
 
 import cn.biuz.android.protocol.EventSubscription
 import cn.biuz.android.protocol.JSONValue

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 屏 06 · 审批请求 Sheet。U-4/A-3 改造（设计稿 §3.2）：授权范围三档 52px 单选卡
+/// 审批请求 Sheet。U-4/A-3 改造：授权范围三档 52px 单选卡
 /// 改与会话内审批卡同构的 44pt chips 行（两档 once/always + 服务端自定义档直选），
 /// 决议 answer={optionId}（四族 allowOnce/allowAlways/rejectOnce/rejectAlways 由
 /// PermissionOptionMatrix 按服务端 options 组合拼好透传）。U-5：结果三态如实回传，
@@ -11,7 +11,7 @@ struct ApprovalSheetView: View {
     @Environment(\.conversationStore) private var conversationStore
     let task: TaskRecord
 
-    /// 授权范围两档（A-3/设计稿 §3.2 规则 4：task 档在 wire 四族值域无对应，删除；
+    /// 授权范围两档（A-3：task 档在 wire 四族值域无对应，删除；
     /// 服务端自定义 id 经直选 chip 呈现，不进两步矩阵）
     enum AuthScope: String, CaseIterable, Identifiable {
         case once, always
@@ -108,7 +108,7 @@ struct ApprovalSheetView: View {
         .background(T.bgElevated)
         .presentationDetents([.large])
         .presentationDragIndicator(.hidden)
-        .interactiveDismissDisabled(true) // 审批 Sheet 下拉不关闭（spec 3.3/4.06）
+        .interactiveDismissDisabled(true) // 审批 Sheet 下拉不关闭
         .overlay(alignment: .top) {
             Text("任务在等待你的批准")
                 .font(T.font(11, .semibold))
@@ -406,7 +406,7 @@ struct ApprovalSheetView: View {
     }
 
     /// 决议下发（U-4 传参落点 + U-5 如实回传）。scopeLabel 供成功 toast 范围回显
-    /// （与所点 chips 闭环，设计稿 §5.2）。
+    /// （与所点 chips 闭环）。
     private func decide(approved: Bool?, optionId: String, scopeLabel: String) {
         deciding = true
         Task {
@@ -440,7 +440,7 @@ struct ApprovalSheetView: View {
         }
     }
 
-    /// P2-7B「稍后处理」（设计稿 §7B：纯 dismiss 替换为 snoozeInteractionAutoResolution
+    /// P2-7B「稍后处理」（纯 dismiss 替换为 snoozeInteractionAutoResolution
     /// 下发）。interactionId 从会话 pendingInteractions 投影取（任务页仅有 kinds:
     /// ["permission"] 单条在手）——投影不在手（演示态/会话无挂起交互）时维持原纯
     /// dismiss 口径诚实降级，不虚构「已稍后」；下发失败卡片（sheet）保留 + toast。

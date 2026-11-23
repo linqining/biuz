@@ -4,7 +4,7 @@ package cn.biuz.android.connection
 // 应用会话装配层——连接生命周期（五态 Mode）+ Store 装配策略 + 桌面端只读信息
 // （oauth / usage-stats 投影）+ 服务器注册表接线 + 多工作区枚举。
 //
-// 装配策略（对齐修复后，《对齐修复与降级体验设计》§0/§1，iOS 原文 :164-170 逐字）：
+// 装配策略（对齐修复后，iOS 原文 :164-170 逐字）：
 // - 连接成功 → 真实 API 实现 Store 协议（remote 面）；
 // - 断线/连接中 → 保留现有 Store 引用（断线保留最后快照，不回落引导页——iOS 13-③
 //   黄色横幅口径：mode 切 Disconnected 但不 teardown）；
@@ -842,12 +842,12 @@ class AppSession(
         }
         when (result) {
             is ConnectResult.Success -> {
-                // 中继连接的 bootstrap.tasks 注水源（iOS assembleRemoteStores 内
+                // bootstrap.tasks 注水源（iOS assembleRemoteStores 内
                 // connection.relayBootstrapTasks 同源，AppSession.swift:1226；先于
-                // assembleStores 赋值——装配协程读取该 provider）
-                if (server.relay != null) {
-                    bootstrapTasksProvider = { connection.relayBootstrapTasks }
-                }
+                // assembleStores 赋值——装配协程读取该 provider）。
+                // 2026-11-23：不再限定 relay——LAN 直连时 relayBootstrapTasks 恒 null，
+                // 赋值无副作用；放开后未来 LAN 握手若补 bootstrap 可直接生效。
+                bootstrapTasksProvider = { connection.relayBootstrapTasks }
                 // 先装配 Store 再切 mode（iOS :441 注：装配完成后 UI 才切换数据源）
                 val connected = connection.state.value
                     as? ZCodeServerConnection.ConnectionState.Connected
@@ -893,7 +893,7 @@ class AppSession(
 
     fun cancelConnecting() {
         connection.cancelConnecting()
-        // 取消落态按场景分流（iOS 设计稿 §1.4，防快照丢失）：从未连上（无 Store 实例）→
+        // 取消落态按场景分流（防快照丢失）：从未连上（无 Store 实例）→
         // .demo（回连接引导页——无数据可保留）；断线重连中取消 → .disconnected（快照保留 +
         // 橙横幅「已取消重连」，可随时再点重连）
         val current = _mode.value

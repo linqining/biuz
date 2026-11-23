@@ -8,7 +8,7 @@ package cn.biuz.android.store
 //   活优先排序、表外 activity run 摘要投影（A' 通路）；
 // - workflowRun() 通路 C：RunEvents 分页重建（G-019 历史 run）；
 // - G-007 迷你轨道：workflowActivity 解析入 Conversation 行 + live-only 过滤。
-// Mock 仅测试装配（红线 §0-4）。
+// Mock 仅测试装配（红线见 AGENTS §5-13）。
 
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.RPCChannelTransport

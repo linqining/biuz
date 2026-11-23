@@ -564,7 +564,7 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertTrue(rowTimeout.waitForExistence(timeout: 30), "重试后（地址仍不可达）应回到失败态")
     }
 
-    // MARK: - 流程 9：未配置冷启动进入连接引导页（对齐修复：未配对=引导为根，设计稿 §1.3；
+    // MARK: - 流程 9：未配置冷启动进入连接引导页（对齐修复：未配对=引导为根；
     // 原「直接进入演示模式」行为随 Mock 移除废止——未连接 ≠ 演示）
 
     func test09_coldStartWithoutConfigShowsConnectGuideRoot() throws {
@@ -595,7 +595,7 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
                       "错误令牌应进入失败态")
 
         relaunch(application)
-        // 对齐修复：重连失败不再回退演示数据——四 Tab 空态 + 失败横幅（设计稿 §1.6）
+        // 对齐修复：重连失败不再回退演示数据——四 Tab 空态 + 失败横幅
         XCTAssertTrue(element(application, "04-tab-chat").waitForExistence(timeout: 10),
                       "重连失败应保持四 Tab 主界面（空数据，不回退演示）")
         XCTAssertTrue(element(application, "13-banner-connection").waitForExistence(timeout: 20),

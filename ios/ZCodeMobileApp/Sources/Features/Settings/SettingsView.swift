@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 屏 12 · 设置（Tab「设置」根）：用户卡 + 服务器与账户分组（v2.4 增量）+ 四分组设置行（行高 48）
+/// 设置（Tab「设置」根）：用户卡 + 服务器与账户分组 + 四分组设置行（行高 48）
 struct SettingsView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AppSettingsModel.self) private var settings
@@ -28,7 +28,7 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .accessibilityIdentifier("12-desktop-host")
                 }
-                // H9 连带（设计稿 §1.7.3）：正式口径恒定描述执行边界；演示页脚仅在
+                // H9 连带：正式口径恒定描述执行边界；演示页脚仅在
                 // -ZCodeDemoData（E2E 演示开关）装配 Mock 时保留（兼容 test06 断言）。
                 // 「文件保持只读」表述已移除（2026-10-08 用户裁决：git/设置等桌面代
                 // 执行写族已开放，只读描述不准确且对用户无价值）
@@ -85,7 +85,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: 服务器与账户分组（v2.4 L4：插于用户卡后第一组）
+    // MARK: 服务器与账户分组（插于用户卡后第一组）
 
     @ViewBuilder
     private var serverAccountGroup: some View {
@@ -96,7 +96,6 @@ struct SettingsView: View {
                     .font(T.font(12, .semibold))
                     .foregroundColor(T.text3)
                     .padding(.leading, 2)
-                StatusPill(text: "v2.4 新增", kind: .tag, compact: true)
             }
             VStack(spacing: 0) {
                 if let server {
@@ -455,7 +454,7 @@ struct SettingsView: View {
                        subtitle: String(localized: "低峰期排队的后台任务"), value: nil, identifier: "12-row-offpeak")
                 // HIDDEN(对齐修复): 反馈工单入口隐藏（feedback.list 双重未取证：web feedbackService 仅
                 // create/comment/upload 族无 list，app 侧形状亦未探针——审查报告 §五）· 恢复条件：feedback.list
-                // 真机探针回执成形后还原（设计稿 H1；destination 的 .feedbackTickets 分支保留编译）
+                // 真机探针回执成形后还原（隐藏入口 H1；destination 的 .feedbackTickets 分支保留编译）
                 // navRow(route: .feedbackTickets, icon: "ladybug", title: "反馈工单",
                 //        subtitle: "查看工单进度", value: nil, identifier: "12-row-feedback")
                 // P3-11C 桌面设置同步（settingService get/update；修改带确认弹层）。
@@ -494,7 +493,7 @@ struct SettingsView: View {
             RemoteCapabilityListPage(capability: .offPeak, title: "错峰任务", icon: "moon.stars")
         case .feedbackTickets:
             // HIDDEN(对齐修复): 入口行已隐藏，此分支不可达；switch 穷尽性无 default 且
-            // SettingsRoute.feedbackTickets case 保留（防路由枚举连锁改动，设计稿 H1），故本分支留存编译
+            // SettingsRoute.feedbackTickets case 保留（防路由枚举连锁改动，隐藏入口 H1），故本分支留存编译
             RemoteCapabilityListPage(capability: .feedback, title: "反馈工单", icon: "ladybug")
         case .serverDetail: ServerDetailView()
         case .devices: DevicesPage() // G-034/G-059：真实连接态 + 多机切换，替换硬编码假在线
@@ -996,7 +995,7 @@ struct AppearanceSettingsView: View {
                     }
                     .accessibilityIdentifier("12-appearance-\(mode.rawValue)")
                 }
-                Text("默认跟随系统深浅变化即时换肤；选择固定档后将始终保持该主题。")
+                Text("默认使用浅色主题；选择「跟随系统」后随系统深浅变化即时换肤，选择固定档则始终保持该主题。")
                     .font(T.font(11.5))
                     .foregroundColor(T.text3)
             }

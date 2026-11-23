@@ -23,15 +23,46 @@
     <string name="chat_msg_collapse">收起</string>
     <string name="chat_msg_copy">复制文本</string>
     <string name="chat_msg_copied">已复制</string>
+    <string name="chat_fork_action">Fork</string>
+    <string name="chat_fork_created_fmt">已派生新会话：%1$s</string>
+    <!-- 回合分组工作摘要（web conversationAssistantWorkItems 同义，2026-11-23） -->
+    <string name="chat_turn_working">工作中…</string>
+    <string name="chat_turn_worked">已工作</string>
+    <string name="chat_turn_summary_explore">探索 %1$d 项</string>
+    <string name="chat_turn_summary_command">运行 %1$d 条命令</string>
+    <string name="chat_turn_summary_change">更改 %1$d 个文件</string>
+    <string name="chat_turn_summary_reasoning">思考 %1$d 段</string>
     <string name="chat_thinking_header">思考中…</string>
     <string name="chat_thinking_done">已思考</string>
     <string name="chat_thinking_interrupted">思考已中断</string>
     <string name="chat_thinking_chars">思考 · %1$d 字</string>
+    <string name="chat_thinking_seconds">思考 · %1$d 秒</string>
     <string name="chat_tool_verb_bash">执行</string>
     <string name="chat_tool_verb_read">读取</string>
     <string name="chat_tool_verb_edit">编辑</string>
     <string name="chat_tool_verb_ask">提问</string>
     <string name="chat_tool_verb_browser">浏览</string>
+    <!-- 工具卡动作词/块标题（web ToolCallBlocks 时态口径，2026-11-23） -->
+    <string name="chat_tool_pending">待处理</string>
+    <string name="chat_tool_failed">失败</string>
+    <string name="chat_tool_stopped">已停止</string>
+    <string name="chat_tool_running_shell">执行中</string>
+    <string name="chat_tool_running_read">读取中</string>
+    <string name="chat_tool_running_write">编辑中</string>
+    <string name="chat_tool_running_search">搜索中</string>
+    <string name="chat_tool_running_fetch">获取中</string>
+    <string name="chat_tool_running_agent">运行中</string>
+    <string name="chat_tool_running_call">调用中</string>
+    <string name="chat_tool_done_shell">已执行</string>
+    <string name="chat_tool_done_read">已读取</string>
+    <string name="chat_tool_done_write">已编辑</string>
+    <string name="chat_tool_done_search">已搜索</string>
+    <string name="chat_tool_done_fetch">已获取</string>
+    <string name="chat_tool_done_agent">已完成</string>
+    <string name="chat_tool_done_call">已调用</string>
+    <string name="chat_tool_parameters">参数</string>
+    <string name="chat_tool_output">输出</string>
+    <string name="chat_tool_fallback_name">工具调用</string>
 
     <!-- userselect 引用卡（label 三规则【实证·上游仓 ConversationSelectionReferenceChip.tsx:24-38】） -->
     <string name="chat_userselect_single_ref">%1$s · 引用</string>
@@ -88,6 +119,7 @@
     <string name="sessions_no_device">未连接设备</string>
     <string name="sessions_section_tasks">任务</string>
     <string name="sessions_view_projects">按项目</string>
+    <string name="sessions_section_projects">项目</string>
     <string name="sessions_view_grouped">按分组</string>
     <string name="sessions_view_timeline">最近更新</string>
     <string name="sessions_view_unread">按未读</string>
@@ -98,8 +130,6 @@
     <string name="sessions_view_grouped_error">按分组加载失败 · %1$s</string>
 
     <!-- 001-登录（对齐 web WebLoginPage.tsx + webAuthLocale.ts:20-24） -->
-    <string name="login_brand">ZCode</string>
-    <string name="login_title">登录后继续使用 Web 远程控制</string>
     <string name="login_description">请选择与电脑端相同的登录平台，并使用同一账号。</string>
     <string name="login_action_zai">连接 Z.ai 继续使用</string>
     <string name="login_action_bigmodel">连接 BigModel 继续使用</string>
@@ -107,7 +137,9 @@
     <string name="login_region_cn">中国</string>
     <string name="login_cancel">取消</string>
     <string name="login_close">暂不登录</string>
+    <string name="app_wordmark">朱批</string>
     <string name="login_entry">登录 Z.ai 账号</string>
+    <string name="login_reload">重载</string>
 
     <!-- 003-设备列表（对齐 web webRemoteControlDeviceListPage.tsx 文案） -->
     <string name="devices_title">选择电脑</string>
@@ -233,7 +265,7 @@
     <string name="app_tagline">朱批一落，代理照办。</string>
     <string name="app_works_with">A mobile remote console that works with ZCode</string>
     <string name="app_foot_data_source">朱批 · 指令经桌面端执行</string>
-    <string name="app_foot_boundary">凭据仅保存在本机 · 连接仅面向可信局域网 · 只读边界由桌面端强制</string>
+    <string name="app_foot_boundary">凭据只保存在本机 · 局域网直连请在可信网络下使用 · 手机端对电脑文件只读</string>
 
     <!-- 会话列表分组标签（kind → 资源；ConversationGrouping.SectionKind 渲染面） -->
     <string name="group_pinned">已置顶</string>
@@ -243,6 +275,8 @@
 
     <!-- 设置页（设置里程碑：语言切换 + 开发者模式 7 连击 + HIDDEN 入口承载） -->
     <string name="settings_title">设置</string>
+    <string name="settings_group_account">账号</string>
+    <string name="settings_logout">退出登录</string>
     <string name="settings_group_data">数据与统计</string>
     <string name="settings_row_usage">用量统计</string>
     <string name="settings_row_usage_sub">连接后同步桌面用量</string>
@@ -334,6 +368,7 @@
     <string name="connect_failed_fmt">连接失败 · %1$s</string>
     <string name="connect_retry">重试连接</string>
     <string name="connect_rescan">重新扫码</string>
+    <string name="connect_use_lan_scan">改用局域网直连 · 扫码</string>
     <string name="connect_delete_record">删除记录</string>
     <string name="connect_dev_target_fmt">目标 %1$s（开发者模式可在连接页手动改址/改令牌）</string>
     <string name="connect_manual_show">手动输入地址连接</string>
@@ -361,6 +396,31 @@
     <string name="connect_fail_empty_ws">桌面端启动未携带 --workspace · 检查启动参数</string>
     <string name="connect_fail_handshake">v4 握手被拒 · 拒因见上方错误码行</string>
     <string name="connect_fail_transport">无法建立 WebSocket · 确认端口与防火墙</string>
+    <!-- 连接页两按钮（2026-11-24 交互重构：账号登录 + 重连/扫码） -->
+    <string name="connect_reconnect_fmt">重连 %1$s</string>
+    <string name="connect_rescan_reconnect">扫码重连</string>
+    <!-- 失败卡简化文案：一行结论 + 一句话（不出现实现层术语） -->
+    <string name="connect_fail_s_auth_title">需要登录后才能连接</string>
+    <string name="connect_fail_s_auth_body">登录电脑上同一个 Z.ai 账号，就会自动连上。</string>
+    <string name="connect_fail_s_owned_title">账号不匹配</string>
+    <string name="connect_fail_s_owned_body">这台电脑用的是另一个 Z.ai 账号，请切换到相同的账号。</string>
+    <string name="connect_fail_s_stale_title">连接已失效</string>
+    <string name="connect_fail_s_stale_body">电脑上的连接二维码已更新，请重新扫码。</string>
+    <string name="connect_fail_s_closed_title">远程控制已关闭</string>
+    <string name="connect_fail_s_closed_body">请在电脑上重新打开远程控制，再重连。</string>
+    <string name="connect_fail_s_conflict_title">已被其他手机接管</string>
+    <string name="connect_fail_s_conflict_body">同一时间只能由一台手机控制，点「重连」即可接管。</string>
+    <string name="connect_fail_s_noproj_title">电脑上没有打开的项目</string>
+    <string name="connect_fail_s_noproj_body">请在电脑上打开一个项目后再连接。</string>
+    <string name="connect_fail_s_offline_title">电脑不在线</string>
+    <string name="connect_fail_s_offline_body">请确认电脑已开机、ZCode 正在运行并连着网络。</string>
+    <string name="connect_fail_s_timeout_title">连接超时</string>
+    <string name="connect_fail_s_timeout_body">电脑没有及时回应，请确认电脑没有休眠后重试。</string>
+    <string name="connect_fail_s_network_title">无法连接服务</string>
+    <string name="connect_fail_s_network_body">请检查手机网络后重试。</string>
+    <string name="connect_fail_s_generic_title">连接失败</string>
+    <string name="connect_fail_s_generic_body">请重试。如果仍然失败，请在电脑上重新打开远程控制。</string>
+    <string name="connect_fail_relay_auth">云中继 V2 链接需要手机端已登录 Z.ai 账号（JWT 换一次性 token）</string>
 
     <!-- 扫码页 -->
     <string name="scan_requesting">正在请求相机权限…</string>
@@ -439,7 +499,7 @@
     <string name="wf_artifact_load_failed">产物内容加载失败 · 桌面端未回执</string>
     <string name="wf_artifact_unsupported">该产物类型暂不支持手机端预览 · 请在桌面端查看</string>
 
-    <!-- 文件页（屏 08 Diff 审查 + 屏 09 目录树/预览） -->
+    <!-- 文件页（Diff 审查 + 目录树/预览） -->
     <string name="files_title">文件</string>
     <string name="files_loading">正在读取变更…</string>
     <string name="files_load_failed_title">文件变更读取失败</string>
@@ -533,7 +593,7 @@
     <string name="cap_plugins_empty_hint">在桌面端插件市场安装后，这里会列出已装插件</string>
     <string name="appearance_title">外观</string>
     <string name="appearance_system">跟随系统</string>
-    <string name="appearance_hint">默认跟随系统深浅变化即时换肤；选择固定档后将始终保持该主题。</string>
+    <string name="appearance_hint">默认使用浅色主题；选择「跟随系统」后随系统深浅变化即时换肤，选择固定档则始终保持该主题。</string>
     <string name="settings_row_appearance">外观</string>
     <string name="settings_row_appearance_sub">跟随系统 / 浅色 / 深色</string>
 <!-- ============ 028 桌面设置同步（iOS DesktopSettingsPage 对位） ============ -->

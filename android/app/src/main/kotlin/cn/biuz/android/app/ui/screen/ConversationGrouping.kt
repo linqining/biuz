@@ -7,7 +7,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 会话列表分组（design-spec 屏 04：置顶 → 今天 → 昨天 → 更早；组内倒序由 Store 投影保证——
+ * 会话列表分组（置顶 → 今天 → 昨天 → 更早；组内倒序由 Store 投影保证——
  * RemoteSessionMerge.toConversations 已按 isPinned desc + updatedAt desc 排序并滤归档行）。
  * 纯函数（边界毫秒注入）：JVM 单测回灌分组正确性。
  *
@@ -49,6 +49,58 @@ internal enum class ListViewMode { PROJECTS, GROUPED, TIMELINE, UNREAD }
 
 /** 渲染用分区（标题 + 行；标题由调用方给已本地化文案）。 */
 internal data class ListSection(val title: String, val rows: List<Conversation>)
+
+// MARK: 两级分组（web project-sidebar Projects / Tasks 同构，2026-11-23）
+
+/** 项目节点（可折叠）：key = 归属目录全路径（去重键），title = 目录末段（项目名）。 */
+internal data class ProjectGroup(
+    val key: String,
+    val title: String,
+    val rows: List<Conversation>,
+) {
+    val runningCount: Int
+        get() = rows.count { it.isRunning }
+
+    val unreadCount: Int
+        get() = rows.count { it.unreadCount > 0 }
+}
+
+/**
+ * 项目视图两级看板：置顶（跨项目）→ 项目节点（可折叠）→ 未归属任务。
+ * 对齐 web `project-sidebar/index.tsx:273-303` + `PurposeSections.tsx:79-146`（Projects /
+ * Tasks 两级），行排序 = 运行中置顶 → 活跃时间降序（web `lib/taskListOrdering.ts:44-71`
+ * 子集：running 层恒在非 running 之上，层内 updatedAt 降序）。
+ */
+internal data class ProjectBoard(
+    val pinned: List<Conversation>,
+    val projects: List<ProjectGroup>,
+    val tasks: List<Conversation>,
+)
+
+/** 行排序：运行中置顶 → 活跃时间降序（稳定可预期）。 */
+internal fun conversationRowOrder(rows: List<Conversation>): List<Conversation> =
+    rows.sortedWith(
+        compareByDescending<Conversation> { it.isRunning }
+            .thenByDescending { it.updatedAt },
+    )
+
+internal fun projectBoard(rows: List<Conversation>): ProjectBoard {
+    val pinned = conversationRowOrder(rows.filter { it.isPinned })
+    val rest = rows.filter { !it.isPinned }
+    val projects = rest.filter { !it.projectName.isNullOrBlank() }
+        .groupBy { it.directory.trim().ifBlank { it.projectName!! } }
+        .entries
+        .sortedByDescending { entry -> entry.value.maxOf { it.updatedAt } }
+        .map { entry ->
+            ProjectGroup(
+                key = entry.key,
+                title = entry.value.firstOrNull()?.projectName ?: entry.key,
+                rows = conversationRowOrder(entry.value),
+            )
+        }
+    val tasks = conversationRowOrder(rest.filter { it.projectName.isNullOrBlank() })
+    return ProjectBoard(pinned = pinned, projects = projects, tasks = tasks)
+}
 
 /**
  * 按项目分组：置顶恒在最前 → 项目组（组间按组内最新降序）→ 未归属「任务」组。

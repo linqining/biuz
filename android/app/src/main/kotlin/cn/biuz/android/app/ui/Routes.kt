@@ -53,7 +53,7 @@ object Routes {
     /** 018 项目管理（project.readTree 只读清单第一波） */
     const val PROJECTS = "settings/projects"
 
-    /** 屏 07 执行输出（模型轨迹） */
+    /** 执行输出（模型轨迹） */
     const val TASK_OUTPUT = "taskOutput/{sessionId}"
 
     fun taskOutput(sessionId: String): String = "taskOutput/$sessionId"

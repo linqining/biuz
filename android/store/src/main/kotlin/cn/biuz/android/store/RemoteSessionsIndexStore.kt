@@ -82,6 +82,28 @@ class RemoteSessionsIndexStore(
     @Volatile
     var archivedTaskIds: Set<String> = emptySet()
 
+    /**
+     * host-scope 组织态补充集（2026-11-24「置顶没有处理」根修）：`listTaskList
+     * {kind:"pinned"/"archived", workspaceScopes:"host"}`（web ProjectTaskRows kind
+     * 同源——SQL pinned=1/archived=1 列过滤）返回的**跨项目**置顶/归档 id 集。
+     * 上游 zcodeTaskMetaSchema 无 pinned/archived 字段（validation.ts:2056；sqlite 列
+     * 也不投影进 wire item），task-index 行无法自带组织态，membership 枚举源又只有
+     * 当前 tabs——跨项目置顶只有这条 host 专查能到。与 membership 取并集（各源替换
+     * 互不清除）。
+     */
+    @Volatile
+    var hostPinnedTaskIds: Set<String> = emptySet()
+
+    @Volatile
+    var hostArchivedTaskIds: Set<String> = emptySet()
+
+    /** 组织态合并视图（membership ∪ host 专查；投影三源 join 用）。 */
+    val effectivePinnedIds: Set<String>
+        get() = pinnedTaskIds + hostPinnedTaskIds
+
+    val effectiveArchivedIds: Set<String>
+        get() = archivedTaskIds + hostArchivedTaskIds
+
     /** 未读本地置位（「标记未读」；投影未读 = 本地置位 ? max(pending,1) : pending）。 */
     @Volatile
     var unreadFlags: Map<String, Boolean> = emptyMap()
@@ -279,8 +301,8 @@ class RemoteSessionsIndexStore(
             titleOverrides = titleOverrides,
             pinnedOverrides = pinnedOverrides,
             archivedOverrides = archivedOverrides,
-            pinnedIds = pinnedTaskIds,
-            archivedIds = archivedTaskIds,
+            pinnedIds = effectivePinnedIds,
+            archivedIds = effectiveArchivedIds,
             unreadFlags = unreadFlags,
         )
     }
@@ -291,8 +313,8 @@ class RemoteSessionsIndexStore(
             titleOverrides = titleOverrides,
             pinnedOverrides = pinnedOverrides,
             archivedOverrides = archivedOverrides,
-            pinnedIds = pinnedTaskIds,
-            archivedIds = archivedTaskIds,
+            pinnedIds = effectivePinnedIds,
+            archivedIds = effectiveArchivedIds,
             unreadFlags = unreadFlags,
         )
 
@@ -306,8 +328,8 @@ class RemoteSessionsIndexStore(
             titleOverrides = titleOverrides,
             pinnedOverrides = pinnedOverrides,
             archivedOverrides = archivedOverrides,
-            pinnedIds = pinnedTaskIds,
-            archivedIds = archivedTaskIds,
+            pinnedIds = effectivePinnedIds,
+            archivedIds = effectiveArchivedIds,
             unreadFlags = unreadFlags,
             includeArchived = true,
         ).filter { it.isArchived }

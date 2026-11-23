@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 屏 04 · 会话列表（Tab「会话」根）
+/// 会话列表（Tab「会话」根）
 /// v3 纠偏增量：行长按菜单（重命名 / 标记未读 / 复制会话 ID）与「已归档」分区
 /// （连接态 listArchivedTasks + unarchiveTask；演示态 rename/markUnread 走本地 mock）。
 /// 项 5 增量（Qoder 对照屏 1）：顶部来源过滤 chips（全部 / 我的 Mac；

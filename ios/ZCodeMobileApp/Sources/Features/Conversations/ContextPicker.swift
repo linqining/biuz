@@ -202,7 +202,7 @@ struct ContextCapsule: View {
     }
 }
 
-// MARK: - 屏 03-P 项目选择页（搜索 + 不指定 + 最近使用 + 全部项目可折叠组；spec 口径）
+// MARK: - 项目选择页（搜索 + 不指定 + 最近使用 + 全部项目可折叠组）
 
 struct ProjectPickerSheet: View {
     @Environment(\.dismiss) private var dismiss

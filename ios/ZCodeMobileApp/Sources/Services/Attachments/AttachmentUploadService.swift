@@ -3,7 +3,7 @@ import Foundation
 import Observation
 import UniformTypeIdentifiers
 
-// MARK: - 待发附件（P1-1 设计稿 §1.4 状态矩阵的 UI 态模型）
+// MARK: - 待发附件（P1-1 待发附件状态矩阵的 UI 态模型）
 
 /// 单个待发附件的完整生命周期：pending → uploading → committed / failed。
 /// 失败保留 uploadId（Abort 未送达时重试按服务端已收块数续传，Begin 回执
@@ -73,7 +73,7 @@ final class AttachmentUploadService {
     private let sessionID: String
 
     private(set) var items: [PendingAttachment] = []
-    /// 超限/来源读取类提示（设计稿 1.3⑤ 文案；短暂展示后自动清除）
+    /// 超限/来源读取类提示（短暂展示后自动清除）
     private(set) var hint: String?
     /// 进度回调（每块送达后触发；UI 主要经 Observable items 绑定，回调供诊断/埋点）
     var onProgress: (@MainActor (PendingAttachment) -> Void)?
@@ -88,7 +88,7 @@ final class AttachmentUploadService {
 
     var isEmpty: Bool { items.isEmpty }
     var totalCount: Int { items.count }
-    /// 有待发附件且有未 committed 项：sendButton 禁用（设计稿 1.3③/1.4）
+    /// 有待发附件且有未 committed 项：sendButton 禁用
     var blocksSend: Bool { items.contains { $0.state != .committed } }
     var firstFailureText: String? { items.first { $0.state == .failed }?.errorText }
     var firstFailureIndex: Int? { items.firstIndex { $0.state == .failed } }
@@ -148,7 +148,7 @@ final class AttachmentUploadService {
         }
     }
 
-    // MARK: 发送联动（设计稿 1.3③：全部 committed 后随下一次发送携带）
+    // MARK: 发送联动（全部 committed 后随下一次发送携带）
 
     /// 发送前收口：未完成项顺序补传（顺序上传=并发 1，上游 COMPOSER_ATTACHMENT_
     /// UPLOAD_CONCURRENCY=2 内——§11.2）。返回 false = 仍有失败项（本次不发送，

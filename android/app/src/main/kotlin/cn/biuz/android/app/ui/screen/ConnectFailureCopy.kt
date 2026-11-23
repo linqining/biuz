@@ -75,6 +75,13 @@ private val FAILURE_COPY = mapOf(
         "手机端无法稳定连接 Web 远程控制中转服务。", "连接详情",
         listOf("检查手机网络是否可访问外网。", "如果电脑端仍在线，可以稍后刷新重试。"), "重试",
     ),
+    // 云中继登录门槛（iOS ConnectError.relayAuthRequired 同构）：桌面端二维码是云中继链接，
+    // 手机端未登录即此态——登录后自动重连，或改用局域网直连（免登录）。
+    "relay-auth-required" to ConnectFailureCopy(
+        "relay-auth-required", "warning", "登录门槛", "云中继需要登录 Z.ai 账号",
+        "这台电脑通过云中继连接，需要手机端先登录 Z.ai 账号（与电脑端同一账号）。", "登录状态",
+        listOf("登录成功后会自动连接已配对的电脑。", "如果电脑和手机在同一局域网，也可以改用局域网直连（免登录）。"), "登录 Z.ai 账号",
+    ),
     "unsupported-action" to ConnectFailureCopy(
         "unsupported-action", "neutral", "暂不支持", "当前动作暂不支持",
         "Web 远程控制只支持访问桌面端已经打开的工作区。", "限制说明",
@@ -98,6 +105,7 @@ fun failureReasonForConnectError(error: cn.biuz.android.connection.ConnectError)
     is cn.biuz.android.connection.ConnectError.EmptyWorkspaces -> "workspace-closed"
     is cn.biuz.android.connection.ConnectError.HandshakeFailed -> DEFAULT_REASON
     is cn.biuz.android.connection.ConnectError.Transport -> "relay-unavailable"
+    is cn.biuz.android.connection.ConnectError.RelayAuthRequired -> "relay-auth-required"
 }
 
 fun failureCopyFor(reason: String): ConnectFailureCopy =
@@ -105,3 +113,60 @@ fun failureCopyFor(reason: String): ConnectFailureCopy =
 
 fun failureCopyForConnectError(error: cn.biuz.android.connection.ConnectError): ConnectFailureCopy =
     failureCopyFor(failureReasonForConnectError(error))
+
+// MARK: - 失败卡简化呈现层（2026-11-24 交互重构，用户裁决「简化错误信息」）
+
+/**
+ * 连接页只剩两个按钮（账号登录 + 重连/扫码），失败卡收敛为
+ * 「一行结论 + 一句话」——不再渲染徽标 / mono 错误码 / nextSteps 清单 / 排查行
+ * （[ConnectFailureCopy] 全量文案与 [connectFailureHints] 排查行保留为开发者模式的
+ * 诊断面与 web 对拍底稿）。文案不出现「云中继 / 中转 / 令牌 / 工作区」等实现词。
+ *
+ * [ConnectRecovery] 决定次按钮的动作与文案，并决定两个按钮谁是主 CTA
+ * （spec L3「唯一主 CTA 随错误类型切换」）。
+ */
+enum class ConnectRecovery {
+    /** 重试连接（次按钮 = 重连，且为主 CTA——登录帮不上忙的错误）。 */
+    RECONNECT,
+
+    /** 链接已失效（次按钮 = 扫码重连：扫电脑上最新的二维码）。 */
+    RESCAN,
+
+    /** 需要登录 / 换账号（主 CTA = 登录 Z.ai 账号，登录后 autoConnectAfterLogin 自动接管）。 */
+    LOGIN,
+}
+
+/** 失败 reason → 恢复动作。 */
+fun recoveryForConnectFailure(reason: String): ConnectRecovery = when (reason) {
+    "relay-auth-required", "device-not-owned" -> ConnectRecovery.LOGIN
+    "session-not-found", "invalid-mobile-connection" -> ConnectRecovery.RESCAN
+    else -> ConnectRecovery.RECONNECT
+}
+
+/** 失败 reason → 一行结论（资源 id；未登记 reason 落通用「连接失败」）。 */
+fun connectFailureTitleRes(reason: String): Int = when (reason) {
+    "relay-auth-required" -> cn.biuz.android.app.R.string.connect_fail_s_auth_title
+    "device-not-owned" -> cn.biuz.android.app.R.string.connect_fail_s_owned_title
+    "session-not-found", "invalid-mobile-connection" -> cn.biuz.android.app.R.string.connect_fail_s_stale_title
+    "session-expired" -> cn.biuz.android.app.R.string.connect_fail_s_closed_title
+    "session-conflict" -> cn.biuz.android.app.R.string.connect_fail_s_conflict_title
+    "workspace-closed", "unsupported-action" -> cn.biuz.android.app.R.string.connect_fail_s_noproj_title
+    "desktop-disconnected" -> cn.biuz.android.app.R.string.connect_fail_s_offline_title
+    "desktop-bootstrap-timeout", "connection-recovery-timeout" -> cn.biuz.android.app.R.string.connect_fail_s_timeout_title
+    "relay-unavailable" -> cn.biuz.android.app.R.string.connect_fail_s_network_title
+    else -> cn.biuz.android.app.R.string.connect_fail_s_generic_title
+}
+
+/** 失败 reason → 一句话解释（资源 id；与 [connectFailureTitleRes] 同分组）。 */
+fun connectFailureBodyRes(reason: String): Int = when (reason) {
+    "relay-auth-required" -> cn.biuz.android.app.R.string.connect_fail_s_auth_body
+    "device-not-owned" -> cn.biuz.android.app.R.string.connect_fail_s_owned_body
+    "session-not-found", "invalid-mobile-connection" -> cn.biuz.android.app.R.string.connect_fail_s_stale_body
+    "session-expired" -> cn.biuz.android.app.R.string.connect_fail_s_closed_body
+    "session-conflict" -> cn.biuz.android.app.R.string.connect_fail_s_conflict_body
+    "workspace-closed", "unsupported-action" -> cn.biuz.android.app.R.string.connect_fail_s_noproj_body
+    "desktop-disconnected" -> cn.biuz.android.app.R.string.connect_fail_s_offline_body
+    "desktop-bootstrap-timeout", "connection-recovery-timeout" -> cn.biuz.android.app.R.string.connect_fail_s_timeout_body
+    "relay-unavailable" -> cn.biuz.android.app.R.string.connect_fail_s_network_body
+    else -> cn.biuz.android.app.R.string.connect_fail_s_generic_body
+}

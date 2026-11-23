@@ -6,7 +6,7 @@ package cn.biuz.android.protocol
 // - 终态不回 dispose（服务端已终结订阅）；
 // - 后续同 id eventFire 不再投递（handler 已移除）；
 // - eventFire 正常路径不受影响（正控）。
-// Mock 仅测试装配（红线 §0-4）。
+// Mock 仅测试装配（红线见 AGENTS §5-13）。
 
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration.Companion.seconds

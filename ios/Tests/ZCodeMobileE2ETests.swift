@@ -3,7 +3,7 @@ import XCTest
 /// ZCode Mobile · 核心用户流程 e2e（XCUITest 原生 UI 测试）。
 ///
 /// 约定：
-/// - 选择器一律基于 accessibilityIdentifier（与 App 内三段式 id 契约对齐，见 design-spec §5.10）；
+/// - 选择器一律基于 accessibilityIdentifier（与 App 内三段式 id 契约对齐）；
 /// - 只用 waitForExistence / XCTNSPredicateExpectation 等待，容忍流式动画与首屏加载，不写固定 sleep；
 /// - 每个用例独立 launch，Mock 数据常驻内存、每次启动重建，设置走 UserDefaults —— 用例间无顺序依赖、可重复执行；
 /// - 本文件只做编译级自检，由统一门禁脚本在模拟器上执行。

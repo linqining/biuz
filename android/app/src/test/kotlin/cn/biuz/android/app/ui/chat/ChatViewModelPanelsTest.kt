@@ -1,7 +1,7 @@
 package cn.biuz.android.app.ui.chat
 
 // 会话面板 VM 面单测（面板投影/控制命令 ack 三态/迷你轨道会话行投影；iOS ChatViewModel
-// 面板面直译轮的 JVM 直测。虚拟时钟驱动；Mock 仅测试装配——红线 §0-4）。
+// 面板面直译轮的 JVM 直测。虚拟时钟驱动；Mock 仅测试装配——红线见 AGENTS §5-13）。
 
 import cn.biuz.android.protocol.BackgroundWorkSummary
 import cn.biuz.android.protocol.ChatMessage

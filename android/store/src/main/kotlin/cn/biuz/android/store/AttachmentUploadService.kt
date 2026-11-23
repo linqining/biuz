@@ -37,7 +37,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// MARK: - 待发附件（P1-1 设计稿 §1.4 状态矩阵的 UI 态模型；iOS :6-46）
+// MARK: - 待发附件（P1-1 待发附件状态矩阵的 UI 态模型；iOS :6-46）
 
 /**
  * 单个待发附件的完整生命周期：pending → uploading → committed / failed。
@@ -132,7 +132,7 @@ class AttachmentUploadService(
     private val itemsInternal = ArrayList<PendingAttachment>()
     private val scope = CoroutineScope(SupervisorJob() + backgroundDispatcher)
 
-    /** 超限/来源读取类提示（设计稿 1.3⑤ 文案；短暂展示后自动清除）（iOS :77）。 */
+    /** 超限/来源读取类提示（短暂展示后自动清除）（iOS :77）。 */
     @Volatile
     var hint: String? = null
         private set
@@ -149,7 +149,7 @@ class AttachmentUploadService(
 
     val totalCount: Int get() = synchronized(lock) { itemsInternal.size }
 
-    /** 有待发附件且有未 committed 项：sendButton 禁用（设计稿 1.3③/1.4）。 */
+    /** 有待发附件且有未 committed 项：sendButton 禁用。 */
     val blocksSend: Boolean
         get() = synchronized(lock) { itemsInternal.any { it.state != PendingAttachment.State.committed } }
 
@@ -237,7 +237,7 @@ class AttachmentUploadService(
         }
     }
 
-    // MARK: 发送联动（设计稿 1.3③：全部 committed 后随下一次发送携带；iOS :151-190）
+    // MARK: 发送联动（全部 committed 后随下一次发送携带；iOS :151-190）
 
     /**
      * 发送前收口：未完成项顺序补传（顺序上传=并发 1，上游 COMPOSER_ATTACHMENT_

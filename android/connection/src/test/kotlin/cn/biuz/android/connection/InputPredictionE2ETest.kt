@@ -6,7 +6,7 @@ package cn.biuz.android.connection
 // - 线格式对拍（spec 线格式表 + contract.ts strict schema）：会话 target（A7）+ revision
 //   + draft（≤4000，空省略）+ requestId（≤128）；
 // - 回执 decision=show → topText=首候选（不 trim）；RPC 异常 → null（spec 失败语义）。
-// Mock 仅测试装配（红线 §0-4）：替身桌面承载回执，客户端为真实实现。
+// Mock 仅测试装配（红线见 AGENTS §5-13）：替身桌面承载回执，客户端为真实实现。
 
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.RPCValue

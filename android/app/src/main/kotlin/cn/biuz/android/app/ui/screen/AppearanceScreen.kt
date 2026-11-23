@@ -35,7 +35,7 @@ import cn.biuz.android.app.ui.theme.BiuZText3
 
 /**
  * 外观设置（`/remote/v4#settings/appearance`）—— iOS `AppearanceSettingsView`
- * （SettingsView.swift:939-980）同构：三档 `跟随系统 / Zai Light / Zai Dark` + 勾选 + 说明。
+ * （SettingsView.swift:939-980）同构：三档 `跟随系统 / 朱批 · 浅色 / 朱批 · 深色` + 勾选 + 说明。
  * 选择即时生效（主题重组换肤）并持久化（`settings.appearance`）。
  */
 @Composable
@@ -48,8 +48,8 @@ fun AppearanceScreen(
     @Composable
     fun label(appearance: AppAppearance): String = when (appearance) {
         AppAppearance.SYSTEM -> stringResource(R.string.appearance_system)
-        AppAppearance.LIGHT -> "Zai Light"
-        AppAppearance.DARK -> "Zai Dark"
+        AppAppearance.LIGHT -> "朱批 · 浅色"
+        AppAppearance.DARK -> "朱批 · 深色"
     }
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {

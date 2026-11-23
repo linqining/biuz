@@ -1,6 +1,6 @@
 package cn.biuz.android.app.ui.screen
 
-// 文件页（屏 08 Diff 审查根 + 屏 09 目录树/预览；iOS DiffReviewView.swift + FileTreeView.swift
+// 文件页（Diff 审查根 + 目录树/预览；iOS DiffReviewView.swift + FileTreeView.swift
 // 直译的对位）。职责边界（本任务清单）：
 // - Diff 只读渲染（hunk/add/del/ctx 四类着色；只读——文件内容桌面代管，移动端零写入面）；
 // - 逐文件批准 = git.stagePaths / 拒绝 = git.unstagePaths（可逆；破坏性 discardPaths 不接，
@@ -105,7 +105,7 @@ enum class DiffSource(val id: String) {
 }
 
 /**
- * 屏 08 · Diff 审查（文件页根）：分段数据源 + 统计行 + 文件卡列表 + 底部「全部批准」。
+ * Diff 审查（文件页根）：分段数据源 + 统计行 + 文件卡列表 + 底部「全部批准」。
  * 演示态（EmptyFileStore）不渲染分段、行为退化为单维度空读。
  */
 @Composable
@@ -771,7 +771,7 @@ fun DiffLineList(lines: List<DiffLine>, modifier: Modifier = Modifier) {
     }
 }
 
-// MARK: - 屏 09 · 目录树（文件夹展开/收起、文件行 mono、点击进预览；搜索服务端有界候选）
+// MARK: - 目录树（文件夹展开/收起、文件行 mono、点击进预览；搜索服务端有界候选）
 
 /**
  * 工作区文件树。演示态（!isRemote）保持本地过滤；连接态搜索走 file.searchWorkspaceFiles
@@ -1077,7 +1077,7 @@ private fun TreeRow(
     }
 }
 
-// MARK: - 屏 09 · 产物预览（Push L3）：文件名 + 大小、分段 预览/源码 + 有界分页读
+// MARK: - 产物预览（Push L3）：文件名 + 大小、分段 预览/源码 + 有界分页读
 
 /**
  * 文件预览。文本走 contentPage 有界读（首屏 + 截断「加载更多」按 offset 追加）；

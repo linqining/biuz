@@ -196,7 +196,7 @@ struct UsageStatsView: View {
                     .foregroundColor(T.text3)
             }
             // 当前套餐权益子块（P3-9：getEntitlementSnapshot）——插在三分支之后，
-            // usage 为 nil/旧形态/无窗口三形态下都有渲染位（设计稿 §9.1）
+            // usage 为 nil/旧形态/无窗口三形态下都有渲染位
             entitlementSection
         }
         .card()
@@ -244,7 +244,7 @@ struct UsageStatsView: View {
     }
 
     /// 当前套餐权益子块（P3-9：usage-stats.getEntitlementSnapshot，纯展示无交互）。
-    /// 状态矩阵（设计稿 §9.4 + web 口径 2026-10-06）：成功=权益行列表（≤8 行，多则
+    /// 状态矩阵（web 口径 2026-10-06）：成功=权益行列表（≤8 行，多则
     /// 「在桌面端查看全部」尾行）+ 档位头（quota.level，缺席回落首条 productName）+
     /// 顶层 remaining 透出；未订阅（unavailableReason === "no_plan"）=单行如实空态；
     /// 空（无在期订阅条目）=子块整体不渲染；失败（投影 nil 且页面已过加载态）=
@@ -309,7 +309,7 @@ struct UsageStatsView: View {
         }
     }
 
-    /// 权益行：✓ 图标 + 名称（+描述）+ 数值（mono）+「已含」角标（设计稿 §9.2；
+    /// 权益行：✓ 图标 + 名称（+描述）+ 数值（mono）+「已含」角标（
     /// 「已含」为展示文案——服务端 included 类字段未取证，不做未含态区分）
     private func entitlementRow(_ item: CodingPlanEntitlement) -> some View {
         HStack(spacing: T.sp2) {
@@ -1027,7 +1027,7 @@ struct RemoteCapabilityListPage: View {
 
     enum LoadPhase: Equatable {
         case loading, loaded, failed
-        /// U-7（审查报告 §六 / 设计稿 H11）：未连接与「已连接但读取失败」两相区分——
+        /// U-7（审查报告 §六 / 隐藏入口 H11）：未连接与「已连接但读取失败」两相区分——
         /// 未连接是引导连接，不是读面失败；此前未连接也渲染「移动端读面尚未接入」
         /// 占位，用户（和审核员）会误以为功能是死的
         case notConnected
@@ -1126,7 +1126,7 @@ struct RemoteCapabilityListPage: View {
             Text(String(localized: "其提供的工具将从桌面端 Agent 移除；可重新安装恢复。"))
         }
         // HIDDEN(对齐修复): startSavedWorkflow 不在 web 枚举、payload 零取证 · 恢复条件：桌面真机探针 accepted
-        // （P2-4 启动工作流 sheet 挂载整体隐藏，设计稿 H2；StartWorkflowSheet/performStart/interpretStartAck 保留编译）
+        // （P2-4 启动工作流 sheet 挂载整体隐藏；StartWorkflowSheet/performStart/interpretStartAck 保留编译）
         /* HIDDEN(对齐修复) 同上
         // P2-4 启动工作流 sheet（sheet 本身即确认层；下发经 store 统一信封出口）
         .sheet(item: $startTarget) { row in
@@ -1160,7 +1160,7 @@ struct RemoteCapabilityListPage: View {
             }
             Spacer()
             /* HIDDEN(对齐修复): startSavedWorkflow 不在 web 命令枚举、payload {workflowId,args} 零取证
-               （审查报告 §五）· 恢复条件：桌面真机探针 accepted · 列表保留只读（设计稿 H2）
+               （审查报告 §五）· 恢复条件：桌面真机探针 accepted · 列表保留只读（隐藏入口 H2）
             // P2-4 启动钮（仅 savedWorkflows 工作流行渲染；最近运行 run- 行不渲染；
             // 样式照 TaskCardView「去审批」44pt 热区，accent 底替代橙底）
             if capability == .savedWorkflows, row.id.hasPrefix("wf-") {
@@ -1186,7 +1186,7 @@ struct RemoteCapabilityListPage: View {
                 StatusPill(text: badge, kind: .tag, compact: true)
             }
             // HIDDEN(对齐修复): 「运行中」badge 回显依赖启动钮写入 startedWorkflowIDs，随启动钮
-            // 一起隐藏（设计稿 H2）· 恢复条件：startSavedWorkflow 真机探针 accepted 后还原：
+            // 一起隐藏（隐藏入口 H2）· 恢复条件：startSavedWorkflow 真机探针 accepted 后还原：
             // else if capability == .savedWorkflows, let workflowID = row.workflowID,
             //          startedWorkflowIDs.contains(workflowID) {
             //     StatusPill(text: String(localized: "运行中"), kind: .run, compact: true)
@@ -2034,7 +2034,7 @@ struct StartWorkflowSheet: View {
                     .tint(T.accent)
                     .accessibilityIdentifier("12-wfstart-field-\(field.key)")
             case .choice:
-                // identifier 挂 Menu 本体而非 label（门禁实证口径，§0.3）
+                // identifier 挂 Menu 本体而非 label（门禁实证口径，AGENTS §5-14）
                 Menu {
                     ForEach(field.options, id: \.self) { option in
                         Button(option) { choiceValues[field.key] = option }

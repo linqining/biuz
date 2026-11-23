@@ -2,7 +2,7 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 屏 05 · Agent 对话（Push L2）
+/// Agent 对话（Push L2）
 /// 连接态与演示态共用发送/应答链路（v3 纠偏：客户端发命令、桌面代执行）；
 /// 连接态增量面：桌面端模型只读 chips、待审批交互卡、向上分页。
 struct ChatView: View {
@@ -799,14 +799,14 @@ struct ActorTranscriptSheet: View {
     }
 }
 
-// MARK: - 权限审批 optionId 推导（A-3 / 设计稿 §3.2 规则 2/3；两处权限 UI 共用：
+// MARK: - 权限审批 optionId 推导（A-3；两处权限 UI 共用：
 // 会话内 ApprovalInteractionCard 与任务页 ApprovalSheetView）
 //
 // web 四族词表 allowOnce/allowAlways/rejectOnce/rejectAlways（bundle 归一化函数
 // dQ 实证：小写包含 allow|approve → allow 族、reject|deny → reject 族、含 always
 // 升 Always 档，否则 custom）。应答 answer={optionId}——优先回传服务端原生
 // optionId（web 调用点 {optionId: t.optionId}，按钮即选项）；options 空时按
-// 设计稿拼规范 id：(approved ? "allow" : "reject") + (always ? "Always" : "Once")。
+// 拼规范 id：(approved ? "allow" : "reject") + (always ? "Always" : "Once")。
 
 enum PermissionFamily {
     case allowOnce, allowAlways, rejectOnce, rejectAlways, custom
@@ -861,7 +861,7 @@ struct PermissionOptionMatrix: Equatable {
         allowOnce == nil && allowAlways == nil && rejectOnce == nil && rejectAlways == nil
     }
 
-    /// 档位可见性（设计稿规则 3）：仅本次 ⇔ allowOnce/rejectOnce 任一在场；始终允许
+    /// 档位可见性：仅本次 ⇔ allowOnce/rejectOnce 任一在场；始终允许
     /// ⇔ allowAlways/rejectAlways 任一在场。无四族时两档恒可见（规则 2 默认形态，
     /// 该形态下方向钮恒可用、optionId 走拼接）。
     var showsOnceChip: Bool { isAllCustom || allowOnce != nil || rejectOnce != nil }
@@ -875,7 +875,7 @@ struct PermissionOptionMatrix: Equatable {
         return always ? rejectAlways != nil : rejectOnce != nil
     }
 
-    /// 应答 optionId：优先服务端原生 id；无四族（options 空）按设计稿拼规范 id；
+    /// 应答 optionId：优先服务端原生 id；无四族（options 空）拼规范 id；
     /// 组合无效（该方向四族缺席）返回 nil——调用方不出手
     func optionId(approved: Bool, always: Bool) -> String? {
         let matched = approved
@@ -886,7 +886,7 @@ struct PermissionOptionMatrix: Equatable {
         return (approved ? "allow" : "reject") + (always ? "Always" : "Once")
     }
 
-    /// 默认档（设计稿规则 3）：首个两方向齐全的档；无齐全档选首个可见档
+    /// 默认档：首个两方向齐全的档；无齐全档选首个可见档
     func defaultScopeAlways() -> Bool {
         if canDecide(approved: true, always: false), canDecide(approved: false, always: false) {
             return false
@@ -918,7 +918,7 @@ struct ApprovalInteractionCard: View {
     @Bindable var viewModel: ChatViewModel
     let interaction: RemotePendingInteraction
 
-    /// 授权范围两档（A-3/设计稿 §3.2 规则 4：原 task 档在 wire 四族值域无对应，删除；
+    /// 授权范围两档（A-3：原 task 档在 wire 四族值域无对应，删除；
     /// 服务端携带等效自定义 id 时经 customOptions 直选呈现，不进两步矩阵）
     enum AuthScope: String, CaseIterable, Identifiable {
         case once, always
@@ -945,7 +945,7 @@ struct ApprovalInteractionCard: View {
     @State private var deciding = false
     // P2-7B「稍后处理」进行中（批准/拒绝同步 disabled，deciding 机制同款）
     @State private var snoozing = false
-    // 旧桌面端无 snooze 命令（viewModel 依回执宽容判定）→ 按钮降级纯关闭（§7B）
+    // 旧桌面端无 snooze 命令（viewModel 依回执宽容判定）→ 按钮降级纯关闭
     @State private var snoozeUnsupported = false
     // A-3/U-5：决议失败如实回显（回执拒绝/未送达），按钮恢复可点、卡片不撤
     @State private var decisionError: String?
@@ -991,7 +991,7 @@ struct ApprovalInteractionCard: View {
                 }
             }
             if matrix.isAllCustom, !matrix.customOptions.isEmpty {
-                // 设计稿 §3.2 规则 3 末条：options 全为非四族 id → chips 即选项，
+                // options 全为非四族 id → chips 即选项，
                 // 单选即决（自带方向语义，点选即发原生 optionId），批准/拒绝两钮整组隐藏
                 FlowChips(items: matrix.customOptions.map(\.label), identifierPrefix: "05-choice") { label in
                     if let option = matrix.customOptions.first(where: { $0.label == label }) {
@@ -1051,7 +1051,7 @@ struct ApprovalInteractionCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("05-approval-decision-error")
             }
-            // P2-7B「稍后处理」（设计稿 §7B：批准/拒绝行下方第三动作，text3 居中行，
+            // P2-7B「稍后处理」（批准/拒绝行下方第三动作，text3 居中行，
             // 样式照抄 ApprovalSheetView 同名动作）。成功后卡片由桌面 pendingInteractions
             // 回流撤下（>1s 未至 viewModel 本地遮罩兜底）；hint 走 viewModel.snoozeFeedback
             // 通道（卡片可能随即收起，提示不能挂在卡片内）。命令不存在（旧桌面端）时
@@ -1170,7 +1170,7 @@ struct ApprovalInteractionCard: View {
     }
 
     /// 「稍后处理」（snoozeInteractionAutoResolution；hint 由 viewModel.snoozeFeedback
-    /// 通道给出）。旧桌面端无该命令（回执宽容判定）→ 按钮降级纯关闭（§7B 状态矩阵）
+    /// 通道给出）。旧桌面端无该命令（回执宽容判定）→ 按钮降级纯关闭
     private func snooze() {
         snoozing = true
         Task {
@@ -1283,7 +1283,7 @@ struct PlanApprovalCard: View {
 
     /// A-3：计划族 answer={action:"accept"|"decline"}（原 approved/scope 平铺形态是
     /// wire 不存在的键）。cancel 不设按钮——「稍后处理」snooze 独立命令承担挂起语义
-    /// （设计稿 §3.3）；content（可选理由）首版不做输入，键缺省不发。
+    /// ；content（可选理由）首版不做输入，键缺省不发。
     private func decide(approved: Bool) {
         deciding = true
         Task {
@@ -1816,7 +1816,7 @@ struct ComposerBar: View {
     var inputFocused: FocusState<Bool>.Binding
     /// U-6 发送失败持久错误行（非 3s 自动消失）：失败时置位 + 草稿已由 viewModel
     /// 回填；清除时机 = 发送成功 / 用户手动编辑 draft / 离开会话（数据安全提示
-    /// 必须显式关闭，设计稿 §5.1）
+    /// 必须显式关闭）
     @State private var sendFailure: String?
     @State private var retryingSend = false
     /// U-6：未送达时回填的草稿快照——用户手动编辑（draft 与快照不一致）即清错误行
@@ -1826,7 +1826,7 @@ struct ComposerBar: View {
     /// （客户端发命令、桌面代执行边界不变）。UI 已按验收 B 以「偏好」如实标注。
     @State private var executionTarget = DeviceOption.cloudSandbox
 
-    // P1-1 附件三来源（设计稿 1.3①：底部 sheet 拍照/照片图库/文件）
+    // P1-1 附件三来源（底部 sheet 拍照/照片图库/文件）
     @State private var showAttachmentSource = false
     /// 来源接力（sheet onDismiss 后再呈现相机/图库/文件选择器，避免同视图双呈现竞态）
     @State private var pendingAttachmentSource: AttachmentSource?
@@ -1835,9 +1835,9 @@ struct ComposerBar: View {
     @State private var showFileImporter = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
 
-    // P2-7 压缩入口（设计稿 §7A：contextMeter 即入口，点击弹确认；进行中不可再点）
+    // P2-7 压缩入口（contextMeter 即入口，点击弹确认；进行中不可再点）
     @State private var showCompactConfirm = false
-    // P1-2 模式行一次性标注（设计稿 §2.7③：协作模式无桌面读面，首屏显示本机偏好）
+    // P1-2 模式行一次性标注（协作模式无桌面读面，首屏显示本机偏好）
     @State private var modeDisclaimerShown = false
 
     // 五选择器统一自绘底部面板（用户 2026-10-07：系统 Menu 弹层与 App 设计风格
@@ -1851,13 +1851,13 @@ struct ComposerBar: View {
     var body: some View {
         VStack(spacing: T.sp2) {
             // HIDDEN(对齐修复): composer 执行目标菜单隐藏（sendText 信封无目标路由字段，
-            // 「仅记录偏好」的本地菜单构成假选择——设计稿 H5）· 恢复条件：sendText 有
+            // 「仅记录偏好」的本地菜单构成假选择——隐藏入口 H5）· 恢复条件：sendText 有
             // 目标路由字段。E2E 兼容：-ZCodeDemoData 演示开关下保留（FeatureCompletion
             // test07 目标选择器用例依赖该行）；ExecutionTargetStore 本体保留（持久化面）
             if AppSession.isDemoDataEnabled {
                 targetRow
             }
-            // P1-2 模式行（设计稿 §2.2：独立 modeRow 插在 targetRow 与 switchHint 之间
+            // P1-2 模式行（独立 modeRow 插在 targetRow 与 switchHint 之间
             // ——不挤 targetRow 一行，窄屏溢出；仅连接态渲染，同 remoteChips 口径）
             if viewModel.isReadOnly {
                 modeRow
@@ -2012,14 +2012,14 @@ struct ComposerBar: View {
                 restoredDraftText = nil
             }
             // 3.17.2 输入预测：非空草稿停顿即预测续写；空草稿仅失焦+空闲时预测下一条
-            //（spec「输入框为空、失焦且会话空闲」——聚焦清空〔发送后〕不立即触发）
+            //（「输入框为空、失焦且会话空闲」——聚焦清空〔发送后〕不立即触发）
             if !newDraft.isEmpty || !inputFocused.wrappedValue {
                 viewModel.scheduleInputPrediction()
             } else {
                 viewModel.invalidateInputHint()
             }
         }
-        // 添加附件来源选择（设计稿 1.3①）：自绘底部 sheet——confirmationDialog 在本
+        // 添加附件来源选择：自绘底部 sheet——confirmationDialog 在本
         // OS 版本渲染成锚定 popovers（用户报障 2026-10-07「弹窗都弹到什么地方去了」，
         // P2ExtrasViews.swift:65 同款先例改 .alert），拍照/图库/文件三通道改经
         // pendingAttachmentSource 于 onDismiss 接力呈现（避免 sheet 套 sheet 竞态）
@@ -2060,8 +2060,8 @@ struct ComposerBar: View {
             .presentationDragIndicator(.hidden)
             .presentationBackground(T.bgElevated)
         }
-        // P2-7 压缩确认（设计稿 §7A：主键普通按钮非 destructive——压缩不丢数据、
-        // 回执失败即无副作用；文案照设计稿。.alert 承载——confirmationDialog 本 OS
+        // P2-7 压缩确认（主键普通按钮非 destructive——压缩不丢数据、
+        // 回执失败即无副作用。.alert 承载——confirmationDialog 本 OS
         // 渲染成锚定 popover，P2ExtrasViews.swift:65 同款先例）
         .alert(
             String(localized: "压缩上下文？"), isPresented: $showCompactConfirm) {
@@ -2154,7 +2154,7 @@ struct ComposerBar: View {
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
-    // MARK: P1-2 模式行（协作 Plan/Build + 投递 立即/排队/引导；设计稿 §2.2）
+    // MARK: P1-2 模式行（协作 Plan/Build + 投递 立即/排队/引导）
     //
     // 胶囊样式照抄 executionTargetMenu（11.5pt medium、bgInput、Capsule、minHeight 44）；
     // identifier 挂 Menu 本体（同 05-act-target 教训：挂 label 会被运行时逐层拼接）。
@@ -2172,7 +2172,7 @@ struct ComposerBar: View {
         .onAppear {
             // 协作模式现接桌面投影（state.config.mode，ChatViewModel.refresh-
             // CollaborationModeProjection 逐事件覆盖）——chip 为桌面真值，不再是
-            // 「本机偏好」；仅投递模式仍为纯本机档，一次性如实标注（§2.7③/§4.3）
+            // 「本机偏好」；仅投递模式仍为纯本机档，一次性如实标注（§4.3）
             guard !modeDisclaimerShown else { return }
             modeDisclaimerShown = true
             showSwitchHint(String(localized: "投递模式为本机偏好 · 桌面端以实际执行为准"))
@@ -2446,7 +2446,7 @@ struct ComposerBar: View {
                 showSwitchHint(message)
             } else {
                 UISelectionFeedbackGenerator().selectionChanged()
-                // 设计稿 §4.4 三段式：now 档成功=本地默认（桌面会话模式不变）；
+                // 投递三档提示：now 档成功=本地默认（桌面会话模式不变）；
                 // queue/guide 成功=「本条消息起按「X」投递」
                 showSwitchHint(mode == "now"
                     ? String(localized: "已设为本机默认 · 桌面端会话模式不变")
@@ -2457,7 +2457,7 @@ struct ComposerBar: View {
 
     // MARK: P2-7 压缩入口（contextMeter 即入口：用量条是压缩动机，就地可发现）
 
-    /// 压缩确认后的下发与完成判定（设计稿 §7A：完成 hint / 失败 hint 各 3s；
+    /// 压缩确认后的下发与完成判定（完成 hint / 失败 hint 各 3s；
     /// 「压缩中…」由 viewModel.isCompacting 驱动、不自动消失）
     private func runCompact() async {
         let message = await viewModel.compactContext()
@@ -2475,7 +2475,7 @@ struct ComposerBar: View {
             thoughtMenu(selection)
             Spacer(minLength: 0)
             if let usage = viewModel.contextUsage {
-                // P2-7 压缩入口（设计稿 §7A：用量条即压缩动机，就地可发现）。
+                // P2-7 压缩入口（用量条即压缩动机，就地可发现）。
                 // 显式连接态 gating——不以 contextMeter 条件渲染作隐式门槛（演示态
                 // Mock 恒返回非 nil usage，toolsRow 照样渲染「上下文·演示」，无 gating
                 // 则入口会出现在命令不可达的演示态）；进行中禁点防重复下发
@@ -2694,7 +2694,7 @@ struct ComposerBar: View {
 
     private var inputRow: some View {
         HStack(spacing: T.sp2) {
-            // P1-1：附件入口（设计稿 1.2——inputRow 首位 📎 44pt 热区；连接态渲染，
+            // P1-1：附件入口（inputRow 首位 📎 44pt 热区；连接态渲染，
             // 演示态无上传面不出入口）
             if viewModel.isReadOnly {
                 Button {
@@ -2752,7 +2752,7 @@ struct ComposerBar: View {
         .accessibilityIdentifier("05-composer-send")
     }
 
-    /// 发送 + 投递提示（设计稿 §2.3：queue 档送达后 hint「已加入排队」，消息随后
+    /// 发送 + 投递提示（queue 档送达后 hint「已加入排队」，消息随后
     /// 经 QueueBarView 回流呈现；now/guide 档无额外提示）。
     /// U-6：失败不再静默——持久错误行（断线子文案区分）+ 草稿已由 viewModel 回填
     /// + 焦点回输入框 + error 触觉；重试钮复用本方法。
@@ -2766,7 +2766,7 @@ struct ComposerBar: View {
             }
         } else if let failedText = viewModel.lastSendUndeliveredText, failedText == viewModel.draft {
             // 真正的未送达（guard 路径不算）：草稿已回填，错误行持久在场直至
-            // 成功/手动编辑/离开展示（设计稿 §5.1 状态矩阵）。桌面拒收回执的
+            // 成功/手动编辑/离开展示。桌面拒收回执的
             // 真实拒因优先（rejected 此前被当「任务已发送」假成功——2026-10-07
             // 修复面：用户看到的必须是桌面端为什么拒，不是泛化「未送达」）
             let disconnected: Bool
@@ -2788,7 +2788,7 @@ struct ComposerBar: View {
         await sendAndHintDelivery()
     }
 
-    // MARK: P1-1 待发附件条（设计稿 1.2：横向滚动 72×72 缩略卡 + 进度 + 角标）
+    // MARK: P1-1 待发附件条（横向滚动 72×72 缩略卡 + 进度 + 角标）
 
     private var attachmentStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -2806,7 +2806,7 @@ struct ComposerBar: View {
         .accessibilityIdentifier("05-attach-strip")
     }
 
-    // MARK: 附件三来源入队（设计稿 1.3②：选定后立即建上传事务，不等发送）
+    // MARK: 附件三来源入队（选定后立即建上传事务，不等发送）
 
     private func addPhotoPickerItems(_ items: [PhotosPickerItem]) {
         Task {
@@ -2863,7 +2863,7 @@ struct ComposerBar: View {
         }
     }
 
-    /// 设计稿 1.3②：选定后立即建上传事务（不等发送）；已在上传中的项自动跳过
+    /// 选定后立即建上传事务（不等发送）；已在上传中的项自动跳过
     private func startUploadIfNeeded() async {
         _ = await viewModel.uploads.ensureAllCommitted()
     }
@@ -2888,7 +2888,7 @@ struct ComposerBar: View {
     }
 }
 
-// MARK: - 添加附件来源 sheet（P1-1 设计稿 1.3①）
+// MARK: - 添加附件来源 sheet（P1-1）
 //
 // 自绘底部面板：confirmationDialog 在本 OS 版本会渲染成锚定 popover（用户报障
 // 「弹窗都弹到什么地方去了」2026-10-07；P2ExtrasViews.swift:65 同款先例），改 sheet
@@ -2983,7 +2983,7 @@ struct AttachmentSourceSheet: View {
     }
 }
 
-// MARK: - 待发附件缩略卡（P1-1 设计稿 1.2/1.4）
+// MARK: - 待发附件缩略卡（P1-1）
 //
 // 72×72 缩略规格 = AttachmentThumbView（132×96+T.rM+T.border 描边）等比缩；
 // 底部 4px ThinProgressBar + mono 百分比；成功勾角标 / 失败橙角标（点按重试）；
@@ -3079,7 +3079,7 @@ struct PendingAttachmentThumb: View {
         .overlay(RoundedRectangle(cornerRadius: T.rS).stroke(T.border, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: T.rS))
         .onTapGesture {
-            // 失败点条目重试（设计稿 1.2 失败角标「点条目重试」）
+            // 失败点条目重试（失败角标「点条目重试」）
             if item.state == .failed { onRetry() }
         }
     }

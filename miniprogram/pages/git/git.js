@@ -1,4 +1,4 @@
-// 029-Diff 审查（屏 08）
+// 029-Diff 审查
 //
 // web 权威源：`packages/ui/src/GitPane.tsx`；移动端对位 Android `FilesScreen` 的
 // DiffReviewView 与 iOS `DiffReviewView`。分段「未暂存/已暂存/本次会话」，文件卡可展开逐行。

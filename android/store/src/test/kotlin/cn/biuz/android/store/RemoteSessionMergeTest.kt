@@ -21,9 +21,9 @@ class RemoteSessionMergeTest {
     private val wsOther = "/Users/mac/poker_protocol"
 
     @Test
-    fun bootstrapMerge_authoritativeCorrection_ghostAttributionAndWorkspaceIdRedLine() = runBlocking {
+    fun bootstrapMerge_fillIfNil_workspaceIdRedLineAndStatusBackfill() = runBlocking {
         val table = SessionMergeTable()
-        // 既有行：归属被幽灵行占据（sessions-index/缓存先到，带 lastActivityAt）
+        // 既有行：归属已定（早期来源种行；带 lastActivityAt）
         table.applySessionsSnapshot(
             testObj(
                 "logEpoch" to JSONValue.Str("epoch-1"),
@@ -41,10 +41,13 @@ class RemoteSessionMergeTest {
             ),
         )
 
-        // bootstrap.tasks：同会话双区行（幽灵行样本，乙-6/戊-1）+ 无归属行 + workspaceId-only 行
+        // bootstrap.tasks：同会话双区行（幽灵行样本，乙-6/戊-1）+ 无归属行 + workspaceId-only 行。
+        // 2026-11-23 修订：bootstrap 是随快照无限重放的最陈旧源（3.15.1+ 桌面已无此字段），
+        // workspacePath 只补缺不覆盖——「权威行后到必须赢」由 mergeTaskIndexRows 承担（见下测）。
         val stats = table.mergeBootstrapTasks(
             listOf(
-                // 真实区行（后到）：必须纠正幽灵归属——「只补缺不纠正」会让错误归属永久冻结
+                // 真实区行（后到）：**不得**覆盖既有归属（陈旧源防翻面；真实迁移伴随更新的
+                // updatedAt，由 task-index 行覆盖）
                 testObj(
                     "taskId" to JSONValue.Str("sess-ghost"),
                     "title" to JSONValue.Str("真标题"),
@@ -69,14 +72,14 @@ class RemoteSessionMergeTest {
             ),
         )
         assertEquals(3, stats.rows)
-        assertEquals(1, stats.merged, "仅 sess-nows 新插入；两行 sess-ghost 走纠正路径")
+        assertEquals(1, stats.merged, "仅 sess-nows 新插入；两行 sess-ghost 走补缺路径")
         assertEquals(2, stats.totalSessions, "sess-ghost + sess-nows")
         assertEquals(1, stats.distinctWorkspaces, "仅真实区行携带 workspacePath（workspaceId-only 行不计入）")
 
         val sessions = table.snapshot()
         val ghost = sessions["sess-ghost"]
         assertNotNull(ghost)
-        assertEquals(wsReal, ghost.workspacePath, "权威行纠正：真实区行后到也必须赢（乙-6①）")
+        assertEquals(wsGhost, ghost.workspacePath, "bootstrap 只补缺：既有归属不被陈旧重放源覆盖（2026-11-23 修订）")
         assertEquals("running", ghost.taskStatus, "task-index 是 status 权威源，行携带即回填")
         assertEquals("旧标题", ghost.title, "bootstrap merge 不做标题回填（iOS :402-432 同口径）")
         assertEquals(1_791_040_344_222L, ghost.lastActivityAt, "既有 lastActivityAt 不被 task-index 行回退")
@@ -88,10 +91,95 @@ class RemoteSessionMergeTest {
 
         val conversations = table.toConversations()
         val ghostConversation = conversations.single { it.id == "sess-ghost" }
-        assertEquals(wsReal, ghostConversation.directory)
+        assertEquals(wsGhost, ghostConversation.directory)
         assertEquals(1_791_040_344_222L, ghostConversation.updatedAt)
         val nowsConversation = conversations.single { it.id == "sess-nows" }
         assertEquals("", nowsConversation.directory, "归属未知的行目录为空 → UI 归「其它」组")
+
+        // 权威行纠正（乙-6①）转移到 task-index 通道：更新的 updatedAt 必须赢
+        table.mergeTaskIndexRows(
+            listOf(
+                testObj(
+                    "taskId" to JSONValue.Str("sess-ghost"),
+                    "title" to JSONValue.Str("真标题"),
+                    "workspacePath" to JSONValue.Str(wsReal),
+                    "status" to JSONValue.Str("completed"),
+                    "updatedAt" to testNum(1_791_050_000_000L), // 严格新于既有 1_791_040_344_222
+                ),
+            ),
+        )
+        assertEquals(wsReal, table.snapshot().getValue("sess-ghost").workspacePath, "乙-6①：task-index 行携带更新时间戳时纠正既有归属")
+    }
+
+    @Test
+    fun taskIndexMerge_batchDedupeAndGhostFlipFlopGuard() = runBlocking {
+        val table = SessionMergeTable()
+        // 真机「项目只有一个命名空间」回归（2026-11-23）：批内同任务双行（host-scope 把
+        // 幽灵行一并带回）——平手保首个，先合并的归属区行压过尾部当前区幽灵行
+        val (merged, _) = table.mergeTaskIndexRows(
+            listOf(
+                testObj(
+                    "taskId" to JSONValue.Str("sess-dup"),
+                    "title" to JSONValue.Str("真区行"),
+                    "workspacePath" to JSONValue.Str(wsReal),
+                    "updatedAt" to testNum(1_767_000_000_000L),
+                ),
+                testObj(
+                    "taskId" to JSONValue.Str("sess-dup"),
+                    "title" to JSONValue.Str("幽灵区行"),
+                    "workspacePath" to JSONValue.Str(wsGhost),
+                    "updatedAt" to testNum(1_767_000_000_000L), // 平手
+                ),
+            ),
+        )
+        assertEquals(1, merged, "批内同任务两行去重为一行")
+        assertEquals(wsReal, table.snapshot().getValue("sess-dup").workspacePath, "平手保首个：幽灵行（批尾）不坐实错误归属")
+
+        // 批内 updatedAt 新者赢
+        table.mergeTaskIndexRows(
+            listOf(
+                testObj(
+                    "taskId" to JSONValue.Str("sess-dup2"),
+                    "title" to JSONValue.Str("旧行"),
+                    "workspacePath" to JSONValue.Str(wsGhost),
+                    "updatedAt" to testNum(1_767_000_000_000L),
+                ),
+                testObj(
+                    "taskId" to JSONValue.Str("sess-dup2"),
+                    "title" to JSONValue.Str("新行"),
+                    "workspacePath" to JSONValue.Str(wsReal),
+                    "updatedAt" to testNum(1_768_000_000_000L), // 严格新
+                ),
+            ),
+        )
+        assertEquals(wsReal, table.snapshot().getValue("sess-dup2").workspacePath, "批内 updatedAt 新者赢")
+
+        // 跨批翻面守卫：既有归属在场、后到批为同 updatedAt 的幽灵行 → 保现状（防 120s
+        // 节流回填把已定归属反复翻回幽灵路径；fork/移动等真实迁移必然带更新时间戳）
+        table.mergeTaskIndexRows(
+            listOf(
+                testObj(
+                    "taskId" to JSONValue.Str("sess-dup"),
+                    "title" to JSONValue.Str("幽灵区行"),
+                    "workspacePath" to JSONValue.Str(wsGhost),
+                    "updatedAt" to testNum(1_767_000_000_000L), // 与既有平手
+                ),
+            ),
+        )
+        assertEquals(wsReal, table.snapshot().getValue("sess-dup").workspacePath, "平手后到批不得翻面")
+
+        // 跨批真实迁移：更新的 updatedAt 照常覆盖（乙-6① 不受阻）
+        table.mergeTaskIndexRows(
+            listOf(
+                testObj(
+                    "taskId" to JSONValue.Str("sess-dup"),
+                    "title" to JSONValue.Str("真区行"),
+                    "workspacePath" to JSONValue.Str(wsGhost),
+                    "updatedAt" to testNum(1_769_000_000_000L), // 严格新：模拟会话迁移后新活动
+                ),
+            ),
+        )
+        assertEquals(wsGhost, table.snapshot().getValue("sess-dup").workspacePath, "严格新 updatedAt 的行照常覆盖（真实迁移）")
     }
 
     @Test
@@ -149,6 +237,118 @@ class RemoteSessionMergeTest {
         assertEquals("桌面自动命名", table.snapshot().getValue("sess-new").title)
         val projected = table.toConversations(titleOverrides = mapOf("sess-new" to "本地改名"))
         assertEquals("本地改名", projected.single().title)
+    }
+
+    @Test
+    fun snapshotPreservesBootstrapAttribution_andReappliesRetainedRows() = runBlocking {
+        val table = SessionMergeTable()
+        // bootstrap 先到：两行带真实归属
+        table.mergeBootstrapTasks(
+            listOf(
+                testObj(
+                    "taskId" to JSONValue.Str("sess-a"),
+                    "title" to JSONValue.Str("A"),
+                    "workspacePath" to JSONValue.Str(wsReal),
+                    "updatedAt" to testNum(1_767_000_000_000L),
+                ),
+                testObj(
+                    "taskId" to JSONValue.Str("sess-b"),
+                    "title" to JSONValue.Str("B"),
+                    "workspacePath" to JSONValue.Str(wsOther),
+                    "updatedAt" to testNum(1_766_000_000_000L),
+                ),
+            ),
+        )
+        // sessions-index 快照整表替换（真实行形态：只有 workspaceId，无 workspacePath）
+        table.applySessionsSnapshot(
+            testObj(
+                "sessions" to JSONValue.Arr(
+                    listOf(
+                        testObj(
+                            "sessionId" to JSONValue.Str("sess-a"),
+                            "title" to JSONValue.Str("A2"),
+                            "phase" to JSONValue.Str("running"),
+                            "workspaceId" to JSONValue.Str("w-1"),
+                            "lastActivityAt" to testNum(1_768_000_000_000L),
+                        ),
+                        testObj(
+                            "sessionId" to JSONValue.Str("sess-c"),
+                            "title" to JSONValue.Str("C"),
+                            "workspaceId" to JSONValue.Str("w-2"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val sessions = table.snapshot()
+        assertEquals(
+            wsReal,
+            sessions.getValue("sess-a").workspacePath,
+            "快照整表替换后归属保全：workspacePath 缺失沿用既有归属（列表分组根因修复）",
+        )
+        assertEquals("A2", sessions.getValue("sess-a").title, "快照标题为权威，不被 bootstrap 留存行覆盖")
+        assertNull(
+            sessions.getValue("sess-c").workspacePath,
+            "bootstrap 未覆盖的新行：workspaceId 仍不得当分组键（乙-6②）",
+        )
+        assertEquals(
+            wsOther,
+            sessions.getValue("sess-b").workspacePath,
+            "bootstrap 留存行在快照后重放（跨工作区行不因快照缺席丢失）",
+        )
+    }
+
+    @Test
+    fun deltaUpsert_preservesAttribution_andBackfillsNewRowFromRetainedBootstrap() = runBlocking {
+        val table = SessionMergeTable()
+        table.mergeBootstrapTasks(
+            listOf(
+                testObj(
+                    "taskId" to JSONValue.Str("sess-x"),
+                    "title" to JSONValue.Str("X"),
+                    "workspacePath" to JSONValue.Str(wsReal),
+                    "updatedAt" to testNum(1_767_000_000_000L),
+                ),
+                testObj(
+                    "taskId" to JSONValue.Str("sess-y"),
+                    "title" to JSONValue.Str("Y"),
+                    "workspacePath" to JSONValue.Str(wsOther),
+                    "updatedAt" to testNum(1_767_000_000_000L),
+                ),
+            ),
+        )
+        // 增量更新既有行（无 workspacePath）
+        table.applySessionDelta(
+            testObj(
+                "op" to JSONValue.Str("session.upserted"),
+                "session" to testObj(
+                    "sessionId" to JSONValue.Str("sess-x"),
+                    "title" to JSONValue.Str("X2"),
+                    "phase" to JSONValue.Str("running"),
+                ),
+            ),
+        )
+        assertEquals(
+            wsReal,
+            table.snapshot().getValue("sess-x").workspacePath,
+            "增量整行替换后归属保全",
+        )
+        // 增量新行：bootstrap 留存行里已有归属 → 重放补齐
+        table.applySessionDelta(
+            testObj(
+                "op" to JSONValue.Str("session.upserted"),
+                "session" to testObj(
+                    "sessionId" to JSONValue.Str("sess-y"),
+                    "title" to JSONValue.Str("Y2"),
+                    "phase" to JSONValue.Str("completedSuccess"),
+                ),
+            ),
+        )
+        assertEquals(
+            wsOther,
+            table.snapshot().getValue("sess-y").workspacePath,
+            "新行缺归属 → 用 bootstrap 留存行补齐（不覆盖快照标题）",
+        )
     }
 
     @Test

@@ -119,10 +119,10 @@ val BiuZLightPalette = BiuZPalette(
     onSeal = Color(0xFFF7F3EC),
 )
 
-/** 当前生效调色板（[BiuZTheme] 在组合前写入；默认深色）。 */
+/** 当前生效调色板（[BiuZTheme] 在组合前写入；**默认浅色**——2026-11-24 用户裁决朱批默认浅色主题）。 */
 object BiuZColors {
     @Volatile
-    var current: BiuZPalette = BiuZDarkPalette
+    var current: BiuZPalette = BiuZLightPalette
 }
 
 val BiuZBg: Color get() = BiuZColors.current.bg

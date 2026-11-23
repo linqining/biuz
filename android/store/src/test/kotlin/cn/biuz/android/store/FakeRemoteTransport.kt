@@ -8,7 +8,7 @@ import cn.biuz.android.protocol.RPCValue
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration
 
-/** 测试专用替身传输（Mock 仅测试装配——红线 §0-4；正式路径不出现本类）。 */
+/** 测试专用替身传输（Mock 仅测试装配——红线见 AGENTS §5-13；正式路径不出现本类）。 */
 internal class FakeRemoteTransport : RPCChannelTransport {
 
     /** (channel, command) 调用序账（兜底链顺序断言用）。 */

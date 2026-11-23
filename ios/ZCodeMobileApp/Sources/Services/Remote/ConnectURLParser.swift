@@ -133,7 +133,7 @@ enum ConnectURLParser {
         return nil
     }
 
-    /// 解析规则（设计稿 L1-K）：
+    /// 解析规则：
     /// - 完整链接：scheme://host:port/?token=… → 地址取 host:port，token 段剥离
     /// - 仅 host:port：缺省补 http://（端口 3030 缺省）
     /// - scheme 支持 http/https/ws/wss（https/wss 走反向代理）

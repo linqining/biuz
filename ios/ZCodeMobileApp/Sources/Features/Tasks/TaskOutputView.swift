@@ -14,7 +14,7 @@ final class TaskOutputModel {
     var tokenUsage: TaskTokenUsage?
 }
 
-/// 屏 07 · 任务执行输出（Push L3）：模型轨迹卡（reasoning+toolCall 行投影）+ 停止任务。
+/// 任务执行输出（Push L3）：模型轨迹卡（reasoning+toolCall 行投影）+ 停止任务。
 /// v1.39 死 UI 移除：原「后台 Bash」分段是死控件——terminalStream 在 RemoteTaskStore
 /// 只注册 continuation 从无 yield（上游 terminal 频道需 create/write 自建 PTY，均被
 /// ReadOnlyGate 拦截，移动端无「读任务终端」接口），故撤分段与假终端卡，轨迹投影为唯一

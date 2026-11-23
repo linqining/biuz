@@ -40,6 +40,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,13 +97,13 @@ import kotlinx.coroutines.launch
  * Empty 三件如实空读）。观察流以装配世代 [cn.biuz.android.connection.StoreSurface.epoch]
  * 为 key 重建——Store 换源即重绑，防永久抱空 store 实例（红线）。
  *
- * 呈现（design-spec 屏 04 + 交接裁决）：
+ * 呈现（交接裁决）：
  * - LazyColumn 分组「置顶 → 今天 → 昨天 → 更早」（组织态读 membership——isPinned 由
  *   Store 层本地 override → tasks-index membership → 行字段三源 join 定案，UI 直读）；
  * - 行 = 标题首字符圆徽（会话 icon 裁决：icon 用标题首字符）+ 标题 + 摘要 + 时间；
  * - 行级指示（桌面侧栏逐字 parity）：isRunning 双源合成转圈（蓝）+「等待确认」标（橙，
  *   pendingApprovalCount>0）；归档行由 Store 投影滤除；
- * - 未连接空态如实（§1.6 表）：未连接桌面端 / 连接后同步桌面端的会话与消息 / 连接桌面端。
+ * - 未连接空态如实：未连接桌面端 / 连接后同步桌面端的会话与消息 / 连接桌面端。
  * 读面失败三态呈现：last-good 列表与失败文案共存，不折叠成空态（工程纪律 §5-12）。
  */
 @Composable
@@ -212,6 +214,59 @@ fun SessionsScreen(
                     emptyList()
                 }
             }
+        }
+    }
+
+    // 项目视图两级看板（web project-sidebar Projects/Tasks 同构）：置顶 → 项目节点（可折叠）→ 任务
+    val board = remember(rows) { projectBoard(rows) }
+    val projectsTitle = stringResource(R.string.sessions_section_projects)
+    // 折叠态（键 = 归属目录全路径）：默认全展开；进程内 + 配置变更内持久
+    var collapsedProjects by rememberSaveable(
+        stateSaver = listSaver<Set<String>, String>(
+            save = { it.toList() },
+            restore = { it.toSet() },
+        ),
+    ) { mutableStateOf(emptySet<String>()) }
+    val onArchiveRow: (Conversation) -> Unit = { conversation ->
+        scope.launch {
+            rowActionError = null
+            // setArchived 失败不抛（store 设计：回滚 + lastArchiveFailureText 契约）
+            runCatching { surface.conversation.setArchived(true, conversation.id) }
+            val failure = surface.conversation.lastArchiveFailureText()
+            if (failure.isNotEmpty()) rowActionError = failure
+            conversations = runCatching {
+                surface.conversation.conversations()
+            }.getOrDefault(conversations)
+        }
+    }
+    val onMarkUnreadRow: (Conversation) -> Unit = { conversation ->
+        scope.launch {
+            rowActionError = null
+            val error = runCatching {
+                surface.conversation.markUnread(conversation.id)
+            }.exceptionOrNull()?.message
+            if (error != null) rowActionError = error
+            else conversations = runCatching {
+                surface.conversation.conversations()
+            }.getOrDefault(conversations)
+        }
+    }
+    val renderConversationRow: @Composable (Conversation, Boolean) -> Unit = { conversation, indented ->
+        Box(modifier = if (indented) Modifier.padding(start = 14.dp) else Modifier) {
+            SessionRow(
+                conversation = conversation,
+                timeLabel = conversationRowTimeLabel(
+                    updatedAtMs = conversation.updatedAt,
+                    todayStartMs = dayBounds.first,
+                    yesterdayStartMs = dayBounds.second,
+                    timeFormat = timeFormat,
+                    yesterdayLabel = stringResource(R.string.group_yesterday),
+                    earlierPattern = stringResource(R.string.row_time_earlier_pattern),
+                ),
+                onOpen = { onOpenChat(conversation.id) },
+                onArchive = { onArchiveRow(conversation) },
+                onMarkUnread = { onMarkUnreadRow(conversation) },
+            )
         }
     }
 
@@ -391,7 +446,7 @@ fun SessionsScreen(
             }
 
             when {
-                // 未连接空态（§1.6 表：未连接桌面端 / 连接后同步… / 连接桌面端 CTA）
+                // 未连接空态（未连接桌面端 / 连接后同步… / 连接桌面端 CTA）
                 rows.isEmpty() && (mode is AppSession.Mode.Demo || mode is AppSession.Mode.ConnectFailed) -> {
                     NotConnectedEmpty(
                         onConnect = onBackToConnect,
@@ -522,61 +577,57 @@ fun SessionsScreen(
                 }
 
                 else -> {
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        sections.forEach { section ->
-                            item(key = "header-${section.title}-${section.rows.firstOrNull()?.id ?: ""}") {
-                                Text(
-                                    text = section.title,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = BiuZText3,
-                                    modifier = Modifier.padding(
-                                        start = 10.dp,
-                                        top = 12.dp,
-                                        bottom = 4.dp,
-                                    ),
-                                )
+                    if (viewMode == ListViewMode.PROJECTS) {
+                        // 两级看板（web Projects / Tasks 同构）：置顶 → 项目节点（可折叠）→ 任务
+                        LazyColumn(modifier = Modifier.weight(1f)) {
+                            if (board.pinned.isNotEmpty()) {
+                                item(key = "hdr-pinned") { SessionSectionHeader(pinnedTitle) }
+                                items(board.pinned, key = { it.id }) { conversation ->
+                                    renderConversationRow(conversation, false)
+                                }
                             }
-                            items(section.rows, key = { it.id }) { conversation ->
-                                SessionRow(
-                                    conversation = conversation,
-                                    timeLabel = conversationRowTimeLabel(
-                                        updatedAtMs = conversation.updatedAt,
-                                        todayStartMs = dayBounds.first,
-                                        yesterdayStartMs = dayBounds.second,
-                                        timeFormat = timeFormat,
-                                        yesterdayLabel = stringResource(R.string.group_yesterday),
-                                        earlierPattern = stringResource(R.string.row_time_earlier_pattern),
-                                    ),
-                                    onOpen = { onOpenChat(conversation.id) },
-                                    onArchive = {
-                                        scope.launch {
-                                            rowActionError = null
-                                            // setArchived 失败不抛（store 设计：回滚 + lastArchiveFailureText 契约）
-                                            runCatching { surface.conversation.setArchived(true, conversation.id) }
-                                            val failure = surface.conversation.lastArchiveFailureText()
-                                            if (failure.isNotEmpty()) rowActionError = failure
-                                            conversations = runCatching {
-                                                surface.conversation.conversations()
-                                            }.getOrDefault(conversations)
+                            if (board.projects.isNotEmpty()) {
+                                item(key = "hdr-projects") { SessionSectionHeader(projectsTitle) }
+                                board.projects.forEach { group ->
+                                    val expanded = group.key !in collapsedProjects
+                                    item(key = "proj-${group.key}") {
+                                        ProjectNodeRow(
+                                            group = group,
+                                            expanded = expanded,
+                                            onToggle = {
+                                                collapsedProjects =
+                                                    if (expanded) collapsedProjects + group.key
+                                                    else collapsedProjects - group.key
+                                            },
+                                        )
+                                    }
+                                    if (expanded) {
+                                        items(group.rows, key = { it.id }) { conversation ->
+                                            renderConversationRow(conversation, true)
                                         }
-                                    },
-                                    onMarkUnread = {
-                                        scope.launch {
-                                            rowActionError = null
-                                            val error = runCatching {
-                                                surface.conversation.markUnread(conversation.id)
-                                            }.exceptionOrNull()?.message
-                                            if (error != null) rowActionError = error
-                                            else conversations = runCatching {
-                                                surface.conversation.conversations()
-                                            }.getOrDefault(conversations)
-                                        }
-                                    },
-                                )
+                                    }
+                                }
                             }
+                            if (board.tasks.isNotEmpty()) {
+                                item(key = "hdr-tasks") { SessionSectionHeader(ungroupedTitle) }
+                                items(board.tasks, key = { it.id }) { conversation ->
+                                    renderConversationRow(conversation, false)
+                                }
+                            }
+                            item { Spacer(Modifier.height(BiuZSpacing.xl)) }
                         }
-                        item { Spacer(Modifier.height(BiuZSpacing.xl)) }
+                    } else {
+                        LazyColumn(modifier = Modifier.weight(1f)) {
+                            sections.forEach { section ->
+                                item(key = "header-${section.title}-${section.rows.firstOrNull()?.id ?: ""}") {
+                                    SessionSectionHeader(section.title)
+                                }
+                                items(section.rows, key = { it.id }) { conversation ->
+                                    renderConversationRow(conversation, false)
+                                }
+                            }
+                            item { Spacer(Modifier.height(BiuZSpacing.xl)) }
+                        }
                     }
                 }
             }
@@ -975,7 +1026,7 @@ private fun SessionRow(
     }
 }
 
-// MARK: - 未连接空态（§1.6 统一骨架：icon 位 + 结论 + 解释 + 唯一主 CTA）
+// MARK: - 未连接空态（统一骨架：icon 位 + 结论 + 解释 + 唯一主 CTA）
 
 @Composable
 private fun NotConnectedEmpty(
@@ -1030,4 +1081,69 @@ internal fun sectionKindLabel(kind: SectionKind): String = when (kind) {
     SectionKind.TODAY -> stringResource(R.string.group_today)
     SectionKind.YESTERDAY -> stringResource(R.string.group_yesterday)
     SectionKind.EARLIER -> stringResource(R.string.group_earlier)
+}
+
+/** 分区标题（置顶 / 项目 / 任务 / 最近更新 / 未读 共用版式）。 */
+@Composable
+private fun SessionSectionHeader(title: String) {
+    Text(
+        text = title,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+        color = BiuZText3,
+        modifier = Modifier.padding(start = 10.dp, top = 12.dp, bottom = 4.dp),
+    )
+}
+
+/**
+ * 项目节点行（web `ProjectNodeContent` 最简同构）：文件夹图标 + 项目名 + 运行中/
+ * 未读汇总 + 展开箭头；整行点按折叠/展开（折叠态由调用方 rememberSaveable 持有）。
+ */
+@Composable
+private fun ProjectNodeRow(
+    group: ProjectGroup,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(BiuZRadius.small)
+            .clickable(onClick = onToggle)
+            .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 10.dp)
+            .testTag("04-project-node"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("📁", fontSize = 13.sp)
+        Spacer(Modifier.size(BiuZSpacing.sm))
+        Text(
+            text = group.title,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (group.runningCount > 0) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.size(6.dp))
+        }
+        if (group.unreadCount > 0) {
+            Text(
+                text = "${group.unreadCount}",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.size(6.dp))
+        }
+        Text(
+            text = if (expanded) "▾" else "▸",
+            fontSize = 12.sp,
+            color = BiuZText3,
+        )
+    }
 }

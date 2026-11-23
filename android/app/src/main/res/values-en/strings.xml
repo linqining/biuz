@@ -18,15 +18,46 @@
     <string name="chat_msg_collapse">Collapse</string>
     <string name="chat_msg_copy">Copy text</string>
     <string name="chat_msg_copied">Copied</string>
+    <string name="chat_fork_action">Fork</string>
+    <string name="chat_fork_created_fmt">Forked into a new session: %1$s</string>
+    <!-- turn work summary (web conversationAssistantWorkItems wording, 2026-11-23) -->
+    <string name="chat_turn_working">Working…</string>
+    <string name="chat_turn_worked">Worked</string>
+    <string name="chat_turn_summary_explore">Explore %1$d items</string>
+    <string name="chat_turn_summary_command">Run %1$d commands</string>
+    <string name="chat_turn_summary_change">Change %1$d files</string>
+    <string name="chat_turn_summary_reasoning">Reasoning ×%1$d</string>
     <string name="chat_thinking_header">Thinking…</string>
     <string name="chat_thinking_done">Thought for a bit</string>
     <string name="chat_thinking_interrupted">Thinking interrupted</string>
     <string name="chat_thinking_chars">Thinking · %1$d chars</string>
+    <string name="chat_thinking_seconds">Thought for %1$ds</string>
     <string name="chat_tool_verb_bash">Run</string>
     <string name="chat_tool_verb_read">Read</string>
     <string name="chat_tool_verb_edit">Edit</string>
     <string name="chat_tool_verb_ask">Ask</string>
     <string name="chat_tool_verb_browser">Browse</string>
+    <!-- tool card action words / block titles (web ToolCallBlocks tense wording, 2026-11-23) -->
+    <string name="chat_tool_pending">Pending</string>
+    <string name="chat_tool_failed">Failed</string>
+    <string name="chat_tool_stopped">Stopped</string>
+    <string name="chat_tool_running_shell">Running</string>
+    <string name="chat_tool_running_read">Reading</string>
+    <string name="chat_tool_running_write">Editing</string>
+    <string name="chat_tool_running_search">Searching</string>
+    <string name="chat_tool_running_fetch">Fetching</string>
+    <string name="chat_tool_running_agent">Running</string>
+    <string name="chat_tool_running_call">Calling</string>
+    <string name="chat_tool_done_shell">Ran</string>
+    <string name="chat_tool_done_read">Read</string>
+    <string name="chat_tool_done_write">Edited</string>
+    <string name="chat_tool_done_search">Searched</string>
+    <string name="chat_tool_done_fetch">Fetched</string>
+    <string name="chat_tool_done_agent">Completed</string>
+    <string name="chat_tool_done_call">Called</string>
+    <string name="chat_tool_parameters">Parameters</string>
+    <string name="chat_tool_output">Output</string>
+    <string name="chat_tool_fallback_name">Tool call</string>
 
     <!-- userselect 引用卡 -->
     <string name="chat_userselect_single_ref">%1$s · quote</string>
@@ -159,7 +190,7 @@
     <string name="app_tagline">One stamp, and the agent delivers.</string>
     <string name="app_works_with">A mobile remote console that works with ZCode</string>
     <string name="app_foot_data_source">Seal · commands are executed by the desktop</string>
-    <string name="app_foot_boundary">Credentials stay on this device · connections only over trusted LAN · read-only boundary enforced by the desktop</string>
+    <string name="app_foot_boundary">Credentials stay on this device · use direct LAN connections only on trusted networks · files on your computer are read-only from this phone</string>
 
     <!-- 会话列表分组标签 -->
     <string name="group_pinned">Pinned</string>
@@ -169,6 +200,8 @@
 
     <!-- 设置页 -->
     <string name="settings_title">Settings</string>
+    <string name="settings_group_account">Account</string>
+    <string name="settings_logout">Log out</string>
     <string name="settings_group_data">Data &amp; stats</string>
     <string name="settings_row_usage">Usage stats</string>
     <string name="settings_row_usage_sub">Syncs desktop usage once connected</string>
@@ -246,6 +279,9 @@
     <string name="connect_reconnect">Reconnect</string>
     <string name="connect_recent_last_seen_fmt">Last connected %1$s</string>
     <string name="connect_last_seen_pattern">MMM d, HH:mm</string>
+    <string name="app_wordmark">SEAL</string>
+    <string name="login_entry">Log in with Z.ai</string>
+    <string name="devices_title">Choose computer</string>
     <string name="connect_btn_connect">Connect</string>
     <string name="connect_step_1">Discover desktop</string>
     <string name="connect_step_2">Auth</string>
@@ -257,6 +293,7 @@
     <string name="connect_failed_fmt">Connection failed · %1$s</string>
     <string name="connect_retry">Retry connection</string>
     <string name="connect_rescan">Rescan</string>
+    <string name="connect_use_lan_scan">Use LAN direct · scan</string>
     <string name="connect_delete_record">Delete record</string>
     <string name="connect_dev_target_fmt">Target %1$s (developer mode allows editing address/token on the connect screen)</string>
     <string name="connect_manual_show">Enter address manually</string>
@@ -283,6 +320,31 @@
     <string name="connect_fail_empty_ws">Desktop started without --workspace · check launch arguments</string>
     <string name="connect_fail_handshake">v4 handshake rejected · see the error code line above</string>
     <string name="connect_fail_transport">Could not establish WebSocket · check port and firewall</string>
+    <!-- 连接页两按钮（2026-11-24 交互重构：账号登录 + 重连/扫码） -->
+    <string name="connect_reconnect_fmt">Reconnect %1$s</string>
+    <string name="connect_rescan_reconnect">Rescan to reconnect</string>
+    <!-- 失败卡简化文案：一行结论 + 一句话（不出现实现层术语） -->
+    <string name="connect_fail_s_auth_title">Log in to connect</string>
+    <string name="connect_fail_s_auth_body">Sign in with the same Z.ai account as your computer. It connects automatically once you are signed in.</string>
+    <string name="connect_fail_s_owned_title">Account mismatch</string>
+    <string name="connect_fail_s_owned_body">This computer uses a different Z.ai account. Switch to the same account.</string>
+    <string name="connect_fail_s_stale_title">Link expired</string>
+    <string name="connect_fail_s_stale_body">The connection code on your computer has changed. Scan it again.</string>
+    <string name="connect_fail_s_closed_title">Remote control is off</string>
+    <string name="connect_fail_s_closed_body">Turn remote control back on on your computer, then reconnect.</string>
+    <string name="connect_fail_s_conflict_title">Taken over by another phone</string>
+    <string name="connect_fail_s_conflict_body">Only one phone can control at a time. Tap Reconnect to take over.</string>
+    <string name="connect_fail_s_noproj_title">No open project on this computer</string>
+    <string name="connect_fail_s_noproj_body">Open a project on your computer, then connect.</string>
+    <string name="connect_fail_s_offline_title">Computer is offline</string>
+    <string name="connect_fail_s_offline_body">Make sure your computer is on, ZCode is running, and it is online.</string>
+    <string name="connect_fail_s_timeout_title">Connection timed out</string>
+    <string name="connect_fail_s_timeout_body">Your computer did not respond in time. Make sure it is not asleep and try again.</string>
+    <string name="connect_fail_s_network_title">Can\'t reach the service</string>
+    <string name="connect_fail_s_network_body">Check your phone\'s network and try again.</string>
+    <string name="connect_fail_s_generic_title">Connection failed</string>
+    <string name="connect_fail_s_generic_body">Try again. If it still fails, reopen remote control on your computer.</string>
+    <string name="connect_fail_relay_auth">Relay V2 links require a signed-in Z.ai account on the phone (JWT → one-time token)</string>
 
     <!-- 扫码页 -->
     <string name="scan_requesting">Requesting camera permission…</string>
@@ -449,7 +511,7 @@
     <string name="cap_plugins_empty_hint">Plugins installed from the desktop marketplace are listed here.</string>
     <string name="appearance_title">Appearance</string>
     <string name="appearance_system">Follow system</string>
-    <string name="appearance_hint">Follows the system light/dark setting by default. A fixed option keeps that theme at all times.</string>
+    <string name="appearance_hint">Light theme by default. Choose Follow system to switch with the system setting, or a fixed option to keep that theme at all times.</string>
     <string name="settings_row_appearance">Appearance</string>
     <string name="settings_row_appearance_sub">Follow system / Light / Dark</string>
 <!-- ============ 028 Desktop settings sync (iOS DesktopSettingsPage counterpart) ============ -->
@@ -613,4 +675,5 @@
     <string name="devices_sheet_cancel">Cancel</string>
     <string name="sessions_view_grouped_error">Failed to load groups · %1$s</string>
     <string name="sessions_view_grouped_empty">No groups</string>
+    <string name="sessions_section_projects">Projects</string>
 </resources>

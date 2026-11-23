@@ -10,7 +10,7 @@ package cn.biuz.android.store
 // - 失败语义：RPC 异常吞掉回 null（spec「任何异常 = 无 hint」，不提示用户、不重试）；
 // - 回执解析：decision 必填 / candidates {text, confidence} 逐元素宽容 / topText 仅
 //   decision=="show" 且首候选非纯空白（iOS Models.swift:373-390 同口径）。
-// Mock 仅测试装配（红线 §0-4）。
+// Mock 仅测试装配（红线见 AGENTS §5-13）。
 
 import cn.biuz.android.protocol.EventSubscription
 import cn.biuz.android.protocol.JSONValue

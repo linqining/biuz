@@ -2,12 +2,12 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 屏 03 · 新建会话 Sheet（抓手 + sticky 头部 + 大输入区 + 执行端单选 + 建议提示词）
+/// 新建会话 Sheet（抓手 + sticky 头部 + 大输入区 + 执行端单选 + 建议提示词）
 /// v3 纠偏：连接态恢复完整表单——标题/首条指令以 createSession+firstInput 一次下发
 /// （桌面端立即开跑），空标题保持 draft 空会话 + 转正写；演示态行为不变。
 /// 项 2 增量：顶部三层上下文胶囊（账号 / 机器 / 项目）——机器层复用设备列表
 /// （云端沙盒 + 已配对 Mac），项目层来自 server-info workspaces + 历史会话去重，
-/// 默认上次使用、带搜索（屏 03-P），机器 × 项目组合持久化、冷启动恢复。
+/// 默认上次使用、带搜索（项目选择页），机器 × 项目组合持久化、冷启动恢复。
 struct NewConversationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.conversationStore) private var conversationStore
@@ -131,7 +131,7 @@ struct NewConversationSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
 
-            // §0.4 防御兜底：未连接态 Empty store 的 createConversation 返回空 id（写面
+            // 防御兜底：未连接态 Empty store 的 createConversation 返回空 id（写面
             // 如实失败）——如实提示，不产生 onCreated → openChat 假成功导航
             if let createFailure {
                 Text(createFailure)
@@ -587,7 +587,7 @@ struct NewConversationSheet: View {
         }
     }
 
-    /// 项目层：server-info workspaces + 历史会话去重，默认上次使用；点击进屏 03-P 带搜索
+    /// 项目层：server-info workspaces + 历史会话去重，默认上次使用；点击进项目选择页带搜索
     private var projectCapsule: some View {
         Button {
             showProjectPicker = true
@@ -788,7 +788,7 @@ struct NewConversationSheet: View {
             }
             .accessibilityIdentifier("03-chip-attach")
             // HIDDEN(对齐修复): 新建会话「仓库/语音」chip 隐藏（无对应能力实装，置灰 chip
-            // 仍构成假入口——设计稿 H4）· 恢复条件：对应能力实装。
+            // 仍构成假入口——隐藏入口 H4）· 恢复条件：对应能力实装。
             // E2E 兼容：-ZCodeDemoData 演示开关下保留（Matrix 布局断言 03-chip-repo/voice 在场）
             if AppSession.isDemoDataEnabled {
                 disabledChip("仓库", icon: "shippingbox", id: "03-chip-repo")

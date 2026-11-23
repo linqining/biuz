@@ -1,7 +1,7 @@
 import XCTest
 
 /// ZCode iOS 冒烟 UI 用例（可跑通基线）。
-/// 选择器全部基于 accessibilityIdentifier（三段式命名，对齐 design-spec.md 5.10）。
+/// 选择器全部基于 accessibilityIdentifier（三段式命名）。
 /// 由统一门禁脚本执行，不在本地跑。
 final class ZCodeMobileUITests: XCTestCase {
 
@@ -112,7 +112,7 @@ final class ZCodeMobileUITests: XCTestCase {
         XCTAssertTrue(approveEntry.waitForExistence(timeout: 10), "待操作任务卡应有去审批按钮")
         approveEntry.tap()
 
-        // 打开待批准会话时审批 Sheet 自动直达（design-spec 屏 06）
+        // 打开待批准会话时审批 Sheet 自动直达
         let approve = element(app, "06-act-approve")
         XCTAssertTrue(approve.waitForExistence(timeout: 8), "审批 Sheet 应有批准按钮")
         XCTAssertTrue(element(app, "06-act-reject").exists, "审批 Sheet 应有拒绝按钮")
@@ -122,7 +122,7 @@ final class ZCodeMobileUITests: XCTestCase {
         approve.tap()
     }
 
-    // MARK: - 执行输出（会话 → 屏 07 终端）
+    // MARK: - 执行输出（会话 → 终端）
 
     func testTerminalOutput() throws {
         let app = launch()

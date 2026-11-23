@@ -16,7 +16,7 @@ package cn.biuz.android.store
 // - 组织态 setPinned/setArchived/renameConversation：本地 override 即时反馈 + 归属 workspace
 //   寻址 + 失败完整回滚 + fault 原文上屏（§5-12）；
 // - createSession firstInput.modelSelection providerId/modelId trim + 空选本地拦截。
-// Mock 仅测试装配（红线 §0-4）。
+// Mock 仅测试装配（红线见 AGENTS §5-13）。
 
 import cn.biuz.android.protocol.CommandAck
 import cn.biuz.android.protocol.Conversation

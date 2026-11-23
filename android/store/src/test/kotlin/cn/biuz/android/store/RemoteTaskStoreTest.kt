@@ -15,7 +15,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * RemoteTaskStore 基面（直译自 RemoteTaskStore.swift：读面/动作面/分组解析）。
  * 命令面（resolvePermission/stop）经 RemoteConversationBridge 假实现注水验证三态
- * （Mock 仅测试装配——红线 §0-4）；分组解析为纯函数对拍（B-2 members 顶层归组形状）。
+ * （Mock 仅测试装配——红线见 AGENTS §5-13）；分组解析为纯函数对拍（B-2 members 顶层归组形状）。
  */
 class RemoteTaskStoreTest {
 

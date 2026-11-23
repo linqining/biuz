@@ -1,4 +1,4 @@
-// 029-Diff 审查（屏 08）纯逻辑层 —— 分段归组 / 行统计 / 行样式。
+// 029-Diff 审查纯逻辑层 —— 分段归组 / 行统计 / 行样式。
 //
 // 数据形状与 Android `protocol/Models.kt:605-627` / iOS DiffFile 同源：
 //   file = { id, path, language, added, removed, lines:[{id, kind, text}], segment? }

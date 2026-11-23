@@ -174,7 +174,7 @@ struct MessageView: View {
                         onOpenRun: onOpenWorkflowRun,
                         onOpenArtifact: onOpenWorkflowArtifact)
                 }
-                // P1-3 反馈行（设计稿 §3.1 门槛：仅助手正文行——reasoning/subagent/
+                // P1-3 反馈行（门槛：仅助手正文行——reasoning/subagent/
                 // artifact/state-todos 等合成消息 rowKind ≠ assistantText 天然排除；
                 // 游标缺失/非连接态不渲染；流式首帧行空文本不渲染，文本抵达随重建出现）
                 } // else（unreadable 兜底）闭合
@@ -212,7 +212,7 @@ struct MessageView: View {
     }
 }
 
-/// 助手消息反馈行（P1-3 设计稿 §3.2：低调行，44pt 热区；未反馈 text3、已选中
+/// 助手消息反馈行（P1-3：低调行，44pt 热区；未反馈 text3、已选中
 /// accentText 高亮；赞/踩互斥——再点已选项 = 取消反馈。失败：行旁一行橙字 3s，
 /// 不弹窗；成功本地记录由 viewModel 写入并回流为 feedbackState）。
 struct MessageFeedbackRow: View {
@@ -268,7 +268,7 @@ struct MessageFeedbackRow: View {
     private func feedbackButton(
         icon: String, selected: Bool, value: Bool, identifier: String) -> some View {
         Button {
-            let target: Bool? = selected ? nil : value // 再点已选项 = 取消反馈（§3.3）
+            let target: Bool? = selected ? nil : value // 再点已选项 = 取消反馈
             Task {
                 if let result = await onAction(target) {
                     failureClear?.cancel()
@@ -296,7 +296,7 @@ struct MessageFeedbackRow: View {
     }
 }
 
-/// 编辑重发 sheet（P1-3 设计稿 §3.2：§0.1 sheet 范式——Capsule 把手 + 预填原文 +
+/// 编辑重发 sheet（P1-3 sheet 范式——Capsule 把手 + 预填原文 +
 /// rewind 橙色说明行 + 主钮；§3.5 rewind 不可撤销 → 说明行 + destructive 确认弹层
 /// 双重确认。失败：sheet 内错误行不 dismiss，可改后重试或取消）。
 struct EditResendSheet: View {
@@ -318,7 +318,7 @@ struct EditResendSheet: View {
         self.originalText = originalText
         self.onResend = onResend
         self.onCancel = onCancel
-        _text = State(initialValue: originalText) // 预填原文全文，不截断（§3.4）
+        _text = State(initialValue: originalText) // 预填原文全文，不截断
     }
 
     private var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -355,7 +355,7 @@ struct EditResendSheet: View {
                 .padding(.top, T.sp2)
                 .accessibilityIdentifier("05-edit-resend-field")
 
-            // rewind 语义说明行（§3.2：T.orange 11.5pt；与确认弹层构成双重确认）
+            // rewind 语义说明行（T.orange 11.5pt；与确认弹层构成双重确认）
             HStack(alignment: .top, spacing: T.sp1) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
@@ -431,7 +431,7 @@ struct EditResendSheet: View {
         let result = await onResend(text)
         sending = false
         if let result {
-            failure = result // sheet 内错误行；可改后重试或取消（§3.4）
+            failure = result // sheet 内错误行；可改后重试或取消
         } else {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             onCancel() // 成功：dismiss；消息流由桌面 rows 键级重建自动刷新（乐观不做）
@@ -947,7 +947,7 @@ struct MarkdownMessageBody: View {
     }
 }
 
-// MARK: - 工具调用卡（spec 5.3：头 min-height 44，展开体 12px mono 弱底）
+// MARK: - 工具调用卡（头 min-height 44，展开体 12px mono 弱底）
 
 struct ToolCallCardView: View {
     let call: ToolCall

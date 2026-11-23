@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- API 24/25 兜底（adaptive-icon 仅 26+）：近黑全幅底 + 矢量前景层叠合成。
+<!-- API 24/25 兜底（adaptive-icon 仅 26+）：纸色全幅底 + 矢量前景层叠合成。
      复用 @drawable/ic_launcher_foreground 避免大 path 数据双份誊抄；
-     前景自带 adaptive 安全区留白，旧桌面呈「暗底居中标」观感。 -->
+     前景自带 adaptive 安全区留白，旧桌面呈「纸底居中标」观感。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/ic_launcher_background" />
     <item android:drawable="@drawable/ic_launcher_foreground" />

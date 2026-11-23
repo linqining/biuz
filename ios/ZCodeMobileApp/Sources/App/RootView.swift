@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 根视图：Tab（会话/任务/文件/设置）+ 自定义 Tab 栏（徽章三色 + 毛玻璃 + 安全区）
-/// + Push 时隐藏 Tab 栏 + 文件 Tab 根页底部动作栏叠于 Tab 栏之上（spec 3.1/3.2）
+/// + Push 时隐藏 Tab 栏 + 文件 Tab 根页底部动作栏叠于 Tab 栏之上
 struct RootView: View {
     @Environment(AppRouter.self) private var router
     @Environment(TabBadges.self) private var badges
@@ -9,7 +9,7 @@ struct RootView: View {
     @Environment(\.conversationStore) private var conversationStore
     @Environment(\.taskStore) private var taskStore
     @Environment(\.fileStore) private var fileStore
-    // 连接引导根页（设计稿 §1.3：L1 资产复用——自带导航栈 + 扫码 cover + 帮助 push）
+    // 连接引导根页（L1 资产复用——自带导航栈 + 扫码 cover + 帮助 push）
     @State private var connectPath: [ConnectFlowView.ConnectRoute] = []
     @State private var showScanner = false
     @State private var scannerUpdateToken = false
@@ -21,7 +21,7 @@ struct RootView: View {
             if showsConnectRoot {
                 connectRoot
             } else {
-                // Tab 切换无动画直达、保留各栈滚动位置（spec 3.2）
+                // Tab 切换无动画直达、保留各栈滚动位置
                 ZStack {
                     chatTab
                         .opacity(router.selectedTab == .chat ? 1 : 0)
@@ -59,7 +59,7 @@ struct RootView: View {
                     ConnectionBanner(model: banner)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                // §1.6：未连接不渲染 DiffActionBar（空态页无 diff 可批，Empty store 的
+                // 未连接不渲染 DiffActionBar（空态页无 diff 可批，Empty store 的
                 // approveAll 成死钮）
                 if router.showsDiffActionBar && session.isConnected {
                     DiffActionBar()
@@ -94,7 +94,7 @@ struct RootView: View {
         }
     }
 
-    // MARK: - 未连接根页（连接引导，设计稿 §1.2/§1.3）
+    // MARK: - 未连接根页（连接引导）
 
     /// 根页替换条件：未配对（demo），或连接中且从未连上（remote Store 无实例——
     /// 含冷启动自动重连与根页/cover 发起的连接，叠加整层连接中反馈）；断线重连
@@ -238,7 +238,7 @@ struct RootView: View {
     }
 }
 
-// MARK: - 连接状态横幅（5.9：弱底 + 描边 + 图标 + 动作文；不复用任务状态胶囊）
+// MARK: - 连接状态横幅（弱底 + 描边 + 图标 + 动作文；不复用任务状态胶囊）
 
 struct ConnectionBanner: View {
     struct Model {
@@ -248,7 +248,7 @@ struct ConnectionBanner: View {
         let detail: String
         let action: String
         let onAction: () -> Void
-        /// a11y identifier（设计稿 §1.4：connecting 横幅独立 id 13-banner-connecting；
+        /// a11y identifier（connecting 横幅独立 id 13-banner-connecting；
         /// 默认值令既有失败/断线两态与全部 E2E 断言不变）
         var identifier: String = "13-banner-connection"
     }
@@ -258,7 +258,7 @@ struct ConnectionBanner: View {
     static func model(for session: AppSession) -> Model? {
         switch session.mode {
         case .connecting(let server):
-            // 断线重连中（快照在场，不打断浏览——设计稿 §1.4）；从未连上的
+            // 断线重连中（快照在场，不打断浏览）；从未连上的
             // connecting 由根页/cover 整层 ConnectingView 承担，横幅不重复出现
             guard session.remoteConversationStore != nil else { return nil }
             if session.isAutoReconnecting {
@@ -280,7 +280,7 @@ struct ConnectionBanner: View {
                 session.cancelConnecting()
             }
         case .connectFailed(_, let error):
-            // 对齐修复（U-9/设计稿 §1.6）：删「已回退演示数据」——Mock 回退语义已消失，
+            // 对齐修复（U-9）：删「已回退演示数据」——Mock 回退语义已消失，
             // 失败态为空数据 + 重试；换台入口在设置页「添加服务器」
             return Model(
                 icon: "exclamationmark.triangle.fill", tint: T.red,
@@ -290,7 +290,7 @@ struct ConnectionBanner: View {
                 Task { await session.reconnect() }
             }
         case .disconnected(_, let detail):
-            // 断线保留最后快照（设计稿 §1.5）：如实声明数据时点，写面由各页失败提示兜底
+            // 断线保留最后快照：如实声明数据时点，写面由各页失败提示兜底
             return Model(
                 icon: "wifi.exclamationmark", tint: T.orange,
                 title: String(localized: "已断开 · 显示断线前的数据"),
@@ -342,7 +342,7 @@ struct ConnectionBanner: View {
     }
 }
 
-// MARK: - 自定义 Tab 栏（顶部 7 + 热区 48 + 底部 6 + 安全区 ≈ 95px，spec 3.1）
+// MARK: - 自定义 Tab 栏（顶部 7 + 热区 48 + 底部 6 + 安全区 ≈ 95px）
 
 struct ZCodeTabBar: View {
     @Environment(AppRouter.self) private var router

@@ -156,7 +156,7 @@ object ReadOnlyGate {
         // settingService：盘点报告 :54 记 `settingService.get/update`，gate 历史词表
         // 只有 `setting` 频道——真实频道名未取证（本轮桌面端不在线），客户端 get/update
         // 按两候选频道依次尝试（DesktopSettingsPage.settingCall）。本频道此前完全走
-        // default 放行（设计稿 §11C 指出的「写面静默绕过拦截面」），现按同裁决补词表：
+        // default 放行（「写面静默绕过拦截面」），现按同裁决补词表：
         // update 放行（同 setting.update）；updateDataBaseDir 维持拦截（宽容补拦，
         // 该命令在 settingService 频道是否存在未取证，拦截面从严）。
         "settingService" to setOf("updateDataBaseDir"),
@@ -168,7 +168,7 @@ object ReadOnlyGate {
             "copyClaudeAgentsFileToZcodeAgentsFile", "importSelected",
             "markFirstRunPromptHandled",
         ),
-        // P3-11 放行（2026-10-06，设计稿 §11A 前置裁决）：createCheckpoint/
+        // P3-11 放行（2026-10-06 前置裁决）：createCheckpoint/
         // restoreBetweenCheckpoints 与 web 对齐桌面代执行（gitCheckpointService 四方法
         // 词表见立项报告 §8.1，gitCheckpoint.ts:14-17）；移动端恢复入口硬要求
         // destructive 确认弹层。deleteCheckpoint 无 UI 入口，维持拦截。

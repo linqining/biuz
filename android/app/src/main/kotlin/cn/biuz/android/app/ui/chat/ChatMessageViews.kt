@@ -6,7 +6,7 @@ package cn.biuz.android.app.ui.chat
 // - 交互卡四分支（permission / plan_approval / userInput 提问 / workspaceHookReview）——
 //   宿主统一放进「常驻 composer 上方 · 限高 240dp + 内部滚动」容器（ChatScreen），三卡统一口径。
 // 应答形状（A-3）：answer 恒为对象按交互族分形——权限 {optionId} / 计划 {action} / 提问
-// {freeText}|{optionId}；决议失败如实上屏不撤卡（§3.2-3.4 状态矩阵）。
+// {freeText}|{optionId}；决议失败如实上屏不撤卡。
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -99,7 +99,7 @@ import cn.biuz.android.store.ConversationStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** 权限族 optionId 词表（web 实证四族 allowOnce/allowAlways/rejectOnce/rejectAlways，降级设计 §3.2）。 */
+/** 权限族 optionId 词表（web 实证四族 allowOnce/allowAlways/rejectOnce/rejectAlways，降级口径）。 */
 private val FOUR_FAMILY_IDS = setOf("allowOnce", "allowAlways", "rejectOnce", "rejectAlways")
 
 // MARK: - 消息行路由（iOS MessageView :44-133 同构）
@@ -135,6 +135,8 @@ fun MessageRow(
     onOpenWorkflowArtifact: ((WorkflowCompletionCard, WorkflowCompletionArtifact) -> Unit)? = null,
     /** P-020 行级反馈（赞/踩/取消）：null = 不渲染入口（游标缺失或宿主未接）。 */
     onFeedback: ((ChatMessage, Boolean?) -> Unit)? = null,
+    /** 消息动作「Fork」（web 同入口）：null = 不渲染；宿主负责成功提示/导航。 */
+    onFork: (() -> Unit)? = null,
 ) {
     when (message.role) {
         MessageRole.user -> UserMessageRow(message, modifier, onEditResend, attachmentContext)
@@ -147,11 +149,19 @@ fun MessageRow(
             onOpenWorkflowRun = onOpenWorkflowRun,
             onOpenWorkflowArtifact = onOpenWorkflowArtifact,
             onFeedback = onFeedback,
+            onFork = onFork,
         )
     }
 }
 
 // MARK: - 用户行：附件位（气泡上方右对齐）+ userselect 剥离 + 气泡
+
+private val userBubbleShape = RoundedCornerShape(
+    topStart = 16.dp,
+    topEnd = 4.dp,
+    bottomEnd = 16.dp,
+    bottomStart = 16.dp,
+)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -194,16 +204,16 @@ private fun UserMessageRow(
                 Box(
                     modifier = Modifier
                         .widthIn(max = 320.dp)
-                        .clip(BiuZRadius.large)
+                        .clip(userBubbleShape)
                         .background(BiuZAccentDim)
-                        .border(1.dp, BiuZBorder, BiuZRadius.large)
+                        .border(1.dp, BiuZBorder, userBubbleShape)
                         .combinedClickable(
                             onClick = {},
                             onLongClick = { menuOpen = true },
                         )
                         .padding(horizontal = BiuZSpacing.md, vertical = 10.dp),
                 ) {
-                    CollapsibleBodyText(text = displayText, streaming = false)
+                    CollapsiblePlainText(text = displayText)
                     if (copied) {
                         Text(
                             text = copiedLabel,
@@ -254,6 +264,70 @@ private fun UserMessageRow(
             onResend = { newText -> onEditResend(message, newText) },
             onClose = { showEditResend = false },
         )
+    }
+}
+
+/**
+ * 用户气泡正文（web `ConversationUserInputBody.tsx:7-25,104-145` 同构）：
+ * **纯文本**（不渲染 markdown，保留空白与换行）+ 超高折叠（≈120dp / 5 行）+ 底部渐隐 +
+ * 圆形展开箭头；展开后全量。
+ */
+@Composable
+private fun CollapsiblePlainText(text: String) {
+    var expanded by remember(text) { mutableStateOf(false) }
+    var overflowing by remember(text) { mutableStateOf(false) }
+    Box {
+        Text(
+            text = text,
+            style = TextStyle(fontSize = 15.sp, lineHeight = 22.sp),
+            color = BiuZText,
+            maxLines = if (expanded) Int.MAX_VALUE else 5,
+            overflow = TextOverflow.Clip,
+            onTextLayout = { layout ->
+                if (!expanded) overflowing = layout.didOverflowHeight
+            },
+        )
+        if (!expanded && overflowing) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(26.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, BiuZAccentDim),
+                        ),
+                    ),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(top = 18.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(BiuZAccent)
+                    .clickable { expanded = true }
+                    .testTag("05-user-expand"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("⌄", fontSize = 12.sp, color = BiuZOnAccent)
+            }
+        }
+        if (expanded) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(top = 8.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(BiuZBgInput)
+                    .clickable { expanded = false }
+                    .testTag("05-user-collapse"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("⌃", fontSize = 12.sp, color = BiuZText2)
+            }
+        }
     }
 }
 
@@ -379,6 +453,7 @@ private fun EditResendSheet(
 private fun MessageActionRow(
     message: ChatMessage,
     onFeedback: ((ChatMessage, Boolean?) -> Unit)? = null,
+    onFork: (() -> Unit)? = null,
 ) {
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var copied by remember(message.id) { mutableStateOf(false) }
@@ -436,6 +511,19 @@ private fun MessageActionRow(
                     .testTag("05-msg-dislike-" + message.id),
             )
         }
+        // Fork 入口（web 同位置；assistantText + 游标 + 非流式才出现）
+        if (onFork != null && canFeedback && message.status != MessageStatus.streaming) {
+            Text(
+                text = stringResource(R.string.chat_fork_action),
+                fontSize = 11.sp,
+                color = BiuZText3,
+                modifier = Modifier
+                    .clip(BiuZRadius.small)
+                    .clickable { onFork() }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .testTag("05-msg-fork-" + message.id),
+            )
+        }
         Text(
             text = remember(message.timestamp) { formatMessageTime(message.timestamp) },
             fontSize = 11.sp,
@@ -466,12 +554,14 @@ private fun AgentMessageRow(
     onOpenWorkflowRun: (() -> Unit)? = null,
     onOpenWorkflowArtifact: ((WorkflowCompletionCard, WorkflowCompletionArtifact) -> Unit)? = null,
     onFeedback: ((ChatMessage, Boolean?) -> Unit)? = null,
+    onFork: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
     ) {
-        if (message.text.isNotEmpty()) {
+        val structuredRow = message.subagent != null || message.artifact != null
+        if (message.text.isNotEmpty() && !structuredRow) {
             Row(verticalAlignment = Alignment.Top) {
                 AgentAvatar()
                 Spacer(Modifier.size(BiuZSpacing.sm))
@@ -483,16 +573,73 @@ private fun AgentMessageRow(
                 }
             }
         }
+        // 子代理行（web SubagentRowView 同文案：`type · status — summary`，单行弱化）
+        message.subagent?.let { subagent ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 32.dp)
+                    .testTag("05-subagent-row"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("🤖", fontSize = 12.sp)
+                Spacer(Modifier.size(BiuZSpacing.xs))
+                Text(
+                    text = buildString {
+                        append(subagent.type.ifBlank { "subagent" })
+                        subagent.status?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
+                        subagent.summary?.takeIf { it.isNotBlank() }?.let { append(" — ").append(it) }
+                    },
+                    style = TextStyle(fontSize = 12.sp, lineHeight = 17.sp),
+                    color = BiuZText3,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        // 产物行卡（web ArtifactRowView 同构：文件图标 + 名称 + `TYPE · N bytes`）
+        message.artifact?.let { artifact ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(BiuZRadius.medium)
+                    .background(BiuZBgCard)
+                    .border(1.dp, BiuZBorder, BiuZRadius.medium)
+                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
+                    .testTag("05-artifact-row"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("📦", fontSize = 14.sp)
+                Spacer(Modifier.size(BiuZSpacing.sm))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = artifact.name,
+                        style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                        color = BiuZText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = buildString {
+                            append(artifact.kind.uppercase())
+                            artifact.bytes?.let { append(" · ").append(byteText(it.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt())) }
+                        },
+                        style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                        color = BiuZText3,
+                    )
+                }
+            }
+        }
         // 消息动作行（web 会话页为 复制/赞/踩/展开/锚点/时间；本轮先落只读两项：
         // 复制 + 时间。赞/踩需接 setAssistantFeedback 的 VM 写链路，单列后续。
         if (message.text.isNotEmpty() && message.status != MessageStatus.streaming) {
-            MessageActionRow(message = message, onFeedback = onFeedback)
+            MessageActionRow(message = message, onFeedback = onFeedback, onFork = onFork)
         }
         // P-019 per-turn 变更条（web 位置：该轮助手消息下方；数据 = turnHeader.fileChanges）
         message.turnChanges?.takeIf { it.files > 0 }?.let { changes ->
             MessageChangeSummaryBar(turnChanges = changes)
         }
-        message.thinking?.let { ThinkingBlock(it.text, it.state) }
+        message.thinking?.let { ThinkingBlock(it.text, it.state, it.duration) }
         // G-014 附件缩略图行（无附件数据不渲染任何占位块；iOS MessageViews.swift:91 同构）
         if (attachmentContext != null && message.attachments.isNotEmpty()) {
             AttachmentStripView(
@@ -619,7 +766,11 @@ private fun CollapsibleBodyText(text: String, streaming: Boolean) {
 // MARK: - 思考折叠块（折叠态只留摘要头；中断态显式标出）
 
 @Composable
-private fun ThinkingBlock(text: String, state: ThinkingState) {
+private fun ThinkingBlock(
+    text: String,
+    state: ThinkingState,
+    durationSeconds: Double? = null,
+) {
     var expanded by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
@@ -638,10 +789,15 @@ private fun ThinkingBlock(text: String, state: ThinkingState) {
             Text(
                 text = when (state) {
                     ThinkingState.streaming -> stringResource(R.string.chat_thinking_header)
-                    ThinkingState.done -> stringResource(
-                        R.string.chat_thinking_chars,
-                        LongTextDisplay.totalCount(text),
-                    )
+                    // 完成态：有实测时长显示「思考 · N 秒」（web 同口径），否则退化为字数摘要
+                    ThinkingState.done -> if (durationSeconds != null && durationSeconds >= 1.0) {
+                        stringResource(R.string.chat_thinking_seconds, durationSeconds.toInt())
+                    } else {
+                        stringResource(
+                            R.string.chat_thinking_chars,
+                            LongTextDisplay.totalCount(text),
+                        )
+                    }
                     ThinkingState.interrupted -> stringResource(R.string.chat_thinking_interrupted)
                 },
                 style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
@@ -655,6 +811,24 @@ private fun ThinkingBlock(text: String, state: ThinkingState) {
                 color = BiuZText3,
                 fontSize = 11.sp,
             )
+        }
+        // web reasoning 折叠态预览：流式中显示最后一行非空文本（单行、渐隐）
+        if (!expanded && state == ThinkingState.streaming) {
+            val preview = remember(text) {
+                text.lineSequence().map { it.trim() }.lastOrNull { it.isNotEmpty() }.orEmpty()
+            }
+            if (preview.isNotEmpty()) {
+                Text(
+                    text = preview,
+                    style = TextStyle(fontSize = 11.sp, lineHeight = 15.sp),
+                    color = BiuZText3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = BiuZSpacing.md, end = BiuZSpacing.md, bottom = BiuZSpacing.sm),
+                )
+            }
         }
         if (expanded) {
             Text(
@@ -678,17 +852,24 @@ private fun ThinkingBlock(text: String, state: ThinkingState) {
 private fun Modifier.combinedClickableSafe(onClick: () -> Unit): Modifier =
     this.combinedClickable(onClick = onClick)
 
-// MARK: - 工具调用卡（spec 5.3：头 44 最小热区，展开体 mono 弱底；iOS ToolCallCardView 直译）
+// MARK: - 工具调用卡（头 44 最小热区，展开体 mono 弱底；iOS ToolCallCardView 直译）
 
 @Composable
 private fun ToolCallCard(call: ToolCall, onRetry: () -> Unit) {
+    // web ToolCallBlocks 移动端同构（2026-11-23）：工具族身份 + 动作词 + 主/副文案 +
+    // 展开体（描述 / 文件路径 / 命令块 / 参数 / 输出 / 错误）。**不再裸显示 inputText JSON**；
+    // 不渲染 per-tool 重试（web 无此入口；失败以错误块如实展示）。
+    @Suppress("UNUSED_PARAMETER")
+    val unusedRetry = onRetry
     var expanded by remember { mutableStateOf(false) }
+    val model = remember(call) { ToolDisplay.build(call) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(BiuZRadius.medium)
             .background(BiuZBgCard)
-            .border(1.dp, BiuZBorder, BiuZRadius.medium),
+            .border(1.dp, BiuZBorder, BiuZRadius.medium)
+            .testTag("05-tool-call"),
     ) {
         Row(
             modifier = Modifier
@@ -699,47 +880,55 @@ private fun ToolCallCard(call: ToolCall, onRetry: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = kindGlyph(call.kind),
+                text = toolFamilyGlyph(model.family),
                 fontSize = 11.sp,
                 color = BiuZText3,
             )
             Spacer(Modifier.size(BiuZSpacing.xs))
             Text(
-                text = kindLabel(call.kind),
+                text = toolActionLabel(model),
                 style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
-                color = BiuZText,
+                color = when (model.phase) {
+                    ToolPhase.Failed -> BiuZOrange
+                    else -> BiuZText
+                },
             )
             Spacer(Modifier.size(BiuZSpacing.xs))
             Text(
-                text = call.target,
-                style = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                text = model.primary.ifBlank {
+                    model.toolName.ifBlank { stringResource(R.string.chat_tool_fallback_name) }
+                },
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    fontFamily = if (model.family == ToolFamily.Shell || model.filePath != null) {
+                        FontFamily.Monospace
+                    } else {
+                        FontFamily.Default
+                    },
+                ),
                 color = BiuZText2,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            if (model.addedLines != null || model.removedLines != null) {
+                Spacer(Modifier.size(BiuZSpacing.xs))
+                Text(
+                    text = toolDiffLabel(model),
+                    style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                    color = BiuZText3,
+                )
+            }
             Spacer(Modifier.size(BiuZSpacing.xs))
-            when (call.status) {
-                ToolCallStatus.running -> CircularProgressIndicator(
+            when (model.phase) {
+                ToolPhase.Pending, ToolPhase.Running -> CircularProgressIndicator(
                     modifier = Modifier.size(14.dp),
                     strokeWidth = 2.dp,
                     color = BiuZGreen,
                 )
-                ToolCallStatus.done -> Text("✓", color = BiuZBlue, fontSize = 12.sp)
-                ToolCallStatus.failed -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("✕", color = BiuZOrange, fontSize = 12.sp)
-                    // G-015：失败且行元数据游标（entityId）在场才出现「重试」——无游标不渲染
-                    if (call.entityId != null) {
-                        androidx.compose.material3.TextButton(onClick = onRetry) {
-                            Text(
-                                text = stringResource(R.string.composer_retry),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = BiuZAccent,
-                            )
-                        }
-                    }
-                }
+                ToolPhase.Done -> Text("✓", color = BiuZBlue, fontSize = 12.sp)
+                ToolPhase.Failed -> Text("✕", color = BiuZOrange, fontSize = 12.sp)
+                ToolPhase.Stopped -> Text("■", color = BiuZText3, fontSize = 10.sp)
             }
             Text(
                 text = if (expanded) "▾" else "▸",
@@ -754,35 +943,155 @@ private fun ToolCallCard(call: ToolCall, onRetry: () -> Unit) {
                     .background(BiuZBgCode)
                     .padding(BiuZSpacing.md),
             ) {
-                // 展开体首行：完整命令/文件路径（头部截断仅是摘要，展开后全量铺开）
-                Text(
-                    text = call.target,
-                    style = TextStyle(
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        lineHeight = 17.sp,
-                    ),
-                    color = BiuZText,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                )
-                call.output?.takeIf { it.isNotEmpty() }?.let { output ->
-                    Spacer(Modifier.height(BiuZSpacing.sm))
+                model.secondary?.let { description ->
                     Text(
-                        text = output,
+                        text = description,
+                        style = TextStyle(fontSize = 12.sp, lineHeight = 17.sp),
+                        color = BiuZText2,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(BiuZSpacing.sm))
+                }
+                model.filePath?.let { path ->
+                    Text(
+                        text = path,
                         style = TextStyle(
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
                             lineHeight = 17.sp,
                         ),
-                        color = BiuZText2,
+                        color = BiuZText,
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                     )
+                    Spacer(Modifier.height(BiuZSpacing.sm))
+                }
+                model.command?.let { command ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                    ) {
+                        Text(
+                            text = "$ ",
+                            style = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                            color = BiuZGreen,
+                        )
+                        Text(
+                            text = command,
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 17.sp,
+                            ),
+                            color = BiuZText,
+                        )
+                    }
+                }
+                model.parameters?.let { parameters ->
+                    Spacer(Modifier.height(BiuZSpacing.sm))
+                    ToolBodyBlock(
+                        title = stringResource(R.string.chat_tool_parameters),
+                        body = parameters,
+                        color = BiuZText2,
+                    )
+                }
+                model.output?.let { output ->
+                    Spacer(Modifier.height(BiuZSpacing.sm))
+                    ToolBodyBlock(
+                        title = stringResource(R.string.chat_tool_output),
+                        body = output,
+                        color = BiuZText2,
+                    )
+                }
+                model.errorText?.let { error ->
+                    Spacer(Modifier.height(BiuZSpacing.sm))
+                    ToolBodyBlock(
+                        title = stringResource(R.string.chat_tool_failed),
+                        body = error,
+                        color = BiuZOrange,
+                    )
                 }
             }
+        }
+    }
+}
+
+/** 展开体块（输出/参数/错误共用：标题 + 限高竖向滚动 mono 文本）。 */
+@Composable
+private fun ToolBodyBlock(title: String, body: String, color: Color) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = title,
+            style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium),
+            color = BiuZText3,
+        )
+        Spacer(Modifier.height(BiuZSpacing.xs))
+        Text(
+            text = body,
+            style = TextStyle(
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 17.sp,
+            ),
+            color = color,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 220.dp)
+                .verticalScroll(rememberScrollState()),
+        )
+    }
+}
+
+/** 工具族字形（web 各 renderer 图标字符对位；无矢量资产，沿用字符口径）。 */
+private fun toolFamilyGlyph(family: ToolFamily): String = when (family) {
+    ToolFamily.Shell -> "$"
+    ToolFamily.FileRead -> "▤"
+    ToolFamily.FileWrite -> "✎"
+    ToolFamily.Search -> "⌕"
+    ToolFamily.WebFetch -> "◉"
+    ToolFamily.Mcp -> "⚙"
+    ToolFamily.Agent -> "🤖"
+    ToolFamily.Todo -> "☑"
+    ToolFamily.Workflow -> "◆"
+    ToolFamily.Generic -> "•"
+}
+
+/** 动作词（族 × 阶段 → 资源；web kind label 的进行/完成时态口径）。 */
+@Composable
+private fun toolActionLabel(model: ToolDisplayModel): String = when (model.phase) {
+    ToolPhase.Pending -> stringResource(R.string.chat_tool_pending)
+    ToolPhase.Running -> when (model.family) {
+        ToolFamily.Shell -> stringResource(R.string.chat_tool_running_shell)
+        ToolFamily.FileRead -> stringResource(R.string.chat_tool_running_read)
+        ToolFamily.FileWrite -> stringResource(R.string.chat_tool_running_write)
+        ToolFamily.Search -> stringResource(R.string.chat_tool_running_search)
+        ToolFamily.WebFetch -> stringResource(R.string.chat_tool_running_fetch)
+        ToolFamily.Agent, ToolFamily.Workflow -> stringResource(R.string.chat_tool_running_agent)
+        ToolFamily.Mcp, ToolFamily.Todo, ToolFamily.Generic -> stringResource(R.string.chat_tool_running_call)
+    }
+    ToolPhase.Done -> when (model.family) {
+        ToolFamily.Shell -> stringResource(R.string.chat_tool_done_shell)
+        ToolFamily.FileRead -> stringResource(R.string.chat_tool_done_read)
+        ToolFamily.FileWrite -> stringResource(R.string.chat_tool_done_write)
+        ToolFamily.Search -> stringResource(R.string.chat_tool_done_search)
+        ToolFamily.WebFetch -> stringResource(R.string.chat_tool_done_fetch)
+        ToolFamily.Agent, ToolFamily.Workflow -> stringResource(R.string.chat_tool_done_agent)
+        ToolFamily.Mcp, ToolFamily.Todo, ToolFamily.Generic -> stringResource(R.string.chat_tool_done_call)
+    }
+    ToolPhase.Failed -> stringResource(R.string.chat_tool_failed)
+    ToolPhase.Stopped -> stringResource(R.string.chat_tool_stopped)
+}
+
+private fun toolDiffLabel(model: ToolDisplayModel): String {
+    val added = model.addedLines
+    val removed = model.removedLines
+    return buildString {
+        if (added != null) append("+$added")
+        if (removed != null) {
+            if (isNotEmpty()) append(" ")
+            append("-$removed")
         }
     }
 }
@@ -1089,7 +1398,7 @@ fun InteractionCard(
         interaction.isPermission -> PermissionInteractionCard(interaction, actions, modifier)
         interaction.isPlanApproval -> PlanInteractionCard(interaction, actions, modifier)
         interaction.isWorkspaceHookReview -> HookReviewInteractionCard(interaction, actions, modifier)
-        // userInput / elicitation / question → 提问卡（蓝描边；§3.4）
+        // userInput / elicitation / question → 提问卡（蓝描边）
         else -> QuestionInteractionCard(interaction, actions, modifier)
     }
 }
@@ -1120,7 +1429,7 @@ private fun InteractionCardFrame(
     }
 }
 
-/** 决议失败行（错误路径上屏：服务层拒因原文/未送达/未知态三态；不撤卡控件恢复 §3.2）。 */
+/** 决议失败行（错误路径上屏：服务层拒因原文/未送达/未知态三态；不撤卡、控件恢复）。 */
 @Composable
 private fun DecisionFailureRow(failure: ChatViewModel.InteractionFailure) {
     val text = when (failure) {
@@ -1166,7 +1475,7 @@ private fun SelectChip(
 private fun Modifier.combinedClickableSafe(enabled: Boolean, onClick: () -> Unit): Modifier =
     this.combinedClickable(enabled = enabled, onClick = onClick)
 
-// MARK: 权限族（§3.2：默认两档 chips + 批准/拒绝；四族混合态方向钮禁用；全非四族单选即决）
+// MARK: 权限族（默认两档 chips + 批准/拒绝；四族混合态方向钮禁用；全非四族单选即决）
 
 @Composable
 private fun PermissionInteractionCard(
@@ -1177,7 +1486,7 @@ private fun PermissionInteractionCard(
     val scope = rememberCoroutineScope()
     var deciding by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<ChatViewModel.InteractionFailure?>(null) }
-    // scope 两档（once/always）；四族命中推导可见性（§3.2 规则 3）
+    // scope 两档（once/always）；四族命中推导可见性
     val optionIds = interaction.options.map { it.id }
     val hasOnce = optionIds.any { it == "allowOnce" || it == "rejectOnce" }
     val hasAlways = optionIds.any { it == "allowAlways" || it == "rejectAlways" }
@@ -1226,7 +1535,7 @@ private fun PermissionInteractionCard(
         }
         when {
             singleSelect -> {
-                // 全非四族 id：chips 即选项（点选即发，自带方向语义；两步矩阵整组隐藏 §3.2 规则 3）
+                // 全非四族 id：chips 即选项（点选即发，自带方向语义；两步矩阵整组隐藏）
                 Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
                     interaction.options.forEach { option ->
                         SelectChip(label = option.label, selected = false) {
@@ -1257,7 +1566,7 @@ private fun PermissionInteractionCard(
                         ) { selectedScope = "always" }
                     }
                 }
-                // 方向钮禁用规则（混合态核心）：选中 scope 的某方向不在四族 → 该钮禁用（§3.2）；
+                // 方向钮禁用规则（混合态核心）：选中 scope 的某方向不在四族 → 该钮禁用；
                 // deciding 全局拦（括号必须包住方向项——裸 && 优先级会在决议中放开禁用）
                 val approveEnabled = !deciding && (
                     interaction.options.isEmpty() ||
@@ -1291,7 +1600,7 @@ private fun PermissionInteractionCard(
     }
 }
 
-/** 计划族（§3.3：{action:"accept"|"decline"}；cancel 不设专用按钮——snooze 语义独立）。 */
+/** 计划族（{action:"accept"|"decline"}；cancel 不设专用按钮——snooze 语义独立）。 */
 @Composable
 private fun PlanInteractionCard(
     interaction: RemotePendingInteraction,
@@ -1350,7 +1659,7 @@ private fun PlanInteractionCard(
     }
 }
 
-/** 提问族（§3.4：options 点选即发 {optionId}；输入行 {freeText}；蓝描边）。 */
+/** 提问族（options 点选即发 {optionId}；输入行 {freeText}；蓝描边）。 */
 @Composable
 private fun QuestionInteractionCard(
     interaction: RemotePendingInteraction,
@@ -1480,7 +1789,7 @@ private fun HookReviewInteractionCard(
     }
 }
 
-/** 44pt 热区决定钮（禁用 = 弱底灰字；批准 accent 实底 / 拒绝弱底，§3.2 视觉语言）。 */
+/** 44pt 热区决定钮（禁用 = 弱底灰字；批准 accent 实底 / 拒绝弱底）。 */
 @Composable
 private fun DecisionButton(
     label: String,

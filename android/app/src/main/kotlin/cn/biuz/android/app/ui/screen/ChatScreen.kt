@@ -1,7 +1,7 @@
 package cn.biuz.android.app.ui.screen
 
-// 会话流（屏 05；iOS ChatView 连接态直译的对位）。渲染权威规则 = 协议文档 §10.1；
-// 降级规格 = docs/对齐修复与降级体验设计.md §3（交互卡应答）/§5（发送失败三件套）。
+// 会话流（iOS ChatView 连接态直译的对位）。渲染权威规则 = 协议文档 §10.1；
+// 降级呈现：交互卡应答、发送失败如实上屏（失败不静默，AGENTS §5-12）。
 //
 // 结构（自上而下）：
 // - 顶栏（返回 + 标题）；
@@ -47,6 +47,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
@@ -176,7 +177,6 @@ fun ChatScreen(
     // 面板区投影（chips 行数据源）+ 聊天页顶迷你轨道数据源（行自带 workflowActivity）
     val workflowRuns by viewModel.workflowRuns.collectAsStateWithLifecycle()
     val currentConversation by viewModel.currentConversation.collectAsStateWithLifecycle()
-    val readOnly = viewModel.isReadOnly
     // 会话面板展开态（SessionPanelsSection 绑定；iOS ChatView expandedPanel 同位——
     // 键盘弹出即收起的正向联动在 iOS 由 FocusState 承担，Compose 输入框聚焦不冲突，
     // 面板体自身滚动即收键盘，此处保留显式收起单路径）
@@ -218,9 +218,13 @@ fun ChatScreen(
     }
 
     val listState = rememberLazyListState()
+    // 回合分组（web conversationTurnRenderUnits 子集）：已完成回合折叠为工作摘要，
+    // 运行中回合保持展开；散行（回显/会话级卡）独立尾单元
+    val turnUnits = remember(messages) { cn.biuz.android.app.ui.chat.TurnGrouping.group(messages) }
+    var expandedTurns by remember { androidx.compose.runtime.mutableStateOf(emptySet<String>()) }
     // 新行到达滚底（乐观回显 + 服务端行都走同一投影）
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(turnUnits.size) {
+        if (turnUnits.isNotEmpty()) listState.animateScrollToItem(turnUnits.size - 1)
     }
 
     // 交互卡应答（A-3 对象分形；失败/未知态由卡内错误行如实呈现不撤卡）
@@ -411,6 +415,66 @@ fun ChatScreen(
                 .padding(bottom = BiuZSpacing.sm),
         )
 
+        // 单条消息渲染（回合区块与会话级散行共用）
+        val renderMessage: @Composable (ChatMessage) -> Unit = { message ->
+            MessageRow(
+                message = message,
+                // 工作流完成卡四格 join（活投影按 runId 对位；冷恢复 run 被淘汰 = 三格
+                // 「—」桌面同口径）+ ⤢ 门控（仅卡对应 run 是面板当前 run 时接线）
+                workflowCompletionRun = message.workflowCompletion?.let { card ->
+                    workflowRuns.firstOrNull {
+                        (it.workId ?: it.id) == card.runId || it.id == card.runId
+                    }
+                },
+                onOpenWorkflowRun = message.workflowCompletion?.let { card ->
+                    viewModel.workflowRun
+                        ?.takeIf { (it.workId ?: it.id) == card.runId }
+                        ?.let { { expandedPanel = cn.biuz.android.app.ui.chat.SessionPanelKind.Workflow } }
+                },
+                onOpenWorkflowArtifact = { card, artifact ->
+                    artifactSheet = WorkflowArtifactSheetRequest(card = card, artifact = artifact)
+                },
+                onRetryToolCall = { origin: ChatMessage, call: ToolCall ->
+                    // G-015：retryTurn 经 store；rowId 来自行合成 id（"row-<n>"），
+                    // entityId 由卡片渲染门槛保证在场（无游标 store 拒发如实反馈）
+                    scope.launch {
+                        val rowId = origin.id.removePrefix("row-").toIntOrNull()
+                            ?: return@launch
+                        viewModel.attachedStore?.retryTurn(
+                            conversationId = viewModel.conversationId,
+                            rowId = rowId,
+                            entityId = call.entityId,
+                        )
+                    }
+                },
+                // P1-3 编辑重发（null 回调 = 未接线不渲染入口；未连接态 store 返回
+                // null → VM 判 Undelivered 如实提示，禁假成功）
+                onEditResend = { origin: ChatMessage, newText: String ->
+                    viewModel.editUserQuery(origin, newText)
+                },
+                // G-014 附件条（refs 空的行内部自行不渲染；全屏经单一宿主）
+                attachmentContext = attachmentContext,
+                // P-020 行级反馈（赞/踩/取消）：onFeedback 接线 → MessageActionRow
+                // 渲染入口（MessageActionRow 内部 canFeedback 门槛控制显示——
+                // rowKind=assistantText 且 entityId 在场才渲染）
+                onFeedback = { origin: ChatMessage, value: Boolean? ->
+                    scope.launch { viewModel.setAssistantFeedback(origin, value) }
+                },
+                // 消息动作「Fork」（web 同入口）：成功后 Toast 新会话 id（失败原因落常驻错误行）
+                onFork = {
+                    scope.launch {
+                        viewModel.forkConversation()?.let { newId ->
+                            android.widget.Toast.makeText(
+                                context,
+                                context.getString(R.string.chat_fork_created_fmt, newId),
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                },
+            )
+        }
+
         // MARK: 消息流
         LazyColumn(
             state = listState,
@@ -436,50 +500,18 @@ fun ChatScreen(
                     )
                 }
             }
-            items(messages, key = { it.id }) { message ->
-                MessageRow(
-                    message = message,
-                    // 工作流完成卡四格 join（活投影按 runId 对位；冷恢复 run 被淘汰 = 三格
-                    // 「—」桌面同口径）+ ⤢ 门控（仅卡对应 run 是面板当前 run 时接线）
-                    workflowCompletionRun = message.workflowCompletion?.let { card ->
-                        workflowRuns.firstOrNull {
-                            (it.workId ?: it.id) == card.runId || it.id == card.runId
+            items(turnUnits, key = { it.key }) { turn ->
+                TurnSection(
+                    turn = turn,
+                    expanded = turn.key in expandedTurns,
+                    onToggleWork = {
+                        expandedTurns = if (turn.key in expandedTurns) {
+                            expandedTurns - turn.key
+                        } else {
+                            expandedTurns + turn.key
                         }
                     },
-                    onOpenWorkflowRun = message.workflowCompletion?.let { card ->
-                        viewModel.workflowRun
-                            ?.takeIf { (it.workId ?: it.id) == card.runId }
-                            ?.let { { expandedPanel = cn.biuz.android.app.ui.chat.SessionPanelKind.Workflow } }
-                    },
-                    onOpenWorkflowArtifact = { card, artifact ->
-                        artifactSheet = WorkflowArtifactSheetRequest(card = card, artifact = artifact)
-                    },
-                    onRetryToolCall = { origin: ChatMessage, call: ToolCall ->
-                        // G-015：retryTurn 经 store；rowId 来自行合成 id（"row-<n>"），
-                        // entityId 由卡片渲染门槛保证在场（无游标 store 拒发如实反馈）
-                        scope.launch {
-                            val rowId = origin.id.removePrefix("row-").toIntOrNull()
-                                ?: return@launch
-                            viewModel.attachedStore?.retryTurn(
-                                conversationId = viewModel.conversationId,
-                                rowId = rowId,
-                                entityId = call.entityId,
-                            )
-                        }
-                    },
-                    // P1-3 编辑重发（null 回调 = 未接线不渲染入口；未连接态 store 返回
-                    // null → VM 判 Undelivered 如实提示，禁假成功）
-                    onEditResend = { origin: ChatMessage, newText: String ->
-                        viewModel.editUserQuery(origin, newText)
-                    },
-                    // G-014 附件条（refs 空的行内部自行不渲染；全屏经单一宿主）
-                    attachmentContext = attachmentContext,
-                    // P-020 行级反馈（赞/踩/取消）：onFeedback 接线 → MessageActionRow
-                    // 渲染入口（MessageActionRow 内部 canFeedback 门槛控制显示——
-                    // rowKind=assistantText 且 entityId 在场才渲染）
-                    onFeedback = { origin: ChatMessage, value: Boolean? ->
-                        scope.launch { viewModel.setAssistantFeedback(origin, value) }
-                    },
+                    renderMessage = renderMessage,
                 )
             }
         }
@@ -707,20 +739,11 @@ fun ChatScreen(
                         }
                     },
                 )
-                if (readOnly) {
-                    Spacer(Modifier.size(BiuZSpacing.sm))
-                    Text(
-                        text = stringResource(R.string.composer_readonly),
-                        style = TextStyle(fontSize = 11.sp),
-                        color = BiuZText3,
-                        modifier = Modifier.align(Alignment.CenterVertically),
-                    )
-                }
             }
             // 3.17.2 输入预测 ghost hint（灰字续写，点按采纳拼到草稿尾部）。仅连接态 +
             // Host 能力门开启时 store 才返候选；无 hint 不渲染整行（同附件条「无排队不渲染」）
             val ghostHint = inputHint
-            if (readOnly && ghostHint != null) {
+            if (ghostHint != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -758,7 +781,7 @@ fun ChatScreen(
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clickable(enabled = !readOnly) {
+                        .clickable {
                             pickAttachments.launch(
                                 PickVisualMediaRequest(
                                     ActivityResultContracts.PickVisualMedia.ImageAndVideo,
@@ -814,9 +837,11 @@ fun ChatScreen(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(if (draft.isNotBlank() && !sending) BiuZAccent else BiuZBgInput)
+                        .background(
+                            if (draft.isNotBlank() && !sending && !uploadsBlocksSend) BiuZAccent else BiuZBgInput,
+                        )
                         .clickable(
-                            enabled = draft.isNotBlank() && !sending && !readOnly && !uploadsBlocksSend,
+                            enabled = draft.isNotBlank() && !sending && !uploadsBlocksSend,
                         ) {
                             scope.launch { viewModel.send() }
                         },
@@ -1384,3 +1409,104 @@ private fun ComposerErrorRow(
 
 /** 输入框/panel 行描边（BiuZBorderStrong 1dp + 卡片圆角）。 */
 private fun Modifier.border1(): Modifier = this.border(1.dp, BiuZBorderStrong, BiuZRadius.medium)
+
+/**
+ * 回合区块（web `ConversationTurnGroup` 简化同构）：用户输入 → 助手工作项；
+ * 已完成回合默认折叠为一条工作摘要行（点击展开/收起），运行中回合保持展开。
+ * 散行单元（turnIndex < 0：在途回显/会话级卡）恒展开且不出摘要行。
+ */
+@Composable
+private fun TurnSection(
+    turn: cn.biuz.android.app.ui.chat.TurnUnit,
+    expanded: Boolean,
+    onToggleWork: () -> Unit,
+    renderMessage: @Composable (ChatMessage) -> Unit,
+) {
+    val loose = turn.index < 0
+    val showWork = loose || turn.isRunning || expanded
+    Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.md)) {
+        turn.userMessages.forEach { renderMessage(it) }
+        if (turn.workItems.isNotEmpty()) {
+            if (!loose) {
+                // 运行中回合不出摘要行（实时展开）；已完成回合：折叠态摘要 / 展开态可点收起
+                if (!turn.isRunning || expanded) {
+                    TurnWorkSummaryRow(
+                        summary = turn.summary(),
+                        collapsed = !expanded,
+                        onClick = onToggleWork,
+                    )
+                } else {
+                    TurnWorkSummaryRow(
+                        summary = turn.summary(),
+                        collapsed = true,
+                        onClick = onToggleWork,
+                        running = true,
+                    )
+                }
+            }
+            if (showWork) {
+                turn.workItems.forEach { renderMessage(it) }
+            }
+        }
+    }
+}
+
+/** 回合工作摘要行（「已工作 · 探索 N 项 · 运行 N 条命令 · 更改 N 个文件」；运行中=工作中…）。 */
+@Composable
+private fun TurnWorkSummaryRow(
+    summary: cn.biuz.android.app.ui.chat.WorkSummary,
+    collapsed: Boolean,
+    onClick: () -> Unit,
+    running: Boolean = false,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(BiuZRadius.small)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .testTag("05-turn-summary"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (running) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            Text(if (collapsed) "▸" else "▾", fontSize = 11.sp, color = BiuZText3)
+        }
+        Spacer(Modifier.size(6.dp))
+        Text(
+            text = turnWorkSummaryText(summary, running),
+            fontSize = 12.sp,
+            color = BiuZText3,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun turnWorkSummaryText(
+    summary: cn.biuz.android.app.ui.chat.WorkSummary,
+    running: Boolean,
+): String {
+    if (running) return stringResource(R.string.chat_turn_working)
+    val parts = ArrayList<String>()
+    if (summary.exploreCount > 0) {
+        parts.add(stringResource(R.string.chat_turn_summary_explore, summary.exploreCount))
+    }
+    if (summary.commandCount > 0) {
+        parts.add(stringResource(R.string.chat_turn_summary_command, summary.commandCount))
+    }
+    if (summary.changeCount > 0) {
+        parts.add(stringResource(R.string.chat_turn_summary_change, summary.changeCount))
+    }
+    if (summary.reasoningCount > 0) {
+        parts.add(stringResource(R.string.chat_turn_summary_reasoning, summary.reasoningCount))
+    }
+    val head = stringResource(R.string.chat_turn_worked)
+    return if (parts.isEmpty()) head else "$head · ${parts.joinToString(" · ")}"
+}

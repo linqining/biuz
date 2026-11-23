@@ -55,7 +55,7 @@ import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.launch
 
 /**
- * 屏 07 · 执行输出（模型轨迹）—— iOS `Features/Tasks/TaskOutputView.swift` 的 Android 对位。
+ * 执行输出（模型轨迹）—— iOS `Features/Tasks/TaskOutputView.swift` 的 Android 对位。
  *
  * 数据面全部只读：
  * - 轨迹：`conversation.messages(sessionId)` 的行投影（思考 / 工具 / 回复三类，保序）；

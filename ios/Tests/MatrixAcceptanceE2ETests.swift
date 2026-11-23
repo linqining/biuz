@@ -936,7 +936,7 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
             ("12-row-plugins", "e2e-plugin", "listPlugins"),
             ("12-row-workflows", "登录链路工作流", "listSavedWorkflows"),
             ("12-row-offpeak", "错峰回归任务 · stub", "offPeak/list"),
-            // HIDDEN(对齐修复): 反馈工单入口已隐藏（feedback.list 双重未取证，设计稿 H1）
+            // HIDDEN(对齐修复): 反馈工单入口已隐藏（feedback.list 双重未取证，隐藏入口 H1）
             // · 恢复条件：真机探针回执成形后还原入口行与此断言
             // ("12-row-feedback", "E2E 工单 · stub", "feedback.list"),
         ]

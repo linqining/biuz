@@ -4,14 +4,14 @@ import SwiftUI
 /// SwiftUI 的 `@Environment(T.self)` 只接受具体 Observable 类型，
 /// 协议存在类型（any Store）经由 @Entry 环境值注入（SDK 27 的
 /// EnvironmentKey 协议要求 _valuesEqual，手写 conformance 不再可行）。
-/// 默认值给空实现实例（未注入时视图不崩、无假数据——设计稿 §0.4）。
+/// 默认值给空实现实例（未注入时视图不崩、无假数据）。
 extension EnvironmentValues {
     @Entry var conversationStore: any ConversationStore = EmptyConversationStore()
     @Entry var taskStore: any TaskStore = EmptyTaskStore()
     @Entry var fileStore: any FileStore = EmptyFileStore()
 }
 
-// MARK: - 未连接态空实现 Store（移除 Mock 后的编译基座，设计稿 §0.4）
+// MARK: - 未连接态空实现 Store（移除 Mock 后的编译基座）
 //
 // 全部读面返回空、观察流立即结束；写面如实失败——`send()` 返回 false（协议默认
 // `sendWithAttachments` 转发 send 的返回值，覆写 send 即令整条转发链为 false，

@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - 状态胶囊（spec 5.1）：22px 高、11px/600、999 圆角、6px 状态点
+// MARK: - 状态胶囊：22px 高、11px/600、999 圆角、6px 状态点
 
 enum PillKind {
     case run, wait, done, err, tag
@@ -80,7 +80,7 @@ struct TabBadge: View {
     }
 }
 
-// MARK: - 按钮（spec 5.5）
+// MARK: - 按钮
 
 struct PrimaryButton: View {
     // G-007：LocalizedStringKey 使字面量标题走 Localizable 查表（调用点全为字面量，已核对）
@@ -129,7 +129,7 @@ struct PressableButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - spinner（2.7：1s 线性旋转）
+// MARK: - spinner（1s 线性旋转）
 
 struct SpinnerView: View {
     var color: Color = T.greenBright
@@ -170,7 +170,7 @@ struct BlinkingCursor: View {
     }
 }
 
-// MARK: - 空态 / 加载态（spec 5.9：一律不用骨架屏）
+// MARK: - 空态 / 加载态（一律不用骨架屏）
 
 struct EmptyStateView: View {
     let icon: String
@@ -230,7 +230,7 @@ struct CenterLoadingView: View {
     }
 }
 
-// MARK: - 分段控件（spec 5.7：容器 bg-input 12px，段高 ≥44）
+// MARK: - 分段控件（容器 bg-input 12px，段高 ≥44）
 
 struct ZSegmentedPicker<Item: Hashable>: View {
     let items: [Item]

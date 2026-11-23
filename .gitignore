@@ -12,5 +12,8 @@ ios/DerivedData-*/
 
 # web-to-app 采证产物（截图/调试 profile，体积大且可重采）
 .capture/
-# ZCode 上游仓 clone（独立 .git，按需重新拉取）
-ZCode/node_modules/
+# ZCode 上游仓 clone（独立 .git，按需重新拉取）：整个克隆目录不入库
+/ZCode/
+# AI/IDE 工具临时目录（非项目产物）
+.commandcode/
+.openidea/

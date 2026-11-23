@@ -400,7 +400,7 @@ struct FileTreeView: View {
     }
 }
 
-/// 屏 09 · 产物预览（Push L3）：文件名 + 大小 + 分享、分段 预览/源码
+/// 产物预览（Push L3）：文件名 + 大小 + 分享、分段 预览/源码
 /// P2 增量：图片/PDF 按扩展名分发只读二进制预览（file.readBinaryPreview）；
 /// 失败/演示态降级为说明文案（不虚构预览）。
 struct FilePreviewView: View {

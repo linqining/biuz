@@ -175,7 +175,7 @@ struct ConversationQueueInfo: Equatable {
 
 // MARK: - 应用会话装配（OAuth 账户层 + 桌面配对连接层 + Store 装配策略）
 
-/// 装配策略（对齐修复后，《对齐修复与降级体验设计》§0/§1）：
+/// 装配策略（对齐修复后）：
 /// - 连接成功 → 真实 API 实现 Store 协议（remote 三件）；
 /// - 断线/连接中 → 保留现有 Store 引用（断线保留最后快照，不回落引导页）；
 /// - 未配对/连接失败 → 空实现 Store（**未连接 ≠ 演示**：无假数据；未配对=连接引导
@@ -341,8 +341,7 @@ final class AppSession {
     /// 套餐权益只读投影（getEntitlementSnapshot；P3-9 额度页「当前套餐权益」子块数据源）
     private(set) var codingPlanEntitlements: CodingPlanEntitlementInfo?
 
-    /// E2E Mock 激活开关（用户裁决「Mock 假数据全部移除，仅测试用例允许」的落地，
-    /// 设计稿 §1.7.2）：仅启动参数携带 `-ZCodeDemoData` 时未连接态装配 Mock 三件
+    /// E2E Mock 激活开关（用户裁决「Mock 假数据全部移除，仅测试用例允许」的落地）：仅启动参数携带 `-ZCodeDemoData` 时未连接态装配 Mock 三件
     /// （演示页脚/演示清单等演示态 UI 随之保留）；正式用户路径永不装配——未连接 =
     /// 空数据/连接引导，非「演示」。测试面零 Mock 编译引用（调研实证），改动集中在
     /// 启动参数与装配层一处 if。
@@ -359,7 +358,7 @@ final class AppSession {
         return true
     }
 
-    /// 是否已连接桌面端（便捷属性，设计稿 §1.6：横幅/DiffActionBar/入口 gating 用；
+    /// 是否已连接桌面端（便捷属性：横幅/DiffActionBar/入口 gating 用；
     /// P2ExtrasViews 各页私有 isConnected 先例上移统一）
     var isConnected: Bool {
         if case .connected = mode { return true }
@@ -600,7 +599,7 @@ final class AppSession {
             }
         case .failure(let error):
             UserDefaults.standard.set("failed: relay=\(server.relay != nil) host=\(server.host):\(server.port) error=\(String(describing: error))", forKey: "diag.lastConnect")
-            // 断线重连失败保留最后快照（设计稿 §1.5）：曾连接过 → 回断线态；
+            // 断线重连失败保留最后快照：曾连接过 → 回断线态；
             // 从未连上 → 连接失败空数据态（旧行为）。
             if remoteConversationStore != nil {
                 mode = .disconnected(server, error.headline)
@@ -1250,7 +1249,7 @@ final class AppSession {
     func cancelConnecting() {
         cancelAutoReconnect()
         connection.cancelConnecting()
-        // 取消落态按场景分流（设计稿 §1.4，防快照丢失）：从未连上（remote Store 无
+        // 取消落态按场景分流（防快照丢失）：从未连上（remote Store 无
         // 实例）→ .demo（回连接引导页——无数据可保留）；断线重连中取消 →
         // .disconnected（快照保留 + 橙横幅 detail「已取消重连」，可随时再点重连）
         if remoteConversationStore != nil, case .connecting(let server) = mode {

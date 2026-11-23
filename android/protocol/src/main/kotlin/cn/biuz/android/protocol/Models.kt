@@ -32,6 +32,15 @@ data class ToolCall(
     val entityId: String? = null,
     /** G-020：workflow 启动类工具调用关联的 runId（宽容解析；null = 非启动轮） */
     val workflowRunId: String? = null,
+    /**
+     * 原始工具名（行 `toolName`；web `lib/toolIdentity.ts` 家族判定源）。
+     * null = 行未携带——渲染回退通用卡（工具名/参数兜底展示）。
+     */
+    val toolName: String? = null,
+    /** 工具输入摘要（行 `input.description`/`summary` 宽容读取；bash 等副标题）。 */
+    val description: String? = null,
+    /** 工具调用标题（行 `title`；web primary 文案优先级最高）。 */
+    val title: String? = null,
 )
 
 /**
@@ -47,7 +56,7 @@ data class TodoItem(
     val state: TodoState,
 )
 
-// MARK: - 思考/推理内容（屏 05 折叠块；项 4）
+// MARK: - 思考/推理内容（折叠块；项 4）
 
 /**
  * reasoning 行 → 折叠块数据。state：流式中/完成/中断（中断为移动端呈现的显式态）。
@@ -520,8 +529,33 @@ data class ChatMessage(
      * `feedback: "like"|"dislike"` 渲染——本字段即该回读落点；null = 无反馈态） */
     val feedback: Boolean? = null,
     val workflowCompletion: WorkflowCompletionCard? = null,
+    /**
+     * 回合序号（store 按 turnHeader 边界递增赋值；同轮消息同值）。
+     * -1 = 未知（在途回显/会话级卡）；UI 回合分组按此聚合（web conversationTurnRenderUnits 同构）。
+     */
+    val turnIndex: Int = -1,
+    /** 服务端 turnId（行携带时；null = 无）。 */
+    val turnId: String? = null,
+    /** 子代理行结构化投影（web SubagentRowView：`type · status — summary`）。 */
+    val subagent: SubagentSummary? = null,
+    /** 产物行结构化投影（web ArtifactRowView：名称 + `TYPE · N bytes`）。 */
+    val artifact: ArtifactRowInfo? = null,
     /** epoch 毫秒（Swift Date 对应物）。 */
     val timestamp: Long,
+)
+
+/** 子代理行投影（web SubagentRowView 同口径；null 字段按行缺省宽容）。 */
+data class SubagentSummary(
+    val type: String,
+    val status: String? = null,
+    val summary: String? = null,
+)
+
+/** 产物行投影（web ArtifactRowView 同口径）。 */
+data class ArtifactRowInfo(
+    val name: String,
+    val kind: String,
+    val bytes: Long? = null,
 )
 
 data class Conversation(
@@ -688,8 +722,8 @@ enum class AppearanceMode {
     val label: String
         get() = when (this) {
             system -> "跟随系统"
-            light -> "Zai Light"
-            dark -> "Zai Dark"
+            light -> "朱批 · 浅色"
+            dark -> "朱批 · 深色"
         }
 }
 

@@ -1,6 +1,6 @@
 package cn.biuz.android.app.ui.chat
 
-// ChatViewModel JVM 单测（testDebugUnitTest 纯逻辑；Mock 仅测试装配——红线 §0-4）。
+// ChatViewModel JVM 单测（testDebugUnitTest 纯逻辑；Mock 仅测试装配——红线见 AGENTS §5-13）。
 // 覆盖面（任务点名 ≥3 例：投影/差分/重绑）+ /plan 阻断（v1.33④）+ U-6 草稿回填
 // + 撤焦延迟面板 + 协作模式未知态不落盘。虚拟时钟驱动（kotlinx-coroutines-test）。
 
@@ -483,7 +483,7 @@ class ChatViewModelTest {
         assertEquals("桌面端拒绝（test.rejected：负载不合规）", vm.sendFailureReason.value)
         assertTrue(!entered)
 
-        // 用户重新输入即清错误行（§5.1 清除时机）；成功发送也清
+        // 用户重新输入即清错误行（清除时机）；成功发送也清
         vm.updateDraft("改一下")
         assertNull(vm.sendFailureReason.value)
         store.sendOutcome = true
@@ -949,8 +949,10 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun readOnlyGateBlocksPredictionRequests() = runTest {
-        val store = predictionStore().apply { readOnly = false } // 演示态口径
+    fun predictionRequestsRegardlessOfReadOnlyFlag_storeCapabilityDecides() = runTest {
+        // 2026-11-23：UI 不再用 isReadOnly 门禁（对齐 iOS canSend / web composer）；
+        // 预测是否可用由 store 能力决定（无能力 store 返回 null → 无 hint）
+        val store = predictionStore().apply { readOnly = false }
         val vm = ChatViewModel(conversationId = "sess-1", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
         vm.attach(store)
         advanceUntilIdle()
@@ -958,8 +960,23 @@ class ChatViewModelTest {
         vm.scheduleInputPrediction()
         advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
         advanceUntilIdle()
-        assertTrue(store.predictionCalls.isEmpty(), "非只读态（演示/未连接）不得发预测请求")
-        assertNull(vm.inputHint.value)
+        assertEquals(1, store.predictionCalls.size, "只读标志不再阻断预测请求（能力由 store 决定）")
+        assertEquals(" 再跑一遍测试", vm.inputHint.value)
+
+        // store 返 null（无候选/无能力）→ 无 hint
+        val noCapability = predictionStore().apply {
+            readOnly = false
+            predictionResult = null
+        }
+        val vm2 = ChatViewModel(conversationId = "sess-2", scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)))
+        vm2.attach(noCapability)
+        advanceUntilIdle()
+        vm2.updateDraft("帮我")
+        vm2.scheduleInputPrediction()
+        advanceTimeBy(ChatViewModel.INPUT_PREDICTION_DEBOUNCE_MS)
+        advanceUntilIdle()
+        assertTrue(noCapability.predictionCalls.isNotEmpty(), "请求照发，能力门在 store 侧")
+        assertNull(vm2.inputHint.value)
     }
 
     @Test

@@ -136,7 +136,7 @@ enum ReadOnlyGate {
             "copyClaudeAgentsFileToZcodeAgentsFile", "importSelected",
             "markFirstRunPromptHandled",
         ],
-        // P3-11 放行（2026-10-06，设计稿 §11A 前置裁决）：createCheckpoint/
+        // P3-11 放行（2026-10-06 前置裁决）：createCheckpoint/
         // restoreBetweenCheckpoints 与 web 对齐桌面代执行（gitCheckpointService 四方法
         // 词表见立项报告 §8.1，gitCheckpoint.ts:14-17）；移动端恢复入口硬要求
         // destructive 确认弹层。deleteCheckpoint 无 UI 入口，维持拦截。

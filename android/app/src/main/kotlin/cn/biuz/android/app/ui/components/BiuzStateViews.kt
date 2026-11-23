@@ -1,5 +1,6 @@
 package cn.biuz.android.app.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -16,10 +17,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.biuz.android.app.R
@@ -154,4 +158,21 @@ fun BiuzInlineNotice(
             }
         }
     }
+}
+
+/**
+ * 品牌主印「批」（brand/seal/png/mark-pi-960.png 按密度分桶 → `drawable/brand_seal`）。
+ * 印系规则（brand/seal/README.md + brand-sheet Do/Don't）：印是平的——不加渐变 / 投影 / 描边；
+ * 落印之外的场合统一旋转 −2.5°；右下残边是品牌签名，不得修复或裁切。装饰性图形，
+ * contentDescription 置空（相邻的「朱批」文字已承载可读名称）。
+ */
+@Composable
+fun SealBrandMark(modifier: Modifier = Modifier, size: Dp = 84.dp) {
+    Image(
+        painter = painterResource(R.drawable.brand_seal),
+        contentDescription = null,
+        modifier = modifier
+            .size(size)
+            .rotate(-2.5f),
+    )
 }

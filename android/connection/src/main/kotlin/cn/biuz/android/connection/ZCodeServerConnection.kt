@@ -134,6 +134,13 @@ sealed class ConnectError : Exception() {
     /** WS 升级失败 */
     data class Transport(val detail: String) : ConnectError()
 
+    /**
+     * 云中继 V2 链接需要手机端登录态（iOS `ConnectError.relayAuthRequired` 同构）：
+     * JWT 换一次性 token，未登录/凭据缺失即此态。L3 走专属分支——主 CTA「登录 Z.ai 账号」
+     * （成功后 autoConnectAfterLogin 自动建 ws2），次「改用局域网直连 · 扫码」（免登录）。
+     */
+    data object RelayAuthRequired : ConnectError()
+
     /** （iOS String(localized:) 键 = 同串，见文件头约定） */
     val headline: String
         get() = when (this) {
@@ -143,6 +150,7 @@ sealed class ConnectError : Exception() {
             is EmptyWorkspaces -> "工作区列表为空"
             is HandshakeFailed -> "协议握手失败"
             is Transport -> "无法建立 WebSocket"
+            is RelayAuthRequired -> "云中继需要登录 Z.ai 账号"
         }
 
     /** mono 错误码行（l3-err-code） */
@@ -154,6 +162,7 @@ sealed class ConnectError : Exception() {
             is EmptyWorkspaces -> "workspaces=[]"
             is HandshakeFailed -> "HANDSHAKE · $detail"
             is Transport -> "WS · $detail"
+            is RelayAuthRequired -> "relay-auth-required · 缺少登录凭据（JWT）"
         }
 }
 
@@ -1163,6 +1172,7 @@ class ZCodeServerConnection(
     private fun mapRelayError(error: RPCError): ConnectError =
         when (error.name) {
             "TimeoutError" -> ConnectError.Timeout(endpoint = "中继 auth/bridge")
+            "RelayAuthRequired" -> ConnectError.RelayAuthRequired
             "RelayFailure", "RelayClosed" -> ConnectError.HandshakeFailed(error.message)
             else -> ConnectError.Transport(error.message)
         }

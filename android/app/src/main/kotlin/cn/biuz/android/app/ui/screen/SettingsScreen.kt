@@ -1,16 +1,25 @@
 package cn.biuz.android.app.ui.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,24 +28,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
 import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.settings.AppAppearance
 import cn.biuz.android.app.settings.AppLanguagePreference
 import cn.biuz.android.app.settings.BrandTapGate
+import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
+import cn.biuz.android.app.ui.theme.BiuZRed
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
 import kotlinx.coroutines.delay
 
 /**
- * 屏 12 · 设置（iOS SettingsView 同位）：数据与统计/关于分组 + 开发者隐藏开关 +
+ * 设置（iOS SettingsView 同位）：数据与统计/关于分组 + 开发者隐藏开关 +
  * 品牌页脚。行集合随里程碑扩列（IM Bot/设备与配对/模型/外观等 iOS 行的 Android
  * 落位随各自服务面移植接线）。
  *
@@ -73,6 +88,7 @@ fun SettingsScreen(
     onOpenSubagents: () -> Unit = {},
     onOpenHooks: () -> Unit = {},
     onOpenProjects: () -> Unit = {},
+    onOpenLogin: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val developerMode by settings.developerMode.collectAsStateWithLifecycle()
@@ -103,6 +119,105 @@ fun SettingsScreen(
                 .padding(horizontal = BiuZSpacing.lg),
         ) {
             Spacer(Modifier.height(BiuZSpacing.lg))
+
+            // 账号分组（Relay V2 账户层；2026-11-24 用户报障「没有退出登录的按钮，登录按钮
+            // 不明显」——退出入口此前只在设备页「切换账号」小字（iOS 同构），设置页无账号区。
+            // 已登录：账号行 + 实心退出按钮（复用设备页切换账号确认弹窗文案）；未登录：实心登录 CTA）
+            SettingsGroup(title = stringResource(R.string.settings_group_account)) {
+                val oauthVersion by session.oauthSessionVersion.collectAsStateWithLifecycle()
+                androidx.compose.runtime.key(oauthVersion) {
+                    val account = session.oauthUserInfo
+                    if (account != null) {
+                        var showLogoutConfirm by remember { mutableStateOf(false) }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = account.displayName.take(1),
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                Spacer(Modifier.width(BiuZSpacing.sm))
+                                Text(
+                                    text = "${account.displayName} · Z.ai",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            Spacer(Modifier.height(BiuZSpacing.sm))
+                            // 危险按钮 = 红描边，
+                            // 描边/字色显式取印系 red 令牌，不用 Material errorContainer 实底
+                            OutlinedButton(
+                                onClick = { showLogoutConfirm = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .testTag("13-btn-logout"),
+                                shape = BiuZRadius.medium,
+                                border = BorderStroke(1.dp, BiuZRed.copy(alpha = 0.55f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = BiuZRed),
+                            ) {
+                                Text(stringResource(R.string.settings_logout))
+                            }
+                        }
+                        if (showLogoutConfirm) {
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { showLogoutConfirm = false },
+                                confirmButton = {
+                                    androidx.compose.material3.TextButton(
+                                        onClick = {
+                                            showLogoutConfirm = false
+                                            session.logout()
+                                        },
+                                        modifier = Modifier.testTag("13-logout-confirm"),
+                                    ) {
+                                        androidx.compose.material3.Text(
+                                            stringResource(R.string.switch_account_confirm),
+                                        )
+                                    }
+                                },
+                                dismissButton = {
+                                    androidx.compose.material3.TextButton(
+                                        onClick = { showLogoutConfirm = false },
+                                    ) {
+                                        androidx.compose.material3.Text(
+                                            stringResource(R.string.switch_account_cancel),
+                                        )
+                                    }
+                                },
+                                title = { androidx.compose.material3.Text(stringResource(R.string.switch_account_title)) },
+                                text = { androidx.compose.material3.Text(stringResource(R.string.switch_account_desc)) },
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = onOpenLogin,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
+                                .height(44.dp)
+                                .testTag("13-btn-login"),
+                            shape = BiuZRadius.medium,
+                        ) {
+                            Text(stringResource(R.string.login_entry))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(BiuZSpacing.md))
 
             // 数据与统计分组
             SettingsGroup(title = stringResource(R.string.settings_group_data)) {
@@ -135,8 +250,8 @@ fun SettingsScreen(
                     subtitle = null,
                     value = when (appearance) {
                         AppAppearance.SYSTEM -> stringResource(R.string.appearance_system)
-                        AppAppearance.LIGHT -> "Zai Light"
-                        AppAppearance.DARK -> "Zai Dark"
+                        AppAppearance.LIGHT -> "朱批 · 浅色"
+                        AppAppearance.DARK -> "朱批 · 深色"
                     },
                     testTagId = "13-row-appearance",
                     onClick = onOpenAppearance,

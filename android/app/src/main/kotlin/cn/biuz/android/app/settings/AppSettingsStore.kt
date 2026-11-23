@@ -48,7 +48,8 @@ enum class AppLanguagePreference(val stored: String) {
 
 /**
  * 外观偏好（iOS `AppearanceMode`：system/light/dark 同词表，`Theme.swift:138-147`）。
- * 生效面在 [cn.biuz.android.app.MainActivity] 的 BiuZTheme(darkTheme=…)；缺省 system。
+ * 生效面在 [cn.biuz.android.app.MainActivity] 的 BiuZTheme(darkTheme=…)；**缺省 light**
+ * （2026-11-24 用户裁决：朱批默认浅色主题；跟随系统仍是可选项）。
  */
 enum class AppAppearance(val stored: String) {
     SYSTEM("system"),
@@ -57,11 +58,12 @@ enum class AppAppearance(val stored: String) {
     ;
 
     companion object {
-        /** 存档词反解（未知词宽容回 system——存档残缺不崩）。 */
+        /** 存档词反解（未设置/未知词宽容回 light——存档残缺不崩）。 */
         fun fromStored(raw: String?): AppAppearance = when (raw) {
+            SYSTEM.stored -> SYSTEM
             LIGHT.stored -> LIGHT
             DARK.stored -> DARK
-            else -> SYSTEM
+            else -> LIGHT
         }
     }
 }

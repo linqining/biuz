@@ -179,18 +179,74 @@ class SessionMergeTable {
 
     suspend fun count(): Int = mutex.withLock { sessions.size }
 
-    // MARK: bootstrap.tasks 跨工作区全量索引 merge（iOS mergeBootstrapTaskIndex 直译 + 乙-6 纠正）
+    /**
+     * 最近一次 bootstrap.tasks 行（跨工作区全量索引）。**留存并在快照/新行后重放**：
+     * sessions-index 快照整表替换不含 workspacePath（上行 schema 只有 workspaceId），
+     * 若不留存，bootstrap 回填的项目归属会被下一个快照冲掉——列表随即退化为单一
+     * 「任务」分区（2026-11-23 真机「没有分组」根因）。重放只补 workspacePath/taskStatus，
+     * 不动标题与其它富字段。
+     */
+    private var retainedBootstrapItems: List<JSONValue> = emptyList()
+
+    /** 锁内 bootstrap 行合并（调用方持锁；语义与 [mergeBootstrapTasks] 行循环一致）。 */
+    private fun mergeBootstrapRowsLocked(items: List<JSONValue>): Int {
+        var merged = 0
+        for (item in items) {
+            var dict = item.objectValue ?: continue
+            // 任务行主键是 taskId；统一成 sessions-index 的 sessionId 口径（iOS :408-410）
+            if (dict["sessionId"] == null) {
+                val taskId = dict["taskId"]?.stringValue
+                if (taskId != null) {
+                    val patched = LinkedHashMap(dict)
+                    patched["sessionId"] = JSONValue.Str(taskId)
+                    dict = patched
+                }
+            }
+            val summary = SessionSummaryParser.parse(JSONValue.Obj(dict)) ?: continue
+            val existing = sessions[summary.sessionId]
+            if (existing == null) {
+                sessions[summary.sessionId] = summary
+                merged += 1
+            } else {
+                var updated = existing
+                // workspacePath **只补缺**（iOS mergeBootstrapTaskIndex :419-421 同构）：
+                // bootstrap 行在本表可随快照/增量无限重放，是最陈旧的一路（2026-11-23
+                // 取证：桌面 3.15.1+ bootstrap-response 已无 tasks 字段，本路仅老桌面
+                // 生效；且行可能携历史幽灵归属）——无条件覆盖会让陈旧路径随每次快照
+                // 把归属拖回旧值，反盖 task-index（行自带归属权威）/sessions-index 的
+                // 更新判定。行级「权威行纠正」（乙-6①：真实区行后到也必须赢）仍由
+                // [mergeTaskIndexRows] 承担——后到的权威行照常覆盖。
+                if (updated.workspacePath.isNullOrEmpty() && !summary.workspacePath.isNullOrEmpty()) {
+                    updated = updated.copy(workspacePath = summary.workspacePath)
+                }
+                if (summary.taskStatus != null) {
+                    updated = updated.copy(taskStatus = summary.taskStatus)
+                }
+                sessions[summary.sessionId] = updated
+            }
+        }
+        return merged
+    }
+
+    // MARK: bootstrap.tasks 跨工作区全量索引 merge（iOS mergeBootstrapTaskIndex 直译）
 
     /**
      * bootstrap-response 的 tasks 清单（跨工作区全量任务索引，iOS 实测 250 行/26 个
      * distinct workspacePath——web「所有项目目录」的真实数据源）。行形状与 listTaskList
      * items 同源：taskId/title/workspacePath/updatedAt——web Nxe 去重逻辑同款字段。
      * 跨工作区无需 scope RPC。
+     * **时效注记（2026-11-23 上游仓取证）**：桌面 3.15.1+ 的 bootstrap-response 已无
+     * `tasks` 字段（buildBootstrapResult webRemoteControlManager.ts:1040 全字段无 tasks；
+     * git -S 全历史无此字段）——本路仅 3.14- 时代桌面生效；现行桌面的跨区全量源是
+     * listTaskList `workspaceScopes:"host"`（见 RemoteConversationStore
+     * maybeRefreshProjectMetadata）。本表仍保留留存+重放以兼容旧桌面。
      *
-     * 与 iOS 的两处差异（均出自交接乙-6 红线，2026-10-09）：
-     * ① **权威行纠正**：iOS 对已存在行只补缺 workspacePath（`:417-419` if nil）；
-     *    本实现改为「行携带非空 workspacePath 即纠正既有归属」——上游幽灵行 bug 下
-     *    「只补缺」会让先到的错误归属永久冻结（同会话双区行，真实区行后到也必须赢）。
+     * 与 iOS 的差异（交接乙-6 红线，2026-10-09；2026-11-23 修订）：
+     * ① workspacePath **只补缺不覆盖**（iOS :417-419 同构，撤销 2026-10-09 的
+     *    「无条件纠正」——bootstrap 行随快照/增量**无限重放**且可能是幽灵归属/旧迁移
+     *    路径，无条件覆盖会让陈旧路径每次快照把归属拖回旧值，反盖 task-index/
+     *    sessions-index 的更新判定。「真实区行后到也必须赢」的行级纠正由
+     *    [mergeTaskIndexRows] 承担（后到的权威行照常覆盖）。
      *    task-index 是 status 字段的权威源（行携带即回填——运行/失败态跨刷新保留，iOS :420-423 同）。
      * ② workspaceId 不作归属来源（见 SessionSummaryParser.parse）。
      */
@@ -198,41 +254,13 @@ class SessionMergeTable {
         if (items.isEmpty()) {
             return BootstrapMergeStats(0, 0, mutex.withLock { sessions.size }, 0)
         }
-        var merged = 0
+        // 留存量（快照/新行后重放，防归属被 sessions-index 快照冲掉）
+        retainedBootstrapItems = items
         val wsSeen = HashSet<String>()
-        mutex.withLock {
-            for (item in items) {
-                var dict = item.objectValue ?: continue
-                // 任务行主键是 taskId；统一成 sessions-index 的 sessionId 口径（iOS :408-410）
-                if (dict["sessionId"] == null) {
-                    val taskId = dict["taskId"]?.stringValue
-                    if (taskId != null) {
-                        val patched = LinkedHashMap(dict)
-                        patched["sessionId"] = JSONValue.Str(taskId)
-                        dict = patched
-                    }
-                }
-                dict["workspacePath"]?.stringValue?.let { wsSeen.add(it) }
-                val summary = SessionSummaryParser.parse(JSONValue.Obj(dict)) ?: continue
-                val existing = sessions[summary.sessionId]
-                if (existing == null) {
-                    sessions[summary.sessionId] = summary
-                    merged += 1
-                } else {
-                    // 已存在行：允许权威行纠正（乙-6①）+ taskStatus 权威回填
-                    var updated = existing
-                    val ws = summary.workspacePath
-                    if (!ws.isNullOrEmpty() && updated.workspacePath != ws) {
-                        updated = updated.copy(workspacePath = ws)
-                    }
-                    // task-index 是 status 字段的权威源（行携带即回填——运行/失败态跨刷新保留）
-                    if (summary.taskStatus != null) {
-                        updated = updated.copy(taskStatus = summary.taskStatus)
-                    }
-                    sessions[summary.sessionId] = updated
-                }
-            }
+        for (item in items) {
+            item.objectValue?.get("workspacePath")?.stringValue?.let { wsSeen.add(it) }
         }
+        val merged = mutex.withLock { mergeBootstrapRowsLocked(items) }
         val stats = BootstrapMergeStats(
             rows = items.size,
             merged = merged,
@@ -249,8 +277,8 @@ class SessionMergeTable {
     // MARK: listTaskList 逐区聚合行 merge（iOS mergeGlobalTaskIndex 行循环直译，:533-581）
 
     /**
-     * 对清单内每个工作区逐个 listTaskList 聚合后的行合并（RPC 逐区调用在
-     * RemoteSessionsIndexStore/后续全量 Store；本方法只做行级合并）。已有行**字段级回填**
+     * 对清单内每个工作区逐个 listTaskList 聚合后的行合并（host-scope 单调用/逐区聚合
+     * 两路的行统一在此合并）。已有行**字段级回填**
      * （2026-10-08 报障「新建会话列表恒显占位标题 新会话」）：本地种行（createConversation
      * 占位标题）之后，桌面自动命名只随 task-index 与连接 workspace 的 sessions-index
      * 通道到达——非连接区行此处是唯一刷新点。只回填服务端权威的字段，不整行替换
@@ -258,6 +286,21 @@ class SessionMergeTable {
      * 已到达的投影）。标题让位本地改名 override（[titleOverriddenIds]）；
      * 活跃时间仅缺值时补（sessions-index 实时值不回退 task-index，防排序抖动）。
      * workspacePath 纠正同 bootstrap merge（乙-6①）。
+     *
+     * **批内去重（2026-11-23）**：host-scope / 跨区聚合会把历史幽灵行一并带回——上游
+     * tasks 表主键 (workspace_key, task_id)（taskIndexRepo writeRecord ON CONFLICT），
+     * 同一会话可在多 workspace_key 下各有一行（乙-6 上游 seedTaskMetaIfMissing 旧伤，
+     * 桌面至今存留）。同批同任务多行时：updatedAt **新者赢**；平手**保首个**——
+     * scope 序当前工作区垫底（projectScopes 先清单后 current），平手保首个让先合并的
+     * 归属区行压过尾部当前工作区的幽灵行，不坐实错误归属（web Nxe 去重同款字段
+     * taskId/title/workspacePath/updatedAt 口径）。
+     *
+     * **归属覆盖「更新者赢」（2026-11-23 修订）**：跨批的 workspacePath 覆盖要求
+     * 「既有归属缺失 或 本行 updatedAt 严格更新」——幽灵行与权威行同源同 updatedAt
+     * （mirrorSummary 种行拷会话时间戳，无法按内容分辨），保现状防 120s 节流回填把
+     * 已定归属反复翻面；fork/移动等真实迁移必然伴随更新的 updatedAt，照常覆盖。
+     * 残留局限（如实声明）：老桌面（≤3.16 无 host-scope）+ workspace-list 只含当前
+     * tabs 时，幽灵行仍可能先种——需等会话再有活动（updatedAt 推进）才被权威行覆盖。
      *
      * @return merged=新插入行数；backfilled=标题实际回填次数（diag.tasks.merge 同口径）
      */
@@ -268,20 +311,34 @@ class SessionMergeTable {
         var merged = 0
         var backfilled = 0
         val workspacesSeen = HashSet<String>()
-        mutex.withLock {
-            for (item in items) {
-                var dict = item.objectValue ?: continue
-                // 任务行主键是 taskId；统一成 sessions-index 的 sessionId 口径（iOS :536-539）
-                if (dict["sessionId"] == null) {
-                    val taskId = dict["taskId"]?.stringValue
-                    if (taskId != null) {
-                        val patched = LinkedHashMap(dict)
-                        patched["sessionId"] = JSONValue.Str(taskId)
-                        dict = patched
-                    }
+        // 批内去重（键级插入序 = 首见序；严格新 updatedAt 才顶替，平手保首个）
+        val deduped = LinkedHashMap<String, SessionSummary>()
+        for (item in items) {
+            var dict = item.objectValue ?: continue
+            // 任务行主键是 taskId；统一成 sessions-index 的 sessionId 口径（iOS :536-539）
+            if (dict["sessionId"] == null) {
+                val taskId = dict["taskId"]?.stringValue
+                if (taskId != null) {
+                    val patched = LinkedHashMap(dict)
+                    patched["sessionId"] = JSONValue.Str(taskId)
+                    dict = patched
                 }
-                dict["workspacePath"]?.stringValue?.let { workspacesSeen.add(it) }
-                val summary = SessionSummaryParser.parse(JSONValue.Obj(dict)) ?: continue
+            }
+            dict["workspacePath"]?.stringValue?.let { workspacesSeen.add(it) }
+            val summary = SessionSummaryParser.parse(JSONValue.Obj(dict)) ?: continue
+            val previous = deduped[summary.sessionId]
+            if (previous == null) {
+                deduped[summary.sessionId] = summary
+            } else {
+                val incomingAt = summary.lastActivityAt ?: Long.MIN_VALUE
+                val previousAt = previous.lastActivityAt ?: Long.MIN_VALUE
+                if (incomingAt > previousAt) {
+                    deduped[summary.sessionId] = summary
+                }
+            }
+        }
+        mutex.withLock {
+            for ((_, summary) in deduped) {
                 val existing = sessions[summary.sessionId]
                 if (existing == null) {
                     sessions[summary.sessionId] = summary
@@ -297,10 +354,15 @@ class SessionMergeTable {
                     updated = updated.copy(title = summary.title)
                     backfilled += 1
                 }
-                // 归属纠正（乙-6①；iOS :568-570 同向）
+                // 归属纠正（乙-6① 2026-11-23 修订「更新者赢」；iOS :568-570 同向）：
+                // 只在既有归属缺失或本行严格更新时覆盖（KDoc 详述幽灵行防翻面）
                 val ws = summary.workspacePath
-                if (!ws.isNullOrEmpty() && updated.workspacePath != ws) {
-                    updated = updated.copy(workspacePath = ws)
+                if (!ws.isNullOrEmpty()) {
+                    val incomingAt = summary.lastActivityAt ?: Long.MIN_VALUE
+                    val existingAt = existing.lastActivityAt ?: Long.MIN_VALUE
+                    if (updated.workspacePath.isNullOrEmpty() || incomingAt > existingAt) {
+                        updated = updated.copy(workspacePath = ws)
+                    }
                 }
                 // task-index 是 status 权威源：行携带即覆盖（含 running→completed
                 // 收口推进；缺席不动——不剥掉既有值）（iOS :571-575）
@@ -338,11 +400,20 @@ class SessionMergeTable {
             if (summary.taskStatus == null) {
                 summary = summary.copy(taskStatus = previous[summary.sessionId]?.taskStatus)
             }
+            // 归属跨快照保全：行 schema 无 workspacePath（只有 workspaceId），整表替换时
+            // 沿用既有归属（bootstrap/listTaskList 已回填），否则列表分组随每次快照丢失。
+            if (summary.workspacePath.isNullOrEmpty()) {
+                summary = summary.copy(workspacePath = previous[summary.sessionId]?.workspacePath)
+            }
             next[summary.sessionId] = summary
         }
         mutex.withLock {
             sessions.clear()
             sessions.putAll(next)
+            // bootstrap 留存行重放（补齐本快照未覆盖/新到行的项目归属与状态）
+            if (retainedBootstrapItems.isNotEmpty()) {
+                mergeBootstrapRowsLocked(retainedBootstrapItems)
+            }
         }
     }
 
@@ -357,11 +428,20 @@ class SessionMergeTable {
                 val sessionJson = dict["session"]
                 var summary = SessionSummaryParser.parse(sessionJson) ?: return true
                 mutex.withLock {
+                    val existing = sessions[summary.sessionId]
                     // sessions-index 行不携 status：整行替换前保住 task-index 已回填的状态
                     if (summary.taskStatus == null) {
-                        summary = summary.copy(taskStatus = sessions[summary.sessionId]?.taskStatus)
+                        summary = summary.copy(taskStatus = existing?.taskStatus)
+                    }
+                    // 归属保全（同快照口径）：行无 workspacePath 时沿用既有归属
+                    if (summary.workspacePath.isNullOrEmpty()) {
+                        summary = summary.copy(workspacePath = existing?.workspacePath)
                     }
                     sessions[summary.sessionId] = summary
+                    // 新行/归属仍缺 → 用 bootstrap 留存行补齐（不覆盖标题等富字段）
+                    if (summary.workspacePath.isNullOrEmpty() && retainedBootstrapItems.isNotEmpty()) {
+                        mergeBootstrapRowsLocked(retainedBootstrapItems)
+                    }
                 }
                 true
             }

@@ -89,7 +89,7 @@ final class ReadOnlyGateTests: XCTestCase {
     }
 
     func testGitCheckpointCreateRestoreAllowed() {
-        // P3-11 检查点（2026-10-06，设计稿 §11A 前置裁决）：创建/恢复与 web 对齐桌面
+        // P3-11 检查点（2026-10-06 前置裁决）：创建/恢复与 web 对齐桌面
         // 代执行（gitCheckpointService 四方法词表，立项报告 §8.1:579，gitCheckpoint.ts:14-17）；
         // 移动端恢复入口硬要求 destructive 确认弹层。deleteCheckpoint 无 UI 入口维持拦截。
         for command in ["diffCheckpoints", "createCheckpoint", "restoreBetweenCheckpoints"] {
@@ -164,7 +164,7 @@ final class ReadOnlyGateTests: XCTestCase {
             ("setting", "updateDataBaseDir"),
             ("onboarding-record", "appendRecord"), ("onboarding-record", "clearRecords"),
             ("settings-sync", "importSelected"),
-            // P3-11 放行（2026-10-06，设计稿 §11A 前置裁决）：createCheckpoint/
+            // P3-11 放行（2026-10-06 前置裁决）：createCheckpoint/
             // restoreBetweenCheckpoints 移入放行面（testGitCheckpointCreateRestoreAllowed）；
             // deleteCheckpoint 无 UI 入口维持拦截
             ("git-checkpoint", "deleteCheckpoint"),

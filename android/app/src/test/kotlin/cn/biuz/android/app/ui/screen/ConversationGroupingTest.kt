@@ -148,3 +148,75 @@ class ConversationGroupingTest {
         assertTrue(transport.single() == ConnectFailureHint.Transport)
     }
 }
+
+/**
+ * 两级看板（web project-sidebar Projects/Tasks 同构）：置顶 → 项目节点 → 任务；
+ * 节点键 = 归属目录全路径；行序 = 运行中置顶 → 活跃时间降序。
+ */
+class ProjectBoardTest {
+
+    private fun row(
+        id: String,
+        directory: String,
+        updatedAt: Long,
+        pinned: Boolean = false,
+        running: Boolean = false,
+        unread: Int = 0,
+    ) = Conversation(
+        id = id,
+        title = "会话-$id",
+        summary = "",
+        directory = directory,
+        updatedAt = updatedAt,
+        isPinned = pinned,
+        isRunning = running,
+        unreadCount = unread,
+    )
+
+    @Test
+    fun boardSplitsPinnedProjectsAndTasks() {
+        val rows = listOf(
+            row("p1-a", "/Users/mac/projects/alpha", 100),
+            row("p1-b", "/Users/mac/projects/alpha", 200),
+            row("p2-a", "/Users/mac/projects/beta", 150),
+            row("task-a", "", 300),
+            row("pin-a", "/Users/mac/projects/beta", 50, pinned = true),
+        )
+        val board = projectBoard(rows)
+        assertEquals(listOf("pin-a"), board.pinned.map { it.id })
+        assertEquals(
+            listOf("/Users/mac/projects/alpha", "/Users/mac/projects/beta"),
+            board.projects.map { it.key },
+            "节点键 = 目录全路径（去重键）；组间按组内最新降序（alpha max 200 > beta max 150）",
+        )
+        assertEquals(listOf("alpha", "beta"), board.projects.map { it.title }, "标题 = 目录末段")
+        assertEquals(listOf("p1-b", "p1-a"), board.projects[0].rows.map { it.id }, "组内按活跃时间降序")
+        assertEquals(listOf("task-a"), board.tasks.map { it.id }, "无归属行落任务区（置顶行不计入）")
+    }
+
+    @Test
+    fun runningRowsFloatToTopWithinGroups() {
+        val rows = listOf(
+            row("idle-new", "/Users/mac/projects/alpha", 900),
+            row("running-old", "/Users/mac/projects/alpha", 100, running = true),
+        )
+        val board = projectBoard(rows)
+        assertEquals(
+            listOf("running-old", "idle-new"),
+            board.projects.single().rows.map { it.id },
+            "运行中置顶（web compareTaskListItemsWithRunningFirst 子集）",
+        )
+        assertEquals(1, board.projects.single().runningCount)
+    }
+
+    @Test
+    fun unreadCountAggregatesForNodeBadge() {
+        val rows = listOf(
+            row("a", "/Users/mac/projects/alpha", 100, unread = 2),
+            row("b", "/Users/mac/projects/alpha", 200, unread = 1),
+            row("c", "/Users/mac/projects/alpha", 300),
+        )
+        val group = projectBoard(rows).projects.single()
+        assertEquals(2, group.unreadCount, "未读汇总 = 组内有未读行数")
+    }
+}

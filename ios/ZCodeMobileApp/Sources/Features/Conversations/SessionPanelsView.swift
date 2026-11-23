@@ -402,7 +402,7 @@ struct GoalPanelView: View {
 // 三态：空文本主钮禁用（editQueueItem 同口径）/ 下发中禁用防重 / 失败错误行留 sheet
 // 可重发。成功 dismiss + 面板反馈行 3s（成功也提示——setSubagentModel 先例：
 // 下发语义非即时可见，state.updated 回流前先给确认）。不设 destructive 确认层：
-// 改目标可逆（可再编辑纠正），sheet 内说明行承担知情义务（设计稿 §5.5）。
+// 改目标可逆（可再编辑纠正），sheet 内说明行承担知情义务。
 
 struct GoalEditSheet: View {
     let initialText: String

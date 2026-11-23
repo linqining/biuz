@@ -84,9 +84,14 @@ class ZaiOAuthClient(
      *
      * 服务端在同源上下文校验会话；移动端把授权 WebView 的 Cookie 透传给交换请求保持连续性
      * （iOS 同口径 `exchangeToken(... cookies:)`）。
+     *
+     * **网络调用必须离开主线程**：调用方（LoginScreen 的 rememberCoroutineScope = Main）
+     * 直接 await 本函数，OkHttp 同步 execute() 在主线程会抛 NetworkOnMainThreadException
+     * （2026-11-23 真机实证「网络错误：NetworkOnMainThreadException」）。与
+     * `AppSession.loadRelayDevices` 同口径：内部 withContext(Dispatchers.IO) 承担。
      */
     @Throws(OAuthException::class)
-    fun exchangeToken(
+    suspend fun exchangeToken(
         provider: OAuthProviderId,
         code: String,
         state: String,
@@ -108,8 +113,10 @@ class ZaiOAuthClient(
         if (!cookieHeader.isNullOrBlank()) builder.header("Cookie", cookieHeader)
 
         val (body, status) = try {
-            httpClient.newCall(builder.build()).execute().use { response ->
-                response.body?.string() to response.code
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                httpClient.newCall(builder.build()).execute().use { response ->
+                    response.body?.string() to response.code
+                }
             }
         } catch (err: Exception) {
             throw OAuthException.ExchangeFailed("网络错误：${err.message ?: err::class.simpleName}")

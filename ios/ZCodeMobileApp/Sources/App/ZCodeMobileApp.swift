@@ -6,7 +6,7 @@ struct ZCodeMobileApp: App {
     @State private var badges = TabBadges()
     @State private var appSettings: AppSettingsModel
     @State private var session = AppSession()
-    // 装配策略（对齐修复，设计稿 §1.2）：未连接默认空实现（无假数据）；连接成功后由
+    // 装配策略（对齐修复）：未连接默认空实现（无假数据）；连接成功后由
     // AppSession 驱动切换真实 Store。-ZCodeDemoData（E2E 演示开关）下初值/回退为
     // Mock——用户裁决「Mock 假数据全部移除，仅测试用例允许」
     @State private var conversationStore: any ConversationStore =
@@ -124,7 +124,7 @@ struct ZCodeMobileApp: App {
         }
     }
 
-    /// 装配换源（对齐修复，设计稿 §1.2）：
+    /// 装配换源（对齐修复）：
     /// - .connected → 真实 Store（AppSession.connectToSaved → assembleRemoteStores 装配）
     /// - .disconnected / .connecting → 保留现有引用不动（断线保留最后快照、连接中不闪空）
     /// - .demo / .connectFailed → 空实现（connectFailed 已 teardown，引用为 nil）；

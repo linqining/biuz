@@ -137,6 +137,9 @@ struct ConnectHomeView: View {
             .padding(.top, T.sp1)
         }
         .scrollIndicators(.hidden)
+        // 纸底铺满含安全区（2026-11-24 朱批默认浅色后的目检修复）：此前本页裸 ScrollView 未铺
+        // T.bg，露出窗口默认底色——深色下默认黑≈墨底无人察觉，浅色下是纯白而非纸色
+        .background(T.bg.ignoresSafeArea())
         .task {
             // 剪贴板横幅：检测到连接链接形态即出现（中继配对链接 / 局域网链接；
             // iOS 16+ 受「允许粘贴」约束，拒绝则横幅不出现）

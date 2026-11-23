@@ -129,7 +129,7 @@ object ConnectURLParser {
     }
 
     /**
-     * 解析规则（设计稿 L1-K）：（:111-168）
+     * 解析规则：（:111-168）
      * - 完整链接：scheme://host:port/?token=… → 地址取 host:port，token 段剥离
      * - 仅 host:port：缺省补 http://（端口 3030 缺省）
      * - scheme 支持 http/https/ws/wss（https/wss 走反向代理）

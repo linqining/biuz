@@ -10,7 +10,7 @@ package cn.biuz.android.store
 // - 30s keep-warm 租约池：关闭后延迟退订、租约期内重入零重拉、到期携 subscriptionId 真退订；
 // - 行映射：userInput/assistantText/reasoning/toolCall/workflowCompletion/state-todos；
 // - parseInteraction plan_approval schema 归位（v1.31 根修面）。
-// Mock 仅测试装配（红线 §0-4）：替身传输 + 替身帧面在本 test source set。
+// Mock 仅测试装配（红线见 AGENTS §5-13）：替身传输 + 替身帧面在本 test source set。
 
 import cn.biuz.android.protocol.EventSubscription
 import cn.biuz.android.protocol.JSONValue
@@ -119,6 +119,21 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
     // resyncConversationV4 / unsubscribeConversationV4
     val resyncArgs = CopyOnWriteArrayList<Map<String, JSONValue>>()
     val unsubscribeArgs = CopyOnWriteArrayList<Map<String, JSONValue>>()
+
+    // listTaskList（项目归属回填：host-scope timeline/pinned/archived 三查 + 逐区回退）
+    val listTaskListArgs = CopyOnWriteArrayList<Map<String, JSONValue>>()
+
+    /** 非空 = 覆盖默认空回执（host-scope 成功路注水行）。 */
+    @Volatile
+    var listTaskListReply: JSONValue? = null
+
+    /** 非空 = 按 kind 出回执（host 三查分路注水；优先于 [listTaskListReply]）。 */
+    @Volatile
+    var listTaskListReplyByKind: ((kind: String) -> JSONValue?)? = null
+
+    /** 非空 = listTaskList 抛错（≤3.16 桌面 host-scope 不支持同型：normalizeWorkspaceKeys 对字符串 .map 抛错）。 */
+    @Volatile
+    var listTaskListError: Throwable? = null
 
     // sendConversationCommandV4（发送面）
     @Volatile
@@ -244,6 +259,14 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
                 resyncArgs.add(args)
                 resyncSnapshotReplayer?.invoke(args["sessionId"]?.stringValue ?: "")
                 RPCValue.json(testObj("ok" to JSONValue.Bool(true)))
+            }
+            "listTaskList" -> {
+                listTaskListArgs.add(args)
+                listTaskListError?.let { throw it }
+                val reply = listTaskListReplyByKind?.invoke(args["kind"]?.stringValue ?: "")
+                    ?: listTaskListReply
+                    ?: testObj("items" to JSONValue.Arr(emptyList()))
+                RPCValue.json(reply)
             }
             "unsubscribeConversationV4" -> {
                 unsubscribeArgs.add(args)
@@ -527,6 +550,139 @@ class RemoteConversationStoreTest {
     }
 
     // MARK: A9 atLogEpoch 失配整批作废 + rowsRange 向旧翻页
+
+    // MARK: 项目归属回填两路（2026-11-23「项目只有一个命名空间」根修）
+
+    @Test
+    fun projectMetadata_hostScopeThreeKinds_seedsRowsAndOrganizationalIds() = runTest {
+        val f = Fixture(this, withIndex = true)
+        // host-scope 三查：timeline 主清单 + pinned/archived 专查（上游 zcodeTaskMetaSchema
+        // 无 pinned/archived 字段——行不带组织态，置顶/归档只有专查能到）
+        f.transport.listTaskListReplyByKind = { kind ->
+            when (kind) {
+                "timeline" -> testObj(
+                    "items" to JSONValue.Arr(
+                        listOf(
+                            testObj(
+                                "taskId" to JSONValue.Str("sess-host"),
+                                "title" to JSONValue.Str("跨区任务"),
+                                "workspacePath" to JSONValue.Str("/other/proj"),
+                                "updatedAt" to testNum(1_767_000_000_000L),
+                            ),
+                        ),
+                    ),
+                )
+                "pinned" -> testObj(
+                    "items" to JSONValue.Arr(
+                        listOf(
+                            testObj(
+                                "taskId" to JSONValue.Str("sess-pin"),
+                                "title" to JSONValue.Str("跨项目置顶"),
+                                "workspacePath" to JSONValue.Str("/pin/proj"),
+                                "updatedAt" to testNum(1_768_000_000_000L),
+                            ),
+                        ),
+                    ),
+                )
+                "archived" -> testObj(
+                    "items" to JSONValue.Arr(
+                        listOf(
+                            testObj(
+                                "taskId" to JSONValue.Str("sess-arch"),
+                                "title" to JSONValue.Str("跨项目归档"),
+                                "workspacePath" to JSONValue.Str("/arch/proj"),
+                                "updatedAt" to testNum(1_767_500_000_000L),
+                            ),
+                        ),
+                    ),
+                )
+                else -> null
+            }
+        }
+        f.store.allWorkspaces = listOf(StoreWorkspaceInfo("/tab/ws", workspaceIdentity = "tab-ident"))
+        f.store.conversations()
+        advanceUntilIdle()
+        assertEquals(3, f.transport.listTaskListArgs.size, "host-scope：恰好 timeline/pinned/archived 三查")
+        assertEquals(
+            listOf("timeline", "pinned", "archived"),
+            f.transport.listTaskListArgs.map { it["kind"]?.stringValue },
+        )
+        assertTrue(
+            f.transport.listTaskListArgs.all { it["workspaceScopes"] == JSONValue.Str("host") },
+            "三查全携 workspaceScopes:\"host\"（web useGlobalTaskList 同值）",
+        )
+        val index = checkNotNull(f.index)
+        assertEquals(setOf("sess-pin"), index.hostPinnedTaskIds, "置顶专查 id 集落位")
+        assertEquals(setOf("sess-arch"), index.hostArchivedTaskIds, "归档专查 id 集落位")
+        // 投影：置顶行进置顶区（isPinned=true，membership/host 并集），归档行滤出主列表
+        val rows = index.conversations()
+        assertEquals(true, rows.single { it.id == "sess-pin" }.isPinned, "host 置顶 id 经并集投影进置顶区")
+        assertNull(rows.singleOrNull { it.id == "sess-arch" }, "host 归档 id 行滤出主列表（防 kind=all 泄漏回归）")
+        assertEquals("/other/proj", rows.single { it.id == "sess-host" }.directory)
+    }
+
+    @Test
+    fun projectMetadata_hostScopeFailure_fallsBackToPerWorkspaceScopes() = runTest {
+        val f = Fixture(this, withIndex = true)
+        // host-scope 失败（≤3.16 桌面 normalizeWorkspaceKeys(string) 抛错同型）→ 逐区回退
+        f.transport.listTaskListError = RPCError(message = "fake: scopes.map unreachable", name = "ErrorObj")
+        f.store.allWorkspaces = listOf(StoreWorkspaceInfo("/tab/ws", workspaceIdentity = "tab-ident"))
+        f.store.conversations()
+        advanceUntilIdle()
+        // 首笔 = 失败的 host-scope 调用（替身先记账后抛错），其后为逐区回退
+        val fallbackArgs = f.transport.listTaskListArgs.drop(1)
+        assertTrue(
+            fallbackArgs.size >= 2,
+            "回退：清单区 + 连接区各一问（projectScopes ∪ current）",
+        )
+        assertTrue(
+            fallbackArgs.all { it["workspaceScopes"] is JSONValue.Arr },
+            "回退路 workspaceScopes 为单区数组（旧桌面兼容形状）",
+        )
+        assertTrue(
+            fallbackArgs.any {
+                (it["workspaceScopes"] as? JSONValue.Arr)?.arrayValue?.firstOrNull()?.objectValue
+                    ?.get("workspacePath")?.stringValue == "/tab/ws"
+            },
+            "清单区在回退 scope 序中",
+        )
+    }
+
+    @Test
+    fun projectMetadata_failedAttemptRetriesAfterShortBackoff() = runTest {
+        // 真机实证（2026-11-23 seeker）：首战撞 stale 重连期 → host+逐区全空；若吃满
+        // 120s 长窗用户长期看不到分组。失败 15s 短退避、成功才进长窗。
+        var clock = 1_000_000_000L
+        val f = Fixture(this, withIndex = true, nowMs = { clock })
+        f.transport.listTaskListError = RPCError(message = "fake: transport down", name = "ErrorObj")
+        f.store.conversations()
+        advanceUntilIdle()
+        val firstRound = f.transport.listTaskListArgs.size
+        assertTrue(firstRound >= 2, "首轮：host-scope + 逐区回退都尝试过")
+        // 立刻再刷：失败退避窗（15s）内不重发
+        f.store.conversations()
+        advanceUntilIdle()
+        assertEquals(firstRound, f.transport.listTaskListArgs.size, "失败退避窗内不重试")
+        // 16s 后：短退避到期，重试发生
+        clock += 16_000
+        f.store.conversations()
+        advanceUntilIdle()
+        assertTrue(
+            f.transport.listTaskListArgs.size > firstRound,
+            "失败 15s 短退避到期后重试（不烧满 120s 长窗）",
+        )
+
+        // 成功后进 120s 长窗：立刻再刷不再发
+        f.transport.listTaskListError = null
+        clock += 16_000
+        f.store.conversations()
+        advanceUntilIdle()
+        val afterSuccess = f.transport.listTaskListArgs.size
+        assertTrue(afterSuccess > firstRound, "成功一轮回填发生")
+        f.store.conversations()
+        advanceUntilIdle()
+        assertEquals(afterSuccess, f.transport.listTaskListArgs.size, "成功后 120s 长窗内不重发")
+    }
 
     @Test
     fun rowsRange_epochMismatchDiscardsBatch_andPaginatesBackward() = runTest {

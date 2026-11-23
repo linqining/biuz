@@ -58,7 +58,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 /**
- * 屏 12·用量统计 / 权益页（iOS UsageStatsView 同位）：
+ * 用量统计 / 权益页（iOS UsageStatsView 同位）：
  * - **Coding Plan 额度卡**：全部窗口分行（5 小时/每周/工具调用/MCP 配额；进度条 +
  *   用量/上限 + 重置时间），档位角标 = **quota.level**，重置卡摘要（5h/周分列）；
  * - **套餐权益子块**：条目唯一来源 = **subscription.details[]**（禁找不存在的

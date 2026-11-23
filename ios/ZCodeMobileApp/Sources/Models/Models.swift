@@ -33,7 +33,7 @@ struct TodoItem: Identifiable, Codable, Equatable {
     var state: TodoState
 }
 
-// MARK: - 思考/推理内容（屏 05 折叠块；项 4）
+// MARK: - 思考/推理内容（折叠块；项 4）
 
 /// reasoning 行 → 折叠块数据。state：流式中/完成/中断（中断为移动端呈现的显式态）。
 /// startedAt 仅在该行被观察到流式时记录（历史快照一次性到达的 done 行无时长，
@@ -678,7 +678,8 @@ enum ThoughtLevel: String, CaseIterable, Identifiable, Codable {
 }
 
 struct AppSettings: Equatable, Codable {
-    var appearance: AppearanceMode = .system
+    // 默认浅色（2026-11-24 用户裁决：朱批默认浅色主题；跟随系统仍是可选项）
+    var appearance: AppearanceMode = .light
     var notificationsEnabled: Bool = true
     var model: String = "GLM-5.3"
     var thoughtLevel: ThoughtLevel = .medium
@@ -697,7 +698,7 @@ struct AppSettings: Equatable, Codable {
     // （外观/语言/模型偏好全部丢失），故逐键 decodeIfPresent 兼容升级
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        appearance = try container.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? .system
+        appearance = try container.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? .light
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
         model = try container.decodeIfPresent(String.self, forKey: .model) ?? "GLM-5.3"
         thoughtLevel = try container.decodeIfPresent(ThoughtLevel.self, forKey: .thoughtLevel) ?? .medium

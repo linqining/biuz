@@ -39,6 +39,7 @@ package cn.biuz.android.store
 // - §5-12 读面失败三态（loadFailures 与 last-good 共存）。
 
 import cn.biuz.android.protocol.AckActivationBarrier
+import cn.biuz.android.protocol.ArtifactRowInfo
 import cn.biuz.android.protocol.CasRevision
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.CommandAck
@@ -58,6 +59,7 @@ import cn.biuz.android.protocol.RemotePendingInteraction
 import cn.biuz.android.protocol.RPCChannelTransport
 import cn.biuz.android.protocol.RPCError
 import cn.biuz.android.protocol.RPCValue
+import cn.biuz.android.protocol.SubagentSummary
 import cn.biuz.android.protocol.ThinkingContent
 import cn.biuz.android.protocol.ThinkingState
 import cn.biuz.android.protocol.TodoItem
@@ -237,6 +239,20 @@ class RemoteConversationStore(
     /** membership（pin/archive 组织态权威源）上次刷新时刻（30s 节流；iOS membershipRefreshedAt :302-308） */
     @Volatile
     private var membershipRefreshedAt: Long? = null
+    /**
+     * 项目归属元数据（host-scope/逐工作区 listTaskList）上次刷新时刻。
+     * sessions-index 行只有 workspaceId（上行 schema 冻结），workspacePath 只能由
+     * task-index 行补齐——列表「按项目分组」的数据源（iOS mergeGlobalTaskIndex :501-599）。
+     * **失败短退避（2026-11-23 真机实证）**：首次 `conversations()` 常撞连接建立/stale
+     * 重连期——host 与逐区两路全空，若同样吃满 120s 长窗，用户在抖动连接下长期看不到
+     * 分组。现按 [projectMetadataLastAttemptFailed] 区分：失败 15s 后即重试，成功才进
+     * 120s 长窗（重连重建 Store 时本字段随实例复位，天然立即重试）。
+     */
+    @Volatile
+    private var projectMetadataRefreshedAt: Long? = null
+
+    @Volatile
+    private var projectMetadataLastAttemptFailed: Boolean = false
     /** bootstrap 派生工作区清单（membership scope 枚举第二源；AppSession 装配后回写，iOS bootstrapWorkspaces） */
     @Volatile
     var bootstrapWorkspaces: List<StoreWorkspaceInfo> = emptyList()
@@ -1241,10 +1257,18 @@ class RemoteConversationStore(
         var pendingWorkflowCompletion: Pair<Int, WorkflowCompletionCard>? = null
         // 当前轮的 fileChanges（turnHeader 行投影，随该轮助手消息落到 UI）
         var currentTurnChanges: cn.biuz.android.protocol.TurnFileChanges? = null
+        // 回合分组（web conversationTurnRenderUnits 口径）：turnHeader = 轮边界；
+        // 同轮消息 shared turnIndex（UI 按此聚合渲染 / 折叠工作摘要）。
+        var turnIndex = 0
+        var turnId: String? = null
+        fun emit(message: ChatMessage) {
+            result.add(message.copy(turnIndex = turnIndex, turnId = turnId))
+        }
         for (rowId in table.keys.sorted()) {
             val record = table[rowId] ?: continue
             val row = record.json.objectValue ?: continue
             val kind = row["kind"]?.stringValue ?: continue
+            val rowTime = rowTimestamp(row)
             if (kind == "turnHeader") {
                 currentTurnChanges = row["fileChanges"]?.objectValue?.let { ch ->
                     cn.biuz.android.protocol.TurnFileChanges(
@@ -1255,16 +1279,19 @@ class RemoteConversationStore(
                     )
                 }
                 pendingWorkflowCompletion?.let { pending ->
-                    result.add(
+                    emit(
                         ChatMessage(
                             id = "row-${pending.first}-wfdone", role = MessageRole.agent, text = "",
                             rowKind = "workflowCompletion",
                             workflowCompletion = pending.second,
-                            timestamp = System.currentTimeMillis(),
+                            timestamp = rowTime,
                         ),
                     )
                 }
                 pendingWorkflowCompletion = null
+                // 新回合开始（turnHeader 即轮首；行携带 turnId 时记下）
+                turnIndex += 1
+                turnId = row["turnId"]?.stringValue ?: turnId
             }
             when (kind) {
                 "userInput" -> {
@@ -1274,11 +1301,11 @@ class RemoteConversationStore(
                     if (!sourceCommandId.isNullOrEmpty()) {
                         serverSourceCommandIds.add(sourceCommandId)
                     }
-                    result.add(
+                    emit(
                         ChatMessage(
                             id = "row-$rowId", role = MessageRole.user,
                             text = text,
-                            timestamp = System.currentTimeMillis(),
+                            timestamp = rowTime,
                             // G-014：桌面随行下发的图片/文件附件（截图类用户消息常见）
                             attachments = extractAttachmentRefs(row),
                             // P1-3 编辑重发行游标（C-1 修正：entityId 缺失 → UI 不渲染入口、store 拒发）
@@ -1295,12 +1322,12 @@ class RemoteConversationStore(
                         "dislike" -> false
                         else -> null
                     }
-                    result.add(
+                    emit(
                         ChatMessage(
                             id = "row-$rowId", role = MessageRole.agent,
                             text = row["text"]?.stringValue ?: "",
                             status = if (state == "streaming") MessageStatus.streaming else MessageStatus.done,
-                            timestamp = System.currentTimeMillis(),
+                            timestamp = rowTime,
                             entityId = rowEntityId(row),
                             rowKind = "assistantText",
                             turnChanges = currentTurnChanges,
@@ -1332,7 +1359,7 @@ class RemoteConversationStore(
                             }
                         }
                     }
-                    result.add(
+                    emit(
                         ChatMessage(
                             id = messageId, role = MessageRole.agent,
                             text = "",
@@ -1341,7 +1368,7 @@ class RemoteConversationStore(
                             } else {
                                 MessageStatus.done
                             },
-                            timestamp = now,
+                            timestamp = rowTime,
                             thinking = ThinkingContent(
                                 text = text,
                                 state = thinkingState,
@@ -1355,27 +1382,34 @@ class RemoteConversationStore(
                     // 行级 plan/todo 兜底（当前桌面 v4 的 todos 挂在会话 state 而非行）
                     val todos = parseTodoRow(row, rowId)
                     if (!todos.isNullOrEmpty()) {
-                        result.add(
+                        emit(
                             ChatMessage(
                                 id = "row-$rowId", role = MessageRole.agent,
                                 text = "",
                                 status = MessageStatus.done,
-                                timestamp = System.currentTimeMillis(),
+                                timestamp = rowTime,
                                 todos = todos,
                             ),
                         )
                     }
                 }
                 "toolCall" -> {
-                    result.add(toolCallRowMessage(row, rowId, "row-$rowId", includeRetryCursor = true))
+                    emit(toolCallRowMessage(row, rowId, "row-$rowId", includeRetryCursor = true, timestampMs = rowTime))
                 }
                 "subagent" -> {
-                    result.add(
+                    val subagentType = row["subagentType"]?.stringValue ?: ""
+                    val subagentStatus = row["status"]?.stringValue
+                    val subagentSummary = row["summaryText"]?.stringValue
+                    emit(
                         ChatMessage(
                             id = "row-$rowId", role = MessageRole.agent,
-                            text = "🤖 子智能体 · ${row["subagentType"]?.stringValue ?: ""}：" +
-                                (row["summaryText"]?.stringValue ?: ""),
-                            timestamp = System.currentTimeMillis(),
+                            text = "🤖 子智能体 · $subagentType：" + (subagentSummary ?: ""),
+                            timestamp = rowTime,
+                            subagent = SubagentSummary(
+                                type = subagentType,
+                                status = subagentStatus,
+                                summary = subagentSummary,
+                            ),
                         ),
                     )
                 }
@@ -1384,12 +1418,16 @@ class RemoteConversationStore(
                         ?: row["name"]?.stringValue ?: "产物"
                     val type = row["artifactType"]?.stringValue
                         ?: row["type"]?.stringValue ?: "file"
-                    result.add(
+                    val bytes = jsonLongValue(row["byteSize"])
+                        ?: jsonLongValue(row["size"])
+                        ?: jsonLongValue(row["bytes"])
+                    emit(
                         ChatMessage(
                             id = "row-$rowId", role = MessageRole.agent,
                             text = "📦 产物 · $name（$type）",
-                            timestamp = System.currentTimeMillis(),
+                            timestamp = rowTime,
                             attachments = extractAttachmentRefs(row),
+                            artifact = ArtifactRowInfo(name = name, kind = type, bytes = bytes),
                         ),
                     )
                 }
@@ -1527,6 +1565,21 @@ class RemoteConversationStore(
         return id.ifEmpty { null }
     }
 
+    /**
+     * 行时间戳宽容解析（timestamp/createdAt/at/ts；毫秒数或 ISO 双形态）。
+     * 缺失/不可解析回落到达时刻（历史快照一次性到达时到达时刻≠真实时间，仅作兜底）。
+     */
+    fun rowTimestamp(row: Map<String, JSONValue>): Long {
+        for (key in listOf("timestamp", "createdAt", "at", "ts")) {
+            val value = row[key] ?: continue
+            jsonLongValue(value)?.takeIf { it > 0 }?.let { return it }
+            value.stringValue?.let { iso ->
+                SessionSummaryParser.parseIsoMillis(iso)?.let { return it }
+            }
+        }
+        return System.currentTimeMillis()
+    }
+
     /** toolName → ToolKind（bash/edit/read/ask/browser 五类；未知归 bash）（iOS :1843-1858）。 */
     private fun mapToolKind(toolName: String?): ToolKind {
         val name = (toolName ?: "").lowercase()
@@ -1559,13 +1612,21 @@ class RemoteConversationStore(
         rowId: Int,
         id: String,
         includeRetryCursor: Boolean,
+        timestampMs: Long = System.currentTimeMillis(),
     ): ChatMessage {
         val status = row["status"]?.stringValue ?: "running"
         val outputText = row["output"]?.objectValue?.get("text")?.stringValue
             ?: row["outputPreview"]?.objectValue?.get("text")?.stringValue
             ?: row["progress"]?.objectValue?.get("text")?.stringValue
         // G-020：workflow 启动类工具调用宽容取关联 runId（行 result/回执内 runId 键）
-        val toolName = (row["toolName"]?.stringValue ?: "").lowercase()
+        val rawToolName = row["toolName"]?.stringValue ?: row["name"]?.stringValue
+        val toolName = (rawToolName ?: "").lowercase()
+        // 工具输入摘要/标题（web buildToolDisplayModel primary/secondary 数据源；
+        // input 为对象时取 description/summary，工具卡副标题用）
+        val inputObj = row["input"]?.objectValue
+        val description = inputObj?.get("description")?.stringValue
+            ?: inputObj?.get("summary")?.stringValue
+        val title = row["title"]?.stringValue
         val workflowRunId = if (toolName.contains("workflow")) {
             row["result"]?.objectValue?.get("runId")?.stringValue
                 ?: row["runId"]?.stringValue
@@ -1585,6 +1646,9 @@ class RemoteConversationStore(
             diff = null,
             entityId = if (includeRetryCursor) row["entityId"]?.stringValue else null,
             workflowRunId = workflowRunId,
+            toolName = rawToolName,
+            description = description,
+            title = title,
         )
         return ChatMessage(
             id = id, role = MessageRole.agent,
@@ -1594,7 +1658,7 @@ class RemoteConversationStore(
             } else {
                 MessageStatus.done
             },
-            timestamp = System.currentTimeMillis(),
+            timestamp = timestampMs,
             toolCall = toolCall,
         )
     }
@@ -2384,6 +2448,156 @@ class RemoteConversationStore(
         }
     }
 
+    /**
+     * 项目归属元数据刷新（120s 节流后台 / 失败 15s 短退避）：`zcode-task.listTaskList`
+     * 合并 task-index 行，回填 sessions-index 行缺失的 workspacePath 与标题
+     * （iOS mergeGlobalTaskIndex :501-599 同构；列表「项目」分组的真实数据源——
+     * sessions-index 行 schema 只有 workspaceId）。后台执行不阻塞首屏；合并后回推
+     * 列表替换事件。
+     *
+     * **范围两路（2026-11-23 真机「项目只有一个命名空间」根修，对照上游仓取证）**：
+     * ① **host-scope 单调用优先**（web 现行全局清单源）：`workspaceScopes: "host"`
+     *    （`zcodeTaskListTypes.ts:15` "host 由存储 owner 确定全部范围"；
+     *    `useGlobalTaskList.ts:88-90` / `windowControllerTaskListRegistry.ts:268` 同值直通；
+     *    `taskIndexRepo.queryTaskList:1337` 按 host_id 一把查全库）。桌面 3.17.1 起支持
+     *    （git show a60ba6a7 已含 "host"；3.16.2 同位代码无 →
+     *    `normalizeWorkspaceKeys(string)` 对字符串 .map 抛错 → 调用失败走回退）。
+     *    **kind 三查（2026-11-24「置顶没有处理」根修）**：主清单 kind="timeline"
+     *    （SQL 排除 pinned/archived——web ProjectTaskRows kind 同源）；置顶/归档各有
+     *    host 专查 kind="pinned"/"archived"（SQL 列过滤，web ProjectTaskRows kind=pinned
+     *    同构）→ id 集落 [RemoteSessionsIndexStore.hostPinnedTaskIds/hostArchivedTaskIds]
+     *    （投影与 membership 并集）。**为什么必须专查**：上游 zcodeTaskMetaSchema
+     *    无 pinned/archived 字段（validation.ts:2056；sqlite 列也不投影进 wire item），
+     *    task-index 行无法自带组织态，membership（listPinnedTasks）枚举源又只有当前
+     *    tabs——跨项目置顶只有 host 专查能到。
+     * ② **逐工作区聚合回退**（旧桌面）：为什么不能只靠 ①？因为回退的枚举源各自塌缩——
+     *    workspace-list-response 只含桌面窗口当前打开的 tabs
+     *    （`rootPlatformWorkspaceSync.ts:75-95` → `syncAvailableWorkspaces`，
+     *    desktop main index.ts:2584 直通；**不是全部项目目录**），bootstrap-response 的
+     *    `tasks` 字段在 3.15.1+ 已不存在（`buildBootstrapResult` webRemoteControlManager.ts:1040
+     *    全字段无 tasks；git -S 全历史无此字段）——枚举源只剩当前工作区 = 真机只见
+     *    单一项目节点的根因。老桌面（≤3.16，无 host-scope）依赖此路 + bootstrap.tasks
+     *    （3.14- 时代实证存在）双源兜底；置顶/归档仍走既有 membership 逐区拉取
+     *    （窄枚举，与本轮前一致，不倒退）。单区失败跳过（web taskListMembershipSets 同口径）。
+     *
+     * 两路的行合并为**同一批**（批内去重见 [SessionMergeTable.mergeTaskIndexRows]）。
+     */
+    private suspend fun maybeRefreshProjectMetadata() {
+        val index = sessionsIndex ?: return
+        val now = nowMs()
+        val last = projectMetadataRefreshedAt
+        val interval =
+            if (projectMetadataLastAttemptFailed) PROJECT_METADATA_RETRY_INTERVAL_MS
+            else PROJECT_METADATA_REFRESH_INTERVAL_MS
+        if (last != null && now - last < interval) return
+        projectMetadataRefreshedAt = now
+        scope.launch {
+            val items = ArrayList<JSONValue>()
+            val hostPinnedIds = ArrayList<String>()
+            val hostArchivedIds = ArrayList<String>()
+            var hostScopeUsable = false
+            // ① host-scope 主清单（kind="timeline"：排除 pinned/archived，归专查——
+            //    归档行若混进主批且行无组织态字段，主列表会漏过滤）
+            if (fetchHostScopeRows("timeline", items)) {
+                hostScopeUsable = true
+                // ② 置顶专查：行合并（归属/状态）+ id 集落 hostPinnedTaskIds
+                val pinnedRows = ArrayList<JSONValue>()
+                if (fetchHostScopeRows("pinned", pinnedRows)) {
+                    items.addAll(pinnedRows)
+                    for (row in pinnedRows) {
+                        row.objectValue?.get("taskId")?.stringValue?.let { hostPinnedIds.add(it) }
+                    }
+                }
+                // ③ 归档专查：id 集落 hostArchivedTaskIds（主列表过滤 + 归档区读面）
+                val archivedRows = ArrayList<JSONValue>()
+                if (fetchHostScopeRows("archived", archivedRows)) {
+                    items.addAll(archivedRows)
+                    for (row in archivedRows) {
+                        row.objectValue?.get("taskId")?.stringValue?.let { hostArchivedIds.add(it) }
+                    }
+                }
+            }
+            if (!hostScopeUsable) {
+                // ② 逐工作区聚合回退（每区一次单 scope 查询；老桌面无 host-scope）
+                val scopes = projectScopes(allWorkspaces, bootstrapWorkspaces, workspace)
+                for ((path, identity) in scopes) {
+                    val scopeObj = LinkedHashMap<String, JSONValue>()
+                    scopeObj["workspacePath"] = JSONValue.Str(path)
+                    if (!identity.isNullOrEmpty()) {
+                        scopeObj["workspaceIdentity"] = JSONValue.Str(identity)
+                    }
+                    val fields = LinkedHashMap<String, JSONValue>()
+                    fields["kind"] = JSONValue.Str("timeline")
+                    fields["workspaceScopes"] = JSONValue.Arr(listOf(JSONValue.Obj(scopeObj)))
+                    fields["sortBy"] = JSONValue.Str("updated")
+                    fields["limit"] = JSONValue.Int(200)
+                    try {
+                        val result = transport.call(
+                            "zcode-task", "listTaskList", RPCValue.json(JSONValue.Obj(fields)),
+                        )
+                        result.jsonValue?.get("items")?.arrayValue?.let { items.addAll(it) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // 单区失败跳过（web taskListMembershipSets 同口径）
+                    }
+                }
+            }
+            // host 组织态专查结果落位（并集源；membership 各自替换互不清除）
+            if (hostScopeUsable) {
+                index.hostPinnedTaskIds = hostPinnedIds.toSet()
+                index.hostArchivedTaskIds = hostArchivedIds.toSet()
+            }
+            // 失败短退避记账（连接建立期/stale 重连期首战全空 → 15s 后重试，
+            // 成功合批或拿到任意行才算成功进 120s 长窗；KDoc 详述）
+            projectMetadataLastAttemptFailed = items.isEmpty()
+            if (items.isEmpty()) return@launch
+            try {
+                val (merged, backfilled) = index.mergeTaskIndexRows(items)
+                diag(
+                    "diag.tasks.merge",
+                    "host=${if (hostScopeUsable) "ok" else "fallback"} " +
+                        "rows=${items.size} merged=$merged backfilled=$backfilled " +
+                        "pinned=${hostPinnedIds.size} archived=${hostArchivedIds.size}",
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@launch
+            }
+            yieldConversationsReplaced()
+        }
+    }
+
+    /**
+     * host-scope 单查（workspaceScopes:"host" 直传字符串；无 limit=全量，
+     * web useProjectTree.ts:364 limit:0 同款——normalizeLimit(0)=null=无 LIMIT）。
+     * @return 是否拿到非空行（主清单判定 host 链路可用性；专查空=无置顶/归档，也属可用）
+     */
+    private suspend fun fetchHostScopeRows(kind: String, out: ArrayList<JSONValue>): Boolean {
+        val fields = LinkedHashMap<String, JSONValue>()
+        fields["kind"] = JSONValue.Str(kind)
+        fields["workspaceScopes"] = JSONValue.Str("host")
+        fields["sortBy"] = JSONValue.Str("updated")
+        return try {
+            val result = transport.call(
+                "zcode-task", "listTaskList", RPCValue.json(JSONValue.Obj(fields)),
+            )
+            val rows = result.jsonValue?.get("items")?.arrayValue
+            if (!rows.isNullOrEmpty()) {
+                out.addAll(rows)
+                true
+            } else {
+                // 空回执 = 桌面接受 host 语义但无该 kind 行（pinned/archived 专查常态）
+                kind != "timeline"
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
+    }
+
 
     // MARK: 会话列表读面（iOS sessions 表在 :store 由 RemoteSessionsIndexStore 承载——委托直读）
 
@@ -2393,6 +2607,8 @@ class RemoteConversationStore(
         // membership 30s 节流后台刷新（iOS sortedConversations :302-308 同挂点：
         // RPC 突发与刚打开会话的订阅/帧处理抢同一 actor，进详情审批卡晚到——后台化不阻塞首屏）
         maybeRefreshMembership()
+        // 项目归属元数据 120s 节流后台刷新（列表按项目分组的数据源；iOS mergeGlobalTaskIndex 同挂点）
+        maybeRefreshProjectMetadata()
         return sessionsIndex?.conversations() ?: emptyList()
     }
 
@@ -3318,7 +3534,7 @@ class RemoteConversationStore(
     }
 
     /**
-     * 助手消息轻反馈（§3 设计稿点赞/点踩反馈行）。row-target + CAS 双类成员（§7.2:414）。
+     * 助手消息轻反馈（点赞/点踩反馈行）。row-target + CAS 双类成员（§7.2:414）。
      * 游标照 retryTurn 先例 {target:{rowId, entityId}}；value 三态：true=赞 / false=踩 /
      * null=取消（置 null）。A-1 修正（web 实证 bundle）：feedback 值域 `like|dislike`
      * （可 null）——原 positive/negative 是「未取证」候选被当事实实现，zod
@@ -3347,7 +3563,7 @@ class RemoteConversationStore(
     }
 
     /**
-     * 编辑用户消息并重发（§3 设计稿「编辑重发」sheet；§7.2:404「rewind 后以新文本
+     * 编辑用户消息并重发（「编辑重发」sheet；§7.2:404「rewind 后以新文本
      * 重发，与 retryTurn 同族」——CAS + row-target 双类）。新文本键名取同族实证先例
      * editQueueItem 的 newText。C-2 修正：显式携 workspaceMode:"preserve"（web 实证
      * bundle——preserve|rewind 枚举、默认 preserve，web 调用点恒带该键）。
@@ -4208,6 +4424,12 @@ class RemoteConversationStore(
         /** membership 节流刷新窗（iOS :302 `>= 30` 秒同值）。 */
         private const val MEMBERSHIP_REFRESH_INTERVAL_MS = 30_000L
 
+        /** 项目归属元数据（逐工作区 listTaskList）节流刷新窗——列表分组数据源，较 membership 低频。 */
+        private const val PROJECT_METADATA_REFRESH_INTERVAL_MS = 120_000L
+
+        /** 归属回填失败短退避（2026-11-23 真机实证：首战撞连接期全空时 15s 重试，不烧满长窗）。 */
+        private const val PROJECT_METADATA_RETRY_INTERVAL_MS = 15_000L
+
         /** 产物分块读单块上限（上游 workflow-artifacts.ts ≤512KiB 一块）。 */
         private const val ARTIFACT_CHUNK_BYTES = 512 * 1024
 
@@ -4533,6 +4755,34 @@ class RemoteConversationStore(
                     identity = current.workspaceIdentity
                 }
                 listOf(Triple(path, identity, true), Triple(path, identity, false))
+            }
+        }
+
+        /**
+         * 项目归属元数据拉取的 scope 清单（去重；与 membershipScopes 同一路径源，
+         * 只取 (path, identity?) 二元组——每个工作区一次 listTaskList）。
+         */
+        fun projectScopes(
+            all: List<StoreWorkspaceInfo>,
+            bootstrap: List<StoreWorkspaceInfo>,
+            current: StoreWorkspaceInfo,
+        ): List<Pair<String, String?>> {
+            val paths = ArrayList<String>()
+            val seen = HashSet<String>()
+            for (ws in all) {
+                if (seen.add(ws.path)) paths.add(ws.path)
+            }
+            for (ws in bootstrap) {
+                if (seen.add(ws.path)) paths.add(ws.path)
+            }
+            if (!seen.contains(current.path)) paths.add(current.path)
+            return paths.map { path ->
+                var identity = all.firstOrNull { it.path == path }?.workspaceIdentity
+                    ?: bootstrap.firstOrNull { it.path == path }?.workspaceIdentity
+                if (identity == null && path == current.path) {
+                    identity = current.workspaceIdentity
+                }
+                path to identity
             }
         }
     }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 屏 02 · 任务看板（Tab「任务」根）：状态三分组卡片流 + FAB
+/// 任务看板（Tab「任务」根）：状态三分组卡片流 + FAB
 /// 任务看板可观察模型：推送更新（onDynamicTaskEvent upsert → observeTasks 流）经此
 /// 直绑渲染。曾用 @State 在 .task 的 for await 恢复点赋值——cache 已更新而卡片不重绘
 /// （门禁修复轮 os_log 实证）；与 ChatViewModel 同模式的 @Observable 直绑渲染可靠。
@@ -424,7 +424,7 @@ struct TaskBoardView: View {
     }
 }
 
-// MARK: - 任务卡（spec 5.2）
+// MARK: - 任务卡
 
 struct TaskCardView: View {
     @Environment(AppRouter.self) private var router

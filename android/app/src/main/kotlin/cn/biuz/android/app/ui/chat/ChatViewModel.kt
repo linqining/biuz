@@ -238,7 +238,7 @@ class ChatViewModel(
 
     /**
      * 权威成功决议后本地遮罩的交互 id 集（独立 StateFlow：桌面投影移除前 UI 据此撤卡
-     * 防卡死；投影移除后随之出账——§3.2 状态矩阵「已受理」行的兜底半边）。
+     * 防卡死；投影移除后随之出账——「已受理」行的兜底半边）。
      */
     private val _decidedInteractionIds = MutableStateFlow<Set<String>>(emptySet())
     val decidedInteractionIds: StateFlow<Set<String>> get() = _decidedInteractionIds
@@ -252,7 +252,12 @@ class ChatViewModel(
     private val _stampHolds = MutableStateFlow<Map<String, StampHold>>(emptyMap())
     val stampHolds: StateFlow<Map<String, StampHold>> get() = _stampHolds
 
-    /** 只读边界（连接态远端 Store 可能为 true；UI 据此禁用发送/审批并提示）。 */
+    /**
+     * Store 能力标志（远端 Store 为 true）。**不再用于 UI 门禁**：2026-11-23 对齐
+     * iOS `canSend`/web composer——远端会话可正常发送（只读边界由桌面端 ReadOnlyGate
+     * 在 RPC 出口强制，不在 UI 侧禁发）；历史实现曾把它当「只读模式」禁用发送/附件，
+     * 与 iOS/web 不一致（真机「桌面端只读 · 发送不可用」误报）。
+     */
     var isReadOnly: Boolean = false
         private set
 
@@ -283,7 +288,7 @@ class ChatViewModel(
         data class Raw(val text: String) : SlashHint()
     }
 
-    /** 交互决议失败面（审批/提问/计划卡错误行；§3.2-3.4 状态矩阵「不 dismiss、控件恢复」）。 */
+    /** 交互决议失败面（审批/提问/计划卡错误行；不 dismiss、控件恢复）。 */
     sealed class InteractionFailure {
         /** ack null：未送达（断线/未连接）→「审批未送达 · 连接恢复后再试」口径。 */
         data object Undelivered : InteractionFailure()
@@ -828,7 +833,7 @@ class ChatViewModel(
 
     fun updateDraft(text: String) {
         _draft.value = text
-        // 清除时机（§5.1）：发送成功 / 用户手动编辑 draft / 离开会话——不随 3s 消失
+        // 清除时机：发送成功 / 用户手动编辑 draft / 离开会话——不随 3s 消失
         if (text.isNotEmpty()) {
             if (_sendFailureReason.value != null) {
                 _sendFailureReason.value = null
@@ -838,6 +843,23 @@ class ChatViewModel(
             if (hint != null && hint !is SlashHint.PlanSwitched) {
                 _slashHint.value = null
             }
+        }
+    }
+
+    /**
+     * 会话派生（web fork / iOS fork 入口同构，2026-11-23）：从当前会话派生新会话，
+     * 返回新会话 id（null = 失败/未连接，失败原因落常驻错误行）。
+     * 行级入口门：assistantText + entityId 在场 + 非流式（web 同口径）。
+     */
+    suspend fun forkConversation(): String? {
+        val store = attachedStore ?: return null
+        return try {
+            store.forkConversation(conversationId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _sendFailureReason.value = "Fork 失败：${e.message ?: e::class.simpleName}"
+            null
         }
     }
 
@@ -852,7 +874,6 @@ class ChatViewModel(
     fun scheduleInputPrediction() {
         predictionJob?.cancel()
         _inputHint.value = null
-        if (!isReadOnly) return
         val snapshot = _draft.value
         predictionJob = scope.launch {
             delay(INPUT_PREDICTION_DEBOUNCE_MS)

@@ -12,7 +12,7 @@ package cn.biuz.android.store
 //   firstInput + firstInput.modelSelection、在途创建去重（A12）、失败如实上屏；
 // - 标题占位 10min 兜底回填（v1.31④）；
 // - markUnread 写失败回滚本地置位（§5-12）。
-// Mock 仅测试装配（红线 §0-4）。
+// Mock 仅测试装配（红线见 AGENTS §5-13）。
 
 import cn.biuz.android.protocol.Conversation
 import cn.biuz.android.protocol.ExecutorKind

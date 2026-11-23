@@ -47,20 +47,11 @@
 
 > 说明：WebSearch 结果以美区为主。**「未发现占用」≠「商标可注册」**，终审以两步为准：① App Store Connect 创建 App 时占名（全 Store 唯一性即时校验）；② 中国商标网第 9 类（软件）/第 42 类（SaaS）检索「BiuZ」「Biu」家族。出海另查 USPTO/EUIPO。
 
-## Logo 交付物（[branding/logo/](logo/)）
+## Logo 交付物
 
-设计概念：**「biu~」彗星**——一道拖着渐细尾迹的荧光绿流星划出一个「Z」，亮核是任务飞出时那颗「biu」的光点。配色完全沿用 design-spec v2.4 令牌：近黑底 `--bg #0a0b0d`、强调绿 `--accent #32f08c`（Light 版用 `#17b26a`）。
-
-| 文件 | 用途 |
-| --- | --- |
-| `logo/biuz-icon-1024.svg` | App Store 提审图标源稿（方形全出血、无透明，圆角由系统裁切） |
-| `logo/biuz-icon-rounded.svg` | 预览用圆角版（rx=228 ≈ iOS 裁切比例） |
-| `logo/biuz-mark.svg` | 透明底单标（960×960 方形画布；替换 design/login-design.html 屏 01/O1 的 84px 品牌位，以及 README） |
-| `logo/biuz-mark-card.svg` | 单标深色卡片版（README/宣传展示） |
-| `logo/biuz-lockup-dark.svg` / `-light.svg` | 横版字标（深/浅主题，字标为纯矢量路径不依赖字体），含副标题「手机上的 AI Agent 遥控台」 |
-| `logo/png/` | 全部渲染 PNG：`appicon-1024/180`、`icon-preview-512`、`lockup-dark/light`（1100×560）、`mark-960`（透明底）、`mark-card-840` |
-
-设计说明：彗星「Z」即字标的字母 Z——尾迹沿 Z 笔顺由细渐粗，亮核是任务飞出时那颗「biu」的光点；字标中 i 的圆点同样做成绿色发光灯，与彗星亮核互为呼应。全部用色取自 design-spec v2.4 令牌（`--bg #0a0b0d`、`--text #f5f9fe`、`--text-3 #8a8f9b`、`--accent #32f08c`；Light 用 `#f4f5f7 / #17181c / #5f6673 / #17b26a`）。
+> 2026-11-22 起品牌为「朱批 / Seal」：Logo 与全部视觉资产以 `brand/seal/` 为准（主印「批」、印系四色、用印规则见该目录 README），
+> `branding/logo/` 内的 `zhupi-*` SVG 与 `png/` 是同一批印系资产的副本（`png/appicon-*` 为默认纸底图标导出）。
+> 原 BiuZ 彗星 Logo 的设计说明已随 BiuZ 设计稿一并移除（2026-11-24，见文末修订记录）。
 
 ### 上架合规清单（BiuZ 定名后的工程改动点）
 
@@ -88,3 +79,9 @@
 - 主题：三端 token 单点重映射——浅色=纸底墨字、深色=墨底纸字、朱磦 #D2402E 为印系强调色
 - 源码内部符号（BiuZPalette / cn.biuz.android.* 源码包 / ZCodeBrandMark 等）沿用不更名（无用户可见差异）
 - 存储键兼容层不动（LEGACY biuz.jwt 迁移标记等历史事实不可改）
+
+### 2026-11-24 · BiuZ Logo 设计说明移除（随 BiuZ 设计稿清理）
+
+用户裁决「关于 BiuZ 设计相关的文档和注释都移除」：本文「Logo 交付物」一节原为 BiuZ 彗星 Logo 的设计概念与配色说明
+（文件表所列 `biuz-*.svg` 早已在 2026-11-22 被 `zhupi-*` 替换），已改为指向 `brand/seal/` 的现状说明。
+定名核查、排除名单与商标口径（商店 listing 禁现「ZCode」「Z.ai」字样，用 "works with ZCode" 表达）继续有效，原文保留。

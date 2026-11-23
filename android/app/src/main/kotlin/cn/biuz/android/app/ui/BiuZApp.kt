@@ -217,7 +217,7 @@ fun BiuZApp(
                     onOpenConversation = { sessionId -> navController.navigate(Routes.chat(sessionId)) },
                 )
             }
-            // 屏 07 执行输出（模型轨迹；iOS TaskOutputView 对位）
+            // 执行输出（模型轨迹；iOS TaskOutputView 对位）
             composable(
                 route = Routes.TASK_OUTPUT,
                 arguments = listOf(androidx.navigation.navArgument("sessionId") { type = androidx.navigation.NavType.StringType }),
@@ -242,7 +242,7 @@ fun BiuZApp(
                     onOpenDevices = { navController.navigate(Routes.DEVICES) },
                 )
             }
-            // 文件页（屏 08 Diff 审查根 → 屏 09 目录树 → 文件预览；iOS FileTreeView/
+            // 文件页（Diff 审查根 → 目录树 → 文件预览；iOS FileTreeView/
             // DiffReviewView 直译对位）
             composable(Routes.FILES) {
                 FilesScreen(
@@ -303,6 +303,7 @@ fun BiuZApp(
                     onOpenSubagents = { navController.navigate(Routes.SUBAGENTS) },
                     onOpenHooks = { navController.navigate(Routes.HOOKS) },
                     onOpenProjects = { navController.navigate(Routes.PROJECTS) },
+                    onOpenLogin = { navController.navigate(Routes.LOGIN) },
                 )
             }
             // 027 个性化（web 同口径「仅本地桌面端」指引页，零服务调用）

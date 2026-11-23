@@ -16630,12 +16630,12 @@
         }
       }
     },
-    "默认跟随系统深浅变化即时换肤；选择固定档后将始终保持该主题。" : {
+    "默认使用浅色主题；选择「跟随系统」后随系统深浅变化即时换肤，选择固定档则始终保持该主题。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Follows system light/dark changes instantly; a fixed choice keeps that theme."
+            "value" : "Light theme by default. Choose Follow System to switch with the system setting, or a fixed option to keep that theme."
           }
         }
       }

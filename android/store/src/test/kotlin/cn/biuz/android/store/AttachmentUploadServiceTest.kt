@@ -8,7 +8,7 @@ package cn.biuz.android.store
 // - RemoteConversationStore 附件四方法：strict 本地拒发不空耗线缆、wire 键面无
 //   connectionId（甲-2/A11：服务端注入，多发即 Invalid params）、回执解析三形态、
 //   1.2s 首败退避重试一次（Abort 例外不重试）。
-// Mock 仅测试装配（红线 §0-4）：替身传输复用 RemoteConversationStoreTest 的 Fixture。
+// Mock 仅测试装配（红线见 AGENTS §5-13）：替身传输复用 RemoteConversationStoreTest 的 Fixture。
 
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.RPCError

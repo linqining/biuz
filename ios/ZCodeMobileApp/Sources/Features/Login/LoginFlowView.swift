@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-// MARK: - 登录流程（板 O1–O3：双路径主页 → 应用内授权 Sheet → 回调拦截 → 交换 → 结果）
+// MARK: - 登录流程（双路径主页 → 应用内授权 Sheet → 回调拦截 → 交换 → 结果）
 
 /// O1 登录主页入口（未登录拦截栈的完整版；从设置页「账户」/ 连接失败引导唤起）
 struct LoginFlowView: View {

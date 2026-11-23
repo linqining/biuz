@@ -39,7 +39,7 @@ final class ChatViewModel {
     var olderLoadFailureText: String?
 
     /// 待发附件（P1-1：相册/拍照/文件三来源；会话维度实例。演示态 UI 不出附件
-    /// 入口——设计稿 1.4「非连接态 📎 不渲染」，本服务仅连接态被触达）
+    /// 入口——「非连接态 📎 不渲染」，本服务仅连接态被触达）
     let uploads: AttachmentUploadService
 
     /// 新建会话交接的会话前模型选择（nil = 无；随首条 sendText.modelSelection
@@ -230,7 +230,7 @@ final class ChatViewModel {
     // MARK: P1-2 会话模式（plan/build）与投递模式（now/queue/guide）
     //
     // 状态单源在 ViewModel：胶囊 UI 态与 send() 的 requestedDelivery 实参同读此二值，
-    // 不存在「UI 一张皮、发送另一张皮」。本地持久化走 ComposerModeStore（设计稿 §2.1
+    // 不存在「UI 一张皮、发送另一张皮」。本地持久化走 ComposerModeStore（
     // 照抄执行目标先例）。协作模式显示源 = state.config.mode 桌面投影（上游
     // product-projection.ts:3785，命令面与 plan 工具路径共用；2026-10-09 前曾为
     // 纯本机态无读面——桌面改回/重置后手机恒显旧值，用户报障「计划模式丢失」），
@@ -253,7 +253,7 @@ final class ChatViewModel {
     /// 成功后落态+持久化，并即时驱动后续 send() 的 requestedDelivery 实参）
     var deliveryMode: String = ComposerModeStore.deliveryDefault
 
-    /// 发送时随 sendText 携带的投递参数。A-2 修正（设计稿 §4.1 唯一方案）：
+    /// 发送时随 sendText 携带的投递参数。A-2 修正：
     /// now 档恒携 requestedDelivery:"startNow"（web 立即语义的实证形态——
     /// sendText delivery 枚举 startNow|queue|guide，bundle 实证；web 默认
     /// followupMode=queue，now 档不下发命令后若不带键则桌面仍按 queue 处理）；
@@ -322,7 +322,7 @@ final class ChatViewModel {
         ComposerModeStore.setCollaborationMode(projected, conversationID: conversationID)
     }
 
-    /// 投递模式切换（立即/排队/引导）。A-2 修正（设计稿 §4.1）：now 档不下发
+    /// 投递模式切换（立即/排队/引导）。A-2 修正：now 档不下发
     /// setFollowupMode（web 枚举仅 queue|guide，「立即」不是 followupMode 值——
     /// 下发必被拒），仅本地落态 + 持久化，立即语义由 send() 携
     /// requestedDelivery:"startNow" 承载；queue/guide 照常 CAS 下发，成功才落态。
@@ -459,7 +459,7 @@ final class ChatViewModel {
 
     /// 编辑并重发（editUserQuery：rewind 后以新文本重发，与 retryTurn 同族
     /// CAS+row-target）。成功后不做乐观改动——消息流以桌面 rows 键级重建为准
-    /// （设计稿 §3.4「乐观不做」）。返回失败文案（nil = 成功，UI dismiss + 震动）。
+    /// （「乐观不做」）。返回失败文案（nil = 成功，UI dismiss + 震动）。
     func editAndResend(_ message: ChatMessage, newText: String) async -> String? {
         let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return String(localized: "内容不能为空") }
@@ -482,7 +482,7 @@ final class ChatViewModel {
     // MARK: P2-7B 审批卡「稍后处理」（snoozeInteractionAutoResolution）
 
     /// 本地遮罩的交互 id（「稍后处理」accepted 后桌面 pendingInteractions 回流 >1s
-    /// 未至的 UI 兜底——仅过滤投影，不改 store state 合并纪律，设计稿 §7B；
+    /// 未至的 UI 兜底——仅过滤投影，不改 store state 合并纪律；
     /// 降级路径「关闭」纯本地收起同用此遮罩）
     var snoozedInteractionIds: Set<String> = []
 
@@ -1048,7 +1048,7 @@ final class ChatViewModel {
     }
 
     /// 待处理交互投影刷新（连接态；演示态空。「稍后处理」本地遮罩在此过滤——
-    /// 仅 UI 层，store 原始投影不动，§7B 口径）
+    /// 仅 UI 层，store 原始投影不动）
     func refreshPendingInteractions() async {
         guard isReadOnly else { return }
         let all = await store.pendingInteractionList(in: conversationID)
@@ -1109,7 +1109,7 @@ final class ChatViewModel {
     }
 
     /// 计划决议（A-3：计划族 answer={action:"accept"|"decline"}；cancel 语义由
-    /// 「稍后处理」snooze 独立命令承担，不设按钮——设计稿 §3.3）。返回失败文案。
+    /// 「稍后处理」snooze 独立命令承担，不设按钮）。返回失败文案。
     @discardableResult
     func decidePlan(_ interaction: RemotePendingInteraction, action: String) async -> String? {
         let ack = await store.resolveInteractionRaw(
@@ -1270,7 +1270,7 @@ final class ChatViewModel {
     }
 
     /// 发送可用：无待发附件沿用 draft 非空口径；有待发附件时须全部 committed
-    /// （P1-1 设计稿 1.3③④——上传中禁发、纯附件无文本不允许发送）；
+    /// （P1-1——上传中禁发、纯附件无文本不允许发送）；
     /// 3.16.2 runtimeInitialization 非 ready 时禁发（旧桌面 nil 不阻塞）。
     var canSend: Bool {
         runtimeReady && !draft.isEmpty && !uploads.blocksSend
@@ -1486,7 +1486,7 @@ final class ChatViewModel {
             recordPromptHistory(text)
         } else {
             // 消息未送达：文本回填保稿；附件保留在待发条（committed 引用可复用，
-            // 重试只发文本+引用不重传——设计稿 §5.1 语义随 §11.1#6 修正）
+            // 重试只发文本+引用不重传）
             if draft.isEmpty {
                 draft = text
             }
@@ -1617,7 +1617,7 @@ enum ComposerModeStore {
     /// 协作模式词表（switchCollaborationMode mode 值域【实证 web bundle】：
     /// `switchCollaborationMode:Ta({mode:La([\`build\`,\`edit\`,\`plan\`,\`yolo\`])})`；
     /// Qme 全集 build=Ask before changes / edit=Edit automatically / plan=Plan mode /
-    /// yolo=Full access。原 plan/build 两档是设计稿口述子集——用户 2026-10-06
+    /// yolo=Full access。原 plan/build 两档是早期口述子集——用户 2026-10-06
     /// 报「命令只有 plan 和 build」即此缺口）
     static let collaborationModes = ["build", "edit", "plan", "yolo", "guarded"]
     /// 投递模式词表（移动端三档。A-2：queue/guide 下发 setFollowupMode【实证 bundle

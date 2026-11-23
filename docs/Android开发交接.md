@@ -27,11 +27,10 @@
 | 2 | `docs/架构根因分析.md`（187 行） | ⭐必读 | 15 条协议不变量（A1–A15，上游 file:line）+ 四大静默陷阱 + 官方五件套设计原理。Android 每条都必须等价镜像 |
 | 3 | `AGENTS.md` §4.5 术语表 + §5 工程纪律 + §6 未决事项 + §7 总纲 | ⭐必读（选段） | §5-2/3/4/5/6/7/12/13 跨平台成立；§5-14~18 为 iOS 工具链专属可跳过；§6 = 已知 bug/待取证清单（Android 直接绕过这些坑） |
 | 4 | `docs/web一致性审查报告.md`（220 行，33 条） | ⭐⭐选读 | 反面教材目录：每条「必坏类」都是 Android 写侧形状的对照检查项（见本文 §4 甲类表） |
-| 5 | `docs/web接口对齐盘点报告.md`（109 行）+ `docs/对齐修复与降级体验设计.md`（489 行） | ⭐⭐选读 | 产品红线 skip 清单；未连接态四态呈现/降级交互规格（Compose 重做 UI 直接对照） |
-| 6 | `docs/P1P2P3功能UI设计.md`（846 行） | ⭐⭐选读 | 11 项功能的状态矩阵与协议缺口；插入点 file:line 已随 iOS 演进漂移，勿按行号找 |
-| 7 | `docs/relay-handoff.md`（29 行） | ⭐⭐选读 | 中继配对链接形态，细节以协议文档 §3.3/§9.15 为准 |
-| 8 | `docs/立项报告.md`（1395 行，= `project-proposal.md` 完全重复，读其一） | ⭐⭐⭐可跳过 | 历史证据存档；早期结论部分已被推翻，仅考古时查 |
-| 9 | `docs/qoder-comparison.md`（77 行） | ⭐⭐⭐可跳过 | 竞品交互提取，做 UI 差异化再翻 |
+| 5 | `docs/web接口对齐盘点报告.md`（109 行） | ⭐⭐选读 | 产品红线 skip 清单（web 已用 / 移动端已接 / 差距） |
+| 6 | `docs/relay-handoff.md`（29 行） | ⭐⭐选读 | 中继配对链接形态，细节以协议文档 §3.3/§9.15 为准 |
+| 7 | `docs/立项报告.md`（1395 行，= `project-proposal.md` 完全重复，读其一） | ⭐⭐⭐可跳过 | 历史证据存档；早期结论部分已被推翻，仅考古时查 |
+| 8 | `docs/qoder-comparison.md`（77 行） | ⭐⭐⭐可跳过 | 竞品交互提取，做 UI 差异化再翻 |
 
 ---
 
@@ -82,9 +81,10 @@ iOS 侧共 59 个 Swift 文件 / 42,612 行。**约 1/3 是纯协议逻辑，可
 
 ### 2.5 品牌与设计资产
 
-- `branding/logo/`：6 个 SVG 源稿 + PNG 渲染件（iOS 尺寸；**Android 从 `biuz-mark.svg` 导 adaptive icon**）；`branding/naming.md` 商标避险报告——应用名 BiuZ，**商店 listing 禁现「ZCode」「Z.ai」字样**，用 "works with ZCode" 表达；上架前复核 Google Play 侧占用。
-- `design/design-spec.md`（84KB）：设计令牌（色板 `#0a0b0d` 近黑 + `#32f08c` 强调绿、字号、间距→Compose Theme）、12 屏布局、组件规范。
-- `design/*.html` 可交互样稿（视觉基准）；Pixso 设计基准 file key `AbZPdSg5AO6CqRDpr5RKwg` 画板 `5:3026`。
+- **视觉与主题的唯一依据 = 朱批印系品牌资产包 `brand/seal/`**：`README.md`（四色：朱磦 `#D2402E` / 墨 `#17181A` / 纸 `#F7F3EC` / 钤灰；主印「批」；印是平的、非落印场合 −2.5°、残边不得修复）+ `brand-sheet.html`（印面构造 / 色板 / 字体 / Do-Don't）+ `motion-spec.html`（盖章动效）+ `png/`（主印、图标导出件）。三端主题令牌同源于此（Android `ui/theme/Color.kt`、iOS `Theme.swift`）。**默认浅色（纸底墨字）、启动图标底纸色**（2026-11-24 用户裁决）。
+- **Android 启动图标**：`res/mipmap-anydpi-v26/ic_launcher.xml` = `@color/ic_launcher_background`（纸底）+ `drawable/ic_launcher_foreground.xml`（主印矢量，源 `brand/seal/app-icon-android-adaptive.svg`）。
+- `branding/naming.md` 商标避险报告：**商店 listing 禁现「ZCode」「Z.ai」字样**，用 "works with ZCode" 表达；上架前复核 Google Play 侧占用。
+- BiuZ 时代的设计稿（`design/`、`docs/P1P2P3功能UI设计.md`、`docs/对齐修复与降级体验设计.md`）已于 2026-11-24 按用户裁决**删除**（需要考古时从 git 历史 `cf945877` 之前取），不再是任何实现依据；代码注释中的设计稿引用同步清除。
 
 ---
 
@@ -308,5 +308,153 @@ v1.12（附件形状）、v1.17（订阅寻址）、v1.20（getView 词表）、
 - [ ] 建模块骨架（§8.1），protocol 模块先行 + 单测平移
 - [ ] Ktor 替身服务器开工（M1 同步进行，后续所有里程碑依赖它）
 - [ ] 桌面端联调环境：局域网直连（`GET /ws?token=…`）+ 云中继链接（重新生成即旧凭据失效；单连接槽串行验证）
-- [ ] 品牌资产转换（biuz-mark.svg → adaptive icon；design-spec 令牌 → Compose Theme）
+- [x] 品牌资产转换（主印「批」→ adaptive icon；朱批印系令牌 → Compose Theme；2026-11-22 落地，2026-11-24 图标底与默认主题改浅）
 - [ ] 商店合规：应用名 BiuZ、包名 `cn.biuz.android`、listing 禁 ZCode/Z.ai 字样、Google Play 占名复核
+
+---
+
+## 11. 追加：WebView 视口单位缺陷（2026-11-23，登录授权页白屏根修）
+
+> 追加条目（不回改上文历史章节）。触发场景：Android 登录页「扫码显示无法中继 → 点登录白屏」用户报障。
+
+### 11.1 现象与结论
+
+- **现象**：`LoginScreen` 的授权 WebView（chat.z.ai 登录页）**全白**；同 URL 在系统 Chrome 正常；DOM 探针证明页面完整挂载（`bodyText` 有 "Welcome to Z.ai / Continue with Google…"、所有 assets/api 200）。
+- **根因（二分实证）**：**Android WebView 的视口单位 `vh/dvh/svh/lvh` 在「WebView 几何窄于窗口」的宿主下恒算 0**——`100%`（=ICB 高度）、`1000px`、`window.innerHeight`、`visualViewport` 全部正常，唯 vh 系列为 0（`CSS.supports('height','100vh')=true`，解析不拒绝，只是求值 0）。chat.z.ai 授权页**无 viewport meta**、root 靠 `h-screen/100dvh` 撑高，vh=0 时整页折叠成 12px 灰线（`body{overflow:hidden}` 裁切），表象即白屏。
+- **触发几何（实证边界极窄，不可依赖）**：裸 `AndroidView(Modifier.fillMaxSize())` 正常；根 Box 上 `statusBarsPadding()+navigationBarsPadding()`、`Column+weight` 顶部偏移等使 WebView 窄于窗口的宿主 → vh=0。对照实测：WebView 高度 2306px 正常 / 2272px 失败（仅 3 CSS px 之差），**与是否重叠状态栏无关**；同一 AVD 上纯原生 Activity + 裸 WebView（fillMaxSize）正常 → 排除应用级/主题/Manifest 因素；WebView 133（Play WebView）与真机（Seeker）同复现。
+- **修复形态（已验证）**：**授权页 WebView 以 `fillMaxSize` 独占整窗**（edge-to-edge，可绘制到系统栏下）；顶栏（取消/加载失败/重载/debug 诊断）改为**原生 View 叠在 WebView 之上**——`AndroidView` 子 View 恒绘制在 Compose 内容之上，Compose 浮层无法覆盖 WebView（原实现注释的实测结论成立），故顶栏用 `FrameLayout + TextView` 原生浮层（状态栏高度 padding 打在浮层自身，不影响 WebView 尺寸）。
+- **同轮两个必修缺陷**：① 回调 `WebViewClient` 属性声明位置在 `init` 之后 → `attachWebView()` 取到未初始化 null（Kotlin 按声明顺序初始化属性），所有回调失效（不拦截回调、无错误上屏）；`client` 必须声明在 `init` 之前。② 主帧加载失败/渲染进程崩溃文案原先只在 provider 卡片分支可见，WebView 打开期间静默 → 现由原生 errorRow 常驻 + 「重载」按钮（`onRenderProcessGone` 销毁重建）。
+
+### 11.2 证据（2026-11-23）
+
+- 修复前（模拟器 + 真机）`: 授权页白屏；`units: {100vh:0, 100dvh:0, 100svh:0, 100lvh:0}`（探针页同为零，任意页面）。
+- 修复后：模拟器 chat.z.ai 页面完整渲染（登录五入口/条款/页脚），`page: {"vh":915,"pct":915,"ih":915}`；真机（SM02G4061935152）中文登录表单完整渲染（欢迎来到 Z.ai / 电子邮件 / 密码 / 忘记密码）。
+- 全量 `:app:testDebugUnitTest` 绿；`teststub` 模块测试编译失败为**存量债**（引用 connection 层已变更 API，本轮未触碰）。
+
+### 11.3 回归清单（Android 侧凡引入 WebView 必查）
+
+- [ ] WebView 必须贴满宿主窗口（不得被 insets padding / weight 偏移 / 可滚动容器收窄）；顶栏/错误行用原生浮层或独立窗口，不依赖 Compose 覆盖。
+- [ ] 改 WebView 相关代码后跑 debug「视口探针」：`document.createElement('div')` 设 `height:100vh` 读 `getBoundingClientRect().height`，须 ≈ `innerHeight`；或看登录页 debug 诊断面板的 `page: {vh:…}` 行（验收后随面板清理）。
+- [ ] 回调拦截必须由 `WebViewClient` 承担（声明顺序在 init 前），真机走一遍「登录 → 回调 → 换 token」确认闭环。
+
+### 11.4 同轮追加：登录主线程崩溃 + L3 登录门槛分支（2026-11-23 第二轮）
+
+- **`NetworkOnMainThreadException` 根因**：`ZaiOAuthClient.exchangeToken` 是阻塞 OkHttp 同步调用；`LoginScreen.finishWithCallback` 在 `rememberCoroutineScope`（Main dispatcher）里 `session.completeOAuth(...)` 直接 await → 真机报「网络错误：NetworkOnMainThreadException」。**修法**：`exchangeToken` 改 `suspend` + 内部 `withContext(Dispatchers.IO)`（`AppSession.loadRelayDevices:681` 同款先例与注释口径）。回调链其余环节（cookie 读、Keystore 写入）非网络，留主线程。
+- **L3 云中继登录门槛专属分支**（用户「扫码不需要中继模式」的产品口径 = iOS 2026-11-22 已定方案）：`ConnectError.RelayAuthRequired` 新错误态（`mapRelayError` 识别 `RelayAuthRequired`）→ L3 卡片主 CTA「登录 Z.ai 账号」（`l3-btn-relay-login`；登录成功 `autoConnectAfterLogin` 自动建 ws2）+ 次「改用局域网直连 · 扫码」（`connect_use_lan_scan`）+ 删除记录；**不设**「重试连接」（登录前必撞同一门槛）。单测 `ConnectFailureCopyTest`（reason/badge/title/action 词面 + hints 独占 + Transport 不误映射）。
+- **扫码模式溯源（上游仓取证）**：桌面「移动端远程控制」二维码 = `buildWebRemoteControlExternalQrUrl`（`packages/shared/src/web-remote-control.ts:168-191`；`packages/desktop/src/main/webRemoteControlManager.ts:1801-1809`），base = `defaultZCodeEndpointUrls.remoteUrl`（`index.ts:1036`）——**只含云中继 URL**（`sid/mid/name/app_version`），不含局域网 host/token。故「扫码 → 中继 → 需登录」是上游设计，免登录的局域网路径是「改用局域网直连」链接/扫码（桌面端另源提供的 `http://<ip>:3030/?token=…`）。
+
+---
+
+## 12. 追加：列表两级分组 + 会话内页 Web 复刻（2026-11-23 第三轮）
+
+> 追加条目。用户真机对照 Chrome 里的 web 遥控页（`zcode.z.ai/remote/v4`，桌面 3.19.0）报「没有分组，会话内页没有复刻 Web」；本轮按 web 语法落地列表与会话页。
+
+### 12.1 列表两级分组（数据链路 + UI）
+
+- **根因**：`Conversation.directory ← SessionSummary.workspacePath`，但真实中继 sessions-index 行只带 `workspaceId`（上游 schema 无 workspacePath）；bootstrap 合并只在装配时一次且被后续快照整表替换冲掉；`mergeTaskList`（逐工作区 listTaskList）实现无生产调用点 → projectName 全空 → 单一「任务」分区 = 平铺。
+- **数据修复**（store/connection）：
+  - `RemoteSessionMerge`：bootstrap.tasks 行**留存**（`retainedBootstrapItems`）并在快照整表替换/增量新行后**重放**（只补 workspacePath/taskStatus，不覆盖标题）；快照与增量对既有行**保全 workspacePath**（行 schema 无该键）。
+  - `RemoteConversationStore`：新增 `maybeRefreshProjectMetadata()`（120s 节流后台）——逐工作区 `zcode-task.listTaskList`（kind=timeline / workspaceScopes / sortBy=updated / limit=200）合并 task-index 行，回填归属与标题（iOS mergeGlobalTaskIndex :501-599 同构）；`conversations()` 挂点。scope 源复用 membership 三源（allWorkspaces ∪ bootstrap ∪ 当前）。
+  - `AppSession`：bootstrap provider 不再限定 relay（LAN 下 relayBootstrapTasks 恒 null，无副作用）。
+  - **红线保持**：workspaceId 仍不当分组键（乙-6②）——归属只由 task-index 权威行补齐。
+- **UI**（SessionsScreen + ConversationGrouping）：`projectBoard()` 两级看板——置顶区（跨项目）→「项目」分区（每个项目一个**可折叠节点**：📁 + 名称 + 运行中转圈 + 未读数 + ▾/▸）→「任务」分区（未归属行）；行序 = 运行中置顶 → updatedAt 降序（web `taskListOrdering` 子集）；折叠态 `rememberSaveable`（键=目录全路径，默认展开）。
+- **单测**：`ProjectBoardTest`（两级拆分/节点键/组内排序/运行中置顶/未读汇总）+ `RemoteSessionMergeTest` 新增「快照保全归属且 bootstrap 重放」「增量保全 + 新行 bootstrap 补归属」两用例。
+
+### 12.2 会话内页复刻（行模型 → 工具卡 → 回合分组）
+
+- **发送解禁**：`RemoteConversationStore.isReadOnly` 的语义纠偏——UI 不再用它禁用发送/附件（对齐 iOS `canSend`/web composer；只读边界由桌面 ReadOnlyGate 在 RPC 出口强制）；输入预测改由 store 能力兜底（返回 null 即无 hint）。
+- **行模型富化**（protocol + store）：`ToolCall` 增 `toolName/description/title`；`ChatMessage` 增 `turnIndex/turnId/subagent/artifact`；store 按 turnHeader 边界递增回合序号、解析行时间戳（timestamp/createdAt/at/ts 毫秒或 ISO，缺失回落到达时刻）。
+- **工具卡身份化**（`ui/chat/ToolDisplayModel.kt` + `ChatMessageViews.ToolCallCard` 重写）：工具族判定（shell/file-read/file-write/search/web-fetch/mcp/agent/todo/workflow/generic）→ 动作词（执行中/已执行、读取中/已读取、编辑中/已编辑、搜索/获取/调用…）+ 主文案（Bash 命令提取含 argv/`-lc` 解包、文件 basename、query、URL、`server · tool`）+ 副文案（input.description）+ 展开体（描述/文件全路径/`$ 命令块`/参数/输出/错误 `<tool_use_error>` 提取）。**不再裸显示 inputText JSON**；移除 per-tool 重试（web 无此入口）。单测 `ToolDisplayModelTest` 7 组。
+- **思考块**：流式折叠显示最后一行预览；完成态显示「思考 · N 秒」（duration 实测）；历史快照无 duration 退化字数摘要（如实不编造）。
+- **用户气泡**：纯文本（不渲染 markdown）+ 5 行折叠 + 渐隐 + 圆形展开箭头 + 上右小圆角（web rounded-tr-xs 口径）。
+- **产物/子代理行**：artifact 卡（📦 + 名称 + `TYPE · N bytes`）、subagent 行（`type · status — summary` 单行弱化）。
+- **消息动作**：复制/赞/踩/Fork/时间；Fork 走 `store.forkConversation`，成功 Toast 新会话 id，失败落常驻错误行。
+- **回合分组**（`ui/chat/TurnGrouping.kt` + ChatScreen 渲染改造）：按 `turnIndex` 聚合 → 用户消息在顶、助手工作项随后；已完成回合默认折叠为工作摘要行「已工作 · 探索 N 项 · 运行 N 条命令 · 更改 N 个文件 · 思考 N 段」（点击展开/收起）；运行中回合保持展开（「工作中…」+ 实时项）；散行（回显/会话级卡）独立尾单元恒展开。单测 `TurnGroupingTest` 6 组。
+- **回归**：`ChatViewModelTest` 预测门用例改为「store 能力决定」新语义。
+
+### 12.3 证据（真机 SM02G4061935152，桌面 3.19.0）
+
+- 列表：项目节点行「📁 zcode_mobile + 运行中转圈 + ▾」+ 缩进子会话（`扫码显示无法中继点击登录白屏 10:56`）目检通过；会话页项目行显示 `zcode_mobile`（directory 回填生效）。
+- 会话页：回合摘要「已工作 · 运行 21 条命令 · 更改 2 个文件 · 思考 16 段」/「已工作 · 探索 2 项 · 运行 52 条命令 · 更改 3 个文件 · 思考 13 段」；展开回合 → 工具卡「$ 已执行 grep -rn 'class AppSettingsModel…' ✓」+ 展开体「描述行 + $ 命令块 + 输出」；思考块「思考 · 14441 字」；动作行「复制/赞/踩/Fork/01:19」（复制点击生效）；发送区无「桌面端只读」提示、发送钮在位。
+- 单测：`:app:testDebugUnitTest` 绿（新增 ToolDisplayModelTest 7 + TurnGroupingTest 6 + ProjectBoardTest 3 + ConnectFailureCopyTest 3）、`:store:test` 绿（新增 2 用例）。
+
+### 12.4 遗留 / 明确未做
+
+- 回合「工作 N 秒」：桌面 turnHeader 不提供可靠 duration 时不显示秒数（现只显示「已工作」）；后续可从 turnHeader 元数据取证后补。
+- web 深层项未做（deferred）：worktree 图标、cron/off-peak 徽标、hover-only 行操作、拖拽排序、Fork 目的地菜单、hook 详情弹层、工作项内嵌「探索/命令」二级摘要组（现为回合级摘要）。
+- 发送链路首次解禁：真机未实际发送测试消息（避免向用户桌面写入 turn）；发送面单测 `RemoteConversationSendTest` 与既有 E2E 替身链路绿，建议用户发一条消息确认 acxcepted 回执 + 桌面收到。
+
+## 13. 追加：项目分组单命名空间根修（2026-11-23 第四轮，对照上游仓取证）
+
+> 追加条目。用户真机报「项目只有一个命名空间」（列表只见桌面当前打开工作区 mtt_mobile 一个项目节点，全部任务挤在其下）——第三轮的两级分组 UI 正确，塌缩在数据链路的**范围枚举源**。
+
+### 13.1 根因（上游仓 ZCode/ file:line 固化，桌面 3.19.0）
+
+1. **workspace-list-response 只含桌面窗口当前打开的 tabs**：`rootPlatformWorkspaceSync.ts:75-95`（renderer 把 `tabs` 映射成 workspace targets）→ desktop main `index.ts:2584` `syncWebRemoteControlWorkspaces` → `webRemoteControlManager.ts:2254` `availableWorkspacesByWindowId`——**不是全部项目目录**。
+2. **bootstrap-response 的 `tasks` 字段已不存在**：`buildBootstrapResult`（webRemoteControlManager.ts:1040-1051）全字段 = windowControlSessionId/desktopAppVersion/workspaces/initialViewState/mobileViewState/mobileTaskViewEpoch；`git log -S '"tasks"'` 全历史无此字段（3.14- 时代实证存在，3.15.1 起删）。→ `deriveBootstrapWorkspaces` 恒空。
+3. **枚举源塌缩**：`projectScopes = allWorkspaces(tabs≈单区) ∪ bootstrap(空) ∪ current` = **只剩当前工作区** → 120s 回填只查当前区 → 回填行全部自带 `workspacePath=当前区` → 乙-6① 权威纠正（后写赢）把全表盖成当前区 = **单命名空间，且节点随桌面当前打开项目漂移**（第三轮目检见 zcode_mobile、本轮见 mtt_mobile，同一机理）。
+
+### 13.2 修复（web 现行权威链对齐）
+
+- **host-scope 单调用优先**（`RemoteConversationStore.maybeRefreshProjectMetadata` 重写）：`listTaskList {kind:"all", workspaceScopes:"host", sortBy:"updated"}`（无 limit → 全量）。web 权威：`zcodeTaskListTypes.ts:15`（"host 由存储 owner 确定全部范围"）、`useGlobalTaskList.ts:88-90`、`windowControllerTaskListRegistry.ts:268`、`taskIndexRepo.queryTaskList:1337`（按 host_id 全库一把查，行自带 workspacePath/identity/pinned/archived）。桌面 3.17.1 起支持（git show a60ba6a7 已含 "host"；3.16.2 同位无 → `normalizeWorkspaceKeys(string)` 对字符串 .map 抛错 → 调用失败走回退）。~~行 pinned/archived 字段被组织态 join 直接消费~~（**订正 2026-11-24**：上游 zcodeTaskMetaSchema validation.ts:2056 无 pinned/archived 字段且 sqlite 列不投影进 wire item，行不带组织态——kind 三查见 §13.5）。
+- **逐区回退保底**：host 失败/空回执 → 既有逐工作区聚合（scope 序不变：清单 ∪ bootstrap ∪ current 垫底）。≤3.16 桌面（无 host-scope、tabs 清单）依赖此路 + bootstrap.tasks（3.14- 桌面）双源。
+- **合并语义两处修订**（`RemoteSessionMerge`）：
+  - `mergeTaskIndexRows` 批内**按 sessionId 去重**：updatedAt 新者赢、平手保首个——host/跨区聚合会把历史幽灵行（上游 tasks 表主键 (workspace_key, task_id)，同会话多区行，乙-6 旧伤桌面至今存留）一并带回，平手保首个让 scope 序中先合并的归属区行压过尾部当前区幽灵行；跨批覆盖改「**更新者赢**」（既有归属在场且本行非严格更新 → 不覆盖）——防 120s 节流把已定归属反复翻面；fork/移动等真实迁移必然带更新 updatedAt 照常覆盖。
+  - `mergeBootstrapRowsLocked` workspacePath **只补缺不覆盖**（iOS mergeBootstrapTaskIndex :417-421 同构，撤销 2026-10-09 无条件纠正）——bootstrap 行随快照/增量**无限重放**且是最陈旧一路，无条件覆盖会让陈旧路径每次快照拖回旧值；「权威行后到必须赢」由 mergeTaskIndexRows 承担。
+- 残留局限（如实）：≤3.16 桌面 + tabs 清单时幽灵行仍可能先种，需等会话再活动（updatedAt 推进）才被权威行纠正。
+
+### 13.3 证据与门禁
+
+- 单测：`RemoteSessionMergeTest` 改写 bootstrap 用例（补缺语义 + 权威纠正转移 task-index 通道断言）+ 新增「批内去重/新者赢/翻面守卫/真实迁移」四段断言；`RemoteConversationStoreTest` 新增 `projectMetadata_hostScopeSingleCall_seedsCrossWorkspaceAttribution`（恰好一次调用、workspaceScopes=="host" 逐字、跨区行入表）与 `projectMetadata_hostScopeFailure_fallsBackToPerWorkspaceScopes`（host 抛错 → 逐区数组 scope 回退）。`:store:test` + `:app:testDebugUnitTest` 全绿（exit 0），`assembleDebug` BUILD SUCCESSFUL（显式退出码判定）。
+- diag：`diag.tasks.merge` 值新增前缀 `host=ok|fallback`（logcat 经 :app diag 接线可见）——真机验收先看此键定路。
+- **待真机**：重连（或重启 App 清内存表）后「项目」分区应出现多项目节点；跨区任务归属与桌面侧栏一致。真机验证受单连接槽约束（AGENTS §6 中继单槽），需用户在桌面空闲窗配合。
+
+### 13.4 真机验证闭环 + 失败短退避补记（2026-11-24 凌晨，seeker SM02G4061935152，桌面 4.0.0）
+
+- **真机取证**：装包后冷启自动重连（中继 V2，pair_status=matched）；`bootstrap.tasks · tasks=0`（再次实证 4.0.0 无此字段）；临时 println 探针（验收后已清理）取证：**`backfill done host=true rows=368 scopes=1`** —— host-scope 单调用在桌面 4.0.0 一次回 368 行跨项目任务，`merge done merged=358`，`subscribeSessionsIndexV4 ← ack subscriptionId=…` 订阅链正常。UI 目检：项目分区多节点（📁 zcode_mobile / rank / balance / wallet / privateroom / hub …），各项目任务归属正确、运行中转圈在节点行。
+- **失败短退避补记**：真机首战撞 stale 重连期时 host+逐区全空，若照吃 120s 长窗用户长期看不到分组 → `projectMetadataLastAttemptFailed` 区分：失败 15s 重试（`PROJECT_METADATA_RETRY_INTERVAL_MS`）、成功才进 120s 长窗；节流时钟改用 store 注入 `nowMs()`（可测）。单测 `projectMetadata_failedAttemptRetriesAfterShortBackoff` 四段断言（首轮全试/退避窗内不重发/15s 到期重试/成功进长窗）。
+- **⚠ 横屏视觉压缩（新发现，deferred）**：手机横屏（2670×1200）时会话列表 LazyColumn 被压成 ~240px 竖条，项目行几乎全部挤出可视区，表象酷似「列表为空」（本轮排查中三次误判）。board 路径无 loading/watchdog/空态分支（第三轮 UI 只做了 flat 路径的三态）加剧误判。复验/排障一律先确认竖屏；横屏适配归属 UI 轮处理。
+- 探针清理：`[朱批diag]` println 六处已随本验证轮移除（§4.6）。
+
+### 13.5 置顶/归档跨项目专查（2026-11-24「置顶没有处理」根修，已真机闭环）
+
+- **根因**：上游 `zcodeTaskMetaSchema`（validation.ts:2056）**无 pinned/archived 字段**、`rowToMeta` 也不投影 sqlite 同名列 → listTaskList 行（含 host-scope）**永远不带组织态**；置顶唯一权威源 = membership join（`listPinnedTasks` 逐 scope），而 membership 枚举源 = 窄清单（workspace-list 当前 tabs ∪ bootstrap ∪ current）→ **跨项目置顶永远拿不到**（当前区置顶仍正常，故此前未暴露）。web 的做法是按 kind 专查：`ProjectTaskRows kind="pinned"` → SQL `pinned=1, archived=0` 列过滤（queryTaskList）。
+- **修**（对照 web kind 语义）：`maybeRefreshProjectMetadata` host 链路改**三查**——①主清单 `kind:"timeline"`（SQL 排除 pinned/archived；同时修掉此前 kind:"all" 把归档行混进主批且无法过滤的潜在泄漏）；②`kind:"pinned"` 专查 → 行合并（归属/状态）+ taskId 集落 `RemoteSessionsIndexStore.hostPinnedTaskIds`；③`kind:"archived"` 专查 → `hostArchivedTaskIds`。投影组织态并集化（`effectivePinnedIds = pinnedTaskIds + hostPinnedTaskIds`，归档同构）——membership 各自替换互不清除并集。回退路（≤3.16 老桌面）保持逐区 timeline + 既有 membership（与本轮前一致，不倒退）。主清单判定 host 可用性以 timeline 查为准；pinned/archived 空回执属常态（= 无置顶/归档）。
+- **证据**：单测 `projectMetadata_hostScopeThreeKinds_seedsRowsAndOrganizationalIds`（三查 kind 序列逐字/workspaceScopes:"host"/id 集落位/置顶行进置顶区/归档行滤出主列表）；`:store:test` 全绿。seeker 真机（桌面 4.0.0）：冷启后「已置顶」区出现 📌「按 mtt-web-sync 验收牌…」——**mtt_mobile 项目的置顶任务**，当前连接工作区为 zcode_mobile（跨项目置顶首证）。
+
+### 13.6 设置页账号区（2026-11-24 用户报障「没有退出登录的按钮」）
+
+- **现状**：退出登录只有设备页「切换账号」小字（iOS 同构，web webRemoteControlSwitchAccountDialog 文案）；设置页无账号区。
+- **修**：设置页新增「账号」分组（首位）：已登录 = 头像首字 + `displayName · Z.ai` + **红描边「退出登录」按钮**（`13-btn-logout`，危险按钮用红描边——首轮误用 Material `errorContainer` 实底，同日订正为印系 red 描边；点击复用切换账号确认弹窗 → `session.logout()` 仅清账户层）；未登录 = 实心「登录 Z.ai 账号」CTA（`13-btn-login` → Routes.LOGIN）。登录态经 `oauthSessionVersion` collect + `key()` 即时刷新。
+- **字符串**：`settings_group_account`/`settings_logout` zh+en 手工入目录（§5-18①）。
+- **验证**：编译 + 单测 + 构建全绿；设置页两个分支均为静态组合，**真机未目检**（需进设置页；登录后分支需登录态）。
+
+### 13.7 连接页（登录主页）重设计（2026-11-24 用户裁决「交互很糟糕…信息很乱」→「只保留账号登录和扫码重连/重连两个按钮」）
+
+> 差异登记：`docs/parity-diff-ledger.md` **D018**（business）+ `ConnectScreen.kt` 代码内 `APP-DIFF[D018]` 标记；`methodology_checks.py diff-ledger` PASS。
+
+- **裁决三条与落点**：
+  1. 「已有上次连接只要连接，不要扫码（功能重复）」→ 记住过电脑后连接位 = 「重连〈电脑名〉」，不再并排扫码；换电脑走「登录 → 选择电脑」（设备目录）。
+  2. 「登录 Z.ai 排前面（在不在电脑身边都可用）」→ 账号位恒在，常态为主钮；已登录同位换「选择电脑」。
+  3. 「改用局域网 / 删除记录看不懂，过于复杂」→ 失败卡收敛为**一行结论 + 一句话 + 目标电脑**；「改用局域网直连」「删除记录」「重新扫码」等次级按钮全部撤除。
+- **页面结构**：品牌区（主印 84dp + 「朱批」朱磦色 + 标语 + works-with）→ 任一时刻一张状态卡（记住的电脑卡〔信息位，无按钮〕/ 连接中 / 失败 / 断线 / 已连接）→ **两个按钮** → 页脚。
+  - 连接位文案三态：无记录「扫码连接」/ 有记录「重连〈电脑名〉」/ 链接失效（session-not-found、401 invalid-mobile-connection）「扫码重连」。
+  - 主次（唯一主 CTA 随错误类型切换，`ConnectRecovery`）：`LOGIN`（需登录/账号不匹配）→ 账号钮为主；`RESCAN`/`RECONNECT` 与断线态 → 连接钮为主；主钮恒在上。
+- **扫码走向（对照上游 web 取证，未另造路径）**：桌面二维码只含中继参数、V2 无 hash（`shared/web-remote-control.ts` `parseWebRemoteControlExternalQrParams`；`buildWebRemoteControlExternalQrUrl`），官方页面无 JWT 直接进登录视图、登录后自动连上（`packages/web/src/web-remote-control/app/webRemoteControlEntry.ts:104-105`）——**不存在「扫码免登录」路径**。本页同构：扫到中继链接 → `connectRelayLink` 先存注册表再连 → 未登录即「需要登录后才能连接」→ 登录后 `autoConnectAfterLogin` 按已保存电脑自动接管（`AppSession.kt` 既有逻辑，零改动）。
+- **配色（印系，`Color.kt`；旧实现的跑偏来源 = Material `errorContainer.copy(alpha=.35)` 暗红大色块）**：失败卡 = `bgCard` 底 + `red` 55% 描边 + 44dp `redDim` 图标位（`Icons.Filled.Warning`）；描边按钮显式 `BorderStroke(1.dp, borderStrong)`（不取 Material 缺省 outline）；「朱批」品牌字取 `seal`（印色 = 品牌位专用）；按钮 48dp / 圆角 12 / 15.5sp·600；页面边距 24dp。主印「批」= `brand/seal/png/mark-pi-960.png` 按密度分桶（mdpi 84 → xxxhdpi 336，Lanczos）→ `drawable/brand_seal`，公共组件 `SealBrandMark`（`components/BiuzStateViews.kt`：平印、非落印场合 −2.5°，brand/seal README + brand-sheet Do/Don't）。
+- **术语收口**：失败文案不出现「云中继 / 中转 / 令牌 / 工作区 / 会话」（`ConnectFailureCopy.kt` 简化层 `connectFailureTitleRes/BodyRes` + `recoveryForConnectFailure`，10 组 zh/en 资源，web 12 reason 全覆盖、未登记 reason 落通用「连接失败」）；连接卡原始日志行（`connect.log`，如 `relay-auth-required · 缺少登录凭据（JWT）`）与步骤 meta、失败卡 codeLine / 排查行（`connectFailureHints`）、删除连接记录 → **全部仅开发者模式**；页脚改大白话（「凭据只保存在本机 · 局域网直连请在可信网络下使用 · 手机端对电脑文件只读」，AboutScreen 共用）。原 `ConnectFailureCopy` 全量文案保留为开发者诊断面与 web 对拍底稿。
+- **授权登录页**（LoginScreen）：头部占位「Z」方块 → 主印 56dp + 「朱批」+ 标题与入口按钮同名「登录 Z.ai 账号」（动作全程同名）；`login_brand`/`login_title` 退役。品牌字资源化 `app_wordmark`（zh「朱批」/ en「SEAL」，README en 态 wordmark 口径）；补存量缺译 `login_entry`/`devices_title`。
+- **测试**：`ConnectFailureCopyTest` 新增 3 例（12 reason 文案全覆盖 + 未登记回退 + 同义合并；恢复动作映射 8 断言；连接页新键 zh/en 目录对账——读源码树两份 strings.xml）。既有 `failureCopyForConnectError`/`connectFailureHints` 断言不变。
+- **真机证据（seeker，桌面 4.0.0）**：失败态（未登录 + 记住电脑）深/浅两档截图——主印、朱磦品牌字、红描边一句话错误卡、恰好两个按钮（`登录 Z.ai 账号` 实底 / `重连 MacBook-Pro-9.local` 描边）；授权页头部主印截图。页面文本经 uiautomator dump 逐条核对。**未目检**：①「重连为主钮」态（需已登录 + 断网；未登录时重连在本地即判需登录，飞行模式造不出——恢复映射由单测覆盖）；②连接中卡的行内 spinner（未登录时连接态仅毫秒级）；③已登录态「选择电脑」与记住电脑卡（常态 Demo）；④设置页账号区。
+- **设备侧操作留痕**：验证期间临时改过三条系统设置并已恢复——自动旋转（恢复为开，原值有记录）、飞行模式（恢复为关）；**系统深色模式**：验浅色档时切到浅色后恢复写的是「始终深色」，改前未记录原值（设备上查不到原先是否为「自动/定时」；自定义定时从未设置过）——如用户原先用的是定时切换，需在系统设置改回。
+
+### 13.8 BiuZ 设计稿清除 + 默认浅色主题 + 启动图标纸底（2026-11-24）
+
+- **前提裁决**（用户）：「删除 design 历史 BiuZ 设计稿，相关文档和注释都移除；当前新主题（朱批）默认采用浅色主题，App 图标背景也默认浅色而不是黑色。」
+- **删除**：`design/`（design-spec.md / login-design.html / zcode-mobile-design.html）、`docs/P1P2P3功能UI设计.md`、`docs/对齐修复与降级体验设计.md`——均已入库，考古从 `cf945877` 之前的 git 历史取。**视觉与主题的唯一依据从此是 `brand/seal/`**（README 四色与用印规则 + brand-sheet + motion-spec + png 导出件）。
+- **注释清理**（约 200 处，只动注释）：iOS 33 个 Swift 文件（`-parse` 全过）、Android Kotlin/XML、小程序；把 `design-spec §x` / `设计稿 §x` / `屏 0N ·` / `（板 O1–O3）` / `红线 §0-4` 等引用改为自洽表述。测试数据里的普通词（如看板名「设计稿」）与 Mock diff 文本不动。
+- **文档**：AGENTS §2/§4.1/§5-20/§6、`协议接口文档.md`、`PARITY_BACKLOG.md`、`三端复刻交接`、`branding/naming.md`（移除 BiuZ 彗星 Logo 设计说明，定名与商标合规保留）、`brand/seal/README.md`；`立项报告.md` 与 `project-proposal.md` 各追加一条修订条目（只追加不回改）。
+- **默认浅色**：Android `AppAppearance.fromStored(null) → LIGHT`（并补显式 `SYSTEM` 分支——缺了它「跟随系统」会被吞成浅色，单测抓到）、`BiuZColors.current = BiuZLightPalette`、`BiuZTheme(darkTheme = false)`、`biuz_bg`/`ic_launcher_background` → `#F7F3EC`；iOS `AppSettings.appearance = .light`（含解码兜底）。外观档显示名统一「朱批 · 浅色 / 朱批 · 深色」（原 Android「Zai Light/Dark」是旧稿命名，且违反 naming.md 界面不出现 Z.ai 字样）。
+- **默认浅色带出的两处必修（都已修）**：① **Android 系统栏**——`enableEdgeToEdge()` 缺省跟系统深浅，默认浅色后会出现白图标压纸底；改 `applySystemBars(darkTheme)` 跟 App 主题（首帧前 + 组合内同步），`MainActivityThemeTest` 3 例（`resolveDarkTheme` 放 companion；scrim 留在函数内，否则纯函数单测会撞 `android.graphics` 类初始化）。② **iOS 连接引导页**漏铺 `T.bg`（裸 ScrollView），深色下默认黑≈墨底所以一直没被发现，浅色下露白——补 `.background(T.bg.ignoresSafeArea())`。
+- **启动图标**：Android adaptive 背景层 → 纸色（真机应用抽屉目检纸底朱印）；iOS `AppIcon-1024.png` → `rsvg-convert` 从 `brand/seal/app-icon-pi-light.svg` 导出的纸底版（先同管线重渲墨底版与旧图标逐像素比对，零差异确认管线一致），新增 `brand/seal/png/appicon-pi-light-{1024,180}.png`。
+- **门禁**：Android app 164 / store 159 / protocol 82 / connection 71 / relay 12 全绿 + `assembleDebug` 绿 + 真机目检；iOS 强制真实构建 SUCCEEDED + 临时干净模拟器（系统深色）实跑目检。**注意**：本机全局 `xcodebuild` 是 MTT 构建合流垫片（指纹取 mtt_mobile），本仓 iOS 构建必须 `MTT_BUILD_FORCE=1`，否则第二次构建会回放假日志（AGENTS §5-20）。

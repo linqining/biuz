@@ -150,7 +150,7 @@ final class DiffViewModel {
     var pendingCount: Int { files.filter { !$0.isApproved && !$0.isRejected }.count }
 }
 
-/// 屏 08 · Diff 审查（Tab「文件」根）：文件卡列表 + 增删行着色 + 底部动作栏
+/// Diff 审查（Tab「文件」根）：文件卡列表 + 增删行着色 + 底部动作栏
 /// 连接态增数据源分段（未暂存/已暂存/本次会话）；演示态不渲染分段，行为完全不变
 struct DiffReviewView: View {
     @Environment(AppRouter.self) private var router
@@ -581,7 +581,7 @@ struct DiffFileCardView: View {
     }
 }
 
-// MARK: - diff 行列表（spec 5.4：正文 12px、行号 10.5px/32px、横滚禁折行）
+// MARK: - diff 行列表（正文 12px、行号 10.5px/32px、横滚禁折行）
 
 struct IndexedDiffLine: Identifiable {
     let line: DiffLine

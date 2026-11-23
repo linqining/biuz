@@ -2,7 +2,7 @@ import SwiftUI
 
 // APP-DIFF[D002] platform: 全局导航用 NavigationStack 系统返回语义（web 为 history.pushState +
 // popstate，浏览器历史无原生对应；4 Tab 各自独立 stack，Push 层隐藏 Tab 栏）
-/// 全局导航路由：4 Tab 各自独立 NavigationStack，Push 层隐藏 Tab 栏（spec 3.2）
+/// 全局导航路由：4 Tab 各自独立 NavigationStack，Push 层隐藏 Tab 栏
 enum ChatRoute: Hashable {
     case chat(String)
 }
@@ -20,7 +20,7 @@ enum FileRoute: Hashable {
 
 enum SettingsRoute: String, Hashable {
     case model, appearance, language, devices, bots, usage, memory, skills, mcp, plugins, automation
-    // v2.4 增量：服务器与账户（L4-B 配置区 / L5 服务器详情）
+    // 服务器与账户（配置区 / 服务器详情）
     case serverAccount, serverDetail
     // P2 批次只读页（G-022/G-024/G-025）
     case savedWorkflows, offPeakTasks, feedbackTickets
@@ -48,7 +48,7 @@ final class AppRouter {
         !chatPath.isEmpty || !taskPath.isEmpty || !filePath.isEmpty || !settingsPath.isEmpty
     }
 
-    /// Diff 动作栏显隐：文件 Tab 根页（spec 3.2 底部动作栏叠于 Tab 栏之上）
+    /// Diff 动作栏显隐：文件 Tab 根页（底部动作栏叠于 Tab 栏之上）
     var showsDiffActionBar: Bool {
         selectedTab == .files && filePath.isEmpty
     }

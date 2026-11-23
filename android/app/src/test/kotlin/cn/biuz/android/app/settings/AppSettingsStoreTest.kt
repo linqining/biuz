@@ -123,12 +123,12 @@ class AppearancePreferenceTest {
     }
 
     @Test
-    fun fromStoredMapsKnownWordsAndFallsBackToSystem() {
+    fun fromStoredMapsKnownWordsAndFallsBackToLight() {
         assertEquals(AppAppearance.LIGHT, AppAppearance.fromStored("light"))
         assertEquals(AppAppearance.DARK, AppAppearance.fromStored("dark"))
-        assertEquals(AppAppearance.SYSTEM, AppAppearance.fromStored("system"))
-        assertEquals(AppAppearance.SYSTEM, AppAppearance.fromStored(null))
-        assertEquals(AppAppearance.SYSTEM, AppAppearance.fromStored("sepia"), "未知词宽容回 system")
+        assertEquals(AppAppearance.SYSTEM, AppAppearance.fromStored("system"), "显式选过跟随系统仍读回 system")
+        assertEquals(AppAppearance.LIGHT, AppAppearance.fromStored(null), "未设置 = 缺省 light（2026-11-24 朱批默认浅色）")
+        assertEquals(AppAppearance.LIGHT, AppAppearance.fromStored("sepia"), "未知词宽容回 light")
     }
 
     @Test
@@ -145,7 +145,7 @@ class AppearancePreferenceTest {
         val persistence = MemoryPersistence().apply { language = "en" }
         val store = AppSettingsStore(persistence)
         assertEquals(AppLanguagePreference.ENGLISH, store.language.value)
-        assertEquals(AppAppearance.SYSTEM, store.appearance.value, "外观缺省 system 不受语言影响")
+        assertEquals(AppAppearance.LIGHT, store.appearance.value, "外观缺省 light（2026-11-24 朱批默认浅色）不受语言影响")
         store.setAppearance(AppAppearance.DARK)
         assertEquals("en", persistence.language, "改外观不得动语言存档")
     }

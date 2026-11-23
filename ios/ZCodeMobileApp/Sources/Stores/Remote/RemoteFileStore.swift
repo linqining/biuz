@@ -828,7 +828,7 @@ actor RemoteFileStore: @preconcurrency FileStore {
         }
     }
 
-    // MARK: 检查点（P3-11：git-checkpoint 频道，gate 已按设计稿 §11A 前置放行
+    // MARK: 检查点（P3-11：git-checkpoint 频道，gate 已按前置裁决放行
     // create/restore；命令名来自上游 gitCheckpointService 四方法清单——立项报告
     // §8.1:579，git/gitCheckpoint.ts:14-17。参数与回执零记录【宽容】）
     // ⚠️ HIDDEN(对齐修复 H3)：web bundle 三方法 0 命中且协议文档零实证条目（审查报告 §五），

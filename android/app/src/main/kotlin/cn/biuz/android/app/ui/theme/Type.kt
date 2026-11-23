@@ -5,7 +5,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// 字号阶梯：design/design-spec.md §2.3（8px 栅格派生）直映。
+// 字号阶梯：8px 栅格派生。
 // 字体栈用系统默认（spec --font-ui 为系统栈零外部依赖；mono 场景后续代码块屏再落 FontFamily.Monospace）。
 val BiuZTypography = Typography(
     // Display 22/28 w800（Tab 根页大标题）
