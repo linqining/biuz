@@ -163,6 +163,20 @@ class ToolDisplayModelTest {
     }
 
     @Test
+    fun todoFamilyWinsOverFileReadAndFileWrite() {
+        // 回归门：FileRead 规则含 "list"、FileWrite 含 "write"，todo 必须排它们之前
+        // （原顺序把 TodoList 判成 FileRead → 显示成文件读取卡）
+        assertEquals(ToolFamily.Todo, ToolDisplay.familyOf("TodoList"))
+        assertEquals(ToolFamily.Todo, ToolDisplay.familyOf("TodoWrite"))
+        assertEquals(ToolFamily.Todo, ToolDisplay.familyOf("todo_read"))
+        // 非 todo 的 list/write 仍然归各自族
+        assertEquals(ToolFamily.FileRead, ToolDisplay.familyOf("ListFiles"))
+        assertEquals(ToolFamily.FileRead, ToolDisplay.familyOf("Read"))
+        assertEquals(ToolFamily.FileWrite, ToolDisplay.familyOf("Write"))
+        assertEquals(ToolFamily.FileWrite, ToolDisplay.familyOf("Edit"))
+    }
+
+    @Test
     fun phasesMapFromStatus() {
         assertEquals(ToolPhase.Running, ToolDisplay.phaseOf(ToolCallStatus.running))
         assertEquals(ToolPhase.Done, ToolDisplay.phaseOf(ToolCallStatus.done))

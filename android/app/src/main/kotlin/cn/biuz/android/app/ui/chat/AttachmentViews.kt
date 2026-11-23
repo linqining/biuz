@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -158,6 +159,14 @@ fun AttachmentThumbView(
     var videoLoadFailed by remember(ref) { mutableStateOf(false) }
 
     fun isVideo(p: AttachmentPreview?): Boolean = p?.mediaType?.startsWith("video/") == true
+
+    /** 非媒体附件的类型字形（audio / pdf / 文本 / 其它二进制）。 */
+    fun fileKindGlyph(mediaType: String): String = when {
+        mediaType.startsWith("audio/") -> "♪"
+        mediaType == "application/pdf" -> "📕"
+        mediaType.startsWith("text/") -> "📄"
+        else -> "📎"
+    }
 
     /**
      * 视频准备（iOS prepareVideo :1699-1740 直译）：数据写稳定缓存 → 封面帧
@@ -301,16 +310,49 @@ fun AttachmentThumbView(
                 )
             }
         }
+        // 非图片/视频但预览已到位（audio/*、application/pdf、file/* …）：出**文件格**
+        // ——媒体类型字形 + 文件名。原实现落到下面「读面在途」转圈分支，而这些类型
+        // BitmapFactory 永远解不出图 → **永久转圈**（无文件名、无图标、不可点）。
+        // composer 侧待发附件早有 `📄` 兜底（见本文件草稿条分支），会话流侧缺这层。
         else -> {
-            // 读面在途：小转圈（预览未到达；预览到达后图片/视频分支必接管）
-            CircularProgressIndicator(
-                modifier = Modifier
-                    .padding(6.dp)
-                    .size(14.dp)
-                    .testTag("05-attachment-loading"),
-                strokeWidth = 2.dp,
-                color = BiuZText3,
-            )
+            val filePreview = preview
+            if (filePreview != null && !isVideo(filePreview)) {
+                Column(
+                    modifier = Modifier
+                        .size(width = 132.dp, height = 96.dp)
+                        .clip(BiuZRadius.medium)
+                        .background(BiuZBgInput)
+                        .border(1.dp, BiuZBorder, BiuZRadius.medium)
+                        .padding(6.dp)
+                        .testTag("05-attachment-file"),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = fileKindGlyph(filePreview.mediaType),
+                        fontSize = 20.sp,
+                        color = BiuZText2,
+                    )
+                    Spacer(Modifier.size(2.dp))
+                    Text(
+                        text = filePreview.mediaType,
+                        style = TextStyle(fontSize = 9.sp),
+                        color = BiuZText3,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            } else {
+                // 读面在途：小转圈（预览未到达；到达后上面各分支必接管）
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(6.dp)
+                        .size(14.dp)
+                        .testTag("05-attachment-loading"),
+                    strokeWidth = 2.dp,
+                    color = BiuZText3,
+                )
+            }
         }
     }
 }

@@ -130,10 +130,12 @@ object ToolDisplay {
             name.startsWith("mcp__") || name.contains("mcp") -> ToolFamily.Mcp
             name.contains("bash") || name.contains("shell") || name.contains("terminal") ||
                 name.contains("exec") -> ToolFamily.Shell
+            // Todo 必须**先于** FileRead/FileWrite：`TodoList` 含 "list"、`TodoWrite` 含 "write"，
+            // 放在后面会被它们吞掉（真机曾把 TodoList 显示成文件读取卡）。web toolIdentity
+            // 的 todo 族优先级同样最高。
+            name.contains("todo") -> ToolFamily.Todo
             name.contains("read") || name.contains("grep") || name.contains("glob") ||
                 name.contains("list") || name.contains("ls") -> ToolFamily.FileRead
-            // Todo 先于 FileWrite（TodoWrite 同时含 write——web toolIdentity 的 todo 族优先级更高）
-            name.contains("todo") -> ToolFamily.Todo
             name.contains("edit") || name.contains("write") || name.contains("patch") ||
                 name.contains("apply") || name.contains("multiedit") -> ToolFamily.FileWrite
             name.contains("search") || name.contains("find") -> ToolFamily.Search
