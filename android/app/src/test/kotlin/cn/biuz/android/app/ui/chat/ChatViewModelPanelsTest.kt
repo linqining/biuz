@@ -43,6 +43,9 @@ private class PanelsFakeStore(
     var works: List<BackgroundWorkSummary> = emptyList(),
     var subagents: List<SubagentSessionSummary> = emptyList(),
     var planPanel: cn.biuz.android.protocol.PlanPanelSummary? = null,
+    var subagentProjection: cn.biuz.android.protocol.SubagentProjectionState? = null,
+    var activityDismissed: cn.biuz.android.protocol.ActivitySummaryDismissed? = null,
+    var completedActivityTotal: Int? = null,
     var goalAck: JSONValue? = null,
     var controlAck: JSONValue? = null,
     var cachedRow: Conversation? = null,
@@ -92,6 +95,16 @@ private class PanelsFakeStore(
     override suspend fun backgroundWorks(conversationId: String): List<BackgroundWorkSummary> = works
 
     override suspend fun subagentSessions(conversationId: String): List<SubagentSessionSummary> = subagents
+
+    override suspend fun subagentProjection(
+        conversationId: String,
+    ): cn.biuz.android.protocol.SubagentProjectionState? = subagentProjection
+
+    override suspend fun activitySummaryDismissed(
+        conversationId: String,
+    ): cn.biuz.android.protocol.ActivitySummaryDismissed? = activityDismissed
+
+    override suspend fun completedActivityCount(conversationId: String): Int? = completedActivityTotal
 
     // 控制命令面（回执注入 + 调用记账）
     override suspend fun setGoalPaused(paused: Boolean, conversationId: String): JSONValue? {
@@ -189,6 +202,41 @@ class ChatViewModelPanelsTest {
         assertEquals("完成移植", vm.goalSummary.value?.text)
         assertEquals(1, vm.backgroundWorks.value.size)
         assertEquals("child-1", vm.subagentSessions.value.first().childSessionId)
+    }
+
+    @Test
+    fun attachPopulatesV4ActivitySummaryReadSurfaces() = runTest {
+        // v4.0.0 三读面（subagentProjection / activitySummaryDismissed /
+        // completedActivityCount）此前只有协议默认空实现——attach 后必须从 store 取到
+        val store = PanelsFakeStore(
+            subagentProjection = cn.biuz.android.protocol.SubagentProjectionState(
+                revision = 3,
+                running = listOf(
+                    cn.biuz.android.protocol.SubagentRuntimeSummary(
+                        childSessionId = "child-run",
+                        subagentType = "explore",
+                        title = "搜索",
+                        status = "running",
+                    ),
+                ),
+                endedTotal = 7,
+            ),
+            activityDismissed = cn.biuz.android.protocol.ActivitySummaryDismissed(
+                at = 1_700_000_000_000L,
+                workIds = listOf("w-1"),
+            ),
+            completedActivityTotal = 5,
+        )
+        val vm = ChatViewModel(
+            conversationId = "sess-1",
+            scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+        )
+        vm.attach(store)
+        advanceUntilIdle()
+        assertEquals(7, vm.subagentProjection.value?.endedTotal)
+        assertEquals("child-run", vm.subagentProjection.value?.running?.first()?.childSessionId)
+        assertEquals(listOf("w-1"), vm.activitySummaryDismissed.value?.workIds)
+        assertEquals(5, vm.completedActivityCount.value)
     }
 
     @Test
