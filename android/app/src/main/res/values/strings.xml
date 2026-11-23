@@ -464,6 +464,20 @@
     <string name="panel_control_unknown">桌面端回执状态未知 · 等待投影确认</string>
     <string name="panel_control_success">已下发 · 等待桌面端执行</string>
     <string name="wf_history_caption">历史 run</string>
+    <!-- v4 timelineMarker 分隔行（web chat.contextCompaction.*/chat.modelChange.*/chat.goalVerification.* 逐字） -->
+    <string name="marker_compact_started">正在压缩上下文</string>
+    <string name="marker_compact_completed">上下文已压缩</string>
+    <string name="marker_compact_completed_auto">上下文已自动压缩</string>
+    <string name="marker_compact_skipped">上下文已是最新，无需压缩</string>
+    <string name="marker_compact_failed">上下文压缩失败</string>
+    <string name="marker_compact_interrupted">上下文压缩已中断</string>
+    <string name="marker_model_using">正在使用 %1$s</string>
+    <string name="marker_model_switched">模型已切换 %1$s → %2$s</string>
+    <string name="marker_goal_checking">目标校验中</string>
+    <string name="marker_goal_complete">目标已完成，任务结束</string>
+    <string name="marker_goal_incomplete">目标未完成，任务继续</string>
+    <string name="marker_goal_iteration">第 %1$d 次迭代</string>
+    <string name="marker_fork_derived">从对话中派生</string>
     <!-- v4.0.0 活动摘要行（web chat.capsule.activity.*，zh-CN.ts:62-66 逐字） -->
     <string name="activity_running">活跃中</string>
     <string name="activity_completed">已完成</string>

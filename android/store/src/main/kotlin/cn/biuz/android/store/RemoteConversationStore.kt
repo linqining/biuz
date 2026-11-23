@@ -67,6 +67,7 @@ import cn.biuz.android.protocol.RPCChannelTransport
 import cn.biuz.android.protocol.RPCError
 import cn.biuz.android.protocol.RPCValue
 import cn.biuz.android.protocol.SubagentSummary
+import cn.biuz.android.protocol.TimelineMarkerInfo
 import cn.biuz.android.protocol.ThinkingContent
 import cn.biuz.android.protocol.ThinkingState
 import cn.biuz.android.protocol.TodoItem
@@ -1410,6 +1411,22 @@ class RemoteConversationStore(
                 "toolCall" -> {
                     emit(toolCallRowMessage(row, rowId, "row-$rowId", includeRetryCursor = true, timestampMs = rowTime))
                 }
+                // v4 timelineMarker 行（rows.ts:441-449）：时间轴分隔标记。此前无此分支，
+                // marker 行被**静默丢弃**——模型切换/上下文压缩/目标校验/fork 派生提示全不可见。
+                "timelineMarker" -> {
+                    parseTimelineMarker(row)?.let { marker ->
+                        emit(
+                            ChatMessage(
+                                id = "row-$rowId", role = MessageRole.agent,
+                                text = "",
+                                status = MessageStatus.done,
+                                timestamp = rowTime,
+                                rowKind = "timelineMarker",
+                                timelineMarker = marker,
+                            ),
+                        )
+                    }
+                }
                 "subagent" -> {
                     val subagentType = row["subagentType"]?.stringValue ?: ""
                     val subagentStatus = row["status"]?.stringValue
@@ -1614,6 +1631,30 @@ class RemoteConversationStore(
         "success" -> ToolCallStatus.done
         "error", "cancelled" -> ToolCallStatus.failed
         else -> ToolCallStatus.running
+    }
+
+    /**
+     * `timelineMarker` 行 → 时间轴分隔（`timelineMarkerPayloadSchema` union）
+     * 【实证·上游仓 rows.ts:355-424】。marker 在 `row.marker` 子对象内。
+     *
+     * 未识别的 type 也返回非 null 对象（[TimelineMarkerInfo.isVisible] 为 false）——
+     * 让解析层如实**看见**新类型（长度/计数不错位），渲染层按 web 同口径 `default: null` 跳过。
+     */
+    private fun parseTimelineMarker(row: Map<String, JSONValue>): TimelineMarkerInfo? {
+        val marker = row["marker"]?.objectValue ?: return null
+        val type = marker["type"]?.stringValue ?: return null
+        return TimelineMarkerInfo(
+            type = type,
+            origin = marker["origin"]?.stringValue,
+            status = marker["status"]?.stringValue ?: marker["outcome"]?.stringValue,
+            fromProvider = marker["fromProvider"]?.stringValue,
+            fromModel = marker["fromModel"]?.stringValue,
+            toProvider = marker["toProvider"]?.stringValue,
+            toModel = marker["toModel"]?.stringValue,
+            iteration = marker["iteration"]?.intValue,
+            parentSessionId = marker["parentSessionId"]?.stringValue,
+            parentRowId = marker["parentRowId"]?.intValue,
+        )
     }
 
     /**

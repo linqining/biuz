@@ -447,6 +447,20 @@
     <string name="wf_concurrency_n">Concurrency %1$d</string>
     <string name="wf_follow_main_model">Follow main model</string>
     <string name="wf_history_caption">Past runs</string>
+    <!-- v4 timelineMarker divider rows -->
+    <string name="marker_compact_started">Compacting context</string>
+    <string name="marker_compact_completed">Context compacted</string>
+    <string name="marker_compact_completed_auto">Context auto-compacted</string>
+    <string name="marker_compact_skipped">Context already compact, nothing to do</string>
+    <string name="marker_compact_failed">Context compaction failed</string>
+    <string name="marker_compact_interrupted">Context compaction interrupted</string>
+    <string name="marker_model_using">Using %1$s</string>
+    <string name="marker_model_switched">Model switched %1$s → %2$s</string>
+    <string name="marker_goal_checking">Checking goal</string>
+    <string name="marker_goal_complete">Goal met, task finished</string>
+    <string name="marker_goal_incomplete">Goal not met, task continues</string>
+    <string name="marker_goal_iteration">Iteration %1$d</string>
+    <string name="marker_fork_derived">Derived from conversation</string>
     <!-- v4.0.0 activity summary row (web chat.capsule.activity.*，en-US) -->
     <string name="activity_running">Active</string>
     <string name="activity_completed">Completed</string>

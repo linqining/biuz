@@ -138,6 +138,14 @@ fun MessageRow(
     /** 消息动作「Fork」（web 同入口）：null = 不渲染；宿主负责成功提示/导航。 */
     onFork: (() -> Unit)? = null,
 ) {
+    // v4 timelineMarker 行：时间轴分隔（不做气泡/头像；web ConversationTimelineMarkerDivider 同构）。
+    // 不可见类型（web default: return null 同口径）整行不渲染。
+    message.timelineMarker?.let { marker ->
+        if (marker.isVisible) {
+            TimelineMarkerRow(marker = marker, modifier = modifier)
+        }
+        return
+    }
     when (message.role) {
         MessageRole.user -> UserMessageRow(message, modifier, onEditResend, attachmentContext)
         MessageRole.agent -> AgentMessageRow(
@@ -150,6 +158,112 @@ fun MessageRow(
             onOpenWorkflowArtifact = onOpenWorkflowArtifact,
             onFeedback = onFeedback,
             onFork = onFork,
+        )
+    }
+}
+
+// MARK: - 时间轴分隔标记（v4 timelineMarker）
+
+/**
+ * 时间轴分隔行（web `ConversationTimelineMarkerDivider`
+ * ConversationShareReadonlyTimeline.tsx:255-390 的移动端同构）：
+ * 左右细横线 + 中间图标与文案，运行中显示小转圈。
+ *
+ * 文案映射（zh 逐字取自 web locale）：
+ * - compact：started / completed / completedAuto / skipped / failed / interrupted
+ * - modelChange：`模型已切换 A → B`；source-less（首次使用）→ `正在使用 B`
+ * - goalVerify：`第 N 次迭代 · 目标校验中/已完成/未完成`
+ * - forkNotice：`从对话中派生`（web 可点跳父会话——移动端无该导航面，只展示）
+ */
+@Composable
+private fun TimelineMarkerRow(
+    marker: cn.biuz.android.protocol.TimelineMarkerInfo,
+    modifier: Modifier = Modifier,
+) {
+    val (glyph, label, running) = when (marker.type) {
+        "compact" -> {
+            val running = marker.status == "running"
+            val auto = marker.origin == "auto"
+            val text = when (marker.status) {
+                "running" -> stringResource(R.string.marker_compact_started)
+                "noop" -> stringResource(R.string.marker_compact_skipped)
+                "cancelled" -> stringResource(R.string.marker_compact_interrupted)
+                "failed" -> stringResource(R.string.marker_compact_failed)
+                else -> stringResource(
+                    if (auto) R.string.marker_compact_completed_auto
+                    else R.string.marker_compact_completed,
+                )
+            }
+            Triple("🗜", text, running)
+        }
+
+        "modelChange" -> {
+            val to = marker.toModel ?: marker.toProvider ?: ""
+            // source-less = 首次使用的模型事实，不是切换（web :318-327 注释逐字）
+            val text = if (marker.fromProvider == null || marker.fromModel == null) {
+                stringResource(R.string.marker_model_using, to)
+            } else {
+                stringResource(
+                    R.string.marker_model_switched,
+                    marker.fromModel ?: "",
+                    to,
+                )
+            }
+            Triple("⇄", text, false)
+        }
+
+        "goalVerify" -> {
+            val statusText = when (marker.status) {
+                "running" -> stringResource(R.string.marker_goal_checking)
+                "pass" -> stringResource(R.string.marker_goal_complete)
+                else -> stringResource(R.string.marker_goal_incomplete)
+            }
+            val iteration = marker.iteration
+            val text = if (iteration != null) {
+                stringResource(R.string.marker_goal_iteration, iteration) + " · " + statusText
+            } else {
+                statusText
+            }
+            Triple("◎", text, marker.status == "running")
+        }
+
+        else -> Triple("⑃", stringResource(R.string.marker_fork_derived), false)
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = BiuZSpacing.xs)
+            .testTag("05-timeline-marker-${marker.type}"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(BiuZBorder),
+        )
+        Text(text = glyph, fontSize = 9.sp, color = BiuZText3)
+        Text(
+            text = label,
+            style = TextStyle(fontSize = 10.5.sp),
+            color = BiuZText3,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(3f, fill = false),
+        )
+        if (running) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(9.dp),
+                strokeWidth = 1.2.dp,
+                color = BiuZText3,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(BiuZBorder),
         )
     }
 }

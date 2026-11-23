@@ -505,6 +505,51 @@ data class TurnFileChanges(
     val reverted: Boolean = false,
 )
 
+/**
+ * 时间轴分隔标记（v4 `timelineMarker` 行，`timelineMarkerRowSchema`
+ * 【实证·上游仓 rows.ts:441-449 + payload union :355-424】）。
+ *
+ * web 侧渲染为一行分隔线（`ConversationShareReadonlyTimeline.tsx:255-390`
+ * `ConversationTimelineMarkerDivider`），五类可见：
+ * - `compact`（上下文压缩：手动/自动，running|success|failed|noop|cancelled）
+ * - `modelChange`（模型切换，含 source-less 的「首次使用」形态——此时 fromProvider/fromModel
+ *   双双缺席，web 用 `z.never().optional()` 保证不会只出现一半）
+ * - `goalVerify`（目标校验，running|pass|notSatisfied|failed）
+ * - `forkNotice`（child 会话首部「派生自…」，可跳父会话）
+ * 其余 `forkCreated`/`worktreeCreated`/`goalSet`/`retryNotice`/`checkpointRestored` 在 web
+ * 的 switch 里落 `default: return null`（不渲染），本端同口径——**解析但不渲染**，
+ * 以便将来取用时不必再动解析层。
+ *
+ * ⚠ 移动端此前的 `when (kind)` 里没有 `timelineMarker` 分支，marker 行被**静默丢弃**
+ * （模型切换/压缩/目标校验/派生提示全部不可见）。
+ */
+data class TimelineMarkerInfo(
+    /** compact | forkNotice | forkCreated | modelChange | goalVerify | worktreeCreated | 其他 */
+    val type: String,
+    /** compact: manual|auto */
+    val origin: String? = null,
+    /** compact: running|success|failed|noop|cancelled；goalVerify: running|pass|notSatisfied|failed */
+    val status: String? = null,
+    /** modelChange 来源（source-less「首次使用」形态两者皆 null） */
+    val fromProvider: String? = null,
+    val fromModel: String? = null,
+    /** modelChange 目标 */
+    val toProvider: String? = null,
+    val toModel: String? = null,
+    /** goalVerify 迭代序（1 起） */
+    val iteration: Int? = null,
+    /** forkNotice 父会话跳转目标 */
+    val parentSessionId: String? = null,
+    val parentRowId: Int? = null,
+) {
+    /** 是否在 web 有可见渲染（其余类型 web 走 default null，本端同口径不渲染）。 */
+    val isVisible: Boolean
+        get() = when (type) {
+            "compact", "modelChange", "goalVerify", "forkNotice" -> true
+            else -> false
+        }
+}
+
 data class ChatMessage(
     val id: String,
     val role: MessageRole,
@@ -527,6 +572,8 @@ data class ChatMessage(
     val rowKind: String? = null,
     /** 本轮文件改动摘要（turnHeader 行 fileChanges 投影；null = 该轮无改动） */
     val turnChanges: TurnFileChanges? = null,
+    /** 时间轴分隔标记（`timelineMarker` 行投影；null = 非 marker 行） */
+    val timelineMarker: TimelineMarkerInfo? = null,
     /** P1-3 反馈态服务端回读（用户实测 2026-10-06「点赞后重载丢失」：此前仅本地
      * write-through 字典，重进会话即空白。web 实证 bundle bX(row) 读行上
      * `feedback: "like"|"dislike"` 渲染——本字段即该回读落点；null = 无反馈态） */
