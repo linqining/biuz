@@ -1469,7 +1469,11 @@ class RemoteConversationStore(
                     }
                 }
                 else -> {
-                    // hookInvocation / timelineMarker 不进消息流
+                    // hookInvocation 不进消息流（web 行渲染同样 return null，
+                    // ConversationShareReadonlyTimeline.tsx:826-828；它只汇总进「本轮 Hook
+                    // 详情」入口 ConversationHookDetailsAction——移动端无该面，遗留项）。
+                    // 其余未知 kind 一并静默跳过：v4 新增行类型必须显式加分支，否则不渲染
+                    // （timelineMarker 曾因此整类丢失，见本文件 timelineMarker 分支注释）。
                 }
             }
         }
