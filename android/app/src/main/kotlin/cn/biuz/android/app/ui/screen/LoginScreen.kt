@@ -27,12 +27,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,15 +54,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import cn.biuz.android.app.R
 import cn.biuz.android.app.ui.components.BiuzInlineNotice
 import cn.biuz.android.app.ui.components.SealBrandMark
 import cn.biuz.android.app.ui.components.BiuzNoticeKind
+import cn.biuz.android.app.ui.theme.BiuZBorderStrong
+import cn.biuz.android.app.ui.theme.BiuZOnSeal
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSeal
 import cn.biuz.android.app.ui.theme.BiuZSpacing
+import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
 import cn.biuz.android.connection.OAuthException
@@ -93,6 +105,9 @@ fun LoginScreen(
     var authorizeUrl by remember { mutableStateOf<String?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf(false) }
+    // 登录平台（2026-11-24：从「独立的选择页」收进主按钮下拉——默认 Z.ai，箭头就地切换）
+    var provider by remember { mutableStateOf(LoginProvider.ZAI) }
+    var menuExpanded by remember { mutableStateOf(false) }
     // 调试入口（仅 debug 构建）：手填 ZCode JWT，跳过 OAuth 交换验证后续链路
     val debugEnabled = cn.biuz.android.app.BuildConfig.DEBUG
     var showInject by remember { mutableStateOf(false) }
@@ -148,101 +163,83 @@ fun LoginScreen(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
+        // 2026-11-24 登录页简化 + 配色对齐印系（用户裁决：①「登录 z.ai 是不是也应该改成红色，
+        // 和 logo 颜色更匹配，登录页简单一些」②「点击登录 z.ai 后还有个页面选择，交互繁琐，
+        // 不能提供一个切换的箭头么」）：
+        //   品牌页形态（主印 + 名称居中）→ 一句说明 → **一个**朱磦主按钮 → 暂不登录。
+        //   主按钮右侧的下拉箭头就地切换登录平台（Z.ai / BigModel），不再先跳一页选平台：
+        //   点按钮主体 = 用当前平台直接开始授权；点箭头 = 展开两项菜单换平台。
+        //   配色取 seal（印系品牌位专用色）与主印成对，整页收敛到纸 / 墨 / 朱三色。
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = BiuZSpacing.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Column(
+            SealBrandMark(size = 84.dp)
+            Spacer(Modifier.height(BiuZSpacing.md))
+            Text(
+                text = stringResource(R.string.app_wordmark),
+                color = BiuZSeal,
+                style = MaterialTheme.typography.displayLarge.copy(letterSpacing = 2.sp),
+            )
+            Spacer(Modifier.height(BiuZSpacing.sm))
+            Text(
+                text = stringResource(R.string.login_description),
+                color = BiuZText3,
+                fontSize = 12.5.sp,
+                lineHeight = 20.sp,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(BiuZSpacing.xxl))
+
+            LoginProviderButton(
+                provider = provider,
+                enabled = !submitting,
+                onPick = { picked ->
+                    provider = picked
+                    menuExpanded = false
+                },
+                onLogin = {
+                    errorText = null
+                    authorizeUrl = session.beginOAuth(provider.id)
+                },
+                menuExpanded = menuExpanded,
+                onMenuExpandedChange = { menuExpanded = it },
+            )
+
+            errorText?.let { message ->
+                Spacer(Modifier.height(BiuZSpacing.md))
+                BiuzInlineNotice(
+                    message = message,
+                    kind = BiuzNoticeKind.Error,
+                    tag = "01-login-error",
+                )
+            }
+
+            Spacer(Modifier.height(BiuZSpacing.xl))
+            Text(
+                text = stringResource(R.string.login_close),
+                color = BiuZText3,
+                fontSize = 13.sp,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface, BiuZRadius.medium)
-                    .padding(BiuZSpacing.xl),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.md),
-                ) {
-                    // 品牌主印「批」（2026-11-24 用户报障「登录页应该有 logo」：原为占位「Z」
-                    // 方块）；印系规则见 SealBrandMark 注
-                    SealBrandMark(size = 56.dp)
-                    Column {
-                        Text(
-                            text = stringResource(R.string.app_wordmark),
-                            color = BiuZSeal,
-                            fontSize = 12.sp,
-                        )
-                        // 标题与入口按钮同名（「登录 Z.ai 账号」）：动作全程同名，用户不迷路
-                        Text(
-                            text = stringResource(R.string.login_entry),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 18.sp,
-                        )
-                    }
-                }
-                Spacer(Modifier.height(BiuZSpacing.lg))
+                    .clip(BiuZRadius.small)
+                    .clickable { onClose() }
+                    .padding(vertical = BiuZSpacing.md, horizontal = BiuZSpacing.lg)
+                    .testTag("01-login-close"),
+            )
+            if (debugEnabled) {
                 Text(
-                    text = stringResource(R.string.login_description),
+                    text = "开发者：手动填入 ZCode JWT",
                     color = BiuZText3,
                     fontSize = 12.sp,
-                    lineHeight = 20.sp,
-                )
-                Spacer(Modifier.height(BiuZSpacing.lg))
-
-                ProviderButton(
-                    label = stringResource(R.string.login_action_zai),
-                    region = stringResource(R.string.login_region_global),
-                    enabled = !submitting,
-                    tag = "01-btn-zai",
-                ) {
-                    errorText = null
-                    authorizeUrl = session.beginOAuth(OAuthProviderId.ZAI)
-                }
-                Spacer(Modifier.height(BiuZSpacing.sm))
-                ProviderButton(
-                    label = stringResource(R.string.login_action_bigmodel),
-                    region = stringResource(R.string.login_region_cn),
-                    enabled = !submitting,
-                    tag = "01-btn-bigmodel",
-                ) {
-                    errorText = null
-                    authorizeUrl = session.beginOAuth(OAuthProviderId.BIGMODEL)
-                }
-
-                errorText?.let { message ->
-                    Spacer(Modifier.height(BiuZSpacing.md))
-                    BiuzInlineNotice(
-                        message = message,
-                        kind = BiuzNoticeKind.Error,
-                        tag = "01-login-error",
-                    )
-                }
-
-                Spacer(Modifier.height(BiuZSpacing.lg))
-                Text(
-                    text = stringResource(R.string.login_close),
-                    color = BiuZText3,
-                    fontSize = 13.sp,
                     modifier = Modifier
                         .clip(BiuZRadius.small)
-                        .clickable { onClose() }
+                        .clickable { showInject = true }
                         .padding(vertical = BiuZSpacing.sm)
-                        .testTag("01-login-close"),
+                        .testTag("01-debug-inject"),
                 )
-                if (debugEnabled) {
-                    Spacer(Modifier.height(BiuZSpacing.sm))
-                    Text(
-                        text = "开发者：手动填入 ZCode JWT",
-                        color = BiuZText3,
-                        fontSize = 12.sp,
-                        modifier = Modifier
-                            .clip(BiuZRadius.small)
-                            .clickable { showInject = true }
-                            .padding(vertical = BiuZSpacing.sm)
-                            .testTag("01-debug-inject"),
-                    )
-                }
             }
         }
 
@@ -307,40 +304,111 @@ fun LoginScreen(
     }
 }
 
+/** 登录平台（界面语汇只有两项：全球 Z.ai / 中国 BigModel）。internal：纯映射，单测直测。 */
+internal enum class LoginProvider(val id: OAuthProviderId, val labelRes: Int, val regionRes: Int) {
+    ZAI(OAuthProviderId.ZAI, R.string.login_action_zai, R.string.login_region_global),
+    BIGMODEL(OAuthProviderId.BIGMODEL, R.string.login_action_bigmodel, R.string.login_region_cn),
+}
+
+/**
+ * 登录主按钮（48dp / 圆角 12）：**朱磦实底纸色字**（`seal` / `onSeal`，与主印同色成对）——
+ * 本页唯一主动作。右侧分隔线 + 下拉箭头就地切换平台（[menuExpanded]），点按钮主体 = 直接用
+ * 当前平台开始授权。以前是「先跳一页选平台、再点登录」两步，2026-11-24 用户裁决收成一步。
+ * 平台切换项用两行（名称 + 地域），菜单项高度 ≥48dp 且为整行可点。
+ */
 @Composable
-private fun ProviderButton(
-    label: String,
-    region: String,
+private fun LoginProviderButton(
+    provider: LoginProvider,
     enabled: Boolean,
-    tag: String,
-    onClick: () -> Unit,
+    onPick: (LoginProvider) -> Unit,
+    onLogin: () -> Unit,
+    menuExpanded: Boolean,
+    onMenuExpandedChange: (Boolean) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .background(
-                if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                BiuZRadius.medium,
+    val container = if (enabled) BiuZSeal else MaterialTheme.colorScheme.surfaceVariant
+    val content = if (enabled) BiuZOnSeal else BiuZText3
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .background(container, BiuZRadius.medium)
+                .clip(BiuZRadius.medium)
+                .clickable(enabled = enabled, onClick = onLogin)
+                .testTag("01-btn-zai"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.width(BiuZSpacing.lg))
+            Text(
+                text = stringResource(provider.labelRes),
+                color = content,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
             )
-            .clip(BiuZRadius.medium)
-            .clickable(enabled = enabled, onClick = onClick)
-            .testTag(tag)
-            .padding(horizontal = BiuZSpacing.lg),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = label,
-            color = MaterialTheme.colorScheme.onPrimary,
-            fontSize = 15.sp,
-        )
-        Spacer(Modifier.size(BiuZSpacing.sm))
-        Text(
-            text = region,
-            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.65f),
-            fontSize = 12.sp,
-        )
+            Text(
+                text = stringResource(provider.regionRes),
+                color = content.copy(alpha = 0.7f),
+                fontSize = 12.sp,
+            )
+            // 平台切换箭头（独立热区 44dp，不触发登录）：分隔线在纸色字上取 30% 透明
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(44.dp)
+                    .clickable(enabled = enabled) { onMenuExpandedChange(true) }
+                    .testTag("01-btn-provider-switch"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(vertical = 12.dp)
+                        .width(1.dp)
+                        .background(content.copy(alpha = 0.3f)),
+                )
+                Spacer(Modifier.width(BiuZSpacing.xs))
+                Icon(
+                    imageVector = Icons.Filled.ArrowDropDown,
+                    contentDescription = null,
+                    tint = content,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(BiuZSpacing.xs))
+            }
+            Spacer(Modifier.width(BiuZSpacing.sm))
+        }
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { onMenuExpandedChange(false) },
+        ) {
+            LoginProvider.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(option.labelRes),
+                                fontSize = 14.sp,
+                                color = if (option == provider) BiuZSeal else BiuZText,
+                                fontWeight = if (option == provider) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                            Spacer(Modifier.width(BiuZSpacing.sm))
+                            Text(
+                                text = stringResource(option.regionRes),
+                                fontSize = 11.5.sp,
+                                color = BiuZText3,
+                            )
+                            if (option == provider) {
+                                Spacer(Modifier.weight(1f))
+                                Text("✓", fontSize = 13.sp, color = BiuZSeal)
+                            }
+                        }
+                    },
+                    onClick = { onPick(option) },
+                    modifier = Modifier.testTag("01-option-${option.name.lowercase()}"),
+                )
+            }
+        }
     }
 }
 

@@ -458,3 +458,10 @@ v1.12（附件形状）、v1.17（订阅寻址）、v1.20（getView 词表）、
 - **默认浅色带出的两处必修（都已修）**：① **Android 系统栏**——`enableEdgeToEdge()` 缺省跟系统深浅，默认浅色后会出现白图标压纸底；改 `applySystemBars(darkTheme)` 跟 App 主题（首帧前 + 组合内同步），`MainActivityThemeTest` 3 例（`resolveDarkTheme` 放 companion；scrim 留在函数内，否则纯函数单测会撞 `android.graphics` 类初始化）。② **iOS 连接引导页**漏铺 `T.bg`（裸 ScrollView），深色下默认黑≈墨底所以一直没被发现，浅色下露白——补 `.background(T.bg.ignoresSafeArea())`。
 - **启动图标**：Android adaptive 背景层 → 纸色（真机应用抽屉目检纸底朱印）；iOS `AppIcon-1024.png` → `rsvg-convert` 从 `brand/seal/app-icon-pi-light.svg` 导出的纸底版（先同管线重渲墨底版与旧图标逐像素比对，零差异确认管线一致），新增 `brand/seal/png/appicon-pi-light-{1024,180}.png`。
 - **门禁**：Android app 164 / store 159 / protocol 82 / connection 71 / relay 12 全绿 + `assembleDebug` 绿 + 真机目检；iOS 强制真实构建 SUCCEEDED + 临时干净模拟器（系统深色）实跑目检。**注意**：本机全局 `xcodebuild` 是 MTT 构建合流垫片（指纹取 mtt_mobile），本仓 iOS 构建必须 `MTT_BUILD_FORCE=1`，否则第二次构建会回放假日志（AGENTS §5-20）。
+
+### 13.9 登录页简化 + 主按钮朱磦色 + 平台下拉切换（2026-11-24，用户追加裁决）
+
+- **裁决**：①「登录 z.ai 是不是也应该改成红色，这样和 logo 的颜色更匹配，登录页页简单一些」②「点击登录 z.ai 账号后还有个页面选择，交互繁琐，不能提供一个切换的箭头么，这样少进入一个页面」。
+- **改法**：登录页从「卡片容器 + 标题 + 同义说明 + 两个等权 Provider 按钮（点任一再进平台页）」改为品牌页形态——主印 84dp + 「朱批」居中 → 一句说明 → **一个**主按钮 → 暂不登录；去掉卡片容器与重复措辞。主按钮 = **朱磦实底纸色字**（`BiuZSeal`/`BiuZOnSeal`，与主印同色成对；显式取印系令牌，不用 Material `primary` 的纸白/墨黑单色），右侧分隔线 + `ArrowDropDown` 矢量箭头（44dp 独立热区 `01-btn-provider-switch`）就地切换平台：点按钮主体 = 当前平台直接授权，点箭头 = `DropdownMenu` 两项（名称 + 地域，当前项朱磦勾选，`01-option-zai/bigmodel`）。BigModel 保留为第二通道（不删，否则部分用户无路可走），只是不再与主路径争视觉权重。
+- **代码**：`LoginScreen.kt`（布局重写 + `LoginProviderButton`/`LoginProvider`）；登录页 5 个字符串补 en 缺译。新增 `LoginProviderTest` 2 例（默认 Z.ai、两项映射不重复）。
+- **门禁**：app 166 例全绿、`assembleDebug` 绿；seeker 真机目检——朱磦主按钮与 logo 同色、箭头可展开两项菜单、选中 BigModel 后按钮即时变为「连接 BigModel 继续使用 / 中国」。
