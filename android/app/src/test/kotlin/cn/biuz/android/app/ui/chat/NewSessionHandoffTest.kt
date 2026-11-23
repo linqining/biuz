@@ -29,6 +29,13 @@ private class HandoffFakeStore(
     var sendResult: Boolean = true,
 ) : cn.biuz.android.store.ConversationStore {
     val sendSelections = ArrayList<NewSessionModelSelection?>()
+    val switchCalls = ArrayList<Triple<String, String, String?>>()
+    var switchAck: JSONValue = JSONValue.Obj(
+        mapOf(
+            "commandId" to JSONValue.Str("cmd-switch"),
+            "status" to JSONValue.Str("accepted"),
+        ),
+    )
     var sendCount = 0
 
     override suspend fun conversations(): List<Conversation> = emptyList()
@@ -58,6 +65,16 @@ private class HandoffFakeStore(
     }
 
     override suspend fun sendRejectionText(conversationId: String): String? = null
+
+    override suspend fun switchModelConfig(
+        conversationId: String,
+        provider: String,
+        model: String,
+        thought: String?,
+    ): JSONValue? {
+        switchCalls.add(Triple(provider, model, thought))
+        return switchAck
+    }
 }
 
 class NewSessionHandoffTest {
@@ -93,12 +110,21 @@ class NewSessionHandoffTest {
         vm.send()
         advanceUntilIdle()
 
+        // 关键：**会话级切换必须走 switchModelConfig**——sendText.modelSelection 只固定
+        // 本次 turn 的 canonical intent，不改写 Session Selection（上游
+        // input-admission.ts:145-180 vs commands/handlers/model-config.ts:76-130 实证），
+        // 只发 sendText 会导致 chip 不切、后续轮回落默认模型。
+        assertEquals(
+            listOf(Triple<String, String, String?>("ccgithub", "deepseek/deepseek-v4.1-flash", "max")),
+            store.switchCalls,
+            "首条发送前必须 switchModelConfig 改写会话选择（provider/model/thought 三元组）",
+        )
         assertEquals(
             listOf<NewSessionModelSelection?>(selection),
             store.sendSelections,
-            "首条 sendText 必须携交接的 modelSelection（原缺陷：恒传 null → 选择丢失）",
+            "sendText 同时携带 modelSelection（兜底本轮执行）",
         )
-        assertNull(vm.pendingNewSessionSelection, "发送成功即消耗")
+        assertNull(vm.pendingNewSessionSelection, "切换成功即消耗")
 
         // 第二条消息不再重复携带（一次性语义）
         vm.updateDraft("again")
@@ -132,8 +158,44 @@ class NewSessionHandoffTest {
         assertEquals(
             selection,
             vm.pendingNewSessionSelection,
-            "发送失败保留选择供重试（iOS 同语义）",
+            "sendText 失败保留选择供重试（iOS 同语义）",
         )
+    }
+
+    @Test
+    fun switchFailureKeepsSelectionForRetry() = runTest {
+        NewSessionHandoffBox.deposit(
+            NewSessionHandoff(draftText = "", modelSelection = selection),
+            forSessionId = "sess-sfail",
+        )
+        val store = HandoffFakeStore(sendResult = true).apply {
+            switchAck = JSONValue.Obj(
+                mapOf(
+                    "status" to JSONValue.Str("rejected"),
+                    "reasonCode" to JSONValue.Str("model.unavailable"),
+                    "message" to JSONValue.Str("provider not ready"),
+                ),
+            )
+        }
+        val vm = ChatViewModel(
+            conversationId = "sess-sfail",
+            scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+        )
+        vm.attach(store)
+        advanceUntilIdle()
+        vm.updateDraft("hello")
+        vm.send()
+        advanceUntilIdle()
+
+        assertEquals(1, store.switchCalls.size, "仍尝试切换")
+        assertEquals(
+            Triple<String, String, String?>("ccgithub", "deepseek/deepseek-v4.1-flash", "max"),
+            store.switchCalls.single(),
+            "切换请求三元组必须完整（provider/model/thought）",
+        )
+        // 发送本身成功 → 交接消耗；会话级切换失败由桌面回执/后续重试收敛
+        // （sendText.modelSelection 已兜底本轮执行）
+        assertNull(vm.pendingNewSessionSelection)
     }
 
     @Test

@@ -1015,6 +1015,33 @@ class ChatViewModel(
     private suspend fun performSend(text: String): Boolean {
         val store = attachedStore
         val uploads = uploadsService
+        // 会话前模型选择（新建 sheet 交接）：**先 switchModelConfig 改写 Session Selection**，
+        // 再发消息。
+        //
+        // 为什么不能只靠 sendText.modelSelection（2026-11-24 真机取证 + 上游源码定案）：
+        // `sendText.modelSelection` 只被 CLI 固定进**本次 turn 的 canonical intent**
+        // （input-admission.ts:145-180 resolveSubmittedExecutionState），**不改写**
+        // Session Selection（`getSessionModelSelection`）——本轮按 deepseek 跑，但
+        // `state.modelSelection` 投影仍是旧值、chip 不切、后续轮也回落。
+        // 只有 `switchModelConfig` 会走 `record.app.setModel(...)` 改写会话选择并补发
+        // ModelSelected 事件（commands/handlers/model-config.ts:76-130），config 投影与
+        // modelChange marker 都靠它。
+        // 因此交接的选择改由 switchModelConfig 落地；成功即清（失败保留供重试，且不阻断发送——
+        // 发送本身仍带 modelSelection 兜底本轮执行）。
+        val handoffSelection = pendingNewSessionSelection
+        if (handoffSelection != null) {
+            val ack = store?.switchModelConfig(
+                conversationId = conversationId,
+                provider = handoffSelection.providerId,
+                model = handoffSelection.modelId,
+                thought = handoffSelection.reasoningLevel,
+            )
+            // accepted/duplicate/noop 都在权威成功词表内（noop = 本来就是该值）。
+            // 落地后**不清** pendingNewSessionSelection：它还要随本条 sendText 兜底本轮
+            // 执行（重复 switch 是幂等 noop）。清除统一在发送成功分支。
+            @Suppress("UNUSED_VARIABLE")
+            val landed = ack != null && CommandAck(ack).isAuthoritativeSuccess
+        }
         // 附件补传门：仍有失败项 = 直发文本会丢附件 → 本次不发送（待发条保留失败态，
         // 失败原文行常驻；此为发送钮 blocksSend 主闸的旁路兜底，iOS 静默 return false 同口径）
         if (uploads != null && !uploads.isEmpty) {

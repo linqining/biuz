@@ -1084,11 +1084,24 @@ class RemoteConversationStore(
         if (array != null) {
             pendingInteractions[conversationId] = JSONValue.Arr(array)
         }
-        // 会话级模型选择（桌面 composer 改的是 state.modelSelection——chips 同步权威源）
-        val ms = state.objectValue?.get("modelSelection")
-        if (ms != null && !ms.isNull) {
-            sessionModelSelections[conversationId] = ms
-        }
+        // 会话级模型选择——**权威源是 `config.modelSelection`**（不是顶层同名字段）。
+        //
+        // 【实证·上游仓 session-config.ts:5-7】`sessionConfigStateSchema.modelSelection`
+        // 的注释原文：「Session 接受并持久化的稀疏选择意图；provider/model/thought 仅为
+        // UI effective 投影」——即 `switchModelConfig` 成功后写的是 **config 区**
+        // （`record.app.setModel` → `onModelSelected` → config 投影），随后补发
+        // ModelSelected 事件（commands/handlers/model-config.ts:76-130）。
+        //
+        // 【2026-11-24 真机取证】新建会话 → 选 ccgithub/deepseek-v4.1-flash → 发送：
+        // `switchModelConfig` 回 `status=accepted`，投影里
+        //   顶层 state.modelSelection  = GLM-5.4（**旧值，滞后**）
+        //   state.config.modelSelection = deepseek/deepseek-v4.1-flash（**新值**）
+        // 原实现优先读顶层 → chip 恒旧值、后续轮也读错。顶层只在 config 缺席时兜底
+        // （旧桌面兼容；上游 schema 无顶层该键）。
+        val config = state.objectValue?.get("config")?.objectValue
+        val fromConfig = config?.get("modelSelection")?.takeIf { !it.isNull }
+        val fromTopLevel = state.objectValue?.get("modelSelection")?.takeIf { !it.isNull }
+        (fromConfig ?: fromTopLevel)?.let { sessionModelSelections[conversationId] = it }
         // 会话协作模式（state.config.mode 权威源；nil/空 = 桌面尚未投影，不落）。
         // v1.33 三态（上游 product-projection.ts:3785 投影 + ChatViewModel 护栏的 :store 承载）：
         // ① 本地切换护栏窗（3s）内旧投影不回闪（ack 已权威成功、config.mode 增量未达——
