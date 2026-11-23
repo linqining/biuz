@@ -81,6 +81,10 @@ internal class FakeConversationFrameSurface(private val ops: CopyOnWriteArrayLis
 internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<String>) :
     RPCChannelTransport {
 
+    /** attachmentReadV4 注水（附件预览分块聚合：每次调用弹一个回执，空则由测试给默认）。 */
+    val attachmentReadArgs = CopyOnWriteArrayList<Map<String, JSONValue>>()
+    val attachmentReadScript = java.util.concurrent.ConcurrentLinkedDeque<RPCValue>()
+
     // subscribeConversationV4
     @Volatile
     var subscribeReply: JSONValue = testObj(
@@ -311,6 +315,10 @@ internal class FakeConversationTransport(internal val ops: CopyOnWriteArrayList<
                     is JSONValue -> RPCValue.json(scripted)
                     else -> RPCValue.json(attachmentDefaultReply(command, nth, args))
                 }
+            }
+            "attachmentReadV4" -> {
+                attachmentReadArgs.add(args)
+                attachmentReadScript.pollFirst() ?: RPCValue.json(testObj())
             }
             "promoteDeferredDraftSession" -> RPCValue.json(testObj("ok" to JSONValue.Bool(true)))
             // 会话表注水路径（RemoteSessionsIndexStore）

@@ -4422,6 +4422,104 @@ class RemoteConversationStore(
      * 开启（或幂等续接）上传事务（iOS :5034-5106 直译）。同 uploadId 重发 Begin 时桌面按
      * 已收块数回报 staging.nextChunkIndex——调用方以此为续传起点（web PCe 循环同款起点语义）。
      */
+    /**
+     * 会话 userInput 附件预览读（`attachmentReadV4` 分块聚合）。
+     *
+     * **缺陷背景（2026-11-24 任务 2 走查发现）**：本方法此前**只有接口默认实现返回 null**，
+     * `RemoteConversationStore` 从未 override → 连接态下每个 `userInput` 附件都落到
+     * `AttachmentViews` 的 `failed` 分支，真机上**所有历史图片/视频一律显示「⚠ 附件加载失败」**。
+     * 这是「会话详情页渲染与 web 不一致」最直观的一处。iOS 早有完整实现
+     * （`RemoteConversationStore.swift:5163-5242`），Android 未移植。
+     *
+     * 桌面 schema（`zcode-protocol-v4/transport.ts` v4/attachment/read）：
+     * params `{sessionId, workspacePath?, workspaceIdentity?, ref, target?, attachmentIndex?,
+     * offset, limit≤512KiB}`；result `{dataBase64, mediaType, totalBytes, nextOffset?}`。
+     *
+     * 纪律（逐条对齐 iOS）：
+     * - 上限 **60 块 ≈ 30MB**（`attachmentPreviewMaxChunks`，core.ts:92-93）——旧 8 块口径会把
+     *   20MB 通道放宽后的大图静默截成花图；
+     * - 循环耗尽仍有 `nextOffset` = **截断** → 按 `fault.attachment.previewTruncated` 同语义
+     *   **作失败处理**，禁止拿前缀冒充完整预览；
+     * - 分块 base64 **各自带 padding**：整串解码失败时按块独立解码拼接（AGENTS §5-8）；
+     * - 中继瞬断（分块读首败）1.2s 退避重试一次（AGENTS §5-9）。
+     */
+    override suspend fun attachmentPreview(sessionId: String, ref: String): AttachmentPreview? =
+        attachmentPreviewOnce(sessionId, ref)
+            ?: run {
+                delay(PAGE_RETRY_BACKOFF_MS)
+                attachmentPreviewOnce(sessionId, ref)
+            }
+
+    private suspend fun attachmentPreviewOnce(sessionId: String, ref: String): AttachmentPreview? {
+        val chunks = ArrayList<String>()
+        var mediaType: String? = null
+        var totalBytes = 0
+        var offset = 0
+        var expectMore = true
+        for (chunk in 0 until ATTACHMENT_PREVIEW_MAX_CHUNKS) {
+            val fields = LinkedHashMap<String, JSONValue>()
+            applySessionTarget(fields, sessionId)
+            fields["ref"] = JSONValue.Str(ref)
+            fields["offset"] = JSONValue.Int(offset)
+            fields["limit"] = JSONValue.Int(ATTACHMENT_CHUNK_MAX_BYTES)
+            val ack = try {
+                transport.call("zcode-agent", "attachmentReadV4", RPCValue.json(JSONValue.Obj(fields)))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                attachmentDiag("preview-err", attachmentWireError(e))
+                return null
+            }
+            val dict = ack.jsonValue?.objectValue
+            val base64 = dict?.get("dataBase64")?.stringValue
+            if (base64 == null) {
+                attachmentDiag("preview-nodata", ack.jsonValue?.toString()?.take(300) ?: "null")
+                return null
+            }
+            chunks.add(base64)
+            if (mediaType == null) mediaType = dict["mediaType"]?.stringValue
+            dict["totalBytes"]?.longValue()?.let { totalBytes = it.toInt() }
+            val next = dict["nextOffset"]?.longValue()?.toInt()
+            if (next == null) {
+                expectMore = false
+                break
+            }
+            offset = next
+        }
+        // 块数耗尽仍要下一页 = 截断（禁止部分预览冒充完整）
+        if (expectMore) {
+            attachmentDiag("preview-truncated", "bytes=$totalBytes chunks=${chunks.size}")
+            return null
+        }
+        val resolvedMediaType = mediaType ?: return null
+        val data = decodeChunks(chunks) ?: run {
+            attachmentDiag("preview-decode-fail", "chunks=${chunks.size}")
+            return null
+        }
+        return AttachmentPreview(
+            ref = ref,
+            data = data,
+            mediaType = resolvedMediaType,
+            totalBytes = totalBytes,
+        )
+    }
+
+    /** 分块 base64 解码：先整串，失败按块独立解码拼接（§5-8 各块自带 padding）。 */
+    private fun decodeChunks(chunks: List<String>): ByteArray? {
+        val joined = chunks.joinToString("")
+        val decoder = java.util.Base64.getMimeDecoder()
+        runCatching { decoder.decode(joined) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+        val out = java.io.ByteArrayOutputStream()
+        for (chunk in chunks) {
+            val part = runCatching { java.util.Base64.getMimeDecoder().decode(chunk) }.getOrNull()
+                ?: return null
+            out.write(part)
+        }
+        return out.toByteArray().takeIf { it.isNotEmpty() }
+    }
+
     override suspend fun attachmentBeginV4(
         sessionId: String,
         uploadId: String,
@@ -4649,6 +4747,9 @@ class RemoteConversationStore(
 
         /** 翻页/超时退避重试间隔（AGENTS §5-9 中继瞬断 1.2s 退避同口径）。 */
         private const val PAGE_RETRY_BACKOFF_MS = 1_200L
+        /** 附件预览分块上限（core.ts:92-93 attachmentPreviewMaxChunks = 30MB/512KiB） */
+        private const val ATTACHMENT_PREVIEW_MAX_CHUNKS = 60
+        private const val ATTACHMENT_CHUNK_MAX_BYTES = 512 * 1024
 
         /** 投影 watchdog 窗（官方 conversationProjectionStore.ts:1247-1274 同值 2s）。 */
         private const val WATCHDOG_DELAY_MS = 2_000L
