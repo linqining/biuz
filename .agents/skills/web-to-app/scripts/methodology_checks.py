@@ -22,7 +22,7 @@
     python3 .agents/skills/web-to-app/scripts/methodology_checks.py diff-ledger --strict
     python3 .agents/skills/web-to-app/scripts/methodology_checks.py selftest
 
-约定（与 mtt-web-sync 同名工具一致）：工具只读，不改业务代码；每个子命令结尾打印
+约定：工具只读，不改业务代码；每个子命令结尾打印
 `VERDICT <cmd>: PASS|FAIL (fail=N review=M pass=K)`，轮次报告/PR 必须能贴出该行。
 """
 

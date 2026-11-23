@@ -28,9 +28,15 @@ web 项目的 CSS 值很少是"设备像素"，先从源码摸清三层：
 对齐的判定统一用**归一化四元组**：以采证视口（如 390×844）为分母，
 元素位置尺寸表达为 `[x%, y%, w%, h%]`。
 
-- web 侧：截图 + DOM `getBoundingClientRect`（采证时的 `dom.html`/eval_js 均可）
-- App 侧：截图上量取，或调试工具读布局值
+- web 侧：截图 + DOM `getBoundingClientRect()`（采证时的 `dom.html`/eval_js 均可）
+- App 侧：**读目标元素本身**的 bounds（`uiautomator dump` 的节点 bounds /
+  `XCUIElement.frame` / Compose `onGloballyPositioned`），不靠「截图上目测量取」
 - 判定：逐元素比较，`|差值|` 进容差表
+
+**目标元素 = 用户看到的那一层，不是它的容器**：画布居中 ≠ 机身满宽，父容器满宽 ≠ 子元素满宽。
+每条布局结论必须能写成 `target / expected / measured / tolerance` 五项，口径与反例见
+`layout-claim-evidence.md`——没有目标元素 bounds 的「满宽 / 居中 / 无黑带 / 被裁」一律记为
+`unverified`，不得写成 `pass`。
 
 容差基线（可按项目在文档中收紧/放宽）：
 
@@ -59,6 +65,21 @@ rem 整页等比语义：整页按同一根字号等比缩放的，比例四元�
 - 字体：web 用的字体族 App 侧要么打包同字体，要么确认识别回退并记差异标记；
   验收截图里出现明显 fallback 字体/缺字 = P2。
 - canvas/引擎层不适用网格法（渲染内容不在 DOM），以截图帧互证 + 素材 URL 同源为主。
+
+## 3.5 字体与截断：用真实度量，不用码点
+
+排版与截断最容易「看起来对、实际错」，因为错法只在极端样本上显形：
+
+- **宽度测量**：用平台真实文本测量（Compose `TextMeasurer`/`rememberTextMeasurer`、
+  Android `Paint.measureText`、iOS `NSAttributedString.size()` / `CTLine`），
+  **禁止**「字符数 × 平均字宽」或手调宽度表——中英混排、emoji、组合字形、窄体字全错。
+- **截断**：按**字素簇**（grapheme cluster：Swift `Character`、Kotlin `BreakIterator`
+  或 ICU segmenter）二分查找，**省略号计入宽度预算**；按码点切会把 emoji/组合字撕成半个。
+- **预算派生**：maxWidth 与容器尺寸从 web **同比例**派生（不要手抄像素），省略号宽度、
+  内边距一并计入。
+- **必测样本**：超长昵称 / 长文件名 / 长 URL 混 CJK / emoji 结尾 各一条，
+  三端都不得冲出容器、不得把容器撑变形。
+- 验收判定：给「必然溢出」样本时若容器被撑开或文本溢出边框 = P1；截断位置不同但都在容器内 = P3。
 
 ## 4. 文案对等
 

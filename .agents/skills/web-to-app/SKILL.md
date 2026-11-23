@@ -5,14 +5,14 @@ description: 把任意 web 项目移植并持续同步为原生 App / 微信小�
 
 # web-to-app：web 项目 → 原生 App 移植与持续同步
 
-## 方法论优先（最高优先级，2026-11-20 移植自 mtt-web-sync 用户指令）
+## 方法论优先（最高优先级）
 
 实现/验收中发现任何**可复现到一类元素/页面**的偏差，先按
-`references/source-to-contract.md` 的十类机制（M1–M10）归因；确认是方法论问题 →
+`references/source-to-contract.md` 的十六类机制（M1–M16）归因；确认是方法论问题 →
 **同一轮内更新 skill + 加机械检查 + 记 `docs/methodology-ledger.md`（ML-N）**，
 再继续实现。不得推迟到下一轮，不得只写散文。
 
-五步：归因（内容 vs 方法论）→ 定位机制（M1–M10）→ 改 skill → 上机械检查 → 记账（ML-N）。
+五步：归因（内容 vs 方法论）→ 定位机制（M1–M16）→ 改 skill → 上机械检查 → 记账（ML-N）。
 
 - 判据：同类问题会不会在别的元素/页面上再发生？会 → 方法论；只影响单个元素 → 内容缺陷。
 - **没有机械检查的方法论变更记 `partial`，不算关闭**。机械检查的固定落点：
@@ -22,6 +22,24 @@ description: 把任意 web 项目移植并持续同步为原生 App / 微信小�
   加工作流门禁），不是再加一条规则。
 - 门自身也要先自证（正控/负控/落点/失败清理/可执行性/构建身份/状态 seam 七条，
   见 `source-to-contract.md` §6.5）；`methodology_checks.py selftest` 是其机械落地。
+
+## 四条硬口径（先记住这四条，再看后面所有流程）
+
+这四条是长期收敛里最贵的教训，违反任何一条都会让「绿」变成假绿。
+
+1. **判官打回单先过假缺陷四型**（`references/false-positive-triage.md`）：SSO 顶号落游客态 /
+   冻结 APK·旧构建 / 同帧复用 / 基线过期。采证污染制造的幻影缺陷比漏测更贵——返修会去修
+   不存在的问题，真缺陷被顺延。证据字段不齐（触发命令、等待条件、设备视口、登录态、构建
+   时间、截图路径）的条目先退回补证，不进入修复。
+2. **改条件/样式/门控/inset 前先写类矩阵**（`references/class-matrix-and-native-surfaces.md`）：
+   `class = {全部成员} × platform × state`，修复后逐成员点名验证（test/evidence/seam/blocked）；
+   **禁止用父路由族代替页面类**——「所有含 X 的页面」通常是行为不同的两个类。
+3. **布局结论必须绑定目标元素 bounds**（`references/layout-claim-evidence.md`）：没有目标元素
+   （用户实际看到的那一层，不是它的容器）的 bounds 与 gap 数值，就不能写「满宽 / 居中 /
+   无黑带 / 被裁 / 对齐」。证据报 `target / expected / measured / tolerance` 五项。
+4. **证据有时效，清除标准不能自指**：截图/回稿先过「时钟 / 构建标识 / 环境」三问，旧帧只能
+   证明历史缺陷；`cleared` 的 oracle 必须是**从 web 源码/资产派生的检查清单**，不是「本轮
+   发现的问题都修完了」（`findings = 0` 永远不作为通过条件）。
 
 ## 背景（必读）
 
@@ -70,6 +88,10 @@ web 源仓库**只读**（只 `fetch/log/diff/show`，不 checkout/reset/commit�
 | ⑦ 交互态/弹窗态/动画采证 | "拍弹窗 / 拍抽屉 / 点击后状态 / 动画不对 / 时长曲线" | `references/interaction-and-motion.md` |
 | ⑧ 多端验收对比 | "验收 XX / 对比 XX 多端一致性" | `references/acceptance.md` |
 | ⑨ 平台差异 / 能力封装 | "平台差异 / 能力矩阵 / Platform 包怎么封装" | `references/platform-differences.md` |
+| ⑩ 打回单分诊 / 假缺陷排查 | "打回单 / 截图与实现矛盾 / 怀疑采证污染 / 返修量异常" | `references/false-positive-triage.md` |
+| ⑪ 一类元素批量偏 / 原生壳层 | "改了一处伤了一片 / splash 状态栏 insets / 共享组件跨宿主" | `references/class-matrix-and-native-surfaces.md` |
+| ⑫ 布局结论要可反驳 | "满宽 / 居中 / 黑带 / 被裁 / 对齐对不对" | `references/layout-claim-evidence.md` |
+| ⑬ 双端代码审查护栏 | "代码审查 / 崩溃预防 / 负 padding / Lazy key / 验收假绿" | `references/runtime-guards.md` |
 
 任何工作流都遵循同一个循环：**采证（浏览器实拍/DOM/网络）→ 对照（页面索引定位各端实现）
 → 实现（各端同步改）→ 实拍验证（App 截图回比 web 基线）→ 留痕（台账登记）**。
@@ -114,7 +136,7 @@ python3 <skill>/scripts/capture.py shot /items --base local         # 按路由�
 
 输出落 `capture.output_dir`（默认 `.capture/runs/<时间戳>-<名称>/`）：
 视口 + 滚动截图 + meta.json（稳定门/登录态/坏图审计），可选 dom.html。
-细粒度交互（点击后截图、游戏内状态）用 capture.py 的 CDP 类驱动，
+细粒度交互（点击后截图、canvas 内状态、运行时态）用 capture.py 的 CDP 类驱动，
 见 `references/interaction-and-motion.md`。
 
 ## 逻辑对拍测试（一句话）
@@ -182,6 +204,10 @@ JSON 由 capture.py 的 `pages` 子命令消费。
 - `references/interaction-and-motion.md` — 交互态/弹窗态采证与动画验收：状态矩阵、触发优先级、稳定门、关键帧 ±5%
 - `references/acceptance.md` — 多端验收对比：web 基线/各端实拍/逐屏比对/裁决留痕、seam vs real、多机型矩阵
 - `references/diff-language.md` — 差异标记语法、kind 语义、台账登记与编号规则、与 PARITY_BACKLOG 的边界
+- `references/false-positive-triage.md` — 假缺陷四型污染指纹与 60 秒排查顺序（打回单先过这张表）
+- `references/class-matrix-and-native-surfaces.md` — 类矩阵、原生壳层（splash/状态栏/insets/IME）、真实字体度量与截断、动作目的地映射
+- `references/layout-claim-evidence.md` — 把「满宽/居中/无黑带」变成 target/expected/measured/tolerance 的可反驳断言
+- `references/runtime-guards.md` — 双端运行时护栏清单（含可执行静态门禁）
 - `references/platform-differences.md` — 平台差异能力矩阵与封装：安全区/IME/返回/生命周期/深链/权限等的统一抽象；§5 微信小程序专项（域名白名单/rpx/页面栈/实拍自动化）
 - `assets/config.sample.yaml` — 配置样本（复制到项目 `config/web-to-app.yaml` 改值即用）
 - `assets/page-index.sample.json` — 页面索引样本（复制到 `pages.index` 路径改值即用）

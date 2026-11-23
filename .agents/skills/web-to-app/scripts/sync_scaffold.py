@@ -208,7 +208,7 @@ def popup_md() -> str:
 def motion_md() -> str:
     return """# 动效规格
 
-> 有 CSS transition/keyframes、JS 动画库（GSAP 等）、rAF、Lottie、Spine、视频动效时必填。
+> 有 CSS transition/keyframes、JS 动画库（GSAP 等）、rAF、Lottie、骨骼动画（Spine 等）、视频动效时必填。
 > 验收方式：0/25/50/75/100% 关键帧 + duration/easing 表；duration ±5%（短动画 ±1 帧）。
 
 | 元素/状态 | web 源 file:line | duration | delay | easing | transform-origin | stagger | loop | 中断/重入 | reduced-motion | 各端实现 | 验收帧 |
