@@ -23,6 +23,9 @@ import cn.biuz.android.protocol.RemotePendingInteraction
 import cn.biuz.android.protocol.RemoteGoalSummary
 import cn.biuz.android.protocol.PlanPanelSummary
 import cn.biuz.android.protocol.BackgroundWorkSummary
+import cn.biuz.android.protocol.SubagentProjectionState
+import cn.biuz.android.protocol.SubagentRuntimeSummary
+import cn.biuz.android.protocol.ActivitySummaryDismissed
 import cn.biuz.android.protocol.SubagentSessionSummary
 import cn.biuz.android.protocol.TaskRecord
 import cn.biuz.android.protocol.TerminalLine
@@ -574,6 +577,19 @@ interface ConversationStore {
 
     /** state.subagents 只读投影（side 面板数据源） */
     suspend fun subagentSessions(conversationId: String): List<SubagentSessionSummary> = emptyList()
+
+    /**
+     * `state.subagents` 会话级投影（v4.0.0 `subagentProjectionStateSchema`）：
+     * running / ended / endedTotal / revision 四块。null = 旧桌面未发该键。
+     * 与 [subagentSessions]（旧行级读面）并存，活动摘要行用本方法。
+     */
+    suspend fun subagentProjection(conversationId: String): SubagentProjectionState? = null
+
+    /** `state.activitySummaryDismissed`（v4.0.0）：用户忽略过的活动摘要条目。null = 未忽略/旧桌面。 */
+    suspend fun activitySummaryDismissed(conversationId: String): ActivitySummaryDismissed? = null
+
+    /** `state.completedActivityCount`（v4.0.0）：完整历史里成功的独立 child + Workflow 数；null = 缺席或读取失败。 */
+    suspend fun completedActivityCount(conversationId: String): Int? = null
 
     /** 目标暂停/继续（pauseGoal / resumeGoal；桌面代执行；返回命令回执供失败反馈） */
     suspend fun setGoalPaused(paused: Boolean, conversationId: String): JSONValue? = null

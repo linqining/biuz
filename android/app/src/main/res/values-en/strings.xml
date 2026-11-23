@@ -447,6 +447,15 @@
     <string name="wf_concurrency_n">Concurrency %1$d</string>
     <string name="wf_follow_main_model">Follow main model</string>
     <string name="wf_history_caption">Past runs</string>
+    <!-- v4.0.0 activity summary row (web chat.capsule.activity.*，en-US) -->
+    <string name="activity_running">Active</string>
+    <string name="activity_completed">Completed</string>
+    <string name="activity_stopped">Stopped</string>
+    <string name="activity_failed">Failed</string>
+    <string name="activity_label">Activity</string>
+    <string name="activity_directory_subagents">Subagent directory</string>
+    <string name="activity_directory_workflows">Workflow directory</string>
+    <string name="activity_completed_unknown">Completed some</string>
     <string name="wf_no_limit">No limit</string>
     <string name="wf_resume_run">Resume run</string>
     <string name="wf_stat_phases">Phases</string>

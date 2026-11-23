@@ -72,6 +72,7 @@ import cn.biuz.android.app.ui.theme.BiuZBgInput
 import cn.biuz.android.app.ui.theme.BiuZBlue
 import cn.biuz.android.app.ui.theme.BiuZBlueDim
 import cn.biuz.android.app.ui.theme.BiuZBorder
+import cn.biuz.android.app.ui.theme.BiuZGreen
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
 import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRadius
@@ -141,6 +142,9 @@ fun SessionPanelsSection(
     val runs by viewModel.workflowRuns.collectAsStateWithLifecycle()
     val works by viewModel.backgroundWorks.collectAsStateWithLifecycle()
     val subagents by viewModel.subagentSessions.collectAsStateWithLifecycle()
+    val subagentProjection by viewModel.subagentProjection.collectAsStateWithLifecycle()
+    val activityDismissed by viewModel.activitySummaryDismissed.collectAsStateWithLifecycle()
+    val completedActivityCount by viewModel.completedActivityCount.collectAsStateWithLifecycle()
     val controlFailure by viewModel.controlFailure.collectAsStateWithLifecycle()
     val controlSuccess by viewModel.controlSuccess.collectAsStateWithLifecycle()
     val transcript by viewModel.actorTranscriptSheet.collectAsStateWithLifecycle()
@@ -156,7 +160,30 @@ fun SessionPanelsSection(
         }
     }
 
+    // v4.0.0 活动摘要行（web ConversationStatusPanel 的 activity 胶囊）：
+    // 运行中/已结束/历史目录三块，数据全空整行不渲染。
+    val activitySummary = remember(
+        runs, works, subagentProjection, activityDismissed, completedActivityCount,
+    ) {
+        buildActivitySummaryModel(
+            workflowRuns = runs,
+            backgroundWorks = works,
+            subagentProjection = subagentProjection,
+            dismissed = activityDismissed,
+            completedActivityCount = completedActivityCount,
+            // 历史目录条目数：子代理取 endedTotal（v4 权威历史目录总数），
+            // 工作流取已结束 run 数（平台侧派生，web endedWorkflowRunCount 同义）
+            endedSubagentCount = subagentProjection?.endedTotal ?: 0,
+            endedWorkflowRunCount = runs.count { !it.isLive },
+            // 移动端无子代理/工作流目录页（web 侧栏专属面），目录入口恒不出
+            hasDirectoryTargets = false,
+        )
+    }
+
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+        if (activitySummary.visible) {
+            ActivitySummaryRow(model = activitySummary)
+        }
         // chips 行（默认收起态全部可见面；每 chip 附紧凑进度徽标）
         if (available.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
@@ -277,6 +304,168 @@ fun SessionPanelsSection(
             messages = transcriptState.messages,
             onClose = { viewModel.closeActorTranscript() },
         )
+    }
+}
+
+// MARK: v4.0.0 活动摘要行
+
+/**
+ * 活动摘要行（web `ConversationStatusPanel` activity 胶囊的移动端同构）：
+ * 一行胶囊 = 状态色点/转圈 + 标签（活跃中/已完成/已停止/失败）+ 计数，
+ * 点按展开明细（运行中在上、已结束在下，各自带结果点）。
+ *
+ * 与 web 的**有意简化**（触屏适配，非功能缺失）：
+ * - web 头像是多张 agent 面孔叠图 + 结果徽标；移动端用状态色点 + 计数（信息密度等价）；
+ * - web 历史目录入口指向侧栏专属页面（子代理目录/工作流目录），移动端无该面 →
+ *   [ActivitySummaryModel.hasSubagentDirectory] 恒 false（`hasDirectoryTargets=false`）。
+ */
+@Composable
+private fun ActivitySummaryRow(model: ActivitySummaryModel) {
+    var expanded by remember { mutableStateOf(false) }
+    val label = stringResource(
+        when {
+            model.isRunningAny -> R.string.activity_running
+            model.result == ActivityResult.Failed -> R.string.activity_failed
+            model.result == ActivityResult.Stopped -> R.string.activity_stopped
+            else -> R.string.activity_completed
+        },
+    )
+    // 结果色（web：completed 成功色 / failed 破坏色 / stopped 中性色；运行中另用强调色转圈）
+    val accentColor = when {
+        model.isRunningAny -> BiuZAccent
+        model.result == ActivityResult.Failed -> BiuZRed
+        model.result == ActivityResult.Stopped -> BiuZText3
+        else -> BiuZGreen
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(BiuZBgCard)
+                .border(1.dp, BiuZBorder, RoundedCornerShape(999.dp))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
+                .testTag("05-activity-summary"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            if (model.isRunningAny) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(10.dp),
+                    strokeWidth = 1.5.dp,
+                    color = accentColor,
+                )
+            } else {
+                Box(modifier = Modifier.size(6.dp).background(accentColor, CircleShape))
+            }
+            Text(
+                text = label,
+                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                color = if (model.isRunningAny) BiuZAccent else BiuZText2,
+            )
+            // 计数：null = 完整历史读失败（显示「若干」而非 0，web count===null 同义）
+            val countText = when {
+                model.count == null -> stringResource(R.string.activity_completed_unknown)
+                model.count == 0 && !model.isRunningAny -> null
+                else -> "${model.count}"
+            }
+            countText?.let {
+                Text(
+                    text = it,
+                    style = TextStyle(
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    color = accentColor,
+                )
+            }
+            if (model.ended.isNotEmpty() || model.running.isNotEmpty()) {
+                Text(text = if (expanded) "▴" else "▾", fontSize = 9.sp, color = BiuZText3)
+            }
+        }
+        if (expanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(BiuZRadius.small)
+                    .background(BiuZBgCard)
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                model.running.forEach { item ->
+                    ActivityDetailLine(
+                        kind = item.kind,
+                        title = item.title,
+                        result = null,
+                        summary = null,
+                    )
+                }
+                model.ended.forEach { item ->
+                    ActivityDetailLine(
+                        kind = item.kind,
+                        title = item.title,
+                        result = item.result,
+                        summary = item.summary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 明细行：种类字形 + 标题 + 结果点 + 摘要（单行截断）。 */
+@Composable
+private fun ActivityDetailLine(
+    kind: EndedActivity.Kind,
+    title: String,
+    result: ActivityResult?,
+    summary: String?,
+) {
+    val glyph = when (kind) {
+        EndedActivity.Kind.Bash -> "❯"
+        EndedActivity.Kind.Workflow -> "⑂"
+        EndedActivity.Kind.Subagent -> "⌗"
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Text(text = glyph, fontSize = 9.sp, color = BiuZText3)
+        Text(
+            text = title,
+            style = TextStyle(fontSize = 11.sp),
+            color = BiuZText2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (summary != null && summary.isNotEmpty()) {
+            Text(
+                text = summary,
+                style = TextStyle(fontSize = 10.sp),
+                color = BiuZText3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        if (result != null) {
+            Box(
+                modifier = Modifier
+                    .size(5.dp)
+                    .background(
+                        when (result) {
+                            ActivityResult.Completed -> BiuZGreen
+                            ActivityResult.Failed -> BiuZRed
+                            ActivityResult.Stopped -> BiuZText3
+                        },
+                        CircleShape,
+                    ),
+            )
+        }
     }
 }
 

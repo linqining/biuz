@@ -39,6 +39,10 @@ package cn.biuz.android.store
 // - §5-12 读面失败三态（loadFailures 与 last-good 共存）。
 
 import cn.biuz.android.protocol.AckActivationBarrier
+import cn.biuz.android.protocol.SubagentProjectionState
+import cn.biuz.android.protocol.SubagentRuntimeSummary
+import cn.biuz.android.protocol.ActivitySummaryDismissed
+import cn.biuz.android.protocol.BackgroundWorkSummary
 import cn.biuz.android.protocol.ArtifactRowInfo
 import cn.biuz.android.protocol.CasRevision
 import cn.biuz.android.protocol.ChatMessage
@@ -52,6 +56,9 @@ import cn.biuz.android.protocol.ExecutorKind
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.MessageRole
 import cn.biuz.android.protocol.MessageStatus
+import cn.biuz.android.protocol.PlanPanelSummary
+import cn.biuz.android.protocol.RemoteGoalSummary
+import cn.biuz.android.protocol.SubagentSessionSummary
 import cn.biuz.android.protocol.PSchema
 import cn.biuz.android.protocol.PValidator
 import cn.biuz.android.protocol.RemoteInteractionOption
@@ -832,11 +839,16 @@ class RemoteConversationStore(
         mutex.withLock { handleConversationFrameLocked(conversationId, frame) }
     }
 
-    /** 快照顶层扁平 state 键集（上游 conversationSnapshotSchema 扁平化；iOS :1298-1303 同集）。 */
+    /** 快照顶层扁平 state 键集（上游 conversationSnapshotSchema 扁平化；iOS :1298-1303 同集）。
+     * v4.0.0 增补 `activitySummaryDismissed` / `completedActivityCount`（活动摘要）与
+     * `workspaceMcpAdmission`（MCP 待审核提示条）——本集合是快照拷贝的白名单（见下方
+     * hasState 循环），漏登记 = 全量快照静默丢键，表象「重连后活动摘要/提示条消失」
+     * 【实证·上游仓 snapshot.ts:575-592】。 */
     private val snapshotStateKeys = setOf(
         "control", "availability", "inputRouting", "meta", "sharedContextImport",
         "config", "modelTransition", "usage", "queue", "pendingInteractions",
         "pendingCommands", "backgroundWorks", "subagents", "workflowRuns",
+        "activitySummaryDismissed", "completedActivityCount", "workspaceMcpAdmission",
         "goal", "plan", "workspaceHookAdmission",
     )
 
@@ -1012,10 +1024,12 @@ class RemoteConversationStore(
                 refreshPendingInteractionsLocked(conversationId, merged)
                 // G-008：state.updated 的 workflowRuns 键（delta.ts:50；键级整体替换）
                 patch["workflowRuns"]?.let { applyWorkflowRunsStateLocked(conversationId, it) }
-                // 面板键（goal/plan/backgroundWorks/subagents/queue）任一到达即广播面板刷新
+                // 面板键（goal/plan/backgroundWorks/subagents/queue/活动摘要）任一到达即广播面板刷新
                 if (patch.containsKey("goal") || patch.containsKey("plan") ||
                     patch.containsKey("backgroundWorks") || patch.containsKey("subagents") ||
-                    patch.containsKey("queue")
+                    patch.containsKey("queue") ||
+                    patch.containsKey("activitySummaryDismissed") ||
+                    patch.containsKey("completedActivityCount")
                 ) {
                     yieldPanelStateLocked(conversationId)
                 }
@@ -2046,6 +2060,197 @@ class RemoteConversationStore(
      * 表序倒序）；同名多活仅最新保持活态（supersede 滞留旧 run 不再主导显示）。
      * （iOS workflowRuns(in:) :3106-3206 直译）
      */
+    // MARK: v4.0.0 会话面板读面（此前只有协议默认空实现——子代理 / 后台工作 / 目标
+    // 三条链恒空，是「会话详情渲染与 web 不一致」的协议层根因；数据源 = 已缓存的
+    // snapshotState 全量 state 投影，零新增订阅）
+
+    /**
+     * `state.subagents` → 会话级子代理投影（v4.0.0 `subagentProjectionStateSchema`）。
+     * 携带 running（运行态）、ended（本批结束摘要）、endedTotal（历史目录总数）——
+     * 活动摘要行据此算「已完成 N 项」。旧桌面（< v4.0.0）不发该键：返回 null（调用方
+     * 按「无该投影」处理，不伪造 ended/总数）。
+     */
+    override suspend fun subagentProjection(conversationId: String): SubagentProjectionState? {
+        val raw = mutex.withLock { snapshotState[conversationId]?.objectValue?.get("subagents") }
+        val dict = raw?.objectValue ?: return null
+        fun parseList(key: String) = dict[key]?.arrayValue.orEmpty().mapNotNull { item ->
+            val d = item.objectValue ?: return@mapNotNull null
+            val childId = d["childSessionId"]?.stringValue ?: return@mapNotNull null
+            SubagentRuntimeSummary(
+                childSessionId = childId,
+                subagentType = d["subagentType"]?.stringValue ?: "",
+                title = d["title"]?.stringValue ?: "",
+                summary = d["summary"]?.stringValue,
+                status = d["status"]?.stringValue ?: "",
+                agentId = d["agentId"]?.stringValue,
+                toolCallId = d["toolCallId"]?.stringValue,
+                startedAt = d["startedAt"]?.let { SessionSummaryParser.parseIsoMillis(it.stringValue ?: "") }
+                    ?: d["startedAt"]?.longValue(),
+                endedAt = d["endedAt"]?.let { SessionSummaryParser.parseIsoMillis(it.stringValue ?: "") }
+                    ?: d["endedAt"]?.longValue(),
+            )
+        }
+        return SubagentProjectionState(
+            revision = dict["revision"]?.longValue()?.toInt() ?: 0,
+            childSessionIds = dict["childSessionIds"]?.arrayValue.orEmpty()
+                .mapNotNull { it.stringValue },
+            running = parseList("running"),
+            endedTotal = dict["endedTotal"]?.longValue()?.toInt() ?: 0,
+            ended = parseList("ended"),
+        )
+    }
+
+    /** `state.backgroundWorks` → 后台工作清单（含 v4.0.0 `resultSummary`）。 */
+    override suspend fun backgroundWorks(conversationId: String): List<BackgroundWorkSummary> {
+        val raw = mutex.withLock { snapshotState[conversationId]?.objectValue?.get("backgroundWorks") }
+        return raw?.arrayValue.orEmpty().mapNotNull { item ->
+            val d = item.objectValue ?: return@mapNotNull null
+            val workId = d["workId"]?.stringValue ?: return@mapNotNull null
+            BackgroundWorkSummary(
+                workId = workId,
+                title = d["title"]?.stringValue,
+                kind = d["kind"]?.stringValue,
+                rawStatus = d["status"]?.stringValue,
+                cancellable = d["cancellable"]?.boolValue ?: false,
+                runId = d["workflowRunId"]?.stringValue,
+                sessionId = d["childSessionId"]?.stringValue,
+                startedAt = d["startedAt"]?.stringValue?.let(SessionSummaryParser::parseIsoMillis)
+                    ?: d["startedAt"]?.longValue(),
+                endedAt = d["endedAt"]?.stringValue?.let(SessionSummaryParser::parseIsoMillis)
+                    ?: d["endedAt"]?.longValue(),
+                blocked = d["blocked"]?.boolValue ?: false,
+                resultSummary = d["resultSummary"]?.stringValue,
+            )
+        }
+    }
+
+    /** `state.activitySummaryDismissed` → 活动摘要忽略集（v4.0.0 新增四键之一）。 */
+    override suspend fun activitySummaryDismissed(conversationId: String): ActivitySummaryDismissed? {
+        val raw = mutex.withLock {
+            snapshotState[conversationId]?.objectValue?.get("activitySummaryDismissed")
+        }
+        val d = raw?.objectValue ?: return null
+        fun ids(key: String) = d[key]?.arrayValue.orEmpty().mapNotNull { it.stringValue }
+        return ActivitySummaryDismissed(
+            at = d["at"]?.stringValue?.let(SessionSummaryParser::parseIsoMillis) ?: d["at"]?.longValue(),
+            workIds = ids("workIds"),
+            subagentIds = ids("subagentIds"),
+            workflowRunIds = ids("workflowRunIds"),
+        )
+    }
+
+    /**
+     * `state.completedActivityCount` → 完整历史里成功的独立 child 与 Workflow 数
+     * （不含 Bash）。null = 字段缺席（旧桌面）或完整历史读取失败——两种都不显示计数。
+     */
+    override suspend fun completedActivityCount(conversationId: String): Int? =
+        mutex.withLock {
+            snapshotState[conversationId]?.objectValue?.get("completedActivityCount")?.longValue()?.toInt()
+        }
+
+    /**
+     * `state.goal` → 目标卡投影（iOS :3890-3906 直译 + v4.0.0 schema 校正）。
+     *
+     * 权威形状 = `goalStateSchema`【实证·上游仓 snapshot.ts:471-502】：
+     * `{objective, status(active|paused|verifying|verified|notSatisfied|failed),
+     *   summaryTitle, timeUsedSeconds, activeRunStartedAtMs, iteration,
+     *   summaryHidden?, verifications[], iterations[]}`。
+     * 旧桌面宽容键族（text/description/content/prompt/goal）保留——v4 前的移动端已按此读。
+     */
+    override suspend fun goalSummary(conversationId: String): RemoteGoalSummary? {
+        val raw = mutex.withLock { snapshotState[conversationId]?.objectValue?.get("goal") }
+        if (raw == null || raw.isNull) return null
+        val d = raw.objectValue ?: return null
+        // objective 是 v4 权威键；其余为旧桌面宽容形态（顺序同 iOS :3898-3904）
+        val text = d["objective"]?.stringValue
+            ?: d["text"]?.stringValue
+            ?: d["description"]?.stringValue
+            ?: d["content"]?.stringValue
+            ?: d["prompt"]?.stringValue
+            ?: d["goal"]?.stringValue
+        if (text.isNullOrEmpty()) return null
+        val status = d["status"]?.stringValue
+        // paused 双形态：显式 paused 键（旧桌面）或 status 词表 paused/pausing（v4 权威）
+        val paused = d["paused"]?.boolValue ?: (status == "paused" || status == "pausing")
+        return RemoteGoalSummary(text = text, rawStatus = status, isPaused = paused)
+    }
+
+    /**
+     * `state.plan` → 计划卡投影（iOS :3908-3941 直译 + v4.0.0 schema 校正）。
+     *
+     * 权威形状 = `planStateSchema`【实证·上游仓 snapshot.ts:504-507】：
+     * `{items:[{id, content, status: pending|inProgress|completed}], updatedAt}`。
+     * 正文直取键（content/text/markdown/body）为旧桌面宽容形态；items 数组按 v4 三态
+     * 逐行拼（✓ 完成 / ▸ 进行中 / · 待办）。
+     */
+    override suspend fun planPanel(conversationId: String): PlanPanelSummary? {
+        val raw = mutex.withLock { snapshotState[conversationId]?.objectValue?.get("plan") }
+        if (raw == null || raw.isNull) return null
+        val d = raw.objectValue ?: return null
+        var content = d["content"]?.stringValue
+            ?: d["text"]?.stringValue
+            ?: d["markdown"]?.stringValue
+            ?: d["body"]?.stringValue
+        if (content.isNullOrEmpty()) {
+            val entries = d["items"]?.arrayValue
+                ?: d["entries"]?.arrayValue
+                ?: d["steps"]?.arrayValue
+                ?: emptyList()
+            val lines = entries.mapNotNull { entry ->
+                val o = entry.objectValue
+                if (o == null) {
+                    entry.stringValue?.let { "· $it" }
+                } else {
+                    val title = o["content"]?.stringValue
+                        ?: o["title"]?.stringValue
+                        ?: o["text"]?.stringValue
+                        ?: ""
+                    // v4 三态闭集 pending|inProgress|completed + 旧桌面 done/in_progress
+                    val statusWord = o["status"]?.stringValue
+                    val done = statusWord == "completed" || statusWord == "done" ||
+                        o["completed"]?.boolValue == true
+                    val running = statusWord == "inProgress" || statusWord == "in_progress"
+                    (if (done) "✓ " else if (running) "▸ " else "· ") + title
+                }
+            }
+            content = lines.takeIf { it.isNotEmpty() }?.joinToString("\n")
+        }
+        if (content.isNullOrEmpty()) return null
+        return PlanPanelSummary(
+            title = d["title"]?.stringValue ?: d["name"]?.stringValue,
+            content = content,
+            rawStatus = d["status"]?.stringValue,
+        )
+    }
+
+    /**
+     * `state.subagents.running` → 子代理清单（side 面板数据源；iOS :3962-3979 直译）。
+     * v4.0.0 权威形状见 [subagentProjection]（`{running:[...], ended, endedTotal}`）；
+     * 本方法只取运行态，裸数组/`all` 键为旧桌面宽容形态。
+     */
+    override suspend fun subagentSessions(conversationId: String): List<SubagentSessionSummary> {
+        val raw = mutex.withLock { snapshotState[conversationId]?.objectValue?.get("subagents") }
+        val array = raw?.objectValue?.get("running")?.arrayValue
+            ?: raw?.objectValue?.get("all")?.arrayValue
+            ?: raw?.arrayValue
+            ?: emptyList()
+        return array.mapNotNull { item ->
+            val d = item.objectValue ?: return@mapNotNull null
+            val childSessionId = d["childSessionId"]?.stringValue
+                ?: d["sessionId"]?.stringValue
+                ?: return@mapNotNull null
+            SubagentSessionSummary(
+                childSessionId = childSessionId,
+                agentId = d["agentId"]?.stringValue,
+                agentType = d["subagentType"]?.stringValue ?: d["agentType"]?.stringValue
+                    ?: d["type"]?.stringValue,
+                name = d["title"]?.stringValue ?: d["name"]?.stringValue
+                    ?: d["agentName"]?.stringValue,
+                rawStatus = d["status"]?.stringValue ?: "running",
+            )
+        }
+    }
+
     override suspend fun workflowRuns(conversationId: String): List<WorkflowRunSummary> {
         // ⓪ 镜像水合：快照尚未到/本次缺席时，用上次落盘的 run 状态先渲染（有真数据即被覆盖）
         mutex.withLock {

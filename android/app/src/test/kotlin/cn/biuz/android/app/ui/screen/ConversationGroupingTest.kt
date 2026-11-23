@@ -161,6 +161,8 @@ class ProjectBoardTest {
         updatedAt: Long,
         pinned: Boolean = false,
         running: Boolean = false,
+        /** 只置排序层成员位（回合已收口但挂后台工作：转圈不出、排序仍进运行层） */
+        activeOnly: Boolean = false,
         unread: Int = 0,
     ) = Conversation(
         id = id,
@@ -170,6 +172,7 @@ class ProjectBoardTest {
         updatedAt = updatedAt,
         isPinned = pinned,
         isRunning = running,
+        isActive = running || activeOnly,
         unreadCount = unread,
     )
 
@@ -207,6 +210,27 @@ class ProjectBoardTest {
             "运行中置顶（web compareTaskListItemsWithRunningFirst 子集）",
         )
         assertEquals(1, board.projects.single().runningCount)
+    }
+
+    @Test
+    fun backgroundWorkRowsJoinSortingLayerWithoutSpinner() {
+        // 回合已收口但挂着 workflow run：web isTaskListRowActive 让它进运行层（防换位），
+        // 但转圈只认 isRunning（taskListRowActivity.ts:56-66 两件事刻意分开）。
+        val rows = listOf(
+            row("idle-new", "/Users/mac/projects/alpha", 900),
+            row("bg-old", "/Users/mac/projects/alpha", 100, activeOnly = true),
+        )
+        val board = projectBoard(rows)
+        assertEquals(
+            listOf("bg-old", "idle-new"),
+            board.projects.single().rows.map { it.id },
+            "后台工作行进排序运行层（更新时间更旧也置顶）",
+        )
+        assertEquals(
+            0,
+            board.projects.single().runningCount,
+            "项目节点汇总转圈只认 isRunning——后台工作不点亮转圈（web 同口径）",
+        )
     }
 
     @Test

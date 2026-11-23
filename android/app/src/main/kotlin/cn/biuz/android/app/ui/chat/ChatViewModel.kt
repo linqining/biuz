@@ -34,6 +34,8 @@ import cn.biuz.android.protocol.PlanPanelSummary
 import cn.biuz.android.protocol.RemoteGoalSummary
 import cn.biuz.android.protocol.RemotePendingInteraction
 import cn.biuz.android.protocol.SubagentSessionSummary
+import cn.biuz.android.protocol.SubagentProjectionState
+import cn.biuz.android.protocol.ActivitySummaryDismissed
 import cn.biuz.android.protocol.WorkflowRunSummary
 import cn.biuz.android.store.AttachmentUploadService
 import cn.biuz.android.store.ConversationEvent
@@ -387,6 +389,18 @@ class ChatViewModel(
     private val _subagentSessions = MutableStateFlow<List<SubagentSessionSummary>>(emptyList())
     val subagentSessions: StateFlow<List<SubagentSessionSummary>> get() = _subagentSessions
 
+    /** v4.0.0 活动摘要：子代理投影（running/ended/endedTotal）。null = 旧桌面未发该键。 */
+    private val _subagentProjection = MutableStateFlow<SubagentProjectionState?>(null)
+    val subagentProjection: StateFlow<SubagentProjectionState?> get() = _subagentProjection
+
+    /** v4.0.0 活动摘要：用户忽略过的已结束条目（服务端在真实输入接纳时写入）。 */
+    private val _activitySummaryDismissed = MutableStateFlow<ActivitySummaryDismissed?>(null)
+    val activitySummaryDismissed: StateFlow<ActivitySummaryDismissed?> get() = _activitySummaryDismissed
+
+    /** v4.0.0 活动摘要：完整历史成功 child+Workflow 数（null = 缺席或读取失败 → 不显示计数）。 */
+    private val _completedActivityCount = MutableStateFlow<Int?>(null)
+    val completedActivityCount: StateFlow<Int?> get() = _completedActivityCount
+
     /**
      * 当前会话行投影（聊天页顶迷你轨道数据源 = 行自带 workflowActivity，G-007；
      * 初值 cachedConversation 内存摘要，随后列表事件逐条覆盖）。
@@ -677,6 +691,9 @@ class ChatViewModel(
         _planPanel.value = null
         _backgroundWorks.value = emptyList()
         _subagentSessions.value = emptyList()
+        _subagentProjection.value = null
+        _activitySummaryDismissed.value = null
+        _completedActivityCount.value = null
         _currentConversation.value = null
         _controlFailure.value = null
         _controlSuccess.value = false
@@ -709,6 +726,9 @@ class ChatViewModel(
         _planPanel.value = null
         _backgroundWorks.value = emptyList()
         _subagentSessions.value = emptyList()
+        _subagentProjection.value = null
+        _activitySummaryDismissed.value = null
+        _completedActivityCount.value = null
         _currentConversation.value = null
         uploadHintSyncJob?.cancel()
         uploadHintSyncJob = null
@@ -784,6 +804,9 @@ class ChatViewModel(
         _planPanel.value = store.planPanel(conversationId)
         _backgroundWorks.value = store.backgroundWorks(conversationId)
         _subagentSessions.value = store.subagentSessions(conversationId)
+        _subagentProjection.value = store.subagentProjection(conversationId)
+        _activitySummaryDismissed.value = store.activitySummaryDismissed(conversationId)
+        _completedActivityCount.value = store.completedActivityCount(conversationId)
     }
 
     /**

@@ -72,6 +72,7 @@ import cn.biuz.android.app.ui.theme.BiuZBorderStrong
 import cn.biuz.android.app.ui.theme.BiuZOnAccent
 import cn.biuz.android.app.ui.theme.BiuZOnOrange
 import cn.biuz.android.app.ui.theme.BiuZOrange
+import cn.biuz.android.app.ui.theme.BiuZRed
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
@@ -976,6 +977,14 @@ private fun SessionRow(
                 modifier = Modifier.padding(end = BiuZSpacing.xs, top = 2.dp),
             )
         }
+        // 行前置指示槽（web 权威口径：`deriveTaskLeadingIndicator`
+        // taskListItemPresentation.ts:24-51——error 红点 > unread 蓝点 > running 转圈 >
+        // 无；三态互斥，同一时刻只出一个）。此前该槽整体缺失，isRunning 只参与排序，
+        // 用户所见「进行中的项目/会话不转圈」即此。
+        SessionRowLeadingIndicator(
+            conversation = conversation,
+            modifier = Modifier.padding(end = BiuZSpacing.sm, top = 2.dp),
+        )
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -1026,8 +1035,60 @@ private fun SessionRow(
     }
 }
 
-// MARK: - 未连接空态（统一骨架：icon 位 + 结论 + 解释 + 唯一主 CTA）
+// MARK: - 行前置指示槽（web deriveTaskLeadingIndicator 同构）
 
+/**
+ * 会话行前置指示（16dp 固定槽，三态互斥）——web 权威口径逐条移植：
+ * `packages/ui/src/lib/taskListItemPresentation.ts:24-51`
+ * - ① `phase === "error"` → 红点（失败）；
+ * - ② unreadAt 在场 → 蓝点（未读；tasks-index membership 字段，Android 对应
+ *   [Conversation.unreadCount] 的本地置位/待交互数）；
+ * - ③ `phase ∈ {prewarming, running}` → 转圈（**只认 sessions-index 实时 phase**，
+ *   持久化 status=running 不算——web 注释 line 48-50：历史行不得永远转圈）；
+ * - ④ 其余 → 无（**不画占位圆点**，web line 662 注释「无状态只保留对齐槽」）。
+ *
+ * Android 侧 [Conversation.isRunning] 是「phase 活性 ∪ taskStatus=running 且非终态」
+ * 双源合成（[cn.biuz.android.store.SessionMergeTable.toConversations]），第 ③ 档因此
+ * 比 web 略宽：跨工作区行只携 taskStatus 无 phase，只认 phase 时全库运行行恒不转
+ * （2026-10-09 v1.32 报障根因）。第 ① 档 [Conversation.isFailed] 同源宽容词表。
+ */
+@Composable
+private fun SessionRowLeadingIndicator(
+    conversation: Conversation,
+    modifier: Modifier = Modifier,
+) {
+    // 无状态也占槽（web 保留对齐槽；缺槽会让标题横向抖动）
+    Box(
+        modifier = modifier.size(16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            conversation.isFailed -> Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(BiuZRed, CircleShape)
+                    .testTag("04-row-indicator-error"),
+            )
+
+            conversation.unreadCount > 0 -> Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .background(BiuZBlue, CircleShape)
+                    .testTag("04-row-indicator-unread"),
+            )
+
+            conversation.isRunning -> CircularProgressIndicator(
+                modifier = Modifier
+                    .size(14.dp)
+                    .testTag("04-row-indicator-running"),
+                strokeWidth = 2.dp,
+                color = BiuZText3,
+            )
+        }
+    }
+}
+
+// MARK: - 未连接空态（统一骨架：icon 位 + 结论 + 解释 + 唯一主 CTA）
 @Composable
 private fun NotConnectedEmpty(
     onConnect: () -> Unit,
@@ -1132,11 +1193,15 @@ private fun ProjectNodeRow(
             )
             Spacer(Modifier.size(6.dp))
         }
-        if (group.unreadCount > 0) {
-            Text(
-                text = "${group.unreadCount}",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.primary,
+        // 折叠态未读点（web `ProjectNodeContent.tsx:290-298` 同构：`!isOpen && hasUnread`
+        // 才出蓝点 `size-1.5 rounded-full bg-icon-blue`；展开后子行自身带指示，节点不再重复）。
+        // 原实现无条件出未读**数字**——web 侧栏从不显示计数，且展开态重复提示。
+        if (!expanded && group.unreadCount > 0) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(BiuZBlue, CircleShape)
+                    .testTag("04-project-unread-dot"),
             )
             Spacer(Modifier.size(6.dp))
         }

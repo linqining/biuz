@@ -338,6 +338,9 @@ data class BackgroundWorkSummary(
     val endedAt: Long? = null,
     /** 桌面忙等标记（上游 blocked；缺席 = false） */
     val blocked: Boolean = false,
+    /** 完成摘要（v4.0.0 `backgroundWorkSummarySchema.resultSummary`，max 4096；
+     * 活动摘要折叠行展示，缺席 = 不展示）【实证·上游仓 snapshot.ts:401】 */
+    val resultSummary: String? = null,
 ) {
     val id: String get() = workId
 
@@ -544,6 +547,51 @@ data class ChatMessage(
     val timestamp: Long,
 )
 
+/**
+ * 会话级子代理投影（v4.0.0 `subagentProjectionStateSchema`【实证·上游仓 snapshot.ts:443-459】）。
+ *
+ * 与行级 [SubagentSummary] 是两层：本类型是 `state.subagents` 的整块投影，携带
+ * **本批结束摘要**（`ended`）与**历史目录总数**（`endedTotal`）——活动摘要行据此计算
+ * 「已完成 N 项」；完整历史详情仍走游标查询（`childSessionIds` 只给 id 目录）。
+ * 旧桌面（< v4.0.0）不发该键：整体缺席按「无该投影」处理，不伪造 ended/总数。
+ */
+data class SubagentProjectionState(
+    val revision: Int = 0,
+    /** 子会话 id 目录（完整历史详情仍走游标查询） */
+    val childSessionIds: List<String> = emptyList(),
+    val running: List<SubagentRuntimeSummary> = emptyList(),
+    /** 历史目录里的子代理总数（活动摘要「已完成 N 项」的分母来源） */
+    val endedTotal: Int = 0,
+    /** 本批结束摘要（v4.0.0 新增；缺席 = 本批无结束项，不是没有历史） */
+    val ended: List<SubagentRuntimeSummary> = emptyList(),
+)
+
+/** 子代理运行/结束摘要（running 与 ended 共用主体；ended 的 status 词表为
+ * success|failed|cancelled 且携 endedAt，running 为 running|waiting|blocked）。 */
+data class SubagentRuntimeSummary(
+    val childSessionId: String,
+    val subagentType: String = "",
+    val title: String = "",
+    val summary: String? = null,
+    /** running 族：running|waiting|blocked；ended 族：success|failed|cancelled */
+    val status: String = "",
+    val agentId: String? = null,
+    val toolCallId: String? = null,
+    val startedAt: Long? = null,
+    val endedAt: Long? = null,
+) {
+    val isRunning: Boolean get() = status == "running" || status == "waiting"
+}
+
+/** 活动摘要忽略集（v4.0.0 `activitySummaryDismissedSchema`【实证·上游仓 snapshot.ts:439-444】）：
+ * 用户忽略过的活动摘要条目（按三类 id 分别记录 + 忽略时刻），用于折叠行不再重复提示。 */
+data class ActivitySummaryDismissed(
+    val at: Long? = null,
+    val workIds: List<String> = emptyList(),
+    val subagentIds: List<String> = emptyList(),
+    val workflowRunIds: List<String> = emptyList(),
+)
+
 /** 子代理行投影（web SubagentRowView 同口径；null 字段按行缺省宽容）。 */
 data class SubagentSummary(
     val type: String,
@@ -570,7 +618,15 @@ data class Conversation(
      * 桌面侧栏「等待确认」同源口径，2026-10-08 用户报障「待审批的有显示移动端也需要」） */
     val pendingApprovalCount: Int = 0,
     val isPinned: Boolean = false,
+    /** 行转圈（web `isTaskListRowRunning`：只认 sessions-index 实时 phase running/prewarming） */
     val isRunning: Boolean = false,
+    /**
+     * 列表**排序**运行层成员（web `isTaskListRowActive`，taskListRowActivity.ts:56-66）：
+     * 回合在跑 **或** 挂着后台工作（`hasBackgroundWork`——workflow run / 后台 bash /
+     * 分离子代理仍在跑，而父 phase 已收口）。与 [isRunning] 分开两个字段：排序层宽、
+     * 转圈窄，web 刻意不让「后台工作」点亮转圈图标。
+     */
+    val isActive: Boolean = false,
     val isArchived: Boolean = false,
     /** 失败任务（phase=completedError 族；桌面侧栏失败任务带「清理」动作） */
     val isFailed: Boolean = false,

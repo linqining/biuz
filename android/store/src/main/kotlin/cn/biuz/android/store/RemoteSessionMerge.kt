@@ -77,6 +77,15 @@ data class SessionSummary(
     val workspacePath: String? = null,
     /** 通路 A（G-007）：行自带 workflowActivity 原文（投影解析在 UI/后续批次）。 */
     val workflowActivity: JSONValue? = null,
+    /**
+     * 行挂着后台工作（sessions-index `sessionSummarySchema.hasBackgroundWork`
+     * 【实证·上游仓 sessions-index.ts:42-43】）——回合已收口但 workflow run / 后台 bash /
+     * 分离子代理仍在跑。web 用它把行升进**排序**运行层
+     * （`taskListRowActivity.ts:56-66 isTaskListRowActive = isTaskListRowRunning || hasBackgroundWork`），
+     * 转圈仍只认 phase（`isTaskListRowRunning`）——两件事口径不同，不可合并成一个布尔。
+     * 缺席（旧桌面）= false。
+     */
+    val hasBackgroundWork: Boolean = false,
 )
 
 /** 会话摘要行解析（iOS `extension RemoteConversationStore.SessionSummary` 直译，:5581-5706）。 */
@@ -153,6 +162,7 @@ object SessionSummaryParser {
                 ?: dict["workspace"]?.stringValue
                 ?: workspaceObj?.get("path")?.stringValue,
             workflowActivity = dict["workflowActivity"],
+            hasBackgroundWork = dict["hasBackgroundWork"]?.boolValue ?: false,
         )
     }
 }
@@ -581,6 +591,12 @@ class SessionMergeTable {
             conversation = conversation.copy(
                 isRunning = phaseActive ||
                     (summary.taskStatus == "running" && !phaseTerminal),
+                // 排序层成员（web isTaskListRowActive 同构）：回合在跑**或**挂着后台工作。
+                // 分离字段而非并入 isRunning——转圈只认 phase（web isTaskListRowRunning），
+                // 合并会让「回合已收口但 run 还在跑」的行也转圈，与桌面侧栏不一致。
+                isActive = phaseActive ||
+                    (summary.taskStatus == "running" && !phaseTerminal) ||
+                    summary.hasBackgroundWork,
                 // 失败任务（桌面侧栏失败任务带「清理」；phase 词表 completedError 族宽容）
                 isFailed = summary.phase.lowercase().contains("error") ||
                     summary.phase.lowercase().contains("failed") ||

@@ -58,6 +58,7 @@ internal data class ProjectGroup(
     val title: String,
     val rows: List<Conversation>,
 ) {
+    /** 项目节点汇总转圈口径 = 有行回合在跑（isRunning，与行指示同一判定；不含后台工作层）。 */
     val runningCount: Int
         get() = rows.count { it.isRunning }
 
@@ -77,11 +78,19 @@ internal data class ProjectBoard(
     val tasks: List<Conversation>,
 )
 
-/** 行排序：运行中置顶 → 活跃时间降序（稳定可预期）。 */
+/**
+ * 行排序：运行中置顶 → 活跃时间降序（稳定可预期）。
+ *
+ * 排序层成员 = [Conversation.isActive]（web `isTaskListRowActive`，
+ * `taskListOrdering.ts:66-97 compareTaskListItemsWithRunningFirst` 以它作 running 判定），
+ * 含「回合已收口但挂着后台工作」的行——否则两个各跑一个 workflow run 的会话会随 run
+ * 进度事件互相换位（web 逐字注释即此）。转圈图标仍只认 [Conversation.isRunning]。
+ */
 internal fun conversationRowOrder(rows: List<Conversation>): List<Conversation> =
     rows.sortedWith(
-        compareByDescending<Conversation> { it.isRunning }
-            .thenByDescending { it.updatedAt },
+        compareByDescending<Conversation> { it.isActive }
+            .thenByDescending { it.updatedAt }
+            .thenByDescending { it.id },
     )
 
 internal fun projectBoard(rows: List<Conversation>): ProjectBoard {

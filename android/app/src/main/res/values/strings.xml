@@ -464,6 +464,15 @@
     <string name="panel_control_unknown">桌面端回执状态未知 · 等待投影确认</string>
     <string name="panel_control_success">已下发 · 等待桌面端执行</string>
     <string name="wf_history_caption">历史 run</string>
+    <!-- v4.0.0 活动摘要行（web chat.capsule.activity.*，zh-CN.ts:62-66 逐字） -->
+    <string name="activity_running">活跃中</string>
+    <string name="activity_completed">已完成</string>
+    <string name="activity_stopped">已停止</string>
+    <string name="activity_failed">失败</string>
+    <string name="activity_label">活跃</string>
+    <string name="activity_directory_subagents">子代理目录</string>
+    <string name="activity_directory_workflows">工作流目录</string>
+    <string name="activity_completed_unknown">已完成 若干</string>
     <string name="wf_truncated">已截断</string>
     <string name="wf_actor_default">子代理</string>
     <string name="wf_actor_tasks">%1$d 个任务</string>

@@ -465,3 +465,21 @@ v1.12（附件形状）、v1.17（订阅寻址）、v1.20（getView 词表）、
 - **改法**：登录页从「卡片容器 + 标题 + 同义说明 + 两个等权 Provider 按钮（点任一再进平台页）」改为品牌页形态——主印 84dp + 「朱批」居中 → 一句说明 → **一个**主按钮 → 暂不登录；去掉卡片容器与重复措辞。主按钮 = **朱磦实底纸色字**（`BiuZSeal`/`BiuZOnSeal`，与主印同色成对；显式取印系令牌，不用 Material `primary` 的纸白/墨黑单色），右侧分隔线 + `ArrowDropDown` 矢量箭头（44dp 独立热区 `01-btn-provider-switch`）就地切换平台：点按钮主体 = 当前平台直接授权，点箭头 = `DropdownMenu` 两项（名称 + 地域，当前项朱磦勾选，`01-option-zai/bigmodel`）。BigModel 保留为第二通道（不删，否则部分用户无路可走），只是不再与主路径争视觉权重。
 - **代码**：`LoginScreen.kt`（布局重写 + `LoginProviderButton`/`LoginProvider`）；登录页 5 个字符串补 en 缺译。新增 `LoginProviderTest` 2 例（默认 Z.ai、两项映射不重复）。
 - **门禁**：app 166 例全绿、`assembleDebug` 绿；seeker 真机目检——朱磦主按钮与 logo 同色、箭头可展开两项菜单、选中 BigModel 后按钮即时变为「连接 BigModel 继续使用 / 中国」。
+
+### 13.10 上游 v4.0.0 同步 + 列表/会话详情复刻补齐 + 浅色卡面纸色化（2026-11-24 第五轮）
+
+**起点**：用户 `/goal` 四任务——① ZCode 代码更新同步 ② 进行中转圈/会话内工作流/会话详情渲染逐项走查至与 web 一致 ③ seeker 真机仍是白底而非纸底 ④ 新建会话验收。
+
+- **上游盘面**（`/tmp/zcode-upstream` 已 fetch 到 `a4b44451 chore: sync ZCode source v4.0.0`）：2209 文件变更；协议层仅 +95 行（`delta.ts`/`snapshot.ts`/`sessions-index.ts` 三处新键），但 UI 层是大改——`ConversationStatusPanel.tsx` 重写（3024 行 diff，活动摘要胶囊体系）、`composer/ConversationBackgroundWorkTrigger.tsx` 整文件删除（-150）。
+- **协议层根因（三处此前全是默认空实现）**：
+  - `goalSummary` / `planPanel` / `subagentSessions` 在 Android store **一个实现都没有**（全走 `StoreProtocols` 默认 null/empty）——会话页目标/计划/子代理面板因此**一直是空的**，这是「会话详情渲染不一致」的协议层根因。本轮按 `goalStateSchema`（snapshot.ts:471-502，`objective` + status 六态闭集）与 `planStateSchema`（:504-507，`items[].status` 三态）移植，旧桌面宽容键族保留。
+  - `subagentProjection` / `backgroundWorks` / `activitySummaryDismissed` / `completedActivityCount` 四读面新增（v4.0.0 `backgroundWorkSummarySchema.resultSummary`、`subagentProjectionStateSchema`、`activitySummaryDismissedSchema`）。
+  - **`snapshotStateKeys` 白名单漏登记**：`activitySummaryDismissed` / `completedActivityCount` / `workspaceMcpAdmission` 三键不在集合内 → 全量快照（重连/刷新）静默丢弃它们。已补并扩 `state.updated` 面板广播键集。
+- **列表指示（用户「进行中的项目转圈」）**：`SessionRow` **根本没有渲染运行态指示**——文档头写着「isRunning 双源合成转圈」，代码里只有 📌 + 标题 + 时间。按 web 权威 `deriveTaskLeadingIndicator`（`lib/taskListItemPresentation.ts:24-51`）新增 16dp 前置槽三态互斥：失败红点 > 未读蓝点 > running 转圈（只认 sessions-index 实时 phase），无状态留空槽不画占位点。真机目检：📌 行出现弧形转圈。
+- **排序层与转圈分离（web 两件事刻意分开）**：新增 `Conversation.isActive`（= `isTaskListRowActive`，`v4/taskListRowActivity.ts:56-66`：phase 活性 ∪ `hasBackgroundWork`），排序层用它（防「回合已收口但 run 还在跑」的行随进度事件互相换位），转圈仍只认 `isRunning`。`SessionSummaryParser` 补解析 `hasBackgroundWork`（sessions-index.ts:42-43）。项目节点未读从「数字」改为折叠态蓝点（web `ProjectNodeContent.tsx:290-298` 同构：`!isOpen && hasUnread` 才出点，侧栏从不显示计数）。
+- **活动摘要行（v4 核心新面）**：新增 `ActivitySummaryModel.kt` 纯计算 + `ActivitySummaryRow` UI。三条易错口径固化（web :1035-1300 逐字）：① 忽略集只对已结束生效，子代理另有「`endedAt > dismissed.at` 复活」时间例外；② `completedActivityCount = null` 是「未知」不是 0，只有 null 才回退 preview 计数；③ 计数优先级 运行数 > 失败数 > 完成数。9 例单测覆盖三源合并排序 / 忽略/复活 / 工作流 child 不双计 / null 回退 / 失败优先 / 停止条件 / 目录门槛 / 头像组不过滤。
+- **浅色卡面纸色化（用户「seeker 依然是白色而不是纸色底色」）**：取证结论 = **页面底色本就是纸色** `#F7F3EC`（像素采样确认），「白」来自二级页（设置/用量/归档/项目）由满宽卡面铺成——卡面 `#FFFDF9`、浮层 `#FFFFFF` 近纯白，白卡面积压过纸底。改为同一张纸略亮一档：`bgCard #FBF8F2`、`bgElevated #FDFBF6`、`bgCode`/`bgTerm` 同步微调；层次靠 12% 墨描边而非白度差。真机复采样：卡面 `(251,248,242)`、纸底 `(247,243,236)`，整页目检为纸色。
+- **真机验收**（seeker SM02G4061935152，桌面 4.0.0）：新建会话成功（`sess_09c6b03`，空态文案 + composer + GLM-5.4 胶囊正常）；既有会话（绑 `deepseek/deepseek-v4.1-flash`）详情页正常渲染，目标/计划/后台 4 个 chips **均有数据**（此前恒空）；列表置顶行转圈可见。
+- **门禁**：`app 425 / store / protocol` 单测全绿（0 失败）；`assembleDebug` 绿且产物 mtime 晚于全部源码改动。
+- **口径澄清**：模型面板只列桌面 `getView` 的套餐词表（个人套餐 GLM-4 族）；`deepseek/deepseek-v4.1-flash` 属 ccgithub 自定义 provider，由会话级 `state.modelSelection` 绑定、不在 getView 词表内——**不是缺陷**，验收用已绑定该模型的会话来发消息。
+- **未验证/遗留**：① 活动摘要行 UI 在本真机数据的会话上**不渲染**（4 个 bash 全在 `activitySummaryDismissed.workIds`、completed=0——按 web 规则本就该隐藏，行为正确但**缺正向渲染证据**）；② 子代理面板（`subagentProjection`）真实数据未目检（当前桌面无子代理活动）；③ web 历史目录入口（子代理目录/工作流目录）移动端无对应页，`hasDirectoryTargets=false` 恒不出；④ 移动端未实现 web 的头像叠图，用状态色点 + 计数承载等价信息。
