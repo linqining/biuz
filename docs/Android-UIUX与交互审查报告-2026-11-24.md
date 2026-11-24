@@ -344,6 +344,26 @@ E 批次遗留的「三个独立值」按用户裁决收进节奏档；同时按
 **门禁**：app/store/protocol **551 例全绿**；`assembleDebug` 产物 mtime 晚于源码。
 **真机目检**：单条左轨（区头/📌/📁/工具行/列表头同一竖线），行距均匀，项目分组有 8dp 分隔；截图 `/tmp/rhythm4.png`（本轮临时件，不入库）。
 
+### G 批次·主 CTA 归朱磦（2026-11-24 逐屏走查发现）
+
+逐屏走查（列表 → 文件 → 设置 → 会话详情）在文件页抓到一条**成体系的品牌违约**：
+
+| 证据 | 事实 |
+|---|---|
+| 真机像素采样 | 「全部批准（4）」实底 = **#17181A（墨）**，纸字——它不是印系主色，也不是中性强调 |
+| 代码溯源 | 该按钮 `.background(BiuZAccent)`；浅档 `accent = #17181A` |
+| 系统性 | `Theme.kt` 把 **Material `primary` 映射到 `p.accent`（墨）**——全仓 12 处 `Button(`（连接页「登录/扫码」、会话页「重连/重试」、用量「连接桌面/领取」、设置「登录」、扫码「打开系统设置」、文件「全部批准」…）**全部渲染成近黑实底** |
+
+**修法（token 单点重映射，不做逐点改色）**：`Theme.kt` 两档 `primary/onPrimary/primaryContainer/onPrimaryContainer` → `seal/onSeal/sealDim/seal`。语义上 Material 的 `primary` 本就是「主操作色」，映射到印系主印色是正解；`p.accent`（墨）保留给显式中性强调（`BiuZAccent` 的 22 处引用点不动）。副作用全部为正：同步/加载 spinner、`✓` 勾选、开关轨道、About 页「朱批」品牌名一并落到朱磦。
+
+文件页另加两笔手工修正：页面级主 CTA（全部批准）改 `BiuZSeal/BiuZOnSeal` + `ctaPress`（按压实 + 轻击触觉，§5-21②）；卡片内「批准/拒绝」加 `pressableScale`（按钮压实，无触觉——触觉只给主 CTA）。
+
+**新增回归门**：`MotionAndPaletteTest.materialPrimaryMapsToSealNotInk`（扫 `Theme.kt`：两档必须 `primary = p.seal` / `onPrimary = p.onSeal`，出现 `primary = p.accent` 即失败）。
+
+**真机取证**：文件页 CTA 采样 **(210,64,46) = #D2402E**（改前 (23,24,26)）；列表页同步 spinner 变朱磦；设置页外观卡、退出登录红描边、会话详情页胶囊与工具卡均无异常。
+**门禁**：app/store/protocol/connection/relay **566 例全绿**。
+**未目检（如实声明）**：连接页（登录/扫码主钮）需断线才可达，本轮未实测——其按钮走 Material `Button(`，与文件页同源于本次 remap，风险面已在代码层覆盖但**没有真机截图**。
+
 ---
 
 ## 11 原待裁决项（已被 §10 取代，留档）

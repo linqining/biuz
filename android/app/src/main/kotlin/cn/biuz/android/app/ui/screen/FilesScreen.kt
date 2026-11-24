@@ -65,6 +65,10 @@ import cn.biuz.android.app.R
 import cn.biuz.android.app.ui.chat.byteText
 import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZAccent
+import cn.biuz.android.app.ui.theme.BiuZSeal
+import cn.biuz.android.app.ui.theme.BiuZOnSeal
+import cn.biuz.android.app.ui.theme.ctaPress
+import cn.biuz.android.app.ui.theme.pressableScale
 import cn.biuz.android.app.ui.theme.BiuZAdd
 import cn.biuz.android.app.ui.theme.BiuZBg
 import cn.biuz.android.app.ui.theme.BiuZBgCard
@@ -529,6 +533,9 @@ fun FilesScreen(
             }
         }
         // 底部动作栏「全部批准」（未决文件在场才渲染；一次 RPC 批量 stagePaths）
+        // 主 CTA = 朱磦实底（AGENTS §5-21④）：原用 BiuZAccent（墨）——真机读作一块近黑
+        // 大按钮压在纸底上，既不是印系主色也不是中性强调。按压实 + 轻击触觉同档给到
+        // （ctaPress，§5-21②「触觉只给主 CTA 与落印」）。
         if (!isLoading && pending.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -536,12 +543,20 @@ fun FilesScreen(
                     .background(BiuZBgCard)
                     .padding(horizontal = BiuZSpacing.lg, vertical = BiuZSpacing.sm),
             ) {
+                val approveInteraction = remember {
+                    androidx.compose.foundation.interaction.MutableInteractionSource()
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .ctaPress(approveInteraction)
                         .clip(BiuZRadius.medium)
-                        .background(if (approvingAll) BiuZBgInput else BiuZAccent)
-                        .clickable(enabled = !approvingAll) {
+                        .background(if (approvingAll) BiuZBgInput else BiuZSeal)
+                        .clickable(
+                            interactionSource = approveInteraction,
+                            indication = null,
+                            enabled = !approvingAll,
+                        ) {
                             scope.launch {
                                 approvingAll = true
                                 actionError = fileStore.approveAll()
@@ -560,7 +575,7 @@ fun FilesScreen(
                             stringResource(R.string.files_approve_all, pending.size)
                         },
                         style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
-                        color = if (approvingAll) BiuZText3 else BiuZOnAccent,
+                        color = if (approvingAll) BiuZText3 else BiuZOnSeal,
                     )
                 }
             }
@@ -580,6 +595,13 @@ private fun DiffFileCard(
     onApprove: () -> Unit,
     onReject: () -> Unit,
 ) {
+    // 卡片内批准/拒绝 = 按钮（压实反馈，无触觉——触觉只给页面级主 CTA）
+    val approveInteraction = remember {
+        androidx.compose.foundation.interaction.MutableInteractionSource()
+    }
+    val rejectInteraction = remember {
+        androidx.compose.foundation.interaction.MutableInteractionSource()
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -675,9 +697,15 @@ private fun DiffFileCard(
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            .pressableScale(rejectInteraction)
                             .clip(BiuZRadius.small)
                             .border(1.dp, BiuZDel.copy(alpha = BiuZAlpha.half), BiuZRadius.small)
-                            .clickable(enabled = !anyDeciding, onClick = onReject)
+                            .clickable(
+                                interactionSource = rejectInteraction,
+                                indication = null,
+                                enabled = !anyDeciding,
+                                onClick = onReject,
+                            )
                             .padding(vertical = BiuZSpacing.md)
                             .testTag("08-filecard-reject"),
                         contentAlignment = Alignment.Center,
@@ -693,9 +721,15 @@ private fun DiffFileCard(
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            .pressableScale(approveInteraction)
                             .clip(BiuZRadius.small)
                             .background(if (anyDeciding) BiuZBgInput else BiuZAccent)
-                            .clickable(enabled = !anyDeciding, onClick = onApprove)
+                            .clickable(
+                                interactionSource = approveInteraction,
+                                indication = null,
+                                enabled = !anyDeciding,
+                                onClick = onApprove,
+                            )
                             .padding(vertical = BiuZSpacing.md)
                             .testTag("08-filecard-approve"),
                         contentAlignment = Alignment.Center,

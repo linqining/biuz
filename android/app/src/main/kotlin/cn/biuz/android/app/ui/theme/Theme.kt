@@ -17,10 +17,13 @@ import androidx.compose.ui.graphics.Color
 
 private fun schemeFor(p: BiuZPalette, dark: Boolean) = if (dark) {
     darkColorScheme(
-        primary = p.accent,
-        onPrimary = p.onAccent,
-        primaryContainer = p.accentDim,
-        onPrimaryContainer = p.accent,
+        // 主 CTA = 朱磦（2026-11-24 用户裁决「朱磦」；AGENTS §5-21④）：
+        // Material 的 primary 语义就是「主操作色」，映射到印系主印色；
+        // 墨（p.accent）保留给显式中性强调（BiuZAccent 引用点）。
+        primary = p.seal,
+        onPrimary = p.onSeal,
+        primaryContainer = p.sealDim,
+        onPrimaryContainer = p.seal,
         inversePrimary = p.lightAccent,
         secondary = p.text2,
         onSecondary = p.bg,
@@ -59,10 +62,13 @@ private fun schemeFor(p: BiuZPalette, dark: Boolean) = if (dark) {
     )
 } else {
     lightColorScheme(
-        primary = p.accent,
-        onPrimary = p.onAccent,
-        primaryContainer = p.accentDim,
-        onPrimaryContainer = p.accent,
+        // 主 CTA = 朱磦（2026-11-24 用户裁决「朱磦」；AGENTS §5-21④）：
+        // Material 的 primary 语义就是「主操作色」，映射到印系主印色；
+        // 墨（p.accent）保留给显式中性强调（BiuZAccent 引用点）。
+        primary = p.seal,
+        onPrimary = p.onSeal,
+        primaryContainer = p.sealDim,
+        onPrimaryContainer = p.seal,
         inversePrimary = p.lightAccent,
         secondary = p.text2,
         onSecondary = p.bg,

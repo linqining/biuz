@@ -51,4 +51,34 @@ class MotionAndPaletteTest {
         assertEquals(Color(0xFFD2402E), BiuZDarkPalette.seal)
         assertEquals(Color(0xFFB03020), BiuZDarkPalette.sealPress)
     }
+
+    @Test
+    fun materialPrimaryMapsToSealNotInk() {
+        // 主 CTA = 朱磦（2026-11-24 裁决）。Material 的 primary 语义就是「主操作色」，
+        // 一旦有人把它改回 p.accent（墨），全仓 12 处 Material Button 会集体变回近黑按钮——
+        // 真机实测过：「全部批准」曾是一块 #17181A 实底。
+        val theme = listOf(
+            java.io.File("src/main/kotlin/cn/biuz/android/app/ui/theme/Theme.kt"),
+            java.io.File("app/src/main/kotlin/cn/biuz/android/app/ui/theme/Theme.kt"),
+            java.io.File("android/app/src/main/kotlin/cn/biuz/android/app/ui/theme/Theme.kt"),
+        ).firstOrNull { it.isFile } ?: run {
+            println("MotionAndPaletteTest: Theme.kt 不在预期位置，跳过（非失败）")
+            return
+        }
+        val src = theme.readText()
+        assertEquals(
+            2,
+            Regex("""primary = p\.seal,""").findAll(src).count(),
+            "深浅两档的 Material primary 都必须映射到 seal（朱磦）：\n$src".take(400),
+        )
+        assertTrue(
+            !src.contains("primary = p.accent"),
+            "primary 不得回退到 accent（墨）——主 CTA 会变近黑按钮",
+        )
+        assertEquals(
+            2,
+            Regex("""onPrimary = p\.onSeal,""").findAll(src).count(),
+            "onPrimary 必须成对映射到 onSeal（印面纸字）",
+        )
+    }
 }
