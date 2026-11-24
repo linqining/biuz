@@ -40,7 +40,12 @@ class MotionAndPaletteTest {
         // 品牌四色（brand/seal/README.md:39）
         assertEquals(Color(0xFFD2402E), BiuZLightPalette.seal, "朱磦")
         assertEquals(Color(0xFF17181A), BiuZLightPalette.text, "墨")
-        assertEquals(Color(0xFFF7F3EC), BiuZLightPalette.bg, "纸")
+        // 纸：2026-11-24 加深到 #F2EADB（旧 #F7F3EC 离纯白只差 4%，手机屏读作白——
+        // 用户三次报「不是纸色」，且其自带截图与 adb 截图逐像素一致，证明渲染没错、值不对）。
+        // 与品牌档出现偏差，待用户裁决是否回写 brand/seal/README.md:39。
+        assertEquals(Color(0xFFF2EADB), BiuZLightPalette.bg, "纸（加深版）")
+        // 纸必须与纯白有可感知距离：≥30 阶（蓝通道），否则又会读成白
+        assertTrue(255 - BiuZLightPalette.bg.blue * 255f >= 30f, "纸色离纯白太近（<30 阶会读作白）")
         // 钤灰没有独立令牌位（由 text2/text3 的墨/纸 alpha 承载），此处只锁前三色
     }
 

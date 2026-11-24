@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 框架 Material NoActionBar（零 appcompat 依赖，ComponentActivity 直挂）。
      真实配色由 Compose BiuZTheme 接管；这里只负责冷启窗底/Splash 底（= 默认浅色档纸底
-     #F7F3EC，与启动图标背景层同色）。
+     #F2EADB，与启动图标背景层同色）。
      edge-to-edge 由 MainActivity.enableEdgeToEdge() 在运行时接管，不在此设状态栏色。 -->
 <resources>
     <style name="Theme.BiuZ" parent="android:Theme.Material.NoActionBar">

@@ -49,16 +49,22 @@ extension Color {
 // 在线点、审批卡 eyebrow），与 destructive red 分工不混用。状态色族沿用 web 口径。
 
 enum T {
-    // 色板 —— 朱批印系（2026-11-21 品牌升级，原 ZCode web 对齐板作废；出处 brand/seal/README.md）：
-    //   light: 纸底 #F7F3EC · 卡 #FFFDF9 · 输入 #EFE9DF · 正文墨 #17181A（次级 62% / 最弱 40%）
+    // 色板 —— 朱批印系（light 档 2026-11-24 与 Android 同步加深，原 ZCode web 对齐板作废）：
+    //   light: 纸底 **#F2EADB** · 卡=纸（层次靠 12% 墨描边）· 输入 #E8DFCB · 正文墨 #17181A
     //   dark : 墨底 #17181A · 卡 #1C1D20 · 面 #232428 · 正文纸 #F7F3EC（次级 62% / 最弱 30%）
     //   印色 : 朱磦 #D2402E（加深 #B03020）——盖章/审批/品牌位专用，destructive red 独立不混用
-    static let bg            = Color(light: "f7f3ec", dark: "17181a")
-    static let bgCard        = Color(light: "fffdf9", dark: "1c1d20")
-    static let bgElevated    = Color(light: "ffffff", dark: "232428")
-    static let bgInput       = Color(light: "efe9df", dark: "222326")
-    static let bgCode        = Color(light: "f1ece3", dark: "1b1c1f")
-    static let bgTerm        = Color(light: "f2eee6", dark: "131416")
+    //
+    // ⚠ 纸底加深的理由（用户三次报「不是纸色」）：旧值 #F7F3EC 离纯白只差 8/12/19 阶
+    // （约 4% 暖调），手机屏上读作浅灰/白；用户自带截图与 adb 截图逐像素一致，证明渲染
+    // 没错、**值**不对。现 #F2EADB 差 13/21/36 阶，肉眼即纸。卡面与纸同色（不再用
+    // #FFFDF9/#FFFFFF 的「比纸白一档」——那正是满屏白的来源）。
+    // 与 brand/seal/README.md:39 出现偏差，待用户裁决是否回写品牌档。
+    static let bg            = Color(light: "f2eadb", dark: "17181a")
+    static let bgCard        = Color(light: "f2eadb", dark: "1c1d20")
+    static let bgElevated    = Color(light: "f7f1e4", dark: "232428")
+    static let bgInput       = Color(light: "e8dfcb", dark: "222326")
+    static let bgCode        = Color(light: "eee6d5", dark: "1b1c1f")
+    static let bgTerm        = Color(light: "efe8d8", dark: "131416")
     static let border        = Color(light: "17181a", dark: "f7f3ec", lightAlpha: 0.12, darkAlpha: 0.12)
     static let borderStrong  = Color(light: "17181a", dark: "f7f3ec", lightAlpha: 0.18, darkAlpha: 0.18)
     static let text          = Color(light: "17181a", dark: "f7f3ec")
