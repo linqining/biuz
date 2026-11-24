@@ -413,9 +413,9 @@ class ChatViewModel(
     val subagentDirectory: StateFlow<cn.biuz.android.protocol.SessionSubagentDirectory?> get() =
         _subagentDirectory
 
-    /** 目录失败原文（null = 无在案拒因）。 */
-    internal var directoryFailureText: String? = null
-        private set
+    /** 目录失败原文（null = 无在案拒因；UI 作为失败行副文案上屏，§5-12）。 */
+    private val _directoryFailureText = MutableStateFlow<String?>(null)
+    val directoryFailureText: StateFlow<String?> get() = _directoryFailureText
 
     /**
      * `session/subagents` 能力（null = 未探测；false = 桌面不暴露 → 入口隐藏）。
@@ -445,7 +445,7 @@ class ChatViewModel(
         val page = store.subagentDirectory(conversationId, cursor = cursor)
         if (page == null) {
             // 失败**必须上屏**（AGENTS §5-12 禁静默吞错）：此前 UI 会永远停在「正在加载…」
-            directoryFailureText = (store as? cn.biuz.android.store.RemoteConversationStore)
+            _directoryFailureText.value = (store as? cn.biuz.android.store.RemoteConversationStore)
                 ?.lastSubagentDirectoryError
                 ?.takeIf { it.isNotBlank() }
             _subagentDirectoryFailure.value = true
@@ -768,6 +768,7 @@ class ChatViewModel(
         _subagentDirectory.value = null
         _subagentDirectoryFailure.value = false
         _subagentDirectorySupported.value = null
+        _directoryFailureText.value = null
         _currentConversation.value = null
         _controlFailure.value = null
         _controlSuccess.value = false
@@ -806,6 +807,7 @@ class ChatViewModel(
         _subagentDirectory.value = null
         _subagentDirectoryFailure.value = false
         _subagentDirectorySupported.value = null
+        _directoryFailureText.value = null
         _currentConversation.value = null
         uploadHintSyncJob?.cancel()
         uploadHintSyncJob = null

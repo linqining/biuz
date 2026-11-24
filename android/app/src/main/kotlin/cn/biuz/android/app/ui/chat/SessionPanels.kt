@@ -153,6 +153,7 @@ fun SessionPanelsSection(
     val subagentDirectory by viewModel.subagentDirectory.collectAsStateWithLifecycle()
     val directoryFailure by viewModel.subagentDirectoryFailure.collectAsStateWithLifecycle()
     val directorySupported by viewModel.subagentDirectorySupported.collectAsStateWithLifecycle()
+    val directoryFailureText by viewModel.directoryFailureText.collectAsStateWithLifecycle()
     val controlFailure by viewModel.controlFailure.collectAsStateWithLifecycle()
     val controlSuccess by viewModel.controlSuccess.collectAsStateWithLifecycle()
     val transcript by viewModel.actorTranscriptSheet.collectAsStateWithLifecycle()
@@ -216,6 +217,7 @@ fun SessionPanelsSection(
                 model = activitySummary,
                 directory = subagentDirectory,
                 directoryFailed = directoryFailure,
+                directoryFailureText = directoryFailureText,
                 onLoadDirectory = { scope.launch { viewModel.loadSubagentDirectory() } },
                 onLoadMore = {
                     val cursor = subagentDirectory?.nextCursor
@@ -530,6 +532,7 @@ private fun ActivitySummaryRow(
     model: ActivitySummaryModel,
     directory: cn.biuz.android.protocol.SessionSubagentDirectory? = null,
     directoryFailed: Boolean = false,
+    directoryFailureText: String? = null,
     onLoadDirectory: (() -> Unit)? = null,
     onLoadMore: (() -> Unit)? = null,
 ) {
@@ -725,6 +728,16 @@ private fun ActivitySummaryRow(
                                 style = TextStyle(fontSize = 10.5.sp),
                                 color = BiuZOrange,
                             )
+                            directoryFailureText?.take(40)?.let { reason ->
+                                Text(
+                                    text = reason,
+                                    style = TextStyle(fontSize = 9.5.sp),
+                                    color = BiuZText3,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                            }
                             Text(
                                 text = stringResource(R.string.activity_directory_retry),
                                 style = TextStyle(fontSize = 10.5.sp),
