@@ -164,6 +164,10 @@ private suspend fun AppSession.readMcp(workspacePath: String?): List<CapabilityR
 private fun mcpStatusLabel(raw: String?): String? = raw?.let {
     when (it.lowercase()) {
         "connected", "ready", "ok" -> "已连接"
+        // 连接中档：真机 MCP 页曾把 `connecting` 原词漏到界面上（其它行都是「已连接」），
+        // 宽容回退只该兜**未知**词，已知词必须本地化
+        "connecting", "starting", "initializing" -> "连接中"
+        "disconnected" -> "未连接"
         "disabled", "stopped" -> "已停用"
         "failed", "error" -> "异常"
         else -> it

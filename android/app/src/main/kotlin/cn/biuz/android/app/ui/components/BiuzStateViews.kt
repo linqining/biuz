@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -79,6 +80,25 @@ fun BiuzEmptyState(
             Text(text = hint, color = BiuZText3, fontSize = 13.sp, textAlign = TextAlign.Center)
         }
         action?.invoke()
+    }
+}
+
+/**
+ * 全页状态位容器（加载 / 空 / 失败）：占满 Column 的**剩余高度并垂直居中**。
+ *
+ * 为什么需要：`BiuzEmptyState` / `BiuzLoadingState` 自身只有 `fillMaxWidth()`——直接放进
+ * `fillMaxSize` 的 Column 里会贴顶渲染。真机在 MCP / 记忆页看到的是一枚 20dp 转圈孤零零
+ * 挂在标题下方、下面整屏空白，读作「页面坏了」（2026-11-24 逐屏走查）。
+ *
+ * 带搜索框/工具条的页面（归档）**不要**用它——那里状态位紧跟工具条才是对的。
+ */
+@Composable
+fun ColumnScope.BiuzCenteredState(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxWidth().weight(1f),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
     }
 }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.combinedClickable
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,12 +43,15 @@ import cn.biuz.android.app.ui.components.BiuzEmptyState
 import cn.biuz.android.app.ui.components.BiuzInlineNotice
 import cn.biuz.android.app.ui.components.BiuzLoadingState
 import cn.biuz.android.app.ui.theme.BiuZAccent
+import cn.biuz.android.app.ui.theme.pressableScale
 import cn.biuz.android.app.ui.theme.BiuZBg
 import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
+import cn.biuz.android.app.ui.theme.BiuZText2
+import cn.biuz.android.app.ui.theme.BiuZBgInput
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
 import cn.biuz.android.connection.ModelSelectionOverride
@@ -600,14 +605,22 @@ private fun SubagentRowView(
         // 写面波次⑤：built-in/plugin 行内模型覆盖入口（web
         // SubagentModelOverrideControl :608-805 同位；user 行走编辑器）
         if (agent.source == "built-in" || agent.source == "plugin") {
+            // 这是**动作入口**，不是说明文字：原实现是裸墨色文本（无底色/无箭头/同正文
+            // 字重），真机读作「卡片底部一行没写完的标签」。改为胶囊钮（与面板内
+            // PanelCapsuleButton、works 行按钮同款），并给按压反馈。
+            val interaction = remember {
+                androidx.compose.foundation.interaction.MutableInteractionSource()
+            }
             Text(
-                text = stringResource(R.string.subagents_model_override),
-                fontSize = 11.sp,
-                color = BiuZAccent,
+                text = stringResource(R.string.subagents_model_override) + " ›",
+                style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                color = BiuZText2,
                 modifier = Modifier
-                    .clip(BiuZRadius.small)
-                    .clickable { onModelOverride() }
-                    .padding(vertical = BiuZSpacing.xs)
+                    .pressableScale(interaction)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(BiuZBgInput)
+                    .clickable(interactionSource = interaction, indication = null) { onModelOverride() }
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                     .testTag("26-model-override-${agent.id}"),
             )
         }

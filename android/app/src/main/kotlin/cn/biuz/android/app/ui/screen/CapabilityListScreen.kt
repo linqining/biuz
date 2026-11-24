@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import cn.biuz.android.app.R
 import cn.biuz.android.app.ui.components.BiuzEmptyState
 import cn.biuz.android.app.ui.components.BiuzInlineNotice
+import cn.biuz.android.app.ui.components.BiuzCenteredState
 import cn.biuz.android.app.ui.components.BiuzLoadingState
 import cn.biuz.android.app.ui.theme.BiuZBg
 import cn.biuz.android.app.ui.theme.BiuZBgCard
@@ -125,40 +126,48 @@ fun CapabilityListScreen(
         androidx.compose.material3.HorizontalDivider(color = BiuZBorder)
 
         when {
-            notConnected -> BiuzEmptyState(
-                title = stringResource(R.string.cap_not_connected),
-                hint = stringResource(R.string.cap_not_connected_hint),
-                modifier = Modifier.testTag("$tagPrefix-not-connected"),
-            )
-
-            loading && rows.isEmpty() -> BiuzLoadingState(text = stringResource(R.string.cap_loading))
-
-            failure != null -> Column(
-                modifier = Modifier.fillMaxWidth().padding(BiuZSpacing.md),
-                verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
-            ) {
-                BiuzInlineNotice(
-                    message = stringResource(R.string.cap_load_failed) + " · " + failure,
-                    onRetry = { scope.launch { reload() } },
-                    tag = "$tagPrefix-load-error",
+            notConnected -> BiuzCenteredState {
+                BiuzEmptyState(
+                    title = stringResource(R.string.cap_not_connected),
+                    hint = stringResource(R.string.cap_not_connected_hint),
+                    modifier = Modifier.testTag("$tagPrefix-not-connected"),
                 )
             }
 
-            rows.isEmpty() -> BiuzEmptyState(
-                title = when (kind) {
-                    CapabilityKind.memory -> stringResource(R.string.cap_memory_empty)
-                    CapabilityKind.skills -> stringResource(R.string.cap_skills_empty)
-                    CapabilityKind.mcp -> stringResource(R.string.cap_mcp_empty)
-                    CapabilityKind.plugins -> stringResource(R.string.cap_plugins_empty)
-                },
-                hint = when (kind) {
-                    CapabilityKind.memory -> stringResource(R.string.cap_memory_empty_hint)
-                    CapabilityKind.skills -> stringResource(R.string.cap_empty_hint)
-                    CapabilityKind.mcp -> stringResource(R.string.cap_mcp_empty_hint)
-                    CapabilityKind.plugins -> stringResource(R.string.cap_plugins_empty_hint)
-                },
-                modifier = Modifier.testTag("$tagPrefix-empty"),
-            )
+            loading && rows.isEmpty() -> BiuzCenteredState {
+                BiuzLoadingState(text = stringResource(R.string.cap_loading))
+            }
+
+            failure != null -> BiuzCenteredState {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(BiuZSpacing.md),
+                    verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+                ) {
+                    BiuzInlineNotice(
+                        message = stringResource(R.string.cap_load_failed) + " · " + failure,
+                        onRetry = { scope.launch { reload() } },
+                        tag = "$tagPrefix-load-error",
+                    )
+                }
+            }
+
+            rows.isEmpty() -> BiuzCenteredState {
+                BiuzEmptyState(
+                    title = when (kind) {
+                        CapabilityKind.memory -> stringResource(R.string.cap_memory_empty)
+                        CapabilityKind.skills -> stringResource(R.string.cap_skills_empty)
+                        CapabilityKind.mcp -> stringResource(R.string.cap_mcp_empty)
+                        CapabilityKind.plugins -> stringResource(R.string.cap_plugins_empty)
+                    },
+                    hint = when (kind) {
+                        CapabilityKind.memory -> stringResource(R.string.cap_memory_empty_hint)
+                        CapabilityKind.skills -> stringResource(R.string.cap_empty_hint)
+                        CapabilityKind.mcp -> stringResource(R.string.cap_mcp_empty_hint)
+                        CapabilityKind.plugins -> stringResource(R.string.cap_plugins_empty_hint)
+                    },
+                    modifier = Modifier.testTag("$tagPrefix-empty"),
+                )
+            }
 
             else -> LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
