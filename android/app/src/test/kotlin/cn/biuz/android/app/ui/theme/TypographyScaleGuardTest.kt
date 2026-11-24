@@ -136,4 +136,29 @@ class TypographyScaleGuardTest {
         assertTrue(BiuZGlyph.lg > BiuZFont.display, "空态图标（26）应大于页面标题（22）")
         assertTrue(BiuZGlyph.lg !in listOf(BiuZFont.display, BiuZFont.title))
     }
+
+    @Test
+    fun noDimAlphaOverrides() {
+        val root = sourceRoot() ?: run {
+            println("TypographyScaleGuardTest: 源码目录不在预期位置，跳过（非失败）")
+            return
+        }
+        // dim 色（*Dim，自带 ~10% alpha）**不得**用 .copy(alpha = BiuZAlpha.x) 覆写：
+        // Compose 的 copy(alpha=) 是赋值不是相乘，10% 会被直接改写成 50% —— 色块浓 5~10 倍。
+        // iOS 那边的 .opacity(x) 是相乘语义，逐字直译过来必踩（2026-11-24 实证 4 处：
+        // 后台任务行/工作流执行者行/子代理行/面板胶囊选中态，其中胶囊对比度掉到 1.9:1）。
+        // 正确写法：dim.copy(alpha = dim.alpha * BiuZAlpha.x)
+        val bad = Regex("""Dim\.copy\(\s*alpha\s*=\s*BiuZAlpha\.""")
+        val offenders = ArrayList<String>()
+        root.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
+            f.readLines().forEachIndexed { i, line ->
+                if (bad.containsMatchIn(line)) offenders.add("${f.path}:${i + 1}: ${line.trim()}")
+            }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "dim 色 alpha 必须相乘（dim.copy(alpha = dim.alpha * BiuZAlpha.x)），不能赋值：\n" +
+                offenders.joinToString("\n"),
+        )
+    }
 }
