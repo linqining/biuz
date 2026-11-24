@@ -62,6 +62,7 @@ import cn.biuz.android.app.R
 import cn.biuz.android.app.ui.components.BiuzInlineNotice
 import cn.biuz.android.app.ui.components.SealBrandMark
 import cn.biuz.android.app.ui.components.BiuzNoticeKind
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
 import cn.biuz.android.app.ui.theme.BiuZOnSeal
 import cn.biuz.android.app.ui.theme.BiuZRadius
@@ -188,7 +189,7 @@ fun LoginScreen(
             Text(
                 text = stringResource(R.string.login_description),
                 color = BiuZText3,
-                fontSize = 12.5.sp,
+                fontSize = 13.sp,
                 lineHeight = 20.sp,
                 textAlign = TextAlign.Center,
             )
@@ -348,7 +349,7 @@ private fun LoginProviderButton(
             )
             Text(
                 text = stringResource(provider.regionRes),
-                color = content.copy(alpha = 0.7f),
+                color = content.copy(alpha = BiuZAlpha.dense),
                 fontSize = 12.sp,
             )
             // 平台切换箭头（独立热区 44dp，不触发登录）：分隔线在纸色字上取 30% 透明
@@ -365,7 +366,7 @@ private fun LoginProviderButton(
                         .fillMaxHeight()
                         .padding(vertical = 12.dp)
                         .width(1.dp)
-                        .background(content.copy(alpha = 0.3f)),
+                        .background(content.copy(alpha = BiuZAlpha.subtle)),
                 )
                 Spacer(Modifier.width(BiuZSpacing.xs))
                 Icon(
@@ -395,7 +396,7 @@ private fun LoginProviderButton(
                             Spacer(Modifier.width(BiuZSpacing.sm))
                             Text(
                                 text = stringResource(option.regionRes),
-                                fontSize = 11.5.sp,
+                                fontSize = 12.sp,
                                 color = BiuZText3,
                             )
                             if (option == provider) {

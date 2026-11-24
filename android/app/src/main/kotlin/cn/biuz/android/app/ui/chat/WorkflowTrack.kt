@@ -116,7 +116,7 @@ fun SessionWorkflowTrackView(activity: WorkflowActivitySummary, modifier: Modifi
         if (overflow > 0) {
             Text(
                 text = stringResource(R.string.track_overflow, overflow),
-                style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                 color = BiuZText3,
             )
         }
@@ -145,7 +145,7 @@ private fun WorkflowRunRailRow(run: SessionWorkflowRunSummary) {
                 Text(
                     text = "+$hidden",
                     style = TextStyle(
-                        fontSize = 9.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = FontFamily.Monospace,
                     ),
@@ -158,7 +158,7 @@ private fun WorkflowRunRailRow(run: SessionWorkflowRunSummary) {
         // 阶段名优先）
         Text(
             text = run.currentPhase ?: run.name ?: stringResource(R.string.track_default_name),
-            style = TextStyle(fontSize = 10.5.sp),
+            style = TextStyle(fontSize = 11.sp),
             color = BiuZText3,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -171,7 +171,7 @@ private fun WorkflowRunRailRow(run: SessionWorkflowRunSummary) {
                     stringResource(R.string.track_agents_n, run.agentsWorking)
                 },
                 style = TextStyle(
-                    fontSize = 9.5.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Medium,
                     fontFamily = FontFamily.Monospace,
                 ),

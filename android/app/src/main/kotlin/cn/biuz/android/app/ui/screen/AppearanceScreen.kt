@@ -89,7 +89,7 @@ fun AppearanceScreen(
                 ) {
                     Text(
                         text = label(appearance),
-                        fontSize = 14.5.sp,
+                        fontSize = 15.sp,
                         fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
                         color = BiuZText,
                         modifier = Modifier.weight(1f),
@@ -102,7 +102,7 @@ fun AppearanceScreen(
             }
             Text(
                 text = stringResource(R.string.appearance_hint),
-                fontSize = 11.5.sp,
+                fontSize = 12.sp,
                 color = BiuZText3,
                 modifier = Modifier.padding(top = BiuZSpacing.sm),
             )

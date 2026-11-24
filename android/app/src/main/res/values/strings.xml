@@ -452,7 +452,7 @@
     <string name="panel_goal">目标</string>
     <string name="panel_plan">计划</string>
     <string name="panel_workflow">工作流</string>
-    <string name="panel_works">后台</string>
+    <string name="panel_works">后台任务</string>
     <string name="panel_subagents">子代理</string>
     <string name="panel_goal_title">当前目标</string>
     <string name="panel_plan_title">当前计划</string>
@@ -498,12 +498,12 @@
     <string name="marker_goal_iteration">第 %1$d 次迭代</string>
     <string name="marker_fork_derived">从对话中派生</string>
     <!-- v4.0.0 活动摘要行（web chat.capsule.activity.*，zh-CN.ts:62-66 逐字） -->
-    <string name="activity_running">活跃中</string>
+    <string name="activity_running">运行中</string>
     <string name="activity_completed">已完成</string>
     <string name="activity_stopped">已停止</string>
     <string name="activity_failed">失败</string>
     <string name="activity_label">活跃</string>
-    <string name="activity_directory_subagents">子代理目录</string>
+    <string name="activity_directory_subagents">历史子代理</string>
     <string name="activity_directory_workflows">工作流目录</string>
     <string name="activity_completed_unknown">已完成 若干</string>
     <string name="wf_truncated">已截断</string>

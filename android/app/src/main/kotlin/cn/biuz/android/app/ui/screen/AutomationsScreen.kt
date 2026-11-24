@@ -230,7 +230,7 @@ private fun AutomationCardView(
                 )
                 Text(
                     text = record.scheduleText,
-                    fontSize = 10.5.sp,
+                    fontSize = 11.sp,
                     color = BiuZText3,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -241,7 +241,7 @@ private fun AutomationCardView(
                     text = DateUtils.getRelativeTimeSpanString(
                         ms, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS,
                     ).toString(),
-                    fontSize = 10.5.sp,
+                    fontSize = 11.sp,
                     color = BiuZText3,
                     modifier = Modifier.padding(end = BiuZSpacing.sm),
                 )
@@ -292,7 +292,7 @@ private fun RunsCardView(record: AutomationRecord, runs: List<AutomationRunRecor
             )
             Text(
                 text = stringResource(R.string.automation_runs_count, record.runCount),
-                fontSize = 10.5.sp,
+                fontSize = 11.sp,
                 color = BiuZText3,
             )
         }
@@ -339,7 +339,7 @@ private fun RunRowView(run: AutomationRunRecord) {
             Text(
                 text = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
                     .format(java.util.Date(ms)),
-                fontSize = 10.5.sp,
+                fontSize = 11.sp,
                 color = BiuZText3,
             )
         }
@@ -347,7 +347,7 @@ private fun RunRowView(run: AutomationRunRecord) {
         run.summary?.takeIf { it.isNotEmpty() }?.let { summary ->
             Text(
                 text = summary,
-                fontSize = 10.5.sp,
+                fontSize = 11.sp,
                 color = BiuZText3,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

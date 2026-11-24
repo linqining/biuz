@@ -398,7 +398,7 @@ private fun ProjectRowView(project: ProjectRow, taskCount: Int, onRemove: () -> 
         if (project.roots.isNotEmpty()) {
             Text(
                 text = project.roots.joinToString(" · "),
-                fontSize = 10.5.sp,
+                fontSize = 11.sp,
                 color = BiuZText3,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

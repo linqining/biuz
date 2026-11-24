@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import cn.biuz.android.app.R
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText3
@@ -264,7 +265,7 @@ internal fun ProbeDot(
     modifier: Modifier = Modifier,
 ) {
     val color = when (reachable) {
-        null -> BiuZText3.copy(alpha = 0.4f)
+        null -> BiuZText3.copy(alpha = BiuZAlpha.half)
         true -> MaterialTheme.colorScheme.primary
         false -> BiuZText3
     }

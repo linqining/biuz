@@ -74,6 +74,7 @@ import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
 import cn.biuz.android.app.R
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBgInput
@@ -285,7 +286,7 @@ fun AttachmentThumbView(
                     Box(
                         modifier = Modifier
                             .size(26.dp)
-                            .background(Color.Black.copy(alpha = 0.45f), CircleShape),
+                            .background(Color.Black.copy(alpha = BiuZAlpha.half), CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(text = "▶", fontSize = 12.sp, color = Color.White)
@@ -336,7 +337,7 @@ fun AttachmentThumbView(
                     Spacer(Modifier.size(2.dp))
                     Text(
                         text = filePreview.mediaType,
-                        style = TextStyle(fontSize = 9.sp),
+                        style = TextStyle(fontSize = 10.sp),
                         color = BiuZText3,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -441,7 +442,7 @@ fun PendingAttachmentThumb(
                     ThinUploadProgressBar(progress = item.progress.toFloat())
                     Text(
                         text = item.percentText,
-                        style = TextStyle(fontSize = 9.sp, fontFamily = FontFamily.Monospace),
+                        style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                         color = BiuZText2,
                     )
                 }
@@ -478,7 +479,7 @@ fun PendingAttachmentThumb(
                     modifier = Modifier
                         .padding(4.dp)
                         .size(18.dp)
-                        .background(BiuZBgCard.copy(alpha = 0.9f), CircleShape),
+                        .background(BiuZBgCard.copy(alpha = BiuZAlpha.nearSolid), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(text = "✕", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = BiuZText2)
@@ -501,7 +502,7 @@ private fun StatusBadge(content: @Composable BoxScope.() -> Unit) {
         modifier = Modifier
             .padding(3.dp)
             .size(18.dp)
-            .background(BiuZBgCard.copy(alpha = 0.9f), CircleShape),
+            .background(BiuZBgCard.copy(alpha = BiuZAlpha.nearSolid), CircleShape),
         contentAlignment = Alignment.Center,
         content = content,
     )
@@ -584,7 +585,7 @@ private fun AttachmentImageFullscreen(preview: AttachmentPreview, onClose: () ->
             Text(
                 text = stringResource(R.string.attach_load_fail),
                 fontSize = 13.sp,
-                color = Color.White.copy(alpha = 0.8f),
+                color = Color.White.copy(alpha = BiuZAlpha.nearSolid),
                 modifier = Modifier.align(Alignment.Center),
             )
         }
@@ -624,12 +625,12 @@ private fun AttachmentVideoFullscreen(videoPath: String, onClose: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
             ) {
-                Text(text = "▶̸", fontSize = 24.sp, color = Color.White.copy(alpha = 0.7f))
+                Text(text = "▶̸", fontSize = 24.sp, color = Color.White.copy(alpha = BiuZAlpha.dense))
                 Text(
                     text = failureText ?: "",
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
-                    color = Color.White.copy(alpha = 0.8f),
+                    color = Color.White.copy(alpha = BiuZAlpha.nearSolid),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = BiuZSpacing.xl),
                 )
@@ -746,7 +747,7 @@ private fun FullscreenCloseButton(onClose: () -> Unit, modifier: Modifier = Modi
         Box(
             modifier = Modifier
                 .size(36.dp)
-                .background(Color.White.copy(alpha = 0.18f), CircleShape),
+                .background(Color.White.copy(alpha = BiuZAlpha.faint), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Text(

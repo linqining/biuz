@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
 import cn.biuz.android.app.ui.chat.byteText
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZAdd
 import cn.biuz.android.app.ui.theme.BiuZBg
@@ -244,7 +245,7 @@ fun FilesScreen(
             ) {
                 Text(
                     text = stringResource(R.string.files_load_failed_title),
-                    style = TextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                    style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
                     color = BiuZText,
                 )
                 Text(
@@ -287,7 +288,7 @@ fun FilesScreen(
                             R.string.files_empty_clean
                         },
                     ),
-                    style = TextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                    style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
                     color = BiuZText,
                 )
                 Text(
@@ -382,7 +383,7 @@ fun FilesScreen(
                         )
                         Text(
                             text = stringResource(R.string.files_n_files, files.size),
-                            style = TextStyle(fontSize = 11.5.sp),
+                            style = TextStyle(fontSize = 12.sp),
                             color = BiuZText3,
                         )
                         if (pending.isNotEmpty()) {
@@ -396,7 +397,7 @@ fun FilesScreen(
                                 color = BiuZOrange,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(999.dp))
-                                    .background(BiuZOrange.copy(alpha = 0.14f))
+                                    .background(BiuZOrange.copy(alpha = BiuZAlpha.faint))
                                     .padding(horizontal = 6.dp, vertical = 2.dp),
                             )
                         }
@@ -410,7 +411,7 @@ fun FilesScreen(
                                 .fillMaxWidth()
                                 .clip(BiuZRadius.small)
                                 .background(BiuZBgCard)
-                                .border(1.dp, BiuZOrange.copy(alpha = 0.4f), BiuZRadius.small)
+                                .border(1.dp, BiuZOrange.copy(alpha = BiuZAlpha.half), BiuZRadius.small)
                                 .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
                                 .testTag("08-load-error-banner"),
                             verticalAlignment = Alignment.CenterVertically,
@@ -419,7 +420,7 @@ fun FilesScreen(
                             Text(text = "⚠", fontSize = 12.sp, color = BiuZOrange)
                             Text(
                                 text = failure,
-                                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                                 color = BiuZOrange,
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis,
@@ -427,7 +428,7 @@ fun FilesScreen(
                             )
                             Text(
                                 text = stringResource(R.string.files_action_retry),
-                                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                                 color = BiuZAccent,
                                 modifier = Modifier
                                     .clickable {
@@ -446,7 +447,7 @@ fun FilesScreen(
                                 .fillMaxWidth()
                                 .clip(BiuZRadius.small)
                                 .background(BiuZBgCard)
-                                .border(1.dp, BiuZDel.copy(alpha = 0.5f), BiuZRadius.small)
+                                .border(1.dp, BiuZDel.copy(alpha = BiuZAlpha.half), BiuZRadius.small)
                                 .clickable { actionError = null }
                                 .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
                                 .testTag("08-action-error"),
@@ -456,7 +457,7 @@ fun FilesScreen(
                             Text(text = "⚠", fontSize = 12.sp, color = BiuZDel)
                             Text(
                                 text = error,
-                                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                                 color = BiuZDel,
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis,
@@ -479,7 +480,7 @@ fun FilesScreen(
                             Text(text = "⋯", fontSize = 12.sp, color = BiuZText3)
                             Text(
                                 text = stringResource(R.string.files_more_notice),
-                                style = TextStyle(fontSize = 11.5.sp),
+                                style = TextStyle(fontSize = 12.sp),
                                 color = BiuZText3,
                             )
                         }
@@ -587,8 +588,8 @@ private fun DiffFileCard(
             .border(
                 1.dp,
                 when {
-                    file.isApproved -> BiuZAccent.copy(alpha = 0.4f)
-                    file.isRejected -> BiuZDel.copy(alpha = 0.5f)
+                    file.isApproved -> BiuZAccent.copy(alpha = BiuZAlpha.half)
+                    file.isRejected -> BiuZDel.copy(alpha = BiuZAlpha.half)
                     else -> BiuZBorder
                 },
                 BiuZRadius.medium,
@@ -611,7 +612,7 @@ private fun DiffFileCard(
             Text(text = "☰", fontSize = 12.sp, color = BiuZBlue)
             Text(
                 text = file.path,
-                style = TextStyle(fontSize = 11.5.sp, fontFamily = FontFamily.Monospace),
+                style = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace),
                 color = BiuZText,
                 maxLines = 1,
                 overflow = TextOverflow.MiddleEllipsis,
@@ -619,12 +620,12 @@ private fun DiffFileCard(
             )
             Text(
                 text = "+${file.added}",
-                style = TextStyle(fontSize = 10.5.sp, fontFamily = FontFamily.Monospace),
+                style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
                 color = BiuZAdd,
             )
             Text(
                 text = "-${file.removed}",
-                style = TextStyle(fontSize = 10.5.sp, fontFamily = FontFamily.Monospace),
+                style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
                 color = BiuZDel,
             )
             Text(
@@ -680,7 +681,7 @@ private fun DiffFileCard(
                         modifier = Modifier
                             .weight(1f)
                             .clip(BiuZRadius.small)
-                            .border(1.dp, BiuZDel.copy(alpha = 0.5f), BiuZRadius.small)
+                            .border(1.dp, BiuZDel.copy(alpha = BiuZAlpha.half), BiuZRadius.small)
                             .clickable(enabled = !anyDeciding, onClick = onReject)
                             .padding(vertical = 12.dp)
                             .testTag("08-filecard-reject"),
@@ -733,9 +734,9 @@ fun DiffLineList(lines: List<DiffLine>, modifier: Modifier = Modifier) {
             val next = (counters[line.kind] ?: 0) + 1
             counters[line.kind] = next
             val (fg, bg) = when (line.kind) {
-                DiffLineKind.hunk -> BiuZBlue to BiuZBlue.copy(alpha = 0.10f)
-                DiffLineKind.add -> BiuZAdd to BiuZAdd.copy(alpha = 0.10f)
-                DiffLineKind.del -> BiuZDel to BiuZDel.copy(alpha = 0.10f)
+                DiffLineKind.hunk -> BiuZBlue to BiuZBlue.copy(alpha = BiuZAlpha.faint)
+                DiffLineKind.add -> BiuZAdd to BiuZAdd.copy(alpha = BiuZAlpha.faint)
+                DiffLineKind.del -> BiuZDel to BiuZDel.copy(alpha = BiuZAlpha.faint)
                 DiffLineKind.ctx -> BiuZText2 to androidx.compose.ui.graphics.Color.Transparent
             }
             Row(
@@ -749,13 +750,13 @@ fun DiffLineList(lines: List<DiffLine>, modifier: Modifier = Modifier) {
             ) {
                 Text(
                     text = line.oldNumber?.toString() ?: "",
-                    style = TextStyle(fontSize = 10.5.sp, fontFamily = FontFamily.Monospace),
+                    style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
                     color = BiuZText3,
                     modifier = Modifier.width(32.dp),
                 )
                 Text(
                     text = line.newNumber?.toString() ?: "",
-                    style = TextStyle(fontSize = 10.5.sp, fontFamily = FontFamily.Monospace),
+                    style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
                     color = BiuZText3,
                     modifier = Modifier.width(32.dp),
                 )
@@ -898,7 +899,7 @@ fun FileTreeScreen(
                     BasicTextField(
                         value = query,
                         onValueChange = { query = it },
-                        textStyle = TextStyle(fontSize = 13.5.sp, color = BiuZText),
+                        textStyle = TextStyle(fontSize = 14.sp, color = BiuZText),
                         singleLine = true,
                         decorationBox = { inner ->
                             Row(
@@ -916,7 +917,7 @@ fun FileTreeScreen(
                                 if (query.isEmpty()) {
                                     Text(
                                         text = stringResource(R.string.tree_search_hint),
-                                        style = TextStyle(fontSize = 13.5.sp),
+                                        style = TextStyle(fontSize = 14.sp),
                                         color = BiuZText3,
                                     )
                                 }
@@ -934,7 +935,7 @@ fun FileTreeScreen(
                                 .fillMaxWidth()
                                 .clip(BiuZRadius.small)
                                 .background(BiuZBgCard)
-                                .border(1.dp, BiuZOrange.copy(alpha = 0.4f), BiuZRadius.small)
+                                .border(1.dp, BiuZOrange.copy(alpha = BiuZAlpha.half), BiuZRadius.small)
                                 .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
                                 .testTag("09-load-error-banner"),
                             verticalAlignment = Alignment.CenterVertically,
@@ -943,7 +944,7 @@ fun FileTreeScreen(
                             Text(text = "⚠", fontSize = 12.sp, color = BiuZOrange)
                             Text(
                                 text = failure,
-                                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                                 color = BiuZOrange,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -951,7 +952,7 @@ fun FileTreeScreen(
                             )
                             Text(
                                 text = stringResource(R.string.files_action_retry),
-                                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                                 color = BiuZAccent,
                                 modifier = Modifier
                                     .clickable { scope.launch { loadTree() } }
@@ -975,7 +976,7 @@ fun FileTreeScreen(
                             Text(text = "▤", fontSize = 13.sp, color = BiuZText3)
                             Text(
                                 text = stringResource(R.string.tree_empty),
-                                style = TextStyle(fontSize = 12.5.sp),
+                                style = TextStyle(fontSize = 13.sp),
                                 color = BiuZText3,
                             )
                         }
@@ -1069,7 +1070,7 @@ private fun TreeRow(
             node.size?.let {
                 Text(
                     text = byteText(it.toInt()),
-                    style = TextStyle(fontSize = 10.5.sp, fontFamily = FontFamily.Monospace),
+                    style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
                     color = BiuZText3,
                 )
             }
@@ -1174,7 +1175,7 @@ fun FilePreviewScreen(
                 Text(
                     text = size?.let { byteText(it.toInt()) }
                         ?: (totalBytes.takeIf { it > 0 }?.let { byteText(it) } ?: "—"),
-                    style = TextStyle(fontSize = 10.5.sp, fontFamily = FontFamily.Monospace),
+                    style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
                     color = BiuZText3,
                 )
             }
@@ -1194,7 +1195,7 @@ fun FilePreviewScreen(
                     Text(
                         text = label,
                         style = TextStyle(
-                            fontSize = 12.5.sp,
+                            fontSize = 13.sp,
                             fontWeight = if (segment == index) FontWeight.SemiBold else FontWeight.Normal,
                         ),
                         color = if (segment == index) BiuZText else BiuZText3,
@@ -1272,13 +1273,13 @@ fun FilePreviewScreen(
                 ) {
                     Text(
                         text = stringResource(R.string.preview_read_failed),
-                        style = TextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                        style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
                         color = BiuZText,
                     )
                     Text(
                         text = readFailureMessage
                             ?: stringResource(R.string.preview_read_failed_detail),
-                        style = TextStyle(fontSize = 11.5.sp, lineHeight = 16.sp),
+                        style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
                         color = BiuZText3,
                     )
                     Text(
@@ -1300,7 +1301,7 @@ fun FilePreviewScreen(
                 segment == 0 -> Text(
                     // 预览段（markdown 正文原样呈现——TinyMarkdown 富渲染未移植，见文件头偏差注）
                     text = content,
-                    style = TextStyle(fontSize = 12.5.sp, lineHeight = 18.sp),
+                    style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
                     color = BiuZText,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1323,7 +1324,7 @@ fun FilePreviewScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.md)) {
                                 Text(
                                     text = "${index + 1}",
-                                    style = TextStyle(fontSize = 10.5.sp, fontFamily = FontFamily.Monospace),
+                                    style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
                                     color = BiuZText3,
                                     modifier = Modifier.width(32.dp),
                                 )

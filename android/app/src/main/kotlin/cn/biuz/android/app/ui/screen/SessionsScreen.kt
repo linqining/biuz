@@ -796,7 +796,7 @@ private fun NewConversationSheet(
             BasicTextField(
                 value = title,
                 onValueChange = { title = it },
-                textStyle = TextStyle(fontSize = 14.5.sp, color = BiuZText, lineHeight = 20.sp),
+                textStyle = TextStyle(fontSize = 15.sp, color = BiuZText, lineHeight = 20.sp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(BiuZRadius.medium)
@@ -808,7 +808,7 @@ private fun NewConversationSheet(
                     if (title.isEmpty()) {
                         Text(
                             text = stringResource(R.string.new_session_input_hint),
-                            style = TextStyle(fontSize = 14.5.sp),
+                            style = TextStyle(fontSize = 15.sp),
                             color = BiuZText3,
                         )
                     }
@@ -1004,7 +1004,7 @@ private fun SessionRow(
         if (conversation.isPinned) {
             Text(
                 text = "📌",
-                fontSize = 9.sp,
+                fontSize = 10.sp,
                 modifier = Modifier.padding(end = BiuZSpacing.xs, top = 2.dp),
             )
         }

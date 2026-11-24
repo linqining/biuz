@@ -109,7 +109,7 @@ private fun CodeBlock(block: MdBlock.Code, codeFontSize: Float) {
             Text(
                 text = language,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                 color = BiuZText3,
             )
         }

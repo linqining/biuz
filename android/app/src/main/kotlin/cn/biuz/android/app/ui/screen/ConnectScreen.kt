@@ -67,6 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
 import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.ui.components.SealBrandMark
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBgElevated
 import cn.biuz.android.app.ui.theme.BiuZBorder
@@ -794,7 +795,7 @@ private fun ConnectActionButton(label: String, primary: Boolean, tag: String, on
     val text: @Composable RowScope.() -> Unit = {
         Text(
             text = label,
-            fontSize = 15.5.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -840,7 +841,7 @@ private fun ConnectFailedCard(server: ServerConfig, error: ConnectError, develop
         modifier = Modifier
             .fillMaxWidth()
             .background(BiuZBgCard, BiuZRadius.medium)
-            .border(1.dp, BiuZRed.copy(alpha = 0.55f), BiuZRadius.medium)
+            .border(1.dp, BiuZRed.copy(alpha = BiuZAlpha.half), BiuZRadius.medium)
             .padding(14.dp)
             .testTag("l3-card-failed"),
     ) {

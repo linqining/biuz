@@ -411,7 +411,7 @@
     <string name="panel_plan_title">Current plan</string>
     <string name="panel_subagents">Subagents</string>
     <string name="panel_workflow">Workflow</string>
-    <string name="panel_works">Background</string>
+    <string name="panel_works">Background tasks</string>
     <string name="preview_binary_unsupported">The desktop returned no binary preview data; view this file on the desktop.</string>
     <string name="preview_image_note">Image preview · %1$s</string>
     <string name="preview_load_more">Truncated · load more (%1$d / %2$d bytes)</string>
@@ -481,12 +481,12 @@
     <string name="marker_goal_iteration">Iteration %1$d</string>
     <string name="marker_fork_derived">Derived from conversation</string>
     <!-- v4.0.0 activity summary row (web chat.capsule.activity.*，en-US) -->
-    <string name="activity_running">Active</string>
+    <string name="activity_running">Running</string>
     <string name="activity_completed">Completed</string>
     <string name="activity_stopped">Stopped</string>
     <string name="activity_failed">Failed</string>
     <string name="activity_label">Activity</string>
-    <string name="activity_directory_subagents">Subagent directory</string>
+    <string name="activity_directory_subagents">Past subagents</string>
     <string name="activity_directory_workflows">Workflow directory</string>
     <string name="activity_completed_unknown">Completed some</string>
     <string name="wf_no_limit">No limit</string>

@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZAccentDim
 import cn.biuz.android.app.ui.theme.BiuZBgCard
@@ -251,7 +252,7 @@ fun SessionPanelsSection(
                     .fillMaxWidth()
                     .clip(BiuZRadius.medium)
                     .background(BiuZBgCard)
-                    .border(1.dp, BiuZSeal.copy(alpha = 0.35f), BiuZRadius.medium)
+                    .border(1.dp, BiuZSeal.copy(alpha = BiuZAlpha.subtle), BiuZRadius.medium)
                     .padding(BiuZSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
             ) {
@@ -391,7 +392,7 @@ private fun HookDetailsRow(hooks: List<cn.biuz.android.protocol.HookInvocationIn
             Text(text = "⚓", fontSize = 10.sp, color = BiuZText3)
             Text(
                 text = stringResource(R.string.hook_details_label),
-                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                 color = BiuZText2,
             )
             Text(
@@ -403,7 +404,7 @@ private fun HookDetailsRow(hooks: List<cn.biuz.android.protocol.HookInvocationIn
                 ),
                 color = BiuZText3,
             )
-            Text(text = if (expanded) "▴" else "▾", fontSize = 9.sp, color = BiuZText3)
+            Text(text = if (expanded) "▴" else "▾", fontSize = 10.sp, color = BiuZText3)
         }
         if (expanded) {
             Column(
@@ -431,13 +432,13 @@ private fun HookDetailsRow(hooks: List<cn.biuz.android.protocol.HookInvocationIn
                         Spacer(Modifier.weight(1f))
                         Text(
                             text = hookSourceLabel(exec.sourceKind),
-                            style = TextStyle(fontSize = 9.5.sp),
+                            style = TextStyle(fontSize = 10.sp),
                             color = BiuZText3,
                         )
                         exec.durationMs?.let { ms ->
                             Text(
                                 text = hookDurationText(ms),
-                                style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                                style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                                 color = BiuZText3,
                             )
                         }
@@ -454,18 +455,18 @@ private fun HookDetailsRow(hooks: List<cn.biuz.android.protocol.HookInvocationIn
                                             color = BiuZText3,
                                         )
                                     } else {
-                                        Text(text = glyph, fontSize = 9.sp, color = color)
+                                        Text(text = glyph, fontSize = 10.sp, color = color)
                                     }
                                     Text(
                                         text = hookStatusLabel(status),
-                                        style = TextStyle(fontSize = 9.5.sp),
+                                        style = TextStyle(fontSize = 10.sp),
                                         color = color,
                                     )
                                 }
                                 exec.blockReason?.let { reason ->
                                     Text(
                                         text = "：$reason",
-                                        style = TextStyle(fontSize = 9.5.sp),
+                                        style = TextStyle(fontSize = 10.sp),
                                         color = BiuZOrange,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -622,7 +623,7 @@ private fun ActivitySummaryRow(
             }
             Text(
                 text = label,
-                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                 color = if (model.isRunningAny) BiuZAccent else BiuZText2,
             )
             // 计数：null = 完整历史读失败（显示「若干」而非 0，web count===null 同义）
@@ -643,7 +644,7 @@ private fun ActivitySummaryRow(
                 )
             }
             if (model.ended.isNotEmpty() || model.running.isNotEmpty()) {
-                Text(text = if (expanded) "▴" else "▾", fontSize = 9.sp, color = BiuZText3)
+                Text(text = if (expanded) "▴" else "▾", fontSize = 10.sp, color = BiuZText3)
             }
         }
         if (expanded) {
@@ -691,7 +692,7 @@ private fun ActivitySummaryRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Text(text = "⌗", fontSize = 9.sp, color = BiuZText3)
+                Text(text = "⌗", fontSize = 10.sp, color = BiuZText3)
                 Text(
                     text = stringResource(R.string.activity_directory_subagents),
                     style = TextStyle(fontSize = 11.sp),
@@ -703,7 +704,7 @@ private fun ActivitySummaryRow(
                     color = BiuZText3,
                 )
                 Spacer(Modifier.weight(1f))
-                Text(text = if (directoryOpen) "▴" else "▸", fontSize = 9.sp, color = BiuZText3)
+                Text(text = if (directoryOpen) "▴" else "▸", fontSize = 10.sp, color = BiuZText3)
             }
             if (directoryOpen) {
                 Column(
@@ -723,13 +724,13 @@ private fun ActivitySummaryRow(
                         ) {
                             Text(
                                 text = stringResource(R.string.activity_directory_failed),
-                                style = TextStyle(fontSize = 10.5.sp),
+                                style = TextStyle(fontSize = 11.sp),
                                 color = BiuZOrange,
                             )
                             directoryFailureText?.take(40)?.let { reason ->
                                 Text(
                                     text = reason,
-                                    style = TextStyle(fontSize = 9.5.sp),
+                                    style = TextStyle(fontSize = 10.sp),
                                     color = BiuZText3,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -738,7 +739,7 @@ private fun ActivitySummaryRow(
                             }
                             Text(
                                 text = stringResource(R.string.activity_directory_retry),
-                                style = TextStyle(fontSize = 10.5.sp),
+                                style = TextStyle(fontSize = 11.sp),
                                 color = BiuZAccent,
                                 modifier = Modifier
                                     .clickable { onLoadDirectory?.invoke() }
@@ -748,7 +749,7 @@ private fun ActivitySummaryRow(
                     } else if (directory == null) {
                         Text(
                             text = stringResource(R.string.activity_directory_loading),
-                            style = TextStyle(fontSize = 10.5.sp),
+                            style = TextStyle(fontSize = 11.sp),
                             color = BiuZText3,
                         )
                     } else {
@@ -758,7 +759,7 @@ private fun ActivitySummaryRow(
                                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text(text = "⌗", fontSize = 9.sp, color = BiuZText3)
+                                Text(text = "⌗", fontSize = 10.sp, color = BiuZText3)
                                 Text(
                                     text = item.title.ifEmpty { item.subagentType },
                                     style = TextStyle(fontSize = 11.sp),
@@ -770,7 +771,7 @@ private fun ActivitySummaryRow(
                                 Spacer(Modifier.weight(1f))
                                 Text(
                                     text = directoryStatusLabel(item.status),
-                                    style = TextStyle(fontSize = 9.5.sp),
+                                    style = TextStyle(fontSize = 10.sp),
                                     color = when (item.status) {
                                         "success" -> BiuZGreen
                                         "failed" -> BiuZRed
@@ -784,7 +785,7 @@ private fun ActivitySummaryRow(
                         if (next != null && onLoadMore != null) {
                             Text(
                                 text = stringResource(R.string.activity_directory_more),
-                                style = TextStyle(fontSize = 10.5.sp),
+                                style = TextStyle(fontSize = 11.sp),
                                 color = BiuZAccent,
                                 modifier = Modifier
                                     .clickable { onLoadMore() }
@@ -795,7 +796,7 @@ private fun ActivitySummaryRow(
                         if (directory.items.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.activity_directory_empty),
-                                style = TextStyle(fontSize = 10.5.sp),
+                                style = TextStyle(fontSize = 11.sp),
                                 color = BiuZText3,
                             )
                         }
@@ -833,7 +834,7 @@ private fun ActivityDetailLine(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(text = glyph, fontSize = 9.sp, color = BiuZText3)
+        Text(text = glyph, fontSize = 10.sp, color = BiuZText3)
         Text(
             text = title,
             style = TextStyle(fontSize = 11.sp),
@@ -885,10 +886,10 @@ private fun PanelChip(
         modifier = Modifier
             .pressableScale(interaction)
             .clip(RoundedCornerShape(999.dp))
-            .background(if (selected) BiuZAccentDim.copy(alpha = 0.55f) else BiuZBgCard)
+            .background(if (selected) BiuZAccentDim.copy(alpha = BiuZAlpha.half) else BiuZBgCard)
             .border(
                 1.dp,
-                if (selected) BiuZAccent.copy(alpha = 0.6f) else BiuZBorder,
+                if (selected) BiuZAccent.copy(alpha = BiuZAlpha.half) else BiuZBorder,
                 RoundedCornerShape(999.dp),
             )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
@@ -900,14 +901,14 @@ private fun PanelChip(
         Text(text = kind.glyph, fontSize = 10.sp, color = if (selected) BiuZAccent else BiuZSeal)
         Text(
             text = stringResource(kind.labelRes),
-            style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+            style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
             color = if (selected) BiuZAccent else BiuZText2,
         )
         badge?.let {
             Text(
                 text = it,
                 style = TextStyle(
-                    fontSize = 9.5.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace,
                 ),
@@ -960,7 +961,7 @@ private fun PanelCollapseHeader(kind: SessionPanelKind, onCollapse: () -> Unit) 
         Text(text = kind.glyph, fontSize = 10.sp, color = BiuZSeal)
         Text(
             text = stringResource(kind.labelRes),
-            style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+            style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
             color = BiuZSeal,
         )
         Spacer(Modifier.weight(1f))
@@ -981,7 +982,7 @@ private fun HistoryCaption() {
         Text(
             text = stringResource(R.string.wf_history_caption),
             style = TextStyle(
-                fontSize = 9.5.sp,
+                fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace,
             ),
@@ -1013,7 +1014,7 @@ fun GoalPanelView(goal: RemoteGoalSummary, onTogglePause: () -> Unit, modifier: 
             Text(text = "◎", fontSize = 12.sp, color = BiuZSeal)
             Text(
                 text = stringResource(R.string.panel_goal_title),
-                style = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
+                style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
                 color = BiuZText,
             )
             Spacer(Modifier.weight(1f))
@@ -1048,7 +1049,7 @@ fun PlanPanelView(plan: PlanPanelSummary, modifier: Modifier = Modifier) {
             Text(text = "☰", fontSize = 12.sp, color = BiuZSeal)
             Text(
                 text = plan.title ?: stringResource(R.string.panel_plan_title),
-                style = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
+                style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
                 color = BiuZText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1110,7 +1111,7 @@ fun WorkflowPanelCard(
             if (run.truncated) {
                 Text(
                     text = stringResource(R.string.wf_truncated),
-                    style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                    style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                     color = BiuZOrange,
                 )
             }
@@ -1118,7 +1119,7 @@ fun WorkflowPanelCard(
             Text(
                 text = "${run.doneCount}/${run.nodes.size}",
                 style = TextStyle(
-                    fontSize = 10.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace,
                 ),
@@ -1169,14 +1170,14 @@ fun StatusPill(text: String, color: Color) {
     Text(
         text = text,
         style = TextStyle(
-            fontSize = 9.5.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Medium,
             fontFamily = FontFamily.Monospace,
         ),
         color = color,
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(color.copy(alpha = 0.14f))
+            .background(color.copy(alpha = BiuZAlpha.faint))
             .padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }
@@ -1253,7 +1254,7 @@ private fun PhaseRowScope(
                 Text(
                     text = node.label,
                     style = TextStyle(
-                        fontSize = 12.5.sp,
+                        fontSize = 13.sp,
                         fontWeight = if (node.status == WorkflowStepStatus.running) {
                             FontWeight.SemiBold
                         } else {
@@ -1269,14 +1270,14 @@ private fun PhaseRowScope(
                     Text(
                         text = "${actors.count { it.status == WorkflowStepStatus.done }}/${actors.size}",
                         style = TextStyle(
-                            fontSize = 10.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.Monospace,
                         ),
                         color = BiuZText3,
                     )
                 }
-                Text(text = if (expanded) "▾" else "▸", fontSize = 9.sp, color = BiuZText3)
+                Text(text = if (expanded) "▾" else "▸", fontSize = 10.sp, color = BiuZText3)
             }
             if (expanded) {
                 // 子代理实例行（桌面「N 个任务」同构；sessionId 在场可下钻转录）
@@ -1304,7 +1305,7 @@ private fun ActorRow(actor: WorkflowActorSummary, onOpen: (WorkflowActorSummary)
             .fillMaxWidth()
             .padding(start = BiuZSpacing.md)
             .clip(BiuZRadius.small)
-            .background(BiuZBlueDim.copy(alpha = 0.5f))
+            .background(BiuZBlueDim.copy(alpha = BiuZAlpha.half))
             .clickable(enabled = actionable) { onOpen(actor) }
             .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
             .testTag("05-wf-actor-${actor.id}"),
@@ -1327,12 +1328,12 @@ private fun ActorRow(actor: WorkflowActorSummary, onOpen: (WorkflowActorSummary)
         actor.tasksTotal?.let {
             Text(
                 text = stringResource(R.string.wf_actor_tasks, it),
-                style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                 color = BiuZText3,
             )
         }
         if (actionable) {
-            Text(text = "▸", fontSize = 9.sp, color = BiuZText3)
+            Text(text = "▸", fontSize = 10.sp, color = BiuZText3)
         }
         when (actor.status) {
             WorkflowStepStatus.running -> PanelSpinner(size = 11.dp, color = BiuZBlue)
@@ -1474,7 +1475,7 @@ private fun ControlMenuCapsule(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(text = icon, fontSize = 9.sp, color = BiuZText3)
+            Text(text = icon, fontSize = 10.sp, color = BiuZText3)
             Text(
                 text = text,
                 style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
@@ -1583,7 +1584,7 @@ private fun WorkRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(BiuZRadius.small)
-            .background(BiuZBlueDim.copy(alpha = 0.5f))
+            .background(BiuZBlueDim.copy(alpha = BiuZAlpha.half))
             .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
@@ -1605,19 +1606,19 @@ private fun WorkRow(
                 if (work.blocked) {
                     Text(
                         text = stringResource(R.string.works_blocked),
-                        style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                        style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                         color = BiuZOrange,
                     )
                 }
                 Text(
                     text = work.statusText,
-                    style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                    style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                     color = BiuZText3,
                 )
                 worksDurationText(work)?.let {
                     Text(
                         text = "· $it",
-                        style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                        style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                         color = BiuZText3,
                     )
                 }
@@ -1676,7 +1677,7 @@ fun SubagentsPanelView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(BiuZRadius.small)
-                    .background(BiuZBlueDim.copy(alpha = 0.5f))
+                    .background(BiuZBlueDim.copy(alpha = BiuZAlpha.half))
                     .clickable { onOpen(sub) }
                     .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
                     .testTag("05-subagents-row-${sub.id}"),
@@ -1699,13 +1700,13 @@ fun SubagentsPanelView(
                 sub.agentType?.takeIf { it.isNotEmpty() }?.let {
                     Text(
                         text = it,
-                        style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                        style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                         color = BiuZText3,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Text(text = "▸", fontSize = 9.sp, color = BiuZText3)
+                Text(text = "▸", fontSize = 10.sp, color = BiuZText3)
                 when (sub.status) {
                     WorkflowStepStatus.running -> PanelSpinner(size = 11.dp, color = BiuZBlue)
                     WorkflowStepStatus.failed -> Text(text = "✕", fontSize = 12.sp, color = BiuZRed)
@@ -1803,7 +1804,7 @@ fun ActorTranscriptSheet(
                             Spacer(Modifier.height(2.dp))
                             Text(
                                 text = message.text,
-                                style = TextStyle(fontSize = 12.5.sp, lineHeight = 18.sp),
+                                style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
                                 color = BiuZText,
                             )
                         }

@@ -63,6 +63,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.R
 import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.ui.scan.QrAnalyzer
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText3
@@ -317,7 +318,7 @@ fun ScanScreen(
                             // 扫描线
                             val y = size.height * scanLineY
                             drawLine(
-                                accent.copy(alpha = 0.85f),
+                                accent.copy(alpha = BiuZAlpha.nearSolid),
                                 Offset(size.width * 0.06f, y),
                                 Offset(size.width * 0.94f, y),
                                 strokeWidth = 1.5.dp.toPx(),
@@ -328,7 +329,7 @@ fun ScanScreen(
                     Text(
                         text = stringResource(R.string.scan_viewfinder_hint),
                         style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = Color.White.copy(alpha = BiuZAlpha.nearSolid),
                         textAlign = TextAlign.Center,
                     )
                     inlineError?.let { error ->
@@ -407,7 +408,7 @@ private fun CameraDeniedCard(
                 ),
             ),
             style = MaterialTheme.typography.bodyMedium,
-            color = Color.White.copy(alpha = 0.8f),
+            color = Color.White.copy(alpha = BiuZAlpha.nearSolid),
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(BiuZSpacing.lg))
@@ -433,7 +434,7 @@ private fun CameraDeniedCard(
         }
         Spacer(Modifier.height(BiuZSpacing.xs))
         androidx.compose.material3.TextButton(onClick = onRetryPermission) {
-            Text(stringResource(R.string.scan_retry_permission), color = Color.White.copy(alpha = 0.7f))
+            Text(stringResource(R.string.scan_retry_permission), color = Color.White.copy(alpha = BiuZAlpha.dense))
         }
     }
 }

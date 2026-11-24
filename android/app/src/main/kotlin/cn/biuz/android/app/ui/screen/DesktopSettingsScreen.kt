@@ -240,7 +240,7 @@ fun DesktopSettingsScreen(
                         Spacer(Modifier.height(BiuZSpacing.xs))
                         Text(
                             text = stringResource(R.string.desktop_footer),
-                            fontSize = 10.5.sp,
+                            fontSize = 11.sp,
                             color = BiuZText3,
                             modifier = Modifier.padding(horizontal = 4.dp).testTag("12-desktop-footer"),
                         )
@@ -398,7 +398,7 @@ private fun SettingRowView(
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
                 text = mapped?.let { stringResource(it) } ?: entry.key,
-                fontSize = 14.5.sp,
+                fontSize = 15.sp,
                 color = BiuZText,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

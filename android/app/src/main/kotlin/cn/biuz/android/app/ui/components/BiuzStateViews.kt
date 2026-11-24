@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.biuz.android.app.R
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZBlue
 import cn.biuz.android.app.ui.theme.BiuZBlueDim
 import cn.biuz.android.app.ui.theme.BiuZGreen
@@ -135,7 +136,7 @@ fun BiuzInlineNotice(
         modifier = modifier
             .fillMaxWidth()
             .background(surface, BiuZRadius.small)
-            .border(1.dp, accent.copy(alpha = 0.5f), BiuZRadius.small)
+            .border(1.dp, accent.copy(alpha = BiuZAlpha.half), BiuZRadius.small)
             .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
             .let { if (tag != null) it.testTag(tag) else it },
         verticalAlignment = Alignment.CenterVertically,

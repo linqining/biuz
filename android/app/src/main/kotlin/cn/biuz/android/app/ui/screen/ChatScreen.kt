@@ -774,7 +774,7 @@ fun ChatScreen(
                     Spacer(Modifier.size(BiuZSpacing.sm))
                     Text(
                         text = stringResource(R.string.composer_input_hint_accept),
-                        style = TextStyle(fontSize = 10.5.sp),
+                        style = TextStyle(fontSize = 11.sp),
                         color = BiuZText3,
                     )
                 }
@@ -814,7 +814,7 @@ fun ChatScreen(
                             viewModel.invalidateInputHint()
                         }
                     },
-                    textStyle = TextStyle(fontSize = 14.5.sp, color = BiuZText, lineHeight = 20.sp),
+                    textStyle = TextStyle(fontSize = 15.sp, color = BiuZText, lineHeight = 20.sp),
                     modifier = Modifier
                         .weight(1f)
                         .onFocusChanged { composerFocused = it.isFocused }
@@ -827,7 +827,7 @@ fun ChatScreen(
                         if (draft.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.composer_hint),
-                                style = TextStyle(fontSize = 14.5.sp),
+                                style = TextStyle(fontSize = 15.sp),
                                 color = BiuZText3,
                             )
                         }
@@ -1084,7 +1084,7 @@ private fun WorkflowArtifactSheet(
                     )
                     Text(
                         text = stringResource(R.string.wf_artifact_unsupported),
-                        style = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp),
+                        style = TextStyle(fontSize = 13.sp, lineHeight = 17.sp),
                         color = BiuZText3,
                         textAlign = TextAlign.Center,
                     )

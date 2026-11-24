@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.biuz.android.app.R
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBgInput
@@ -256,7 +257,7 @@ fun QueueBar(
             Spacer(Modifier.size(BiuZSpacing.xs))
             Text(
                 text = stringResource(R.string.queue_title, queue.items.size),
-                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                 color = BiuZText,
             )
             Spacer(Modifier.weight(1f))
@@ -266,11 +267,11 @@ fun QueueBar(
                 } else {
                     stringResource(R.string.queue_autodrain_off)
                 },
-                style = TextStyle(fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold),
+                style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                 color = if (queue.autoDrain) BiuZAccent else BiuZText3,
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
-                    .background(if (queue.autoDrain) BiuZAccent.copy(alpha = 0.14f) else BiuZBgInput)
+                    .background(if (queue.autoDrain) BiuZAccent.copy(alpha = BiuZAlpha.faint) else BiuZBgInput)
                     .clickable { onToggleAutoDrain(!queue.autoDrain) }
                     .padding(horizontal = BiuZSpacing.sm, vertical = 4.dp),
             )
@@ -347,7 +348,7 @@ private fun QueueRow(
             BasicTextField(
                 value = editingText,
                 onValueChange = onEditingTextChange,
-                textStyle = TextStyle(fontSize = 12.5.sp, color = BiuZText),
+                textStyle = TextStyle(fontSize = 13.sp, color = BiuZText),
                 modifier = Modifier
                     .weight(1f)
                     .clip(BiuZRadius.medium)
@@ -386,7 +387,7 @@ private fun QueueRow(
                 if (item.isGuide) {
                     Text(
                         text = stringResource(R.string.queue_guide_badge),
-                        style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                        style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                         color = BiuZSeal,
                     )
                 }

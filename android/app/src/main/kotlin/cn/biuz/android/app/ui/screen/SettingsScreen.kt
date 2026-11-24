@@ -43,6 +43,7 @@ import cn.biuz.android.app.settings.AppSettingsStore
 import cn.biuz.android.app.settings.AppAppearance
 import cn.biuz.android.app.settings.AppLanguagePreference
 import cn.biuz.android.app.settings.BrandTapGate
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZRed
@@ -167,7 +168,7 @@ fun SettingsScreen(
                                     .height(44.dp)
                                     .testTag("13-btn-logout"),
                                 shape = BiuZRadius.medium,
-                                border = BorderStroke(1.dp, BiuZRed.copy(alpha = 0.55f)),
+                                border = BorderStroke(1.dp, BiuZRed.copy(alpha = BiuZAlpha.half)),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = BiuZRed),
                             ) {
                                 Text(stringResource(R.string.settings_logout))

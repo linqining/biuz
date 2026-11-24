@@ -247,10 +247,10 @@ private fun TimelineMarkerRow(
                 .height(1.dp)
                 .background(BiuZBorder),
         )
-        Text(text = glyph, fontSize = 9.sp, color = BiuZText3)
+        Text(text = glyph, fontSize = 10.sp, color = BiuZText3)
         Text(
             text = label,
-            style = TextStyle(fontSize = 10.5.sp),
+            style = TextStyle(fontSize = 11.sp),
             color = BiuZText3,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -496,7 +496,7 @@ private fun EditResendSheet(
             BasicTextField(
                 value = text,
                 onValueChange = { text = it },
-                textStyle = TextStyle(fontSize = 14.5.sp, color = BiuZText, lineHeight = 20.sp),
+                textStyle = TextStyle(fontSize = 15.sp, color = BiuZText, lineHeight = 20.sp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 88.dp, max = 200.dp)
@@ -509,7 +509,7 @@ private fun EditResendSheet(
             // rewind 语义说明行（不可撤销 → 与确认弹层构成双重确认）
             Text(
                 text = stringResource(R.string.chat_edit_resend_warning),
-                style = TextStyle(fontSize = 11.5.sp, lineHeight = 16.sp),
+                style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
                 color = BiuZOrange,
             )
             failure?.let { DecisionFailureRow(it) }
@@ -873,7 +873,7 @@ private fun CollapsibleBodyText(text: String, streaming: Boolean) {
                     } else {
                         stringResource(R.string.chat_msg_expand, LongTextDisplay.totalCount(text))
                     },
-                    style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                    style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                     color = BiuZAccent,
                 )
             }
@@ -1414,7 +1414,7 @@ fun UserSelectionCard(selections: List<UserSelectionReference>, modifier: Modifi
         // 首条 2 行预览
         Text(
             text = selections.first().text,
-            style = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp),
+            style = TextStyle(fontSize = 13.sp, lineHeight = 17.sp),
             color = BiuZText3,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -1457,14 +1457,14 @@ fun UserSelectionCard(selections: List<UserSelectionReference>, modifier: Modifi
                             // 全文（逐条；选中文本可复制由系统选区承担，长按复制用卡面）
                             Text(
                                 text = item.text,
-                                style = TextStyle(fontSize = 13.5.sp, lineHeight = 20.sp),
+                                style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
                                 color = BiuZText,
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
                                 text = item.path
                                     ?: stringResource(R.string.chat_userselect_source_dialog),
-                                style = TextStyle(fontSize = 11.5.sp),
+                                style = TextStyle(fontSize = 12.sp),
                                 color = BiuZText3,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -1796,7 +1796,7 @@ private fun QuestionInteractionCard(
         interaction.command?.takeIf { it.isNotEmpty() }?.let { question ->
             Text(
                 text = question,
-                style = TextStyle(fontSize = 12.5.sp, lineHeight = 18.sp),
+                style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
                 color = BiuZText,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
@@ -2043,13 +2043,13 @@ fun WorkflowCompletionCardView(
                     ) {
                         Text(
                             text = artifact.title ?: artifact.id,
-                            style = TextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                            style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
                             color = BiuZText,
                         )
                         artifact.description?.takeIf { it.isNotEmpty() }?.let {
                             Text(
                                 text = it,
-                                style = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp),
+                                style = TextStyle(fontSize = 13.sp, lineHeight = 17.sp),
                                 color = BiuZText3,
                                 maxLines = 4,
                                 overflow = TextOverflow.Ellipsis,
@@ -2057,7 +2057,7 @@ fun WorkflowCompletionCardView(
                         }
                         Text(
                             text = artifactMetaText(artifact, run),
-                            style = TextStyle(fontSize = 11.5.sp),
+                            style = TextStyle(fontSize = 12.sp),
                             color = BiuZText3,
                         )
                     }
@@ -2077,7 +2077,7 @@ fun WorkflowCompletionCardView(
                         Text(text = "☰", fontSize = 11.sp, color = BiuZText3)
                         Text(
                             text = artifact.title ?: artifact.id,
-                            style = TextStyle(fontSize = 12.5.sp),
+                            style = TextStyle(fontSize = 13.sp),
                             color = BiuZText2,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -2085,7 +2085,7 @@ fun WorkflowCompletionCardView(
                         )
                         Text(
                             text = artifactMetaText(artifact, run),
-                            style = TextStyle(fontSize = 11.5.sp),
+                            style = TextStyle(fontSize = 12.sp),
                             color = BiuZText3,
                         )
                     }
@@ -2093,7 +2093,7 @@ fun WorkflowCompletionCardView(
                 if (card.truncated) {
                     Text(
                         text = stringResource(R.string.wf_truncated_artifacts),
-                        style = TextStyle(fontSize = 11.5.sp),
+                        style = TextStyle(fontSize = 12.sp),
                         color = BiuZText3,
                     )
                 }
