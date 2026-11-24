@@ -39,7 +39,6 @@ data class BiuZPalette(
     val orangeDim: Color,
     val red: Color,
     val redDim: Color,
-    val violet: Color,
     val add: Color,
     val del: Color,
     val lightAccent: Color,
@@ -74,7 +73,6 @@ val BiuZDarkPalette = BiuZPalette(
     orangeDim = Color(0x24FF8A30),
     red = Color(0xFFFF6467),
     redDim = Color(0x24FF6467),
-    violet = Color(0xFFC792FF),
     add = Color(0xFF22C55E),
     del = Color(0xFFFF6467),
     lightAccent = Color(0xFF17181A),
@@ -113,7 +111,6 @@ val BiuZLightPalette = BiuZPalette(
     orangeDim = Color(0x1AB45309),
     red = Color(0xFFDC2626),
     redDim = Color(0x1ADC2626),
-    violet = Color(0xFF7C3AED),
     add = Color(0xFF16A34A),
     del = Color(0xFFDC2626),
     lightAccent = Color(0xFFF0EDE6),
@@ -153,7 +150,6 @@ val BiuZOnOrange: Color get() = BiuZColors.current.onOrange
 val BiuZOrangeDim: Color get() = BiuZColors.current.orangeDim
 val BiuZRed: Color get() = BiuZColors.current.red
 val BiuZRedDim: Color get() = BiuZColors.current.redDim
-val BiuZViolet: Color get() = BiuZColors.current.violet
 val BiuZAdd: Color get() = BiuZColors.current.add
 val BiuZDel: Color get() = BiuZColors.current.del
 val BiuZLightAccent: Color get() = BiuZColors.current.lightAccent

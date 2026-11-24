@@ -26,10 +26,13 @@ private fun schemeFor(p: BiuZPalette, dark: Boolean) = if (dark) {
         onSecondary = p.bg,
         secondaryContainer = p.border,
         onSecondaryContainer = p.text,
-        tertiary = p.violet,
-        onTertiary = Color(0xFF160F24),
-        tertiaryContainer = Color(0xFF2A2140),
-        onTertiaryContainer = p.violet,
+        // tertiary 曾映射 violet(#7C92FF/#2A2140)——品牌只有朱磦/墨/纸/钤灰，
+        // 紫色是 BiuZ 时代残留（2026-11-24 审查报告 P0-②）。改映射到朱磦系：
+        // 与主印同色，任何 Material 组件取 tertiary 都不会漏紫。
+        tertiary = p.sealPress,
+        onTertiary = p.onSeal,
+        tertiaryContainer = p.sealDim,
+        onTertiaryContainer = p.seal,
         background = p.bg,
         onBackground = p.text,
         surface = p.bgCard,
@@ -65,10 +68,11 @@ private fun schemeFor(p: BiuZPalette, dark: Boolean) = if (dark) {
         onSecondary = p.bg,
         secondaryContainer = p.border,
         onSecondaryContainer = p.text,
-        tertiary = p.violet,
-        onTertiary = Color(0xFFFFFFFF),
-        tertiaryContainer = Color(0xFFEDE4FF),
-        onTertiaryContainer = p.violet,
+        // 见深档同注：tertiary 由 violet 改映射朱磦系（#EDE4FF 浅紫容器一并去掉）
+        tertiary = p.seal,
+        onTertiary = p.onSeal,
+        tertiaryContainer = p.sealDim,
+        onTertiaryContainer = p.seal,
         background = p.bg,
         onBackground = p.text,
         surface = p.bgCard,

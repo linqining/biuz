@@ -73,6 +73,9 @@ import cn.biuz.android.app.ui.theme.BiuZOnAccent
 import cn.biuz.android.app.ui.theme.BiuZOnOrange
 import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRed
+import cn.biuz.android.app.ui.theme.ctaPress
+import cn.biuz.android.app.ui.theme.BiuZSeal
+import cn.biuz.android.app.ui.theme.BiuZOnSeal
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
@@ -881,13 +884,20 @@ private fun NewConversationSheet(
                 )
             }
             // 开始任务（提交门在 submit() 内；在途去重防双创建）
+            // 主 CTA = 朱磦实底 + 按压实 + 轻击触觉（用户裁决「主 CTA 用朱磦 / 只给主 CTA 轻击」）
+            val submitInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 44.dp)
+                    .ctaPress(submitInteraction)
                     .clip(BiuZRadius.medium)
-                    .background(if (!submitting) BiuZAccent else BiuZBgInput)
-                    .clickable(enabled = !submitting) {
+                    .background(if (!submitting) BiuZSeal else BiuZBgInput)
+                    .clickable(
+                        interactionSource = submitInteraction,
+                        indication = null,
+                        enabled = !submitting,
+                    ) {
                         val selection = ChatViewModel.resolveNewSessionSelection(
                             info = modelInfo,
                             selection = ChatViewModel.NewSessionDraftSelection(
@@ -918,7 +928,7 @@ private fun NewConversationSheet(
                         stringResource(R.string.new_session_submit)
                     },
                     style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
-                    color = if (!submitting) BiuZOnAccent else BiuZText3,
+                    color = if (!submitting) BiuZOnSeal else BiuZText3,
                 )
             }
         }

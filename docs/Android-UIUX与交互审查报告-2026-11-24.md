@@ -246,7 +246,30 @@ fun Modifier.pressableScale(pressedScale: Float = 0.96f): Modifier
 
 ---
 
-## 10 需要你裁决的三件事
+## 10 裁决结果（2026-11-24 用户已定）
+
+1. **主 CTA 用朱磦** ✅ → 已落地（发送钮、开始任务、决议按钮；`accent` 保留为中性强调）
+2. **按压要触觉，只给主 CTA 轻击** ✅ → 已落地（`ctaPress`：按下帧 `HapticFeedbackType.LongPress`；列表行/芯片/图标钮不触发）；落印也补上了触觉（motion-spec 要求）
+3. **在途改动保留** ✅ → `f90177b1` 保留；本轮 A/B 已在其上继续
+
+### 落地明细（A 动效基建 + B 色彩收敛）
+
+| 项 | 实现 | 证据 |
+|---|---|---|
+| 动效令牌 | `ui/theme/Motion.kt`：`BiuZMotion`（落印 460/700/180/520/180 + 按压 90/140 + `emphasized` 唯一缓动） | `MotionAndPaletteTest.stampDurationsMatchMotionSpecVerbatim` |
+| 按压实 | `Modifier.pressableScale(interactionSource)`：`collectIsPressedAsState` → `animateFloatAsState` → `graphicsLayer`；`scale 1→0.96`（90ms）/ `0.96→1`（140ms）；`ANIMATOR_DURATION_SCALE==0` 跳过 | `MotionAndPaletteTest.pressDurationsAreShorterThanStamp` |
+| 主 CTA 触觉 | `Modifier.ctaPress(interactionSource)` = 按压实 + 按下帧触觉；接入发送钮、开始任务、`DecisionButton`（四面决议统一入口） | 真机点按（触觉需实机手感，截图无法呈现） |
+| 落印触觉 | `SealStamp` 落印帧 `performHapticFeedback(LongPress)`（减弱动态下也保留——触觉不是动画） | motion-spec「落印即触发」 |
+| tertiary 去紫 | `Theme.kt` 深浅两档 `tertiary/onTertiary/tertiaryContainer/onTertiaryContainer` 全改朱磦系；`#EDE4FF`/`#2A2140` 紫容器删除 | `MotionAndPaletteTest.sealStaysVermilionInBothTiers` |
+| 删除 violet 令牌 | `Color.kt`：`violet` 字段（两档）+ `BiuZViolet` getter 全部删除；全仓 violet 引用 0 | `grep -rc violet` = 0（仅 Theme.kt 两行历史注释） |
+| 主 CTA 统一朱磦 | 发送钮 / 「开始任务」/ `DecisionButton` 容器色 `BiuZAccent`→`BiuZSeal`、文字 `BiuZOnAccent`→`BiuZOnSeal` | 真机截图：发送钮朱磦圆形 + 纸色箭头 |
+
+**真机目检**：chip 图标（目标 ◉ / 计划 ☰ / 后台 ◷）由紫转**朱磦红**；活动头像由「绿底绿字」转**中性灰圆 + 绿点徽标**；发送钮朱磦。
+**门禁**：app/store/protocol **461 例全绿**（新增 4 例动效/色令牌断言），`assembleDebug` 绿。
+
+---
+
+## 11 原待裁决项（已被 §10 取代，留档）
 
 1. **主 CTA 用朱磦还是墨？**（推荐朱磦，与 logo/登录页一致）
 2. **按钮按压要不要触觉？**（推荐只给主 CTA 轻击，列表/芯片不给）

@@ -67,6 +67,7 @@ import cn.biuz.android.app.ui.theme.BiuZRed
 import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZAccentDim
 import cn.biuz.android.app.ui.theme.BiuZBgCard
+import cn.biuz.android.app.ui.theme.ctaPress
 import cn.biuz.android.app.ui.theme.BiuZBgCode
 import cn.biuz.android.app.ui.theme.BiuZBgElevated
 import cn.biuz.android.app.ui.theme.BiuZBgInput
@@ -1915,11 +1916,20 @@ private fun DecisionButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    // 决议 = 主 CTA：按压实 + 轻击触觉（motion-spec 的「印随批准权走」在触屏的
+    // 手指反馈对应物——按下就有回应，落印在 ACK 之后）
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Box(
         modifier = Modifier
+            .ctaPress(interaction)
             .clip(BiuZRadius.medium)
             .background(if (enabled) container else BiuZBgInput)
-            .combinedClickableSafe(enabled = enabled, onClick = onClick)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick,
+            )
             .padding(horizontal = BiuZSpacing.lg, vertical = 11.dp),
     ) {
         Text(

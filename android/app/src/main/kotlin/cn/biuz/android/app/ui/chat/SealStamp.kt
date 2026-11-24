@@ -84,7 +84,12 @@ fun SealStamp(approved: Boolean, modifier: Modifier = Modifier, size: Dp = 116.d
     val easing = remember { CubicBezierEasing(0.22f, 0.68f, 0.32f, 1f) }
     val ringOut = remember { CubicBezierEasing(0f, 0f, 0.58f, 1f) }
 
+    // 触觉：落印即触发（motion-spec「触觉沿用既有 success/error 通知触觉，落印即触发」）。
+    // Android 无 success/error 语义，取 LongPress（唯一跨版本可用的「重动作」反馈）；
+    // 减弱动态下也保留——触觉不是动画，是「落印发生了」的确认。
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     LaunchedEffect(Unit) {
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
         if (reduceMotion) return@LaunchedEffect
         suspend fun seg(a: Animatable<Float, *>, to: Float, ms: Int) =
             a.animateTo(to, tween(ms, easing = easing))

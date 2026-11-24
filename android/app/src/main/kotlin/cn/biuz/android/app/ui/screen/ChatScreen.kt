@@ -102,7 +102,10 @@ import cn.biuz.android.app.ui.chat.planAnswer
 import cn.biuz.android.store.ModelSelectionInfo
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.ToolCall
+import cn.biuz.android.app.ui.theme.BiuZOnSeal
+import cn.biuz.android.app.ui.theme.ctaPress
 import cn.biuz.android.app.ui.theme.BiuZAccent
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import cn.biuz.android.app.ui.theme.BiuZBg
 import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBorder
@@ -833,14 +836,20 @@ fun ChatScreen(
                 Spacer(Modifier.size(BiuZSpacing.sm))
                 // 发送闸（iOS canSend :1056 直译）：`!draft.isEmpty && !uploads.blocksSend`
                 // ——有待发且存在未 committed 项禁发（防直发文本丢附件）
+                // 主 CTA = 朱磦实底（2026-11-24 用户裁决「主 CTA 用朱磦」——与主印/登录页同色；
+                // 墨 accent 降级为中性强调）。按压实 + 轻击触觉只给这类「最终提交」动作。
+                val sendInteraction = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .size(44.dp)
+                        .ctaPress(sendInteraction)
                         .clip(CircleShape)
                         .background(
-                            if (draft.isNotBlank() && !sending && !uploadsBlocksSend) BiuZAccent else BiuZBgInput,
+                            if (draft.isNotBlank() && !sending && !uploadsBlocksSend) BiuZSeal else BiuZBgInput,
                         )
                         .clickable(
+                            interactionSource = sendInteraction,
+                            indication = null,
                             enabled = draft.isNotBlank() && !sending && !uploadsBlocksSend,
                         ) {
                             scope.launch { viewModel.send() }
@@ -851,7 +860,7 @@ fun ChatScreen(
                         text = if (sending) "…" else "↑",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (draft.isNotBlank() && !sending) BiuZOnAccent else BiuZText3,
+                        color = if (draft.isNotBlank() && !sending) BiuZOnSeal else BiuZText3,
                     )
                 }
             }
