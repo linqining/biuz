@@ -1,6 +1,7 @@
 package cn.biuz.android.app.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import cn.biuz.android.app.R
 import cn.biuz.android.app.ui.theme.BiuZAlpha
+import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText3
@@ -101,9 +103,12 @@ internal fun SettingsGroup(
             modifier = Modifier.padding(start = BiuZSpacing.sm, bottom = BiuZSpacing.sm),
         )
         Column(
+            // 卡面与页面底同色（纸），分组靠 12% 墨描边——卡面若再靠「比纸白一档」区分，
+            // 真机上整页就是白的（2026-11-24 二次报障）。
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainer, BiuZRadius.large),
+                .background(MaterialTheme.colorScheme.surfaceContainer, BiuZRadius.large)
+                .border(1.dp, BiuZBorder, BiuZRadius.large),
         ) {
             content()
         }

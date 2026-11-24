@@ -84,12 +84,13 @@ val BiuZDarkPalette = BiuZPalette(
 
 val BiuZLightPalette = BiuZPalette(
     bg = Color(0xFFF7F3EC),
-    // 卡面/浮层 = 纸色系（2026-11-24 用户报障「真机依然是白色而不是纸色底色」）：
-    // 页面底本就是纸色 #F7F3EC，但卡面曾取近白 #FFFDF9、浮层取纯白 #FFFFFF——
-    // 二级页（设置/用量/归档/项目）整页由满宽卡面铺成，白卡面积压过纸底，视觉上就是「白底」。
-    // 现改为「同一张纸上略亮一档」，层次靠描边（border 12% 墨）而不是靠白度差。
-    bgCard = Color(0xFFFBF8F2),
-    bgElevated = Color(0xFFFDFBF6),
+    // 卡面/浮层必须**肉眼是纸**（2026-11-24 二次报障「实际看到的是白屏，和你截图的纸色不一样」）：
+    // 上一版卡面取 #FBF8F2（离纯白只有 4/7/13 阶）、浮层 #FDFBF6（2/4/9 阶）——像素采样
+    // 有差、眼睛看着就是白；而设置/用量/归档/新建会话这些页几乎整屏由卡面铺成，于是
+    // 「页面是纸、满屏是白」。现按品牌文档原话执行：**同一张纸，层次靠描边不靠白度差**——
+    // 卡面直接与页面底同色 #F7F3EC，浮层只比纸亮 3 阶（远低于白的感知阈值）。
+    bgCard = Color(0xFFF7F3EC),
+    bgElevated = Color(0xFFFAF7F0),
     bgInput = Color(0xFFEFE9DF), // 纸·暗一档（输入槽仍需可辨的下沉感）
     bgCode = Color(0xFFF4F0E8),
     bgTerm = Color(0xFFF5F1EA),
