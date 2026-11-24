@@ -75,6 +75,7 @@ import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRed
 import cn.biuz.android.app.ui.theme.ctaPress
 import cn.biuz.android.app.ui.theme.BiuZSeal
+import cn.biuz.android.app.ui.theme.pressableScale
 import cn.biuz.android.app.ui.theme.BiuZOnSeal
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
@@ -984,10 +985,13 @@ private fun SessionRow(
     onMarkUnread: (() -> Unit)? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    // 会话行 = 报告 §4.4 第 3 类（行）：按压实，无触觉
+    val rowInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Box {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .pressableScale(rowInteraction)
             // APP-DIFF[D006] platform: web 靠 hover 显现行内文件/归档按钮；触屏无 hover，
             // 长按 combinedClickable 弹菜单（行内双按钮会挤压标题宽度）
             .combinedClickable(

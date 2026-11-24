@@ -265,6 +265,20 @@ fun Modifier.pressableScale(pressedScale: Float = 0.96f): Modifier
 | 主 CTA 统一朱磦 | 发送钮 / 「开始任务」/ `DecisionButton` 容器色 `BiuZAccent`→`BiuZSeal`、文字 `BiuZOnAccent`→`BiuZOnSeal` | 真机截图：发送钮朱磦圆形 + 纸色箭头 |
 
 **真机目检**：chip 图标（目标 ◉ / 计划 ☰ / 后台 ◷）由紫转**朱磦红**；活动头像由「绿底绿字」转**中性灰圆 + 绿点徽标**；发送钮朱磦。
+
+#### 按压实覆盖（报告 §4.4 三类落点）
+
+| 类 | 落点 | 触觉 |
+|---|---|---|
+| 主 CTA | 发送钮、开始任务、`DecisionButton`（四面决议） | ✅ 按下帧 `LongPress` |
+| 胶囊 | composer 三胶囊（`Chip` 基形一处覆盖全部）、面板 chip（`PanelChip`）、活动摘要、Hook、子代理目录 | ❌ |
+| 行 | 面板选项行（`OptionRow`：模型/思考/模式清单）、会话行（`SessionRow`） | ❌ |
+| 另 | `SealStamp` 落印帧 | ✅（motion-spec 要求） |
+
+**按压真机取证（数值化）**：对「完全访问」胶囊长按保持 3s，中段截图与静止帧对比——
+文字包围盒 `151 → 144 px`（比 **0.954**）、字高 `37 → 35 px`（**0.946**）、胶囊左边缘内缩 `5 px`（绕中心对称缩放），与 `BiuZMotion.pressedScale = 0.96` 一致。
+（截图法抓不到 90ms 的按下瞬态——adb 截图延迟约 700ms；改用「长按保持」把按下态变成静止帧才可测。此前两次尝试分别因坐标落错与录屏抽帧遇布局漂移失败。）
+
 **门禁**：app/store/protocol **461 例全绿**（新增 4 例动效/色令牌断言），`assembleDebug` 绿。
 
 ---

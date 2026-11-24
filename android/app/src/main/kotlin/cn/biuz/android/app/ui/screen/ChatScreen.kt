@@ -104,6 +104,7 @@ import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.ToolCall
 import cn.biuz.android.app.ui.theme.BiuZOnSeal
 import cn.biuz.android.app.ui.theme.ctaPress
+import cn.biuz.android.app.ui.theme.pressableScale
 import cn.biuz.android.app.ui.theme.BiuZAccent
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import cn.biuz.android.app.ui.theme.BiuZBg
@@ -1356,12 +1357,15 @@ private fun ThoughtChip(label: String, onClick: () -> Unit) {
 /** 胶囊基形（44pt 最小热区；弱底 + 描边 + 下拉箭头）。 */
 @Composable
 private fun Chip(label: String, onClick: () -> Unit) {
+    // 胶囊 = 报告 §4.4 第 2 类：按压实，**无触觉**（芯片按一下就震会把触觉降成噪音）
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
+            .pressableScale(interaction)
             .clip(RoundedCornerShape(999.dp))
             .background(BiuZBgInput)
             .border1()
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = BiuZSpacing.md, vertical = 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

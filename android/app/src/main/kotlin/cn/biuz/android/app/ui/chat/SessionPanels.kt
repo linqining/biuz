@@ -18,6 +18,7 @@ package cn.biuz.android.app.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -84,6 +85,7 @@ import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.app.ui.theme.BiuZSeal
+import cn.biuz.android.app.ui.theme.pressableScale
 import cn.biuz.android.protocol.BackgroundWorkSummary
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.MessageRole
@@ -373,12 +375,14 @@ private fun HookDetailsRow(hooks: List<cn.biuz.android.protocol.HookInvocationIn
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
+        val hookInteraction = remember { MutableInteractionSource() }
         Row(
             modifier = Modifier
+                .pressableScale(hookInteraction)
                 .clip(RoundedCornerShape(999.dp))
                 .background(BiuZBgCard)
                 .border(1.dp, BiuZBorder, RoundedCornerShape(999.dp))
-                .clickable { expanded = !expanded }
+                .clickable(interactionSource = hookInteraction, indication = null) { expanded = !expanded }
                 .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
                 .testTag("05-hook-details-trigger"),
             verticalAlignment = Alignment.CenterVertically,
@@ -552,12 +556,14 @@ private fun ActivitySummaryRow(
         else -> BiuZGreen
     }
     Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
+        val summaryInteraction = remember { MutableInteractionSource() }
         Row(
             modifier = Modifier
+                .pressableScale(summaryInteraction)
                 .clip(RoundedCornerShape(999.dp))
                 .background(BiuZBgCard)
                 .border(1.dp, BiuZBorder, RoundedCornerShape(999.dp))
-                .clickable { expanded = !expanded }
+                .clickable(interactionSource = summaryInteraction, indication = null) { expanded = !expanded }
                 .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
                 .testTag("05-activity-summary"),
             verticalAlignment = Alignment.CenterVertically,
@@ -670,11 +676,13 @@ private fun ActivitySummaryRow(
         // 子代理目录入口（web EndedDirectoryRow「子代理目录 · N」同构）：
         // 点开按需拉 `session/subagents`；拉到后展开历史清单 + 「加载更多」。
         if (model.hasSubagentDirectory && onLoadDirectory != null) {
+            val dirInteraction = remember { MutableInteractionSource() }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .pressableScale(dirInteraction)
                     .clip(BiuZRadius.small)
-                    .clickable {
+                    .clickable(interactionSource = dirInteraction, indication = null) {
                         directoryOpen = !directoryOpen
                         if (directoryOpen && directory == null) onLoadDirectory()
                     }
@@ -872,8 +880,10 @@ private fun PanelChip(
     badge: String?,
     onClick: () -> Unit,
 ) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Row(
         modifier = Modifier
+            .pressableScale(interaction)
             .clip(RoundedCornerShape(999.dp))
             .background(if (selected) BiuZAccentDim.copy(alpha = 0.55f) else BiuZBgCard)
             .border(
@@ -881,7 +891,7 @@ private fun PanelChip(
                 if (selected) BiuZAccent.copy(alpha = 0.6f) else BiuZBorder,
                 RoundedCornerShape(999.dp),
             )
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
             .testTag("05-panel-chip-${kind.name.lowercase()}"),
         verticalAlignment = Alignment.CenterVertically,

@@ -59,6 +59,7 @@ import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.app.ui.theme.BiuZSeal
+import cn.biuz.android.app.ui.theme.pressableScale
 import cn.biuz.android.store.ConversationQueueInfo
 import cn.biuz.android.store.ModelPlanGroup
 import cn.biuz.android.store.ModelSelectionInfo
@@ -157,10 +158,13 @@ fun ThoughtOptionSection(
 /** 面板行（44pt 热区；选中 = 勾标 + accent 描边，iOS ComposerOptionItem 选中语言同构）。 */
 @Composable
 private fun OptionRow(title: String, checked: Boolean, onClick: () -> Unit) {
+    // 面板选项行 = 报告 §4.4 第 3 类（行）：按压实，无触觉
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 44.dp)
+            .pressableScale(interaction)
             .clip(BiuZRadius.medium)
             .background(BiuZBgInput)
             .border(
@@ -168,7 +172,7 @@ private fun OptionRow(title: String, checked: Boolean, onClick: () -> Unit) {
                 if (checked) BiuZAccent else BiuZBorderStrong,
                 BiuZRadius.medium,
             )
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
