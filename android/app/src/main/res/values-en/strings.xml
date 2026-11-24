@@ -467,6 +467,7 @@
     <string name="hook_state_cancelled">Cancelled</string>
     <string name="hook_state_failed">Failed</string>
     <string name="wf_history_caption">Past runs</string>
+    <string name="wf_run_ordinal">Run %1$d</string>
     <!-- v4 timelineMarker divider rows -->
     <string name="marker_compact_started">Compacting context</string>
     <string name="marker_compact_completed">Context compacted</string>

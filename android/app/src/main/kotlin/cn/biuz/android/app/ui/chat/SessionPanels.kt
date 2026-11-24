@@ -290,6 +290,7 @@ fun SessionPanelsSection(
                                     viewModel = viewModel,
                                     run = run,
                                     goal = goal,
+                                    ordinal = index + 1,
                                 )
                                 if (index < runs.size - 1) {
                                     Box(
@@ -1125,6 +1126,8 @@ fun WorkflowPanelCard(
     viewModel: ChatViewModel,
     run: WorkflowRunSummary,
     goal: RemoteGoalSummary?,
+    /** 面板内序号（1 起）：桌面无 name 时用「运行 N」区分多张卡 */
+    ordinal: Int? = null,
     modifier: Modifier = Modifier,
 ) {
     var expandedPhases by remember(run.id) { mutableStateOf(setOf<String>()) }
@@ -1141,7 +1144,13 @@ fun WorkflowPanelCard(
         ) {
             Text(text = "⑂", fontSize = 13.sp, color = BiuZSeal)
             Text(
-                text = run.name,
+                // 桌面这两类 run 的 name 实测都等于面板名「工作流」（或缺席），8 张卡
+                // 全同名、与上面板头也同名——读作「八张一模一样的卡」。名字等于面板名
+                // 时按序号显示「运行 N」，真名字（非通用词）照常显示。
+                text = run.name.takeIf {
+                    it.isNotBlank() && it != stringResource(R.string.panel_workflow)
+                } ?: ordinal?.let { stringResource(R.string.wf_run_ordinal, it) }
+                    ?: stringResource(R.string.panel_workflow),
                 style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
                 color = BiuZText,
                 maxLines = 1,
@@ -1414,6 +1423,10 @@ private fun WorkflowControlBar(
 ) {
     val scope = rememberCoroutineScope()
     val models by viewModel.modelSelection.collectAsStateWithLifecycle()
+    // 已结束的 run 不渲染控制条：amendWorkflowRunSettings / 并发调整对死 run 无意义
+    // （桌面会拒），「暂停目标」在「目标」面板里有同功能入口。真机 8 run 面板原本
+    // 每张死卡都挂一整排控制胶囊，读作「这些还能改」。
+    if (!run.isLive) return
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,

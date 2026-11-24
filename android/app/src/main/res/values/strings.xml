@@ -484,6 +484,7 @@
     <string name="hook_state_cancelled">已取消</string>
     <string name="hook_state_failed">失败</string>
     <string name="wf_history_caption">历史 run</string>
+    <string name="wf_run_ordinal">运行 %1$d</string>
     <!-- v4 timelineMarker 分隔行（web chat.contextCompaction.*/chat.modelChange.*/chat.goalVerification.* 逐字） -->
     <string name="marker_compact_started">正在压缩上下文</string>
     <string name="marker_compact_completed">上下文已压缩</string>

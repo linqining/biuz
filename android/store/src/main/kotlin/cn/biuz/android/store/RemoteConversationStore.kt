@@ -5010,7 +5010,9 @@ class RemoteConversationStore(
          */
         fun projectActivityRun(run: SessionWorkflowRunSummary): WorkflowRunSummary = WorkflowRunSummary(
             id = run.id,
-            name = run.name ?: "工作流",
+            // 不在这里编名字：桌面无 name 时每张卡都会叫「工作流」，与面板头重复
+            // （真机 8 run 的面板就是一串同名卡）。UI 按序号补「运行 N」。
+            name = run.name?.takeIf { it.isNotBlank() } ?: "",
             rawStatus = run.rawStatus,
             stopReason = null,
             resumable = false,
