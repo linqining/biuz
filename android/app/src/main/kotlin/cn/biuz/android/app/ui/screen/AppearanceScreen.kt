@@ -29,6 +29,7 @@ import cn.biuz.android.app.ui.theme.BiuZBg
 import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
+import cn.biuz.android.app.ui.theme.BiuZSeal
 import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
@@ -95,7 +96,9 @@ fun AppearanceScreen(
                         modifier = Modifier.weight(1f),
                     )
                     if (selected) {
-                        Text(text = "✓", fontSize = 14.sp, color = BiuZText)
+                        // 选中勾统一取朱磦（SettingsUi 的选择行同款）；原为墨色——
+                        // 同一套「设置态选中」在设置页是朱磦、在外观页是墨，两套语义
+                        Text(text = "✓", fontSize = 14.sp, color = BiuZSeal)
                     }
                 }
                 androidx.compose.material3.HorizontalDivider(color = BiuZBorder)
