@@ -146,6 +146,9 @@ fun MessageRow(
         }
         return
     }
+    // hookInvocation 行不进消息流（web 行渲染同样 return null，
+    // ConversationShareReadonlyTimeline.tsx:826-828）；由宿主按轮汇总成「Hook 详情」入口。
+    if (message.hookInvocation != null) return
     when (message.role) {
         MessageRole.user -> UserMessageRow(message, modifier, onEditResend, attachmentContext)
         MessageRole.agent -> AgentMessageRow(

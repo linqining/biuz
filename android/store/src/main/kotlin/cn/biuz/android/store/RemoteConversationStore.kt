@@ -67,6 +67,8 @@ import cn.biuz.android.protocol.RPCChannelTransport
 import cn.biuz.android.protocol.RPCError
 import cn.biuz.android.protocol.RPCValue
 import cn.biuz.android.protocol.SubagentSummary
+import cn.biuz.android.protocol.HookExecutionInfo
+import cn.biuz.android.protocol.HookInvocationInfo
 import cn.biuz.android.protocol.TimelineMarkerInfo
 import cn.biuz.android.protocol.ThinkingContent
 import cn.biuz.android.protocol.ThinkingState
@@ -1424,6 +1426,26 @@ class RemoteConversationStore(
                 "toolCall" -> {
                     emit(toolCallRowMessage(row, rowId, "row-$rowId", includeRetryCursor = true, timestampMs = rowTime))
                 }
+                // v4 hookInvocation 行（rows.ts:329-351）：**不进消息流**（web 行渲染
+                // 同样 return null，ConversationShareReadonlyTimeline.tsx:826-828），
+                // 只按轮汇总成「本轮 Hook 详情」入口。此前本端连解析都没有（else 静默跳过）
+                // → 完全不知道发生过 Hook。这里解析并保留在消息列表里，渲染层跳过。
+                "hookInvocation" -> {
+                    parseHookInvocation(row, rowId)?.let { hook ->
+                        emit(
+                            ChatMessage(
+                                id = "row-$rowId", role = MessageRole.agent,
+                                text = "",
+                                status = MessageStatus.done,
+                                timestamp = rowTime,
+                                rowKind = "hookInvocation",
+                                turnId = turnId,
+                                turnIndex = turnIndex,
+                                hookInvocation = hook,
+                            ),
+                        )
+                    }
+                }
                 // v4 timelineMarker 行（rows.ts:441-449）：时间轴分隔标记。此前无此分支，
                 // marker 行被**静默丢弃**——模型切换/上下文压缩/目标校验/fork 派生提示全不可见。
                 "timelineMarker" -> {
@@ -1657,6 +1679,44 @@ class RemoteConversationStore(
      * 未识别的 type 也返回非 null 对象（[TimelineMarkerInfo.isVisible] 为 false）——
      * 让解析层如实**看见**新类型（长度/计数不错位），渲染层按 web 同口径 `default: null` 跳过。
      */
+    /** `hookInvocation` 行 → Hook 详情投影（`hookInvocationRowSchema` + `executions[]`）。 */
+    private fun parseHookInvocation(
+        row: Map<String, JSONValue>,
+        rowId: Int,
+    ): HookInvocationInfo? {
+        val id = row["hookInvocationId"]?.stringValue ?: "row-$rowId"
+        val executions = row["executions"]?.arrayValue.orEmpty().mapNotNull { item ->
+            val d = item.objectValue ?: return@mapNotNull null
+            val runId = d["hookRunId"]?.stringValue ?: return@mapNotNull null
+            HookExecutionInfo(
+                hookRunId = runId,
+                hookIndex = d["hookIndex"]?.intValue ?: 0,
+                didExecute = d["didExecute"]?.boolValue ?: false,
+                state = d["state"]?.stringValue ?: "",
+                outcome = d["outcome"]?.stringValue,
+                blockReason = d["blockReason"]?.stringValue,
+                startedAt = d["startedAt"]?.stringValue?.let(SessionSummaryParser::parseIsoMillis)
+                    ?: d["startedAt"]?.longValue(),
+                endedAt = d["endedAt"]?.stringValue?.let(SessionSummaryParser::parseIsoMillis)
+                    ?: d["endedAt"]?.longValue(),
+                durationMs = d["durationMs"]?.longValue(),
+                displayName = d["displayName"]?.stringValue ?: "",
+                sourceKind = d["sourceKind"]?.stringValue ?: "",
+                pluginName = d["pluginName"]?.stringValue,
+                toolName = d["toolName"]?.stringValue,
+            )
+        }
+        return HookInvocationInfo(
+            hookInvocationId = id,
+            hookEventName = row["hookEventName"]?.stringValue ?: "",
+            hookCount = row["hookCount"]?.intValue ?: 1,
+            state = row["state"]?.stringValue ?: "",
+            lane = row["lane"]?.stringValue,
+            anchorToolCallId = row["anchorToolCallId"]?.stringValue,
+            executions = executions,
+        )
+    }
+
     private fun parseTimelineMarker(row: Map<String, JSONValue>): TimelineMarkerInfo? {
         val marker = row["marker"]?.objectValue ?: return null
         val type = marker["type"]?.stringValue ?: return null

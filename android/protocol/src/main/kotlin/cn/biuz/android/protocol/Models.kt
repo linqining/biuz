@@ -550,6 +550,61 @@ data class TimelineMarkerInfo(
         }
 }
 
+/**
+ * Hook 单次执行投影（v4 `hookExecutionProjectionSchema`
+ * 【实证·上游仓 rows.ts:309-327】）。挂在 `hookInvocation` 行的 `executions[]` 上。
+ */
+data class HookExecutionInfo(
+    val hookRunId: String,
+    val hookIndex: Int = 0,
+    /** 同一 runId 已观察到 HookRunStarted 才为 true；admission-only blocked 为 false */
+    val didExecute: Boolean = false,
+    /** running | completed | failed */
+    val state: String = "",
+    /** success | blocked | failed | cancelled | timed_out */
+    val outcome: String? = null,
+    val blockReason: String? = null,
+    val startedAt: Long? = null,
+    val endedAt: Long? = null,
+    val durationMs: Long? = null,
+    val displayName: String = "",
+    /** user | plugin | project */
+    val sourceKind: String = "",
+    val pluginName: String? = null,
+    val toolName: String? = null,
+) {
+    /** 展示态五态（web hookDetailStatus 逐条同构：running 优先、outcome 次之、failed 兜底）。 */
+    val displayStatus: String?
+        get() = when {
+            state == "running" -> "running"
+            outcome == "timed_out" -> "timedOut"
+            outcome == "cancelled" -> "cancelled"
+            outcome == "blocked" -> "blocked"
+            state == "failed" || outcome == "failed" -> "failed"
+            else -> null
+        }
+}
+
+/**
+ * `hookInvocation` 行投影（v4 `hookInvocationRowSchema`
+ * 【实证·上游仓 rows.ts:329-351】）。
+ *
+ * **web 侧行渲染同样 `return null`**（ConversationShareReadonlyTimeline.tsx:826-828）——
+ * 它不进消息流，只按 turn 汇总成「本轮 Hook 详情」入口
+ * （`ConversationHookDetailsAction`，ConversationRowView.tsx:1514-1516）。
+ * 移动端此前连解析都没有（`when (kind)` 的 else 分支静默跳过），
+ * 因此本轮不知道发生过任何 Hook。
+ */
+data class HookInvocationInfo(
+    val hookInvocationId: String,
+    val hookEventName: String = "",
+    val hookCount: Int = 1,
+    val state: String = "",
+    val lane: String? = null,
+    val anchorToolCallId: String? = null,
+    val executions: List<HookExecutionInfo> = emptyList(),
+)
+
 data class ChatMessage(
     val id: String,
     val role: MessageRole,
@@ -574,6 +629,8 @@ data class ChatMessage(
     val turnChanges: TurnFileChanges? = null,
     /** 时间轴分隔标记（`timelineMarker` 行投影；null = 非 marker 行） */
     val timelineMarker: TimelineMarkerInfo? = null,
+    /** Hook 调用（`hookInvocation` 行投影；不进消息流，汇总为本轮 Hook 详情入口） */
+    val hookInvocation: HookInvocationInfo? = null,
     /** P1-3 反馈态服务端回读（用户实测 2026-10-06「点赞后重载丢失」：此前仅本地
      * write-through 字典，重进会话即空白。web 实证 bundle bX(row) 读行上
      * `feedback: "like"|"dislike"` 渲染——本字段即该回读落点；null = 无反馈态） */

@@ -446,6 +446,16 @@
     <string name="wf_concurrency_default">Default concurrency</string>
     <string name="wf_concurrency_n">Concurrency %1$d</string>
     <string name="wf_follow_main_model">Follow main model</string>
+    <!-- v4 hookInvocation hook details -->
+    <string name="hook_details_label">Hooks</string>
+    <string name="hook_source_user">User</string>
+    <string name="hook_source_plugin">Plugin</string>
+    <string name="hook_source_project">Project</string>
+    <string name="hook_state_running">Running</string>
+    <string name="hook_state_blocked">Blocked</string>
+    <string name="hook_state_timed_out">Timed out</string>
+    <string name="hook_state_cancelled">Cancelled</string>
+    <string name="hook_state_failed">Failed</string>
     <string name="wf_history_caption">Past runs</string>
     <!-- v4 timelineMarker divider rows -->
     <string name="marker_compact_started">Compacting context</string>

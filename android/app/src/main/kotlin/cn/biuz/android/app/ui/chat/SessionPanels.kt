@@ -143,6 +143,7 @@ fun SessionPanelsSection(
     val works by viewModel.backgroundWorks.collectAsStateWithLifecycle()
     val subagents by viewModel.subagentSessions.collectAsStateWithLifecycle()
     val subagentProjection by viewModel.subagentProjection.collectAsStateWithLifecycle()
+    val chatMessages by viewModel.messages.collectAsStateWithLifecycle()
     val activityDismissed by viewModel.activitySummaryDismissed.collectAsStateWithLifecycle()
     val completedActivityCount by viewModel.completedActivityCount.collectAsStateWithLifecycle()
     val controlFailure by viewModel.controlFailure.collectAsStateWithLifecycle()
@@ -159,6 +160,12 @@ fun SessionPanelsSection(
             if (subagents.isNotEmpty()) add(SessionPanelKind.Subagents)
         }
     }
+
+    // 本轮 Hook 详情（hookInvocation 行不进消息流，按轮汇总；web 同构）
+    val hooksThisTurn = remember(chatMessages) {
+        chatMessages.mapNotNull { it.hookInvocation }
+    }
+    val hookInvocationCount = hooksThisTurn.sumOf { it.hookCount }
 
     // v4.0.0 活动摘要行（web ConversationStatusPanel 的 activity 胶囊）：
     // 运行中/已结束/历史目录三块，数据全空整行不渲染。
@@ -183,6 +190,11 @@ fun SessionPanelsSection(
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
         if (activitySummary.visible) {
             ActivitySummaryRow(model = activitySummary)
+        }
+        // 本轮 Hook 详情入口（web ConversationHookDetailsAction 同构）：hookInvocation
+        // 行不进消息流，只在此汇总。没有 Hook 的轮不渲染任何占位。
+        hookInvocationCount.takeIf { it > 0 }?.let { count ->
+            HookDetailsRow(hooks = hooksThisTurn)
         }
         // chips 行（默认收起态全部可见面；每 chip 附紧凑进度徽标）
         if (available.isNotEmpty()) {
@@ -305,6 +317,168 @@ fun SessionPanelsSection(
             onClose = { viewModel.closeActorTranscript() },
         )
     }
+}
+
+// MARK: 本轮 Hook 详情（v4 hookInvocation 汇总）
+
+/**
+ * 本轮 Hook 详情入口（web `ConversationHookDetailsAction` 同构）：
+ * 折叠标题「Hook · N 次」+ 展开明细（事件名 / 来源 / 时长 / 状态）。
+ *
+ * 只统计 `didExecute == true` 的执行（web buildHookDetailItems 同口径：admission-only
+ * blocked 不算一次执行）。整行在无执行时不出（调用方已按 hookCount>0 门控）。
+ */
+@Composable
+private fun HookDetailsRow(hooks: List<cn.biuz.android.protocol.HookInvocationInfo>) {
+    var expanded by remember { mutableStateOf(false) }
+    // 汇总执行明细（按 hookIndex 升序；只取 didExecute）
+    val items = remember(hooks) {
+        hooks.flatMap { hook ->
+            hook.executions
+                .filter { it.didExecute }
+                .sortedBy { it.hookIndex }
+                .map { it to hook.hookEventName }
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(BiuZBgCard)
+                .border(1.dp, BiuZBorder, RoundedCornerShape(999.dp))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
+                .testTag("05-hook-details-trigger"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text(text = "⚓", fontSize = 10.sp, color = BiuZText3)
+            Text(
+                text = stringResource(R.string.hook_details_label),
+                style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                color = BiuZText2,
+            )
+            Text(
+                text = "${items.size}",
+                style = TextStyle(
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                color = BiuZText3,
+            )
+            Text(text = if (expanded) "▴" else "▾", fontSize = 9.sp, color = BiuZText3)
+        }
+        if (expanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(BiuZRadius.small)
+                    .background(BiuZBgCard)
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
+                    .testTag("05-hook-details-content"),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                items.forEach { (exec, eventName) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = eventName,
+                            style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                            color = BiuZText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            text = hookSourceLabel(exec.sourceKind),
+                            style = TextStyle(fontSize = 9.5.sp),
+                            color = BiuZText3,
+                        )
+                        exec.durationMs?.let { ms ->
+                            Text(
+                                text = hookDurationText(ms),
+                                style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                                color = BiuZText3,
+                            )
+                        }
+                        exec.displayStatus?.let { status ->
+                            hookStatusUi(status)?.let { (glyph, color) ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    if (status == "running") {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(9.dp),
+                                            strokeWidth = 1.2.dp,
+                                            color = BiuZText3,
+                                        )
+                                    } else {
+                                        Text(text = glyph, fontSize = 9.sp, color = color)
+                                    }
+                                    Text(
+                                        text = hookStatusLabel(status),
+                                        style = TextStyle(fontSize = 9.5.sp),
+                                        color = color,
+                                    )
+                                }
+                                exec.blockReason?.let { reason ->
+                                    Text(
+                                        text = "：$reason",
+                                        style = TextStyle(fontSize = 9.5.sp),
+                                        color = BiuZOrange,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 来源词（user / plugin / project；未知原样）。 */
+@Composable
+private fun hookSourceLabel(sourceKind: String): String = when (sourceKind) {
+    "user" -> stringResource(R.string.hook_source_user)
+    "plugin" -> stringResource(R.string.hook_source_plugin)
+    "project" -> stringResource(R.string.hook_source_project)
+    else -> sourceKind
+}
+
+/** 时长（web formatHookDuration：<1s 用 ms，否则 s 两位/一位小数）。 */
+private fun hookDurationText(durationMs: Long): String {
+    val ms = durationMs.coerceAtLeast(0)
+    if (ms < 1000) return "${ms}ms"
+    val seconds = ms / 1000.0
+    return if (ms < 10_000) String.format("%.2fs", seconds) else String.format("%.1fs", seconds)
+}
+
+/** 状态字形与色（running 另用转圈，调用方处理）。 */
+private fun hookStatusUi(status: String): Pair<String, Color>? = when (status) {
+    "running" -> "◌" to BiuZText3
+    "blocked" -> "⚠" to BiuZOrange
+    "timedOut" -> "⏱" to BiuZOrange
+    "cancelled" -> "⊘" to BiuZText3
+    "failed" -> "✕" to BiuZRed
+    else -> null
+}
+
+@Composable
+private fun hookStatusLabel(status: String): String = when (status) {
+    "running" -> stringResource(R.string.hook_state_running)
+    "blocked" -> stringResource(R.string.hook_state_blocked)
+    "timedOut" -> stringResource(R.string.hook_state_timed_out)
+    "cancelled" -> stringResource(R.string.hook_state_cancelled)
+    "failed" -> stringResource(R.string.hook_state_failed)
+    else -> status
 }
 
 // MARK: v4.0.0 活动摘要行

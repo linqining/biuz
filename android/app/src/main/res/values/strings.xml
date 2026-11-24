@@ -463,6 +463,16 @@
     <string name="panel_control_undelivered">命令未送达（连接中断或不在连接态）</string>
     <string name="panel_control_unknown">桌面端回执状态未知 · 等待投影确认</string>
     <string name="panel_control_success">已下发 · 等待桌面端执行</string>
+    <!-- v4 hookInvocation 本轮 Hook 详情（web chat.hooks.* 语义） -->
+    <string name="hook_details_label">Hook</string>
+    <string name="hook_source_user">用户</string>
+    <string name="hook_source_plugin">插件</string>
+    <string name="hook_source_project">项目</string>
+    <string name="hook_state_running">运行中</string>
+    <string name="hook_state_blocked">已拦截</string>
+    <string name="hook_state_timed_out">超时</string>
+    <string name="hook_state_cancelled">已取消</string>
+    <string name="hook_state_failed">失败</string>
     <string name="wf_history_caption">历史 run</string>
     <!-- v4 timelineMarker 分隔行（web chat.contextCompaction.*/chat.modelChange.*/chat.goalVerification.* 逐字） -->
     <string name="marker_compact_started">正在压缩上下文</string>
