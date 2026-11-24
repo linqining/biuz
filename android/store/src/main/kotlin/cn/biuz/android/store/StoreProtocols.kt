@@ -27,6 +27,7 @@ import cn.biuz.android.protocol.SubagentProjectionState
 import cn.biuz.android.protocol.SubagentRuntimeSummary
 import cn.biuz.android.protocol.ActivitySummaryDismissed
 import cn.biuz.android.protocol.SubagentSessionSummary
+import cn.biuz.android.protocol.SessionSubagentDirectory
 import cn.biuz.android.protocol.TaskRecord
 import cn.biuz.android.protocol.TerminalLine
 import cn.biuz.android.protocol.WorkflowRunSummary
@@ -584,6 +585,17 @@ interface ConversationStore {
      * 与 [subagentSessions]（旧行级读面）并存，活动摘要行用本方法。
      */
     suspend fun subagentProjection(conversationId: String): SubagentProjectionState? = null
+
+    /**
+     * 会话子代理历史目录（`session/subagents` 只读查询，可分页）。
+     * 与 [subagentProjection] 分工：投影=本批（含 running）；本方法=完整历史清单。
+     * null = 查询失败/旧桌面无该方法（UI 不显示目录入口）。
+     */
+    suspend fun subagentDirectory(
+        conversationId: String,
+        cursor: String? = null,
+        limit: Int = 20,
+    ): SessionSubagentDirectory? = null
 
     /** `state.activitySummaryDismissed`（v4.0.0）：用户忽略过的活动摘要条目。null = 未忽略/旧桌面。 */
     suspend fun activitySummaryDismissed(conversationId: String): ActivitySummaryDismissed? = null

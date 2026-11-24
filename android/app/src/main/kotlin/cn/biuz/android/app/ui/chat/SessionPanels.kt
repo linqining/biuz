@@ -43,6 +43,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -146,6 +147,9 @@ fun SessionPanelsSection(
     val chatMessages by viewModel.messages.collectAsStateWithLifecycle()
     val activityDismissed by viewModel.activitySummaryDismissed.collectAsStateWithLifecycle()
     val completedActivityCount by viewModel.completedActivityCount.collectAsStateWithLifecycle()
+    val subagentDirectory by viewModel.subagentDirectory.collectAsStateWithLifecycle()
+    val directoryFailure by viewModel.subagentDirectoryFailure.collectAsStateWithLifecycle()
+    val directorySupported by viewModel.subagentDirectorySupported.collectAsStateWithLifecycle()
     val controlFailure by viewModel.controlFailure.collectAsStateWithLifecycle()
     val controlSuccess by viewModel.controlSuccess.collectAsStateWithLifecycle()
     val transcript by viewModel.actorTranscriptSheet.collectAsStateWithLifecycle()
@@ -167,6 +171,14 @@ fun SessionPanelsSection(
     }
     val hookInvocationCount = hooksThisTurn.sumOf { it.hookCount }
 
+    // 子代理目录能力探测（有历史 + 未探测才打一发；结果缓存到 store）
+    LaunchedEffect(subagentProjection, directorySupported) {
+        val endedTotal = subagentProjection?.endedTotal ?: 0
+        if (directorySupported == null && endedTotal > 0) {
+            viewModel.probeSubagentDirectorySupport()
+        }
+    }
+
     // v4.0.0 活动摘要行（web ConversationStatusPanel 的 activity 胶囊）：
     // 运行中/已结束/历史目录三块，数据全空整行不渲染。
     val activitySummary = remember(
@@ -182,14 +194,31 @@ fun SessionPanelsSection(
             // 工作流取已结束 run 数（平台侧派生，web endedWorkflowRunCount 同义）
             endedSubagentCount = subagentProjection?.endedTotal ?: 0,
             endedWorkflowRunCount = runs.count { !it.isLive },
-            // 移动端无子代理/工作流目录页（web 侧栏专属面），目录入口恒不出
-            hasDirectoryTargets = false,
+            // 子代理目录入口：本端已有 `session/subagents` 查询面（web
+            // useSessionSubagents/EndedDirectoryRow 同源）→ 恒可开；是否显示由
+            // 「有历史身份（dismissed.subagentIds 非空）+ endedTotal > 0」决定
+            // （ActivitySummaryModel 内判，与 web :1252-1273 同口径）。
+            // ⚠ 不可写成 `subagentDirectory != null`——那会造成「入口等数据、数据等入口」
+            // 的死锁（目录是按需拉取的，点开才加载）。
+            // 只在桌面确实暴露 `session/subagents` 时才出入口（能力探测缓存：
+            // 桌面 4.0.0 返 `Method not found` → 隐藏，不留坏 affordance）。
+            // 未探测（null）时先不出，等探测结果；探测在下方 LaunchedEffect 触发。
+            hasDirectoryTargets = directorySupported == true,
         )
     }
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
         if (activitySummary.visible) {
-            ActivitySummaryRow(model = activitySummary)
+            ActivitySummaryRow(
+                model = activitySummary,
+                directory = subagentDirectory,
+                directoryFailed = directoryFailure,
+                onLoadDirectory = { scope.launch { viewModel.loadSubagentDirectory() } },
+                onLoadMore = {
+                    val cursor = subagentDirectory?.nextCursor
+                    if (cursor != null) scope.launch { viewModel.loadSubagentDirectory(cursor) }
+                },
+            )
         }
         // 本轮 Hook 详情入口（web ConversationHookDetailsAction 同构）：hookInvocation
         // 行不进消息流，只在此汇总。没有 Hook 的轮不渲染任何占位。
@@ -494,8 +523,15 @@ private fun hookStatusLabel(status: String): String = when (status) {
  *   [ActivitySummaryModel.hasSubagentDirectory] 恒 false（`hasDirectoryTargets=false`）。
  */
 @Composable
-private fun ActivitySummaryRow(model: ActivitySummaryModel) {
+private fun ActivitySummaryRow(
+    model: ActivitySummaryModel,
+    directory: cn.biuz.android.protocol.SessionSubagentDirectory? = null,
+    directoryFailed: Boolean = false,
+    onLoadDirectory: (() -> Unit)? = null,
+    onLoadMore: (() -> Unit)? = null,
+) {
     var expanded by remember { mutableStateOf(false) }
+    var directoryOpen by remember { mutableStateOf(false) }
     val label = stringResource(
         when {
             model.isRunningAny -> R.string.activity_running
@@ -585,7 +621,135 @@ private fun ActivitySummaryRow(model: ActivitySummaryModel) {
                 }
             }
         }
+        // 子代理目录入口（web EndedDirectoryRow「子代理目录 · N」同构）：
+        // 点开按需拉 `session/subagents`；拉到后展开历史清单 + 「加载更多」。
+        if (model.hasSubagentDirectory && onLoadDirectory != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(BiuZRadius.small)
+                    .clickable {
+                        directoryOpen = !directoryOpen
+                        if (directoryOpen && directory == null) onLoadDirectory()
+                    }
+                    .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
+                    .testTag("05-activity-subagent-directory"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(text = "⌗", fontSize = 9.sp, color = BiuZText3)
+                Text(
+                    text = stringResource(R.string.activity_directory_subagents),
+                    style = TextStyle(fontSize = 11.sp),
+                    color = BiuZText2,
+                )
+                Text(
+                    text = "${model.subagentDirectoryCount}",
+                    style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
+                    color = BiuZText3,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(text = if (directoryOpen) "▴" else "▸", fontSize = 9.sp, color = BiuZText3)
+            }
+            if (directoryOpen) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(BiuZRadius.small)
+                        .background(BiuZBgCard)
+                        .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
+                        .testTag("05-activity-subagent-directory-content"),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    if (directory == null && directoryFailed) {
+                        // 失败如实上屏 + 重试（不得停在「正在加载…」，AGENTS §5-12）
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.activity_directory_failed),
+                                style = TextStyle(fontSize = 10.5.sp),
+                                color = BiuZOrange,
+                            )
+                            Text(
+                                text = stringResource(R.string.activity_directory_retry),
+                                style = TextStyle(fontSize = 10.5.sp),
+                                color = BiuZAccent,
+                                modifier = Modifier
+                                    .clickable { onLoadDirectory?.invoke() }
+                                    .testTag("05-activity-subagent-directory-retry"),
+                            )
+                        }
+                    } else if (directory == null) {
+                        Text(
+                            text = stringResource(R.string.activity_directory_loading),
+                            style = TextStyle(fontSize = 10.5.sp),
+                            color = BiuZText3,
+                        )
+                    } else {
+                        directory.items.forEach { item ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(text = "⌗", fontSize = 9.sp, color = BiuZText3)
+                                Text(
+                                    text = item.title.ifEmpty { item.subagentType },
+                                    style = TextStyle(fontSize = 11.sp),
+                                    color = BiuZText2,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    text = directoryStatusLabel(item.status),
+                                    style = TextStyle(fontSize = 9.5.sp),
+                                    color = when (item.status) {
+                                        "success" -> BiuZGreen
+                                        "failed" -> BiuZRed
+                                        "lost" -> BiuZOrange
+                                        else -> BiuZText3
+                                    },
+                                )
+                            }
+                        }
+                        val next = directory.nextCursor
+                        if (next != null && onLoadMore != null) {
+                            Text(
+                                text = stringResource(R.string.activity_directory_more),
+                                style = TextStyle(fontSize = 10.5.sp),
+                                color = BiuZAccent,
+                                modifier = Modifier
+                                    .clickable { onLoadMore() }
+                                    .padding(vertical = 3.dp)
+                                    .testTag("05-activity-subagent-directory-more"),
+                            )
+                        }
+                        if (directory.items.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.activity_directory_empty),
+                                style = TextStyle(fontSize = 10.5.sp),
+                                color = BiuZText3,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
+}
+
+/** 目录条目状态词（success|failed|cancelled|lost）。 */
+@Composable
+private fun directoryStatusLabel(status: String): String = when (status) {
+    "success" -> stringResource(R.string.activity_directory_status_success)
+    "failed" -> stringResource(R.string.activity_directory_status_failed)
+    "cancelled" -> stringResource(R.string.activity_directory_status_cancelled)
+    "lost" -> stringResource(R.string.activity_directory_status_lost)
+    else -> status
 }
 
 /** 明细行：种类字形 + 标题 + 结果点 + 摘要（单行截断）。 */

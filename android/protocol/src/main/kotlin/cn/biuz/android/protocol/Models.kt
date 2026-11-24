@@ -551,6 +551,41 @@ data class TimelineMarkerInfo(
 }
 
 /**
+ * 会话子代理**历史目录**（`session/subagents` 只读查询
+ * 【实证·上游仓 zcode-protocol/index.ts:2013-2027 + :4436 wire 名「session/subagents」】）。
+ *
+ * 数据源与 `state.subagents` 投影**不同**：投影只带本批（running + ended 摘要 + 总数），
+ * 历史目录是**可翻页的完整清单**（`endedCursor`/`endedLimit`，上限 100/页）。
+ * web 侧 `useSessionSubagents`（hooks/useSessionSubagents.ts:50-80）→
+ * `zcodeAgentService.listSessionSubagents` 即此查询，供侧栏「子代理目录」页使用。
+ *
+ * 移动端此前无此面——活动摘要的历史目录入口因此只能恒关（无数据源）。
+ */
+data class SessionSubagentDirectory(
+    val revision: Int = 0,
+    val childSessionIds: List<String> = emptyList(),
+    val total: Int = 0,
+    val items: List<SubagentDirectoryItem> = emptyList(),
+    /** 下一页游标（缺席 = 已到末页） */
+    val nextCursor: String? = null,
+)
+
+/** 历史目录条目（base schema `childSessionId/agentId?/toolCallId?/subagentType/title/summary?/startedAt?/endedAt?`
+ *  + ended 词表 `success|failed|cancelled|lost`）。 */
+data class SubagentDirectoryItem(
+    val childSessionId: String,
+    val agentId: String? = null,
+    val toolCallId: String? = null,
+    val subagentType: String = "",
+    val title: String = "",
+    val summary: String? = null,
+    /** success | failed | cancelled | lost */
+    val status: String = "",
+    val startedAt: Long? = null,
+    val endedAt: Long? = null,
+)
+
+/**
  * Hook 单次执行投影（v4 `hookExecutionProjectionSchema`
  * 【实证·上游仓 rows.ts:309-327】）。挂在 `hookInvocation` 行的 `executions[]` 上。
  */

@@ -67,6 +67,8 @@ import cn.biuz.android.protocol.RPCChannelTransport
 import cn.biuz.android.protocol.RPCError
 import cn.biuz.android.protocol.RPCValue
 import cn.biuz.android.protocol.SubagentSummary
+import cn.biuz.android.protocol.SessionSubagentDirectory
+import cn.biuz.android.protocol.SubagentDirectoryItem
 import cn.biuz.android.protocol.HookExecutionInfo
 import cn.biuz.android.protocol.HookInvocationInfo
 import cn.biuz.android.protocol.TimelineMarkerInfo
@@ -2240,6 +2242,97 @@ class RemoteConversationStore(
                 resultSummary = d["resultSummary"]?.stringValue,
             )
         }
+    }
+
+    /**
+     * 会话子代理历史目录（`session/subagents` 只读查询）。
+     *
+     * 【实证·上游仓】wire 名 `session/subagents`（zcode-protocol/index.ts:4436；
+     * **不是** v4/ 前缀）；参数 `{sessionId, endedCursor?, endedLimit?=20 (≤100)}`
+     * （:2088-2095）；回执 `{revision, childSessionIds[], running[], ended:{total, items[], nextCursor?}}`
+     * （:2013-2027），ended 词表 `success|failed|cancelled|lost`（:2008-2010）。
+     * 服务端实现走 `getReadOnlyClient(params)` + `zcodeSessionSubagentsResultSchema`
+     * （zcodeAgentService.ts:4982-4994）——与会话域同源寻址。
+     *
+     * 供活动摘要的「子代理目录」入口使用（web `useSessionSubagents` 同源）。
+     * 失败返回 null（UI 不显示目录入口，不伪造空目录）。
+     */
+    /** 最近一次目录查询失败原文（供 UI 如实上屏；成功即清）。 */
+    @Volatile
+    var lastSubagentDirectoryError: String = ""
+
+    /**
+     * `session/subagents` 是否被当前桌面暴露（**能力探测缓存**）。
+     *
+     * 【否定性结论·2026-11-24 真机取证】桌面 4.0.0 的远程桥**不暴露**该方法：
+     * 调用返 `Method not found: session/subagents`。web 侧的子代理目录页能工作是因为
+     * 它跑在桌面进程内（`services.zcodeAgentService.listSessionSubagents`），
+     * 不经移动端用的这条 channel。→ 移动端**不得**显示目录入口（否则是坏 affordance）。
+     * 值语义：null = 未探测；true = 可用（未来桌面暴露后自动恢复）；false = 不可用。
+     */
+    @Volatile
+    var subagentDirectorySupported: Boolean? = null
+        private set
+
+    override suspend fun subagentDirectory(
+        conversationId: String,
+        cursor: String?,
+        limit: Int,
+    ): SessionSubagentDirectory? {
+        // 参数层 **strict**（`zcodeSessionSubagentsParamsSchema` :2088-2095 `.strict()`）：
+        // 只允许 {sessionId, endedCursor?, endedLimit?}——**不得带 workspacePath/workspaceIdentity**
+        // （A4 纪律：参数层未知键整条拒收；本轮实测带会话域信封后调用恒失败）。
+        // workspacePath 是服务端 facade 自己按会话归属解析的（zcodeAgentService.ts:4982
+        // `getReadOnlyClient(params)` 在服务端拿，不经 wire）。
+        val fields = LinkedHashMap<String, JSONValue>()
+        fields["sessionId"] = JSONValue.Str(conversationId)
+        cursor?.takeIf { it.isNotEmpty() }?.let { fields["endedCursor"] = JSONValue.Str(it) }
+        fields["endedLimit"] = JSONValue.Int(limit.coerceIn(1, 100))
+        val ack = try {
+            transport.call("zcode-agent", "session/subagents", RPCValue.json(JSONValue.Obj(fields)))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val message = e.message ?: e.toString()
+            lastSubagentDirectoryError = message
+            // 「方法不存在」= 桌面不暴露该能力 → 记死，入口隐藏
+            if (message.contains("Method not found", ignoreCase = true)) {
+                subagentDirectorySupported = false
+            }
+            return null
+        }
+        val dict = ack.jsonValue?.objectValue
+        if (dict == null) {
+            lastSubagentDirectoryError = "回执为空：" + (ack.jsonValue?.toString()?.take(200) ?: "null")
+            return null
+        }
+        val body = dict["result"]?.objectValue ?: dict
+        lastSubagentDirectoryError = ""
+        subagentDirectorySupported = true
+        val ended = body["ended"]?.objectValue
+        val items = ended?.get("items")?.arrayValue.orEmpty().mapNotNull { item ->
+            val d = item.objectValue ?: return@mapNotNull null
+            val childId = d["childSessionId"]?.stringValue ?: return@mapNotNull null
+            SubagentDirectoryItem(
+                childSessionId = childId,
+                agentId = d["agentId"]?.stringValue,
+                toolCallId = d["toolCallId"]?.stringValue,
+                subagentType = d["subagentType"]?.stringValue ?: "",
+                title = d["title"]?.stringValue ?: "",
+                summary = d["summary"]?.stringValue,
+                status = d["status"]?.stringValue ?: "",
+                startedAt = d["startedAt"]?.longValue(),
+                endedAt = d["endedAt"]?.longValue(),
+            )
+        }
+        return SessionSubagentDirectory(
+            revision = body["revision"]?.longValue()?.toInt() ?: 0,
+            childSessionIds = body["childSessionIds"]?.arrayValue.orEmpty()
+                .mapNotNull { it.stringValue },
+            total = ended?.get("total")?.longValue()?.toInt() ?: items.size,
+            items = items,
+            nextCursor = ended?.get("nextCursor")?.stringValue,
+        )
     }
 
     /** `state.activitySummaryDismissed` → 活动摘要忽略集（v4.0.0 新增四键之一）。 */

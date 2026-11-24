@@ -464,6 +464,15 @@
     <string name="panel_control_unknown">桌面端回执状态未知 · 等待投影确认</string>
     <string name="panel_control_success">已下发 · 等待桌面端执行</string>
     <!-- v4 hookInvocation 本轮 Hook 详情（web chat.hooks.* 语义） -->
+    <string name="activity_directory_failed">子代理目录加载失败</string>
+    <string name="activity_directory_retry">重试</string>
+    <string name="activity_directory_loading">正在加载…</string>
+    <string name="activity_directory_more">加载更多</string>
+    <string name="activity_directory_empty">暂无历史子代理</string>
+    <string name="activity_directory_status_success">成功</string>
+    <string name="activity_directory_status_failed">失败</string>
+    <string name="activity_directory_status_cancelled">已取消</string>
+    <string name="activity_directory_status_lost">已丢失</string>
     <string name="hook_details_label">Hook</string>
     <string name="hook_source_user">用户</string>
     <string name="hook_source_plugin">插件</string>

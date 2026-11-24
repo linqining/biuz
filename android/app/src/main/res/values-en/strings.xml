@@ -447,6 +447,15 @@
     <string name="wf_concurrency_n">Concurrency %1$d</string>
     <string name="wf_follow_main_model">Follow main model</string>
     <!-- v4 hookInvocation hook details -->
+    <string name="activity_directory_failed">Failed to load subagent directory</string>
+    <string name="activity_directory_retry">Retry</string>
+    <string name="activity_directory_loading">Loading…</string>
+    <string name="activity_directory_more">Load more</string>
+    <string name="activity_directory_empty">No past subagents</string>
+    <string name="activity_directory_status_success">Success</string>
+    <string name="activity_directory_status_failed">Failed</string>
+    <string name="activity_directory_status_cancelled">Cancelled</string>
+    <string name="activity_directory_status_lost">Lost</string>
     <string name="hook_details_label">Hooks</string>
     <string name="hook_source_user">User</string>
     <string name="hook_source_plugin">Plugin</string>

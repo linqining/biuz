@@ -408,6 +408,64 @@ class ChatViewModel(
     private val _completedActivityCount = MutableStateFlow<Int?>(null)
     val completedActivityCount: StateFlow<Int?> get() = _completedActivityCount
 
+    /** 子代理历史目录（`session/subagents` 按需拉取；null = 未拉/失败 → 不出目录入口）。 */
+    private val _subagentDirectory = MutableStateFlow<cn.biuz.android.protocol.SessionSubagentDirectory?>(null)
+    val subagentDirectory: StateFlow<cn.biuz.android.protocol.SessionSubagentDirectory?> get() =
+        _subagentDirectory
+
+    /** 目录失败原文（null = 无在案拒因）。 */
+    internal var directoryFailureText: String? = null
+        private set
+
+    /**
+     * `session/subagents` 能力（null = 未探测；false = 桌面不暴露 → 入口隐藏）。
+     * 只在「该会话确实有子代理历史」时才探测一次，避免每会话都多打一发 RPC。
+     */
+    private val _subagentDirectorySupported = MutableStateFlow<Boolean?>(null)
+    val subagentDirectorySupported: StateFlow<Boolean?> get() = _subagentDirectorySupported
+
+    /** 能力探测（幂等：已知就短路）。 */
+    suspend fun probeSubagentDirectorySupport() {
+        if (_subagentDirectorySupported.value != null) return
+        val store = attachedStore as? cn.biuz.android.store.RemoteConversationStore ?: return
+        store.subagentDirectory(conversationId, cursor = null, limit = 1)
+        _subagentDirectorySupported.value = store.subagentDirectorySupported
+    }
+
+    /** 目录拉取失败（true = 已失败；UI 出「加载失败 + 重试」，不无限转圈）。 */
+    private val _subagentDirectoryFailure = MutableStateFlow(false)
+    val subagentDirectoryFailure: StateFlow<Boolean> get() = _subagentDirectoryFailure
+
+    /**
+     * 拉一页子代理历史目录（活动摘要「子代理目录」入口点开时按需调用）。
+     * [cursor] 为空 = 首页；返回是否拉到（UI 据此决定是否给出入口/提示）。
+     */
+    suspend fun loadSubagentDirectory(cursor: String? = null): Boolean {
+        val store = attachedStore ?: return false
+        val page = store.subagentDirectory(conversationId, cursor = cursor)
+        if (page == null) {
+            // 失败**必须上屏**（AGENTS §5-12 禁静默吞错）：此前 UI 会永远停在「正在加载…」
+            directoryFailureText = (store as? cn.biuz.android.store.RemoteConversationStore)
+                ?.lastSubagentDirectoryError
+                ?.takeIf { it.isNotBlank() }
+            _subagentDirectoryFailure.value = true
+            return false
+        }
+        _subagentDirectoryFailure.value = false
+        _subagentDirectory.value = if (cursor == null) {
+            page
+        } else {
+            // 追加页去重合并（web mergeEndedSubagentPages 同口径）
+            val existing = _subagentDirectory.value
+            val seen = existing?.items?.map { it.childSessionId }?.toSet() ?: emptySet()
+            page.copy(
+                items = (existing?.items ?: emptyList()) +
+                    page.items.filter { it.childSessionId !in seen },
+            )
+        }
+        return true
+    }
+
     /**
      * 当前会话行投影（聊天页顶迷你轨道数据源 = 行自带 workflowActivity，G-007；
      * 初值 cachedConversation 内存摘要，随后列表事件逐条覆盖）。
@@ -707,6 +765,9 @@ class ChatViewModel(
         _subagentProjection.value = null
         _activitySummaryDismissed.value = null
         _completedActivityCount.value = null
+        _subagentDirectory.value = null
+        _subagentDirectoryFailure.value = false
+        _subagentDirectorySupported.value = null
         _currentConversation.value = null
         _controlFailure.value = null
         _controlSuccess.value = false
@@ -742,6 +803,9 @@ class ChatViewModel(
         _subagentProjection.value = null
         _activitySummaryDismissed.value = null
         _completedActivityCount.value = null
+        _subagentDirectory.value = null
+        _subagentDirectoryFailure.value = false
+        _subagentDirectorySupported.value = null
         _currentConversation.value = null
         uploadHintSyncJob?.cancel()
         uploadHintSyncJob = null
