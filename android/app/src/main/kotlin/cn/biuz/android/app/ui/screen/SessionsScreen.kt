@@ -999,7 +999,7 @@ private fun SessionRow(
                     .padding(end = BiuZSpacing.xxs),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = "📌", fontSize = 9.sp)
+                Text(text = "📌", fontSize = 10.sp)
             }
             Spacer(Modifier.size(BiuZSpacing.tiny))
         }

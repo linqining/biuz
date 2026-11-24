@@ -859,7 +859,7 @@ fun ChatScreen(
                 ) {
                     Text(
                         text = if (sending) "…" else "↑",
-                        fontSize = 18.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (draft.isNotBlank() && !sending) BiuZOnSeal else BiuZText3,
                     )

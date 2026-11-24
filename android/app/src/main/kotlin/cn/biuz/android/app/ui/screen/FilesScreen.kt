@@ -204,7 +204,7 @@ fun FilesScreen(
         ) {
             Text(
                 text = "←",
-                fontSize = 18.sp,
+                fontSize = 20.sp,
                 color = BiuZText,
                 modifier = Modifier
                     .clickable(onClick = onBack)
@@ -890,7 +890,7 @@ fun FileTreeScreen(
         ) {
             Text(
                 text = "←",
-                fontSize = 18.sp,
+                fontSize = 20.sp,
                 color = BiuZText,
                 modifier = Modifier
                     .clickable(onClick = onBack)
@@ -1187,7 +1187,7 @@ fun FilePreviewScreen(
         ) {
             Text(
                 text = "←",
-                fontSize = 18.sp,
+                fontSize = 20.sp,
                 color = BiuZText,
                 modifier = Modifier
                     .clickable(onClick = onBack)
@@ -1414,7 +1414,7 @@ private fun BinaryFallbackText(failed: Boolean) {
             .testTag("09-binary-fallback"),
         verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
     ) {
-        Text(text = "🖼", fontSize = 18.sp, color = BiuZText3)
+        Text(text = "🖼", fontSize = 20.sp, color = BiuZText3)
         Text(
             text = stringResource(
                 if (failed) R.string.preview_binary_unsupported else R.string.preview_loading_file,

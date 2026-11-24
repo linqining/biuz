@@ -161,4 +161,33 @@ class TypographyScaleGuardTest {
                 offenders.joinToString("\n"),
         )
     }
+
+    @Test
+    fun fontSizesStayOnScale() {
+        val root = sourceRoot() ?: run {
+            println("TypographyScaleGuardTest: 源码目录不在预期位置，跳过（非失败）")
+            return
+        }
+        // 合法档位 = 文本 8 档 {10,11,12,13,14,15,17,22} ∪ 字形阶 {10,16,20,26}。
+        // 例外：SealStamp 的印面字 30sp（品牌资产，不属排版阶，见 brand/seal/motion-spec）。
+        // 2026-11-24 收口时清掉的档外值：7 / 8 / 9 / 18 / 24（共 14 处）。
+        val allowed = setOf("10", "11", "12", "13", "14", "15", "16", "17", "20", "22", "26")
+        val offender = Regex("""fontSize\s*=\s*([0-9.]+)\.sp""")
+        val bad = ArrayList<String>()
+        root.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
+            val isStamp = f.name == "SealStamp.kt"
+            f.readLines().forEachIndexed { i, line ->
+                offender.findAll(line).forEach { m ->
+                    val v = m.groupValues[1]
+                    val ok = v in allowed || (isStamp && v == "30")
+                    if (!ok) bad.add("${f.path}:${i + 1}: ${line.trim()}")
+                }
+            }
+        }
+        assertTrue(
+            bad.isEmpty(),
+            "字号必须在档（文本 10/11/12/13/14/15/17/22，字形 10/16/20/26）：\n" +
+                bad.joinToString("\n"),
+        )
+    }
 }

@@ -123,13 +123,13 @@ fun DevicesScreen(
             )
             Text(
                 text = stringResource(R.string.devices_title),
-                fontSize = 18.sp,
+                fontSize = 17.sp,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = "↻",
-                fontSize = 18.sp,
+                fontSize = 20.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .clip(BiuZRadius.small)
@@ -282,7 +282,7 @@ fun DevicesScreen(
                                 .testTag("006-sheet-row-${instance.deviceSid}"),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("🖥", fontSize = 18.sp, modifier = Modifier.padding(end = BiuZSpacing.md))
+                            Text("🖥", fontSize = 20.sp, modifier = Modifier.padding(end = BiuZSpacing.md))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = stringResource(R.string.devices_sheet_instance),

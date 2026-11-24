@@ -126,7 +126,7 @@ fun SharePreviewScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(text = "🔗", fontSize = 24.sp)
+                Text(text = "🔗", fontSize = 26.sp)
                 Spacer(Modifier.height(BiuZSpacing.md))
                 Text(
                     text = errorText ?: "",

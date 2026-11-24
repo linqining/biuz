@@ -426,7 +426,7 @@ fun PendingAttachmentThumb(
                             item.isVideo -> "🎬"
                             else -> "📄"
                         },
-                        fontSize = 18.sp,
+                        fontSize = 20.sp,
                     )
                 }
             }
@@ -482,7 +482,7 @@ fun PendingAttachmentThumb(
                         .background(BiuZBgCard.copy(alpha = BiuZAlpha.nearSolid), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(text = "✕", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = BiuZText2)
+                    Text(text = "✕", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = BiuZText2)
                 }
             }
         }
@@ -625,7 +625,7 @@ private fun AttachmentVideoFullscreen(videoPath: String, onClose: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
             ) {
-                Text(text = "▶̸", fontSize = 24.sp, color = Color.White.copy(alpha = BiuZAlpha.dense))
+                Text(text = "▶̸", fontSize = 26.sp, color = Color.White.copy(alpha = BiuZAlpha.dense))
                 Text(
                     text = failureText ?: "",
                     fontSize = 13.sp,

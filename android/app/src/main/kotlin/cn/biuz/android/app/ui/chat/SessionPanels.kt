@@ -591,7 +591,7 @@ private fun ActivitySummaryRow(
                         ) {
                             Text(
                                 text = avatar.name.take(1).uppercase(),
-                                style = TextStyle(fontSize = 7.sp, fontWeight = FontWeight.SemiBold),
+                                style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
                                 color = BiuZText2,
                             )
                             // 结果徽标点（左下角，web AgentResultBadge 同位）
