@@ -869,6 +869,29 @@ class RemoteConversationStore(
             return
         }
         val watermark = conversationWatermarks[conversationId]
+        // 旧快照整帧丢弃（2026-11-24 用户报障「消息被覆盖，新的消息不见只有旧的」）：
+        // 快照路径此前**没有任何时序校验**——迟到的 resync/重放快照会把 rows 表按旧内容
+        // 键级合并甚至整表替换，并把水位写回去，于是「新消息消失、只剩旧的」，且水位回退
+        // 后新增量还会被当成重复帧丢掉（表现为「落后桌面端」）。
+        // 判据只用**确凿的旧证据**：同纪元下 toSeq 不大于水位，或 revision 严格更小。
+        // 纪元换代（CLI 重启/fork 重新编号 rowId）一律认新，不能按 seq 比。
+        val snapshotFrame = frame.snapshot
+        if (snapshotFrame != null) {
+            val snapshotDict = snapshotFrame.objectValue
+            val snapshotEpoch = snapshotDict?.get("logEpoch")?.stringValue
+            val snapshotRevision = snapshotDict?.get("revision")?.longValue()
+            if (shouldDropStaleSnapshot(
+                    frameToSeq = frame.toSeq,
+                    frameRevision = snapshotRevision,
+                    watermarkSeq = watermark?.seq,
+                    watermarkEpoch = watermark?.logEpoch,
+                    snapshotEpoch = snapshotEpoch,
+                    knownRevision = conversationStateRevisions[conversationId],
+                )
+            ) {
+                return
+            }
+        }
         if (watermark != null && frame.snapshot == null) {
             if (frame.toSeq <= watermark.seq) return
             if (frame.fromSeq > watermark.seq + 1) {
@@ -884,10 +907,14 @@ class RemoteConversationStore(
         }
         // 水位记录（resync base）：logEpoch 仅快照携带，缺席沿用旧值
         val previousEpoch = watermark?.logEpoch
-        conversationWatermarks[conversationId] = Watermark(
-            logEpoch = frame.snapshot?.objectValue?.get("logEpoch")?.stringValue ?: previousEpoch,
-            seq = frame.toSeq,
-        )
+        val nextEpoch = frame.snapshot?.objectValue?.get("logEpoch")?.stringValue ?: previousEpoch
+        // 水位只前进不后退：同纪元内取 max（换代时以新帧为准，新纪元 seq 从头编排）
+        val nextSeq = if (nextEpoch != null && nextEpoch == previousEpoch) {
+            maxOf(frame.toSeq, watermark?.seq ?: frame.toSeq)
+        } else {
+            frame.toSeq
+        }
+        conversationWatermarks[conversationId] = Watermark(logEpoch = nextEpoch, seq = nextSeq)
         val snapshot = frame.snapshot
         if (snapshot != null) {
             val dict = snapshot.objectValue
@@ -907,6 +934,7 @@ class RemoteConversationStore(
                     fullResyncSnapshotsPending.remove(conversationId) || epochChanged
                 val rowsArray = dict["rows"]?.arrayValue
                 if (rowsArray != null) {
+                    val before = rows[conversationId]?.size ?: 0
                     val table: HashMap<Int, RowRecord> =
                         if (replaceWholeTable) HashMap() else (rows[conversationId] ?: HashMap())
                     for (row in rowsArray) {
@@ -914,6 +942,14 @@ class RemoteConversationStore(
                         table[rowId] = RowRecord(rowId = rowId, json = row)
                     }
                     rows[conversationId] = table
+                    // 取证键（行表被整体替换是最可疑的「历史消失」路径）：
+                    // replace=1 且行数下降时留痕，用户再报「消息不见」可直接读计数
+                    if (replaceWholeTable) {
+                        diag(
+                            "diag.rows.replace.${conversationId.take(14)}",
+                            "replace=1 before=$before after=${table.size} seq=${frame.toSeq}",
+                        )
+                    }
                 } else if (replaceWholeTable) {
                     rows[conversationId] = HashMap()
                 }
@@ -5323,4 +5359,35 @@ class RemoteConversationStore(
             }
         }
     }
+
+}
+
+/**
+ * 旧快照判定（纯函数，可单测）：payload 层只信**确凿的旧证据**，宁放勿误杀。
+ *
+ * 背景（2026-11-24 用户报障「移动端落后桌面端，消息被覆盖，新的消息不见只有旧的」）：
+ * 快照帧此前完全没有时序校验——迟到的 resync/重放快照会把 rows 按旧内容合并甚至整表
+ * 替换、并把水位写回旧值；水位一回退，后续新增量又被 `toSeq <= 水位` 当重复帧丢掉，
+ * 表现为「一直落后、只看到旧的」。
+ *
+ * 三条判据（任一成立即丢）：
+ * 1. **纪元换代优先认新**：快照 logEpoch 与水位的不同 → 不丢（CLI 重启/fork 会重新
+ *    编号 rowId，seq 从头编排，按 seq 比必误杀）。
+ * 2. `toSeq > 0` 且不大于已知水位 → 旧帧（`toSeq == 0` 是部分桌面的快照哨兵，不据此判）。
+ * 3. 快照 revision 严格小于已知会话 revision → 旧状态。
+ */
+fun shouldDropStaleSnapshot(
+    frameToSeq: Int,
+    frameRevision: Long?,
+    watermarkSeq: Int?,
+    watermarkEpoch: String?,
+    snapshotEpoch: String?,
+    knownRevision: Long?,
+): Boolean {
+    val epochChanged = snapshotEpoch != null && watermarkEpoch != null &&
+        snapshotEpoch != watermarkEpoch
+    if (epochChanged) return false
+    if (frameToSeq > 0 && watermarkSeq != null && frameToSeq <= watermarkSeq) return true
+    if (frameRevision != null && knownRevision != null && frameRevision < knownRevision) return true
+    return false
 }
