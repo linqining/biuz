@@ -280,10 +280,30 @@ struct RemoteGoalSummary: Equatable {
 }
 
 /// state.plan 投影：计划正文只读卡（计划审批仍走 pendingInteractions 审批卡，不在此重复）
+/// 计划条目（v4 `planStateSchema.items[]` 单条：id/content/status 三态）。
+/// 为什么要有结构：此前 store 把 items 拼成「✓/▸/· + 标题」的整段字符串，UI 只能整段
+/// 渲染——换行行首顶到圆点左边，且丢掉「哪一条完成了」的结构（与 Android 同步修）。
+struct PlanItem: Equatable, Identifiable {
+    var title: String
+    var statusWord: String?
+    var id: String { title + (statusWord ?? "") }
+
+    var isDone: Bool { statusWord == "completed" || statusWord == "done" }
+    var isRunning: Bool {
+        statusWord == "inProgress" || statusWord == "in_progress" || statusWord == "running"
+    }
+    /// 三态字形（与 store 旧拼串同字表）
+    var glyph: String { isDone ? "✓" : (isRunning ? "▸" : "·") }
+}
+
 struct PlanPanelSummary: Equatable {
     var title: String?
     var content: String
     var rawStatus: String?
+    /// 结构化条目（空 = 只有正文形态，UI 回退整段渲染）
+    var items: [PlanItem] = []
+    var completedCount: Int = 0
+    var totalCount: Int = 0
 }
 
 /// state.backgroundWorks 投影（btw 面板）：后台工作条目，cancel/resume 命令面

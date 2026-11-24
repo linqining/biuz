@@ -4020,25 +4020,31 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             ?? d["text"]?.stringValue
             ?? d["markdown"]?.stringValue
             ?? d["body"]?.stringValue
-        if content == nil || content?.isEmpty == true {
-            let entries = d["items"]?.arrayValue ?? d["entries"]?.arrayValue ?? d["steps"]?.arrayValue ?? []
-            let lines = entries.compactMap { e -> String? in
-                guard let o = e.objectValue else { return e.stringValue }
-                let title = o["content"]?.stringValue ?? o["title"]?.stringValue ?? o["text"]?.stringValue ?? ""
-                let done = o["status"]?.stringValue == "done"
-                    || o["status"]?.stringValue == "completed"
-                    || o["completed"]?.boolValue == true
-                let running = o["status"]?.stringValue == "inProgress"
-                    || o["status"]?.stringValue == "in_progress"
-                return (done ? "✓ " : (running ? "▸ " : "· ")) + title
+        // 结构化条目（UI 逐条渲染：字形独立前置槽 → 换行悬挂缩进）；同时保留拼串回退
+        let entries = d["items"]?.arrayValue ?? d["entries"]?.arrayValue ?? d["steps"]?.arrayValue ?? []
+        let planItems: [PlanItem] = entries.compactMap { e in
+            if let o = e.objectValue {
+                let title = o["content"]?.stringValue ?? o["title"]?.stringValue
+                    ?? o["text"]?.stringValue ?? ""
+                // 旧桌面用 completed 布尔：归一到 v4 三态词表
+                var word = o["status"]?.stringValue
+                if word == nil, o["completed"]?.boolValue == true { word = "completed" }
+                return title.isEmpty ? nil : PlanItem(title: title, statusWord: word)
             }
-            content = lines.isEmpty ? nil : lines.joined(separator: "\n")
+            guard let raw = e.stringValue, !raw.isEmpty else { return nil }
+            return PlanItem(title: raw, statusWord: nil)
+        }
+        if content == nil || content?.isEmpty == true, !planItems.isEmpty {
+            content = planItems.map { "\($0.glyph) \($0.title)" }.joined(separator: "\n")
         }
         guard let content, !content.isEmpty else { return nil }
         return PlanPanelSummary(
             title: d["title"]?.stringValue ?? d["name"]?.stringValue,
             content: content,
-            rawStatus: d["status"]?.stringValue)
+            rawStatus: d["status"]?.stringValue,
+            items: planItems,
+            completedCount: planItems.filter { $0.isDone }.count,
+            totalCount: planItems.count)
     }
 
     /// `hookInvocation` 行 → 本轮 Hook 汇总（不新增状态：从已落库的行表**按需派生**）。

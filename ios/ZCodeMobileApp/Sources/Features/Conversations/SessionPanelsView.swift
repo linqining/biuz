@@ -371,6 +371,7 @@ struct SessionPanelsView: View {
                 }
                 WorkflowPanelContent(
                     run: run,
+                    ordinal: index + 1,
                     availableModels: viewModel.modelSelection?.models ?? [],
                     planGroups: viewModel.modelSelection?.planGroups ?? [],
                     hasGoal: viewModel.goalSummary != nil,
@@ -647,11 +648,34 @@ struct PlanPanelView: View {
                     StatusPill(text: Self.planStatusText(status), kind: .tag, compact: true)
                 }
             }
-            Text(plan.content)
-                .font(T.font(12))
-                .foregroundColor(T.text2)
-                .lineSpacing(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if plan.items.isEmpty {
+                // 无 items 的旧桌面形态：整段正文（保留，不丢内容）
+                Text(plan.content)
+                    .font(T.font(12))
+                    .foregroundColor(T.text2)
+                    .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                // 逐条渲染（web todo 列表同构）：字形占固定槽，标题独立成文本 →
+                // 换行自然悬挂缩进，而不是顶回字形下面
+                VStack(alignment: .leading, spacing: T.sp1) {
+                    ForEach(plan.items) { item in
+                        HStack(alignment: .top, spacing: 0) {
+                            Text(item.glyph)
+                                .font(T.font(12))
+                                .foregroundColor(item.isDone ? T.green : (item.isRunning ? T.violet : T.text3))
+                                .frame(width: T.sp3, alignment: .center)
+                            Text(item.title)
+                                .font(T.font(12))
+                                .foregroundColor(item.isDone ? T.text3 : T.text2)
+                                .strikethrough(item.isDone)
+                                .lineSpacing(3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .accessibilityIdentifier("05-plan-item-\(item.id)")
+                    }
+                }
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-panel-plan")
@@ -662,6 +686,9 @@ struct PlanPanelView: View {
 
 struct WorkflowPanelContent: View {
     let run: WorkflowRunSummary
+    /// 面板内序号（1 起）：桌面这两类 run 的 name 实测等于通用名「工作流」（或缺席），
+    /// 多 run 时一排同名卡无法区分 —— 与 Android 同步改为「运行 N」
+    var ordinal: Int? = nil
     let availableModels: [String]
     /// 模型套餐分组（个人套餐/体验套餐；空 = 数据缺席退化为平铺列表）
     var planGroups: [ModelPlanGroup] = []
@@ -689,7 +716,11 @@ struct WorkflowPanelContent: View {
                 holesPanel
             }
             phaseChain
-            controlBar
+            // 已结束的 run 不渲染控制条：amendWorkflowRunSettings / 并发调整对死 run 桌面
+            // 必拒（假可供性），「暂停目标」在「目标」面板有同功能入口（与 Android 同步）
+            if run.isLive {
+                controlBar
+            }
         }
         .sheet(item: $transcriptActor) { actor in
             ActorTranscriptSheet(
@@ -709,12 +740,22 @@ struct WorkflowPanelContent: View {
     }
 
     /// 头部：工作流名 + 五态胶囊 + 进度计数
+    /// 卡片标题：真名优先；名字为空**或等于通用名「工作流」**时按序号显示「运行 N」
+    /// （桌面实测 name 恒为「工作流」，8 张卡全同名；与 Android 同判据）
+    static func displayRunName(_ run: WorkflowRunSummary, ordinal: Int?) -> String {
+        let generic = String(localized: "工作流")
+        let name = run.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty, name != generic { return name }
+        if let ordinal { return String(localized: "运行 \(ordinal)") }
+        return generic
+    }
+
     private var header: some View {
         HStack(spacing: T.sp2) {
             Image(systemName: "flowchart.fill")
                 .font(.system(size: 13))
                 .foregroundColor(T.violet)
-            Text(run.name)
+            Text(Self.displayRunName(run, ordinal: ordinal))
                 .font(T.font(13, .semibold))
                 .foregroundColor(T.text)
                 .lineLimit(1)
