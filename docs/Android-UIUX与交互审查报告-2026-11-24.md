@@ -223,7 +223,7 @@ fun Modifier.pressableScale(pressedScale: Float = 0.96f): Modifier
 
 ## 8 工作区在途改动（已改、未提交、待确认）
 
-在你「先出报告」的指示前，为响应「主题配色有偏差」我改了两处，**尚未提交、未装机验证**：
+在你「先出报告」的指示前，为响应「主题配色有偏差」我改了两处。**已单独提交为 `f90177b1`（提交信息标注「在途·待裁决」），未装机验证**——保留或回退只需一条 `git revert`：
 
 1. **violet → seal（16 处）**：`SessionPanels.kt`(8) / `ComposerPanels.kt`(3) / `WorkflowTrack.kt`(2) / `ChatScreen.kt`(2)，即面板 chip 图标、展开面板描边、折叠头、目标/计划/工作流图标、composer 相关图标全部由紫 `#7C3AED` 改朱磦 `#D2402E`。
 2. **头像中性化**：活动摘要头像底色由「状态色 dim + 状态色字」改为 `bgInput` 底 + `text2` 字，状态只由左下徽标点承载（web「面孔 + 标记」的两件事分开）。
