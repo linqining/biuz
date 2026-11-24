@@ -3,7 +3,9 @@ import Foundation
 enum MessageRole: String, Codable { case user, agent }
 enum MessageStatus: String, Codable { case done, streaming }
 enum ToolCallStatus: String, Codable { case running, done, failed }
-enum ToolKind: String, Codable { case bash, edit, read, ask, browser }
+/// 工具族。`todo` 单独一类（2026-11-24 与 Android 同步）：`TodoList` 含 "list"、
+/// `TodoWrite` 含 "write"，族判定若按 read/write 先匹配，待办清单会被显示成「读取/编辑」。
+enum ToolKind: String, Codable { case bash, edit, read, ask, browser, todo }
 
 /// 工具调用卡（会话流内嵌）
 struct ToolCall: Identifiable, Codable, Equatable {
@@ -324,6 +326,51 @@ struct BackgroundWorkSummary: Identifiable, Equatable {
 }
 
 /// state.subagents 投影（side 面板）：子代理会话实例，只读转录下钻
+/// 单次 Hook 执行（`hookInvocation` 行的 `executions[]` 单条）。
+/// 形状取自桌面 rowSchema（Android 同款解析：store/…/parseHookInvocation）。
+struct HookExecutionInfo: Identifiable, Equatable {
+    var id: String { hookRunId }
+    var hookRunId: String
+    var hookIndex: Int = 0
+    /// 同一 runId 已观察到 HookRunStarted 才为 true；admission-only blocked 为 false
+    var didExecute: Bool = false
+    /// running | completed | failed
+    var state: String = ""
+    /// success | blocked | failed | cancelled | timed_out
+    var outcome: String?
+    var blockReason: String?
+    var startedAt: Int?
+    var endedAt: Int?
+    var durationMs: Int?
+    var displayName: String = ""
+    /// user | plugin | project
+    var sourceKind: String = ""
+    var pluginName: String?
+    var toolName: String?
+
+    /// 展示态（state/outcome 归一；Android `displayStatus` 同义）
+    var displayStatus: String {
+        if state == "running" { return "running" }
+        if state == "failed" || outcome == "failed" || outcome == "timed_out" { return "failed" }
+        if outcome == "blocked" { return "blocked" }
+        if outcome == "cancelled" { return "cancelled" }
+        if state == "completed" { return "success" }
+        return state.isEmpty ? "success" : state
+    }
+}
+
+/// `hookInvocation` 行投影（本轮 Hook 汇总；行本身不进消息流——与 Android 同口径）。
+struct HookInvocationInfo: Identifiable, Equatable {
+    var id: String { hookInvocationId }
+    var hookInvocationId: String
+    var hookEventName: String = ""
+    var hookCount: Int = 1
+    var state: String = ""
+    var lane: String?
+    var anchorToolCallId: String?
+    var executions: [HookExecutionInfo] = []
+}
+
 /// `state.subagents` 完整投影（v4.0.0 `subagentProjectionStateSchema`，2026-11-24 与 Android 同步）：
 /// running / ended / endedTotal 三面——活动摘要行据 running+ended 算头像、据 endedTotal 算
 /// 「已完成 N 项」。旧桌面（< 4.0.0）不发该键 → 返回 nil（不伪造）。

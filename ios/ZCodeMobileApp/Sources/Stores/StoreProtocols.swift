@@ -138,6 +138,9 @@ protocol ConversationStore: AnyObject, Sendable {
     func backgroundWorks(in conversationID: String) async -> [BackgroundWorkSummary]
     /// state.subagents 只读投影（side 面板数据源）
     func subagentSessions(in conversationID: String) async -> [SubagentSessionSummary]
+
+    /// 本轮 Hook 汇总（`hookInvocation` 行派生；默认空 = 不渲染入口）
+    func hookInvocations(in conversationID: String) async -> [HookInvocationInfo]
     /// 目标暂停/继续（pauseGoal / resumeGoal；桌面代执行；返回命令回执供失败反馈）
     @discardableResult
     func setGoalPaused(_ paused: Bool, conversationID: String) async -> JSONValue?
@@ -448,6 +451,7 @@ extension ConversationStore {
     func planPanel(in conversationID: String) async -> PlanPanelSummary? { nil }
     func backgroundWorks(in conversationID: String) async -> [BackgroundWorkSummary] { [] }
     func subagentSessions(in conversationID: String) async -> [SubagentSessionSummary] { [] }
+    func hookInvocations(in conversationID: String) async -> [HookInvocationInfo] { [] }
     func setGoalPaused(_ paused: Bool, conversationID: String) async -> JSONValue? { nil }
     func cancelWork(_ conversationID: String, workId: String) async -> JSONValue? { nil }
     func resumeWorkflowRun(_ conversationID: String, workId: String, name: String?) async -> JSONValue? { nil }

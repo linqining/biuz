@@ -55,6 +55,12 @@ struct SessionPanelsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
+            // 本轮 Hook 详情入口（`hookInvocation` 行不进消息流，与桌面同口径；数据原本被
+            // 字符串层面直接丢弃，用户无处可看）。放在 chips 之上——它是「本轮发生了什么」
+            // 的摘要，不是可展开面板。
+            if !viewModel.hookInvocations.isEmpty {
+                hookDetailsRow
+            }
             chipsRow
             if let kind = expanded, availableKinds.contains(kind) {
                 VStack(spacing: T.sp2) {
@@ -147,6 +153,112 @@ struct SessionPanelsView: View {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard !Task.isCancelled else { return }
             await MainActor.run { withAnimation { controlFeedback = nil } }
+        }
+    }
+
+    // MARK: 本轮 Hook 详情（⚓ Hook N ▾ → 展开执行明细）
+
+    @State private var hookExpanded = false
+
+    private var hookDetailsRow: some View {
+        // 汇总执行明细：只取真正执行过的（admission-only blocked 的 didExecute=false）
+        let items: [(HookExecutionInfo, String)] = viewModel.hookInvocations
+            .flatMap { hook in
+                hook.executions
+                    .filter { $0.didExecute }
+                    .sorted { $0.hookIndex < $1.hookIndex }
+                    .map { ($0, hook.hookEventName) }
+            }
+        return VStack(alignment: .leading, spacing: T.sp1) {
+            Button {
+                hookExpanded.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    Text("⚓").font(.system(size: 10)).foregroundColor(T.text3)
+                    Text("Hook").font(T.font(12, .semibold)).foregroundColor(T.text2)
+                    Text("\(items.count)")
+                        .font(T.mono(10)).foregroundColor(T.text3)
+                    Text(hookExpanded ? "▴" : "▾").font(.system(size: 10)).foregroundColor(T.text3)
+                }
+                .padding(.horizontal, T.sp2)
+                .padding(.vertical, T.sp1)
+                .background(T.bgCard)
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(T.border, lineWidth: 1))
+            }
+            .buttonStyle(PressableButtonStyle())
+            .accessibilityIdentifier("05-hook-details-trigger")
+
+            if hookExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, pair in
+                        let (exec, eventName) = pair
+                        HStack(spacing: 6) {
+                            Text(eventName)
+                                .font(T.mono(11))
+                                .foregroundColor(T.text)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Text(Self.hookSourceLabel(exec.sourceKind))
+                                .font(T.font(10))
+                                .foregroundColor(T.text3)
+                            if let ms = exec.durationMs {
+                                Text(Self.hookDurationText(ms))
+                                    .font(T.mono(10))
+                                    .foregroundColor(T.text3)
+                            }
+                            Text(Self.hookStatusLabel(exec.displayStatus))
+                                .font(T.font(10))
+                                .foregroundColor(Self.hookStatusColor(exec.displayStatus))
+                        }
+                        .accessibilityIdentifier("05-hook-details-item-\(exec.hookRunId)")
+                    }
+                }
+                .padding(.horizontal, T.sp2)
+                .padding(.vertical, T.sp1)
+                .background(T.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                .accessibilityIdentifier("05-hook-details-content")
+            }
+        }
+    }
+
+    /// 来源词表（user | plugin | project）——Android hookSourceLabel 同表
+    static func hookSourceLabel(_ kind: String) -> String {
+        switch kind {
+        case "user": return String(localized: "用户")
+        case "plugin": return String(localized: "插件")
+        case "project": return String(localized: "项目")
+        default: return kind
+        }
+    }
+
+    static func hookDurationText(_ ms: Int) -> String {
+        if ms < 1000 { return "\(ms)ms" }
+        let seconds = Double(ms) / 1000
+        if seconds < 60 { return String(format: "%.1fs", seconds) }
+        return "\(Int(seconds / 60))m\(Int(seconds.truncatingRemainder(dividingBy: 60)))s"
+    }
+
+    static func hookStatusLabel(_ status: String) -> String {
+        switch status {
+        case "running": return String(localized: "运行中")
+        case "success", "completed": return String(localized: "成功")
+        case "blocked": return String(localized: "已拦截")
+        case "failed": return String(localized: "失败")
+        case "cancelled": return String(localized: "已取消")
+        case "timed_out": return String(localized: "超时")
+        default: return status
+        }
+    }
+
+    static func hookStatusColor(_ status: String) -> Color {
+        switch status {
+        case "running": return T.accent
+        case "success", "completed": return T.green
+        case "blocked": return T.orange
+        case "failed", "timed_out": return T.red
+        default: return T.text3
         }
     }
 

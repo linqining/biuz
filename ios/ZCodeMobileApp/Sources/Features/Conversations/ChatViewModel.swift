@@ -105,11 +105,14 @@ final class ChatViewModel {
     var planPanel: PlanPanelSummary?
     var backgroundWorks: [BackgroundWorkSummary] = []
     var subagentSessions: [SubagentSessionSummary] = []
+    /// 本轮 Hook 汇总（`hookInvocation` 行派生；行为与桌面同口径不进消息流，只给详情入口）
+    var hookInvocations: [HookInvocationInfo] = []
 
     /// 是否存在任一面板数据（chips 条渲染门槛）
     var hasAnyPanel: Bool {
         goalSummary != nil || planPanel != nil || !workflowRuns.isEmpty
             || !backgroundWorks.isEmpty || !subagentSessions.isEmpty
+            || !hookInvocations.isEmpty
     }
 
     /// 面板投影刷新（panelStateUpdated 事件与 load/任意事件后的轻量全量重读；
@@ -121,6 +124,7 @@ final class ChatViewModel {
         planPanel = await store.planPanel(in: conversationID)
         backgroundWorks = await store.backgroundWorks(in: conversationID)
         subagentSessions = await store.subagentSessions(in: conversationID)
+        hookInvocations = await store.hookInvocations(in: conversationID)
         queueInfo = await store.queueInfo(in: conversationID)
     }
 

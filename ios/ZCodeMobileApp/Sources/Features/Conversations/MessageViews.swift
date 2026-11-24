@@ -971,6 +971,7 @@ struct ToolCallCardView: View {
         case .edit: return "pencil.line"
         case .ask: return "questionmark.bubble"
         case .browser: return "safari"
+        case .todo: return "checklist"
         }
     }
 
@@ -982,6 +983,7 @@ struct ToolCallCardView: View {
         case .edit: return String(localized: "编辑")
         case .ask: return String(localized: "提问")
         case .browser: return String(localized: "浏览")
+        case .todo: return String(localized: "待办")
         }
     }
 
@@ -1116,6 +1118,17 @@ struct ToolCallCardView: View {
             .accessibilityIdentifier("05-toolcard-workflow-run")
         }
         switch call.kind {
+        case .todo:
+            // 待办清单：直接展示清单正文（无命令/无 diff；与 .bash/.read 的「命令块」不同）
+            targetDetailBlock
+            if let output = call.output {
+                Text(output)
+                    .font(T.mono(11))
+                    .foregroundColor(T.text2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .accessibilityIdentifier("05-toolcard-todo-body")
+            }
         case .bash, .read:
             VStack(spacing: 0) {
                 // 展开体首行：具体命令/文件路径（头部截断仅是摘要，展开后要能看到全量）
@@ -1647,6 +1660,15 @@ struct AttachmentThumbView: View {
         preview?.mediaType.hasPrefix("video/") == true
     }
 
+    /// 非媒体附件的类型字形（audio / pdf / 文本 / 其它二进制）——与 Android
+    /// `fileKindGlyph` 同表，保证两端读同一条附件时显示同一个字形。
+    static func fileKindGlyph(_ mediaType: String) -> String {
+        if mediaType.hasPrefix("audio/") { return "♪" }
+        if mediaType == "application/pdf" { return "📕" }
+        if mediaType.hasPrefix("text/") { return "📄" }
+        return "📎"
+    }
+
     var body: some View {
         Group {
             if let image {
@@ -1671,6 +1693,26 @@ struct AttachmentThumbView: View {
                 }
                 .foregroundColor(T.text3)
                 .accessibilityIdentifier("05-attachment-failed")
+            } else if let preview {
+                // 非图片/视频但预览已到位（audio/*、application/pdf、text/*、其它二进制）：
+                // 出**文件格**——类型字形 + 媒体类型。原实现落到下面的「读面在途」转圈分支，
+                // 而这些类型 UIImage 永远解不出图 → **永久转圈**（无图标、无文件名、不可点）。
+                // 与 Android AttachmentViews.kt:314 同构。
+                VStack(spacing: 2) {
+                    Text(Self.fileKindGlyph(preview.mediaType))
+                        .font(.system(size: 20))
+                        .foregroundColor(T.text2)
+                    Text(preview.mediaType)
+                        .font(T.font(10))
+                        .foregroundColor(T.text3)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(width: 132, height: 96)
+                .background(T.bgInput)
+                .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
+                .accessibilityIdentifier("05-attachment-file")
             } else {
                 SpinnerView(size: 14)
                     .padding(6)

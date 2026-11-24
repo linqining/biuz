@@ -97,6 +97,7 @@
 		E202CBB0EC3C0C5A60FF9B45 /* RelayLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A67A0FE019BFAD6D56316ED /* RelayLink.swift */; };
 		E24EBEE8F96CFA95E6304383 /* V4Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38F8B0C7583C93F53FEF5C2 /* V4Wire.swift */; };
 		E53824F70E44802053E3A05D /* ZCodeMobileE2ETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F2752F667FD8A9F0987C4C8 /* ZCodeMobileE2ETests.swift */; };
+		E5C83132F12A998D408CA55F /* ToolFamilyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D9873753DF8CE0279303132 /* ToolFamilyTests.swift */; };
 		E880FA193126DE18432B53B6 /* TinyMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76CB6BD150DFF56D790C0DED /* TinyMarkdown.swift */; };
 		E97849201A6E11159A2FDFB5 /* TinySyntax.swift in Sources */ = {isa = PBXBuildFile; fileRef = 558246B41B120EC68EB3C059 /* TinySyntax.swift */; };
 		E9CEF2BA30A6E22E867CC624 /* LanguageE2ETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EF8A7B6C21964A5B6A9AF85 /* LanguageE2ETests.swift */; };
@@ -168,6 +169,7 @@
 		526D1D725C702380F055B0AA /* ContextPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextPicker.swift; sourceTree = "<group>"; };
 		53692FEEF92BB75CC70D0DF4 /* ConnectURLParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectURLParser.swift; sourceTree = "<group>"; };
 		558246B41B120EC68EB3C059 /* TinySyntax.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TinySyntax.swift; sourceTree = "<group>"; };
+		5D9873753DF8CE0279303132 /* ToolFamilyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolFamilyTests.swift; sourceTree = "<group>"; };
 		60F40DB0E5742B8570C2994B /* ServerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerViews.swift; sourceTree = "<group>"; };
 		665FBE87C2AF9EDB53C49AD9 /* BiuZ-Android-M1-移植.dwf.ts */ = {isa = PBXFileReference; path = "BiuZ-Android-M1-移植.dwf.ts"; sourceTree = "<group>"; };
 		674143DCBCAFE98264D2354D /* RelayChannelClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayChannelClient.swift; sourceTree = "<group>"; };
@@ -360,6 +362,7 @@
 				2C3189436EA414CB19B770C0 /* StaleSnapshotGuardTests.swift */,
 				6ABFC2280688B1F228898495 /* TaskNotificationContentTests.swift */,
 				1C96E9CA2EAEB254F9E5C401 /* TinySyntaxTests.swift */,
+				5D9873753DF8CE0279303132 /* ToolFamilyTests.swift */,
 				B7D5685BCB5F5BEBD33C0859 /* UserSelectionParsingTests.swift */,
 				FDEB78CEE3FEBCB100375B34 /* WhiteboardMutationsTests.swift */,
 				16FFB0AD13E92734F047ADB5 /* WorkflowActorBindingTests.swift */,
@@ -834,6 +837,7 @@
 				455BD96F7D2CCC42B7A6C1BE /* StaleSnapshotGuardTests.swift in Sources */,
 				017BAE8773AC3CE5A203FE27 /* TaskNotificationContentTests.swift in Sources */,
 				5F10BD066C14A29E27CE09CB /* TinySyntaxTests.swift in Sources */,
+				E5C83132F12A998D408CA55F /* ToolFamilyTests.swift in Sources */,
 				627DE524DC616F2475D59162 /* UserSelectionParsingTests.swift in Sources */,
 				1A102DC328CB059AAA272F95 /* WhiteboardMutationsTests.swift in Sources */,
 				DBBB8D7247A0D695F3720D9C /* WorkflowActorBindingTests.swift in Sources */,

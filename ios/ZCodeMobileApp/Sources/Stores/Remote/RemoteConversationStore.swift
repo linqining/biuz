@@ -1983,8 +1983,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     }
 
     /// toolName → ToolKind（bash/edit/read/ask/browser 五类；未知归 bash）
-    private static func mapToolKind(_ toolName: String?) -> ToolKind {
+    static func mapToolKind(_ toolName: String?) -> ToolKind {
         switch (toolName ?? "").lowercased() {
+        // todo 必须**先于** read/write：`TodoList` 含 "list"、`TodoWrite` 含 "write"，
+        // 排在后面前者会被吞成「读取」、后者被吞成「编辑」（与 Android ToolDisplay.familyOf
+        // 同序；web toolIdentity 的 todo 族优先级同样最高）。
+        case let name where name.contains("todo"):
+            return .todo
         case let name where name.contains("bash") || name.contains("shell") || name.contains("terminal"):
             return .bash
         case let name where name.contains("edit") || name.contains("write") || name.contains("patch") || name.contains("apply"):
@@ -4034,6 +4039,54 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             title: d["title"]?.stringValue ?? d["name"]?.stringValue,
             content: content,
             rawStatus: d["status"]?.stringValue)
+    }
+
+    /// `hookInvocation` 行 → 本轮 Hook 汇总（不新增状态：从已落库的行表**按需派生**）。
+    ///
+    /// 此前这两类行在投影里被字符串层面直接丢弃（"hookInvocation / timelineMarker 不进
+    /// 消息流"），用户无处可看本轮 Hook 执行了什么。行确实不该进消息流（与桌面同口径），
+    /// 但数据要能读——与会话面板的 goal/plan/works 同一读法。
+    func hookInvocations(in conversationID: String) async -> [HookInvocationInfo] {
+        guard let table = rows[conversationID] else { return [] }
+        return table.keys.sorted().compactMap { rowId in
+            guard let row = table[rowId]?.json.objectValue else { return nil }
+            let kind = row["kind"]?.stringValue ?? row["rowKind"]?.stringValue ?? ""
+            guard kind == "hookInvocation" else { return nil }
+            let executions = (row["executions"]?.arrayValue ?? []).compactMap { item -> HookExecutionInfo? in
+                guard let d = item.objectValue, let runId = d["hookRunId"]?.stringValue else { return nil }
+                func millis(_ key: String) -> Int? {
+                    guard let v = d[key] else { return nil }
+                    if let n = v.intValue { return n }
+                    if let iso = v.stringValue,
+                       let date = RemoteConversationStore.workflowRunTimestamp([key: .string(iso)], key) {
+                        return Int(date.timeIntervalSince1970 * 1000)
+                    }
+                    return nil
+                }
+                return HookExecutionInfo(
+                    hookRunId: runId,
+                    hookIndex: d["hookIndex"]?.intValue ?? 0,
+                    didExecute: d["didExecute"]?.boolValue ?? false,
+                    state: d["state"]?.stringValue ?? "",
+                    outcome: d["outcome"]?.stringValue,
+                    blockReason: d["blockReason"]?.stringValue,
+                    startedAt: millis("startedAt"),
+                    endedAt: millis("endedAt"),
+                    durationMs: d["durationMs"]?.intValue,
+                    displayName: d["displayName"]?.stringValue ?? "",
+                    sourceKind: d["sourceKind"]?.stringValue ?? "",
+                    pluginName: d["pluginName"]?.stringValue,
+                    toolName: d["toolName"]?.stringValue)
+            }
+            return HookInvocationInfo(
+                hookInvocationId: row["hookInvocationId"]?.stringValue ?? "row-\(rowId)",
+                hookEventName: row["hookEventName"]?.stringValue ?? "",
+                hookCount: row["hookCount"]?.intValue ?? 1,
+                state: row["state"]?.stringValue ?? "",
+                lane: row["lane"]?.stringValue,
+                anchorToolCallId: row["anchorToolCallId"]?.stringValue,
+                executions: executions)
+        }
     }
 
     func backgroundWorks(in conversationID: String) async -> [BackgroundWorkSummary] {
