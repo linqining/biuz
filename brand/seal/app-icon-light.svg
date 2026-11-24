@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="朱批 App 图标 · 纸底（浅色环境备选）">
   <!-- 纸底：白 Z 与底色同色，读作「印在纸上」的镂刻；残边照常保留 -->
-  <rect width="1024" height="1024" fill="#F7F3EC"/>
+  <rect width="1024" height="1024" fill="#F2EADB"/>
   <g transform="translate(232,232) scale(5.6)">
     <path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
-    <path fill="#F7F3EC" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+    <path fill="#F2EADB" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
   </g>
 </svg>

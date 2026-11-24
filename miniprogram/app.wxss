@@ -1,8 +1,8 @@
 /* 朱批设计 token —— 印系纸/墨/朱磦（2026-11-21 朱批品牌升级，原「ZCode web 对齐板」作废；
  * 出处 brand/seal/README.md，与 iOS Theme.swift / Android Color.kt 同构映射）。
  *
- *   light: 纸底 #F7F3EC · 卡 #FFFDF9 · 输入 #EFE9DF · 正文墨 #17181A（次级 62% / 最弱 40%）
- *   dark : 墨底 #17181A · 卡 #1C1D20 · 面 #232428 · 正文纸 #F7F3EC（次级 62% / 最弱 30%）
+ *   light: 纸底 #F2EADB · 卡=纸 · 输入 #E8DFCB · 正文墨 #17181A（次级 62% / 最弱 40%）
+ *   dark : 墨底 #17181A · 卡 #1C1D20 · 面 #232428 · 正文纸 #F2EADB（次级 62% / 最弱 30%）
  *   印色 : 朱磦 #D2402E（加深 #B03020）——盖章/审批/品牌位专用，destructive 分工不变
  *   状态色族沿用 web 口径。
  *
@@ -10,10 +10,10 @@
  */
 page {
   /* 浅色档（默认，跟随系统）—— 对齐 web :root */
-  --color-background: #f7f3ec;
-  --color-card: #fffdf9;
+  --color-background: #f2eadb;
+  --color-card: #f2eadb;
   --color-elevated: #ffffff;
-  --color-input: #efe9df;
+  --color-input: #e8dfcb;
   --color-code: #f1ece3;
   --color-border: rgba(23, 24, 26, 0.12);
   --color-border-strong: rgba(23, 24, 26, 0.18);
@@ -21,7 +21,7 @@ page {
   --color-muted: rgba(23, 24, 26, 0.62);
   --color-muted-2: rgba(23, 24, 26, 0.4);
   --color-accent: #17181a;
-  --color-on-accent: #f7f3ec;
+  --color-on-accent: #f2eadb;
   --color-accent-press: #000000;
   --color-accent-pill-border: rgba(23, 24, 26, 0.3);
   --color-accent-pill-text: rgba(23, 24, 26, 0.65);
@@ -31,7 +31,7 @@ page {
   --color-success: #16a34a;
   --color-violet: #7c3aed;
   --color-seal: #d2402e;
-  --color-on-seal: #f7f3ec;
+  --color-on-seal: #f2eadb;
   --color-seal-dim: rgba(210, 64, 46, 0.1);
 
   --space-1: 8rpx;
@@ -66,7 +66,7 @@ page {
     --color-code: #1b1c1f;
     --color-border: rgba(247, 243, 236, 0.12);
     --color-border-strong: rgba(247, 243, 236, 0.18);
-    --color-foreground: #f7f3ec;
+    --color-foreground: #f2eadb;
     --color-muted: rgba(247, 243, 236, 0.62);
     --color-muted-2: rgba(247, 243, 236, 0.3);
     --color-accent: #f0ede6;
@@ -80,7 +80,7 @@ page {
     --color-success: #22c55e;
     --color-violet: #c792ff;
     --color-seal: #d2402e;
-    --color-on-seal: #f7f3ec;
+    --color-on-seal: #f2eadb;
     --color-seal-dim: rgba(210, 64, 46, 0.16);
   }
 }
