@@ -1497,7 +1497,9 @@ private fun TurnWorkSummaryRow(
             text = turnWorkSummaryText(summary, running),
             fontSize = 12.sp,
             color = BiuZText3,
-            maxLines = 1,
+            // 两行：摘要有五个分段（探索/命令/更改/思考…），单行在 400dp 屏必被截成
+            // 「… · 思考 20 …」——真机上读作「信息不全」（折叠态本身已省空间，不必再省这一行）
+            maxLines = 2,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
     }
