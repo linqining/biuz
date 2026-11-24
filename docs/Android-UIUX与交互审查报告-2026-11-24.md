@@ -558,3 +558,17 @@ $ 已执行  cd /Users/mac/projects/mtt_mobile &&…   ✓⌄   ×7
 
 **门禁**：`StaleSnapshotGuardTest` 6 例 + store/app 全量绿。
 **未完成（如实）**：已损坏的行表不会自动回溯修复（需要一次真正的 resync，即重开会话）；此外本轮设备上那个 zcode_mobile 会话只显示一条回合摘要，**尚未确认**是「历史被清成尾窗」还是该会话本身就是单个超长 turn——列为下一轮首查项，配合 `diag.rows.replace.*`。
+
+### R 批次·iOS 逻辑对齐（2026-11-24 用户「iOS 和安卓不同步了，先同步逻辑和界面，UI 后续重新设计」）
+
+用一份 12 项差异盘点（逐项定位到 file:line）驱动，按「逻辑优先」分三批落地：
+
+| 批次 | 内容 | commit |
+|---|---|---|
+| 1 | **快照时序守卫**（iOS 与 Android 修复前同缺口：快照帧无时序校验 + 水位可回退 → 迟到 resync 覆盖 rows、「新消息消失只剩旧的」）+ **模型选择权威源**改 `config.modelSelection` 优先（旧写法在 delta 只带 config 时 chip 不更新）+ 快照白名单补 `activitySummaryDismissed`/`completedActivityCount`/`subagentProjection` 三键 + 三个读面 | `7994dc01` |
+| 2 | 非图非视频附件**永久转圈**修复（audio/pdf/text 落文件格）；工具族 **todo 优先**于 read/write（`TodoList` 曾被显示成「读取」）；`hookInvocation` 行不再字符串级丢弃 → 派生 `hookInvocations(in:)` + 「⚓ Hook N ▾」详情入口 | `7d92bea5` |
+| 3 | 计划面板**结构化条目**（悬挂缩进 + 完成删除线 + N/M 计数）；工作流卡「**运行 N**」（桌面 name 恒为「工作流」，多 run 一堆同名卡）；**死 run 不渲染控制条**（假可供性） | `7e76b4bf` |
+
+**门禁**：iOS **215 例全绿**（203 基线 + 12 新增：`StaleSnapshotGuardTests` 6 / `ToolFamilyTests` 3 / `PanelDisplayLogicTests` 3）；每次改动都是 `MTT_BUILD_FORCE=1` 真实构建（绕开构建合流垫片）+ 日志无「构建合流」行；模拟器冷启冒烟无崩溃。
+**未目检（如实）**：面板级视觉（Hook 入口展开、计划逐条渲染、工作流卡序号）需要桌面连接——中继单连接槽当前被 Android 真机占用，模拟器内只有一条过期探针链接；逻辑面由单测覆盖，视觉面待 iOS 连上桌面后补。
+**留给 UI 重设计**（用户明示）：面板壳去 violet、卡面纸色、主 CTA 朱磦、令牌层（间距/字号/alpha/动效）、按压实数值。
