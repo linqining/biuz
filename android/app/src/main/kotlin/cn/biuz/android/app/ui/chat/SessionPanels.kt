@@ -252,7 +252,9 @@ fun SessionPanelsSection(
                     .fillMaxWidth()
                     .clip(BiuZRadius.medium)
                     .background(BiuZBgCard)
-                    .border(1.dp, BiuZSeal.copy(alpha = BiuZAlpha.subtle), BiuZRadius.medium)
+                    // 容器描边走中性墨（12%）——朱磦是「决议/主 CTA」的色，
+                    // 用在信息面板外框上会让整块读作告警（真机目检：红框 + 红标题 + 蓝砖块）
+                    .border(1.dp, BiuZBorder, BiuZRadius.medium)
                     .padding(BiuZSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
             ) {
@@ -962,7 +964,8 @@ private fun PanelCollapseHeader(kind: SessionPanelKind, onCollapse: () -> Unit) 
         Text(
             text = stringResource(kind.labelRes),
             style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
-            color = BiuZSeal,
+            // 标题取墨：朱磦留给「决议面」（字形一枚留作印记即可）
+            color = BiuZText2,
         )
         Spacer(Modifier.weight(1f))
         Text(text = "▴", fontSize = 10.sp, color = BiuZText3)
@@ -1584,7 +1587,18 @@ private fun WorkRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(BiuZRadius.small)
-            .background(BiuZBlueDim.copy(alpha = BiuZAlpha.half))
+            // 底色按状态分流（iOS SessionPanelsView.swift:1122 `.background(isRunning ?
+            // blueDim.opacity(0.5) : bgInput.opacity(0.5))`）。此处曾无状态判断**全部铺蓝**，
+            // 且把 SwiftUI 的「view opacity 相乘」直译成 Compose 的 `copy(alpha=)` ——
+            // 后者是**替换**而非相乘：blueDim 自带 10% 被改写成 50%，色块浓了 10 倍，
+            // 真机上读作一排亮蓝砖块。故显式乘回 dim 自身 alpha（10% × 50% ≈ 5%）。
+            .background(
+                if (work.isRunning) {
+                    BiuZBlueDim.copy(alpha = BiuZBlueDim.alpha * BiuZAlpha.half)
+                } else {
+                    BiuZBgInput.copy(alpha = BiuZAlpha.half)
+                },
+            )
             .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
