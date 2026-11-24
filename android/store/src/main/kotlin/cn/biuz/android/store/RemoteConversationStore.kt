@@ -56,6 +56,7 @@ import cn.biuz.android.protocol.ExecutorKind
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.MessageRole
 import cn.biuz.android.protocol.MessageStatus
+import cn.biuz.android.protocol.PlanItem
 import cn.biuz.android.protocol.PlanPanelSummary
 import cn.biuz.android.protocol.RemoteGoalSummary
 import cn.biuz.android.protocol.SubagentSessionSummary
@@ -2402,47 +2403,38 @@ class RemoteConversationStore(
             ?: d["text"]?.stringValue
             ?: d["markdown"]?.stringValue
             ?: d["body"]?.stringValue
-        if (content.isNullOrEmpty()) {
-            val entries = d["items"]?.arrayValue
-                ?: d["entries"]?.arrayValue
-                ?: d["steps"]?.arrayValue
-                ?: emptyList()
-            val lines = entries.mapNotNull { entry ->
-                val o = entry.objectValue
-                if (o == null) {
-                    entry.stringValue?.let { "· $it" }
-                } else {
-                    val title = o["content"]?.stringValue
-                        ?: o["title"]?.stringValue
-                        ?: o["text"]?.stringValue
-                        ?: ""
-                    // v4 三态闭集 pending|inProgress|completed + 旧桌面 done/in_progress
-                    val statusWord = o["status"]?.stringValue
-                    val done = statusWord == "completed" || statusWord == "done" ||
-                        o["completed"]?.boolValue == true
-                    val running = statusWord == "inProgress" || statusWord == "in_progress"
-                    (if (done) "✓ " else if (running) "▸ " else "· ") + title
-                }
+        val entries = d["items"]?.arrayValue
+            ?: d["entries"]?.arrayValue
+            ?: d["steps"]?.arrayValue
+            ?: emptyList()
+        // 结构化条目（UI 逐条渲染，见 PlanItem 注释）；同时保留拼串作为整段回退
+        val planItems = entries.mapNotNull { entry ->
+            val o = entry.objectValue
+            if (o == null) {
+                entry.stringValue?.takeIf { it.isNotBlank() }?.let { PlanItem(title = it) }
+            } else {
+                val title = o["content"]?.stringValue
+                    ?: o["title"]?.stringValue
+                    ?: o["text"]?.stringValue
+                    ?: ""
+                // 旧桌面用 completed 布尔表示完成：归一到 v4 三态词表
+                val statusWord = o["status"]?.stringValue
+                    ?: if (o["completed"]?.boolValue == true) "completed" else null
+                if (title.isBlank()) null else PlanItem(title = title, statusWord = statusWord)
             }
-            content = lines.takeIf { it.isNotEmpty() }?.joinToString("\n")
+        }
+        if (content.isNullOrEmpty() && planItems.isNotEmpty()) {
+            content = planItems.joinToString("\n") { it.glyph + " " + it.title }
         }
         if (content.isNullOrEmpty()) return null
         // 进度计数（chip 徽标「N/M」；web `model.plan.completedCount/totalCount` 同义）
-        var completed = 0
-        var total = 0
-        for (entry in (d["items"]?.arrayValue ?: d["entries"]?.arrayValue
-            ?: d["steps"]?.arrayValue ?: emptyList())) {
-            val o = entry.objectValue ?: continue
-            total += 1
-            val word = o["status"]?.stringValue
-            if (word == "completed" || word == "done" || o["completed"]?.boolValue == true) {
-                completed += 1
-            }
-        }
+        val total = planItems.size
+        val completed = planItems.count { it.isDone }
         return PlanPanelSummary(
             title = d["title"]?.stringValue ?: d["name"]?.stringValue,
             content = content,
             rawStatus = d["status"]?.stringValue,
+            items = planItems,
             completedCount = completed,
             totalCount = total,
         )

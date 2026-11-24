@@ -61,6 +61,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -1071,11 +1072,39 @@ fun PlanPanelView(plan: PlanPanelSummary, modifier: Modifier = Modifier) {
                 StatusPill(text = planStatusText(it), color = BiuZText3)
             }
         }
-        Text(
-            text = plan.content,
-            style = TextStyle(fontSize = 12.sp, lineHeight = 18.sp),
-            color = BiuZText2,
-        )
+        if (plan.items.isNotEmpty()) {
+            // 逐条渲染（web todo 列表同构）：前置字形占固定槽，标题独立成文本 ——
+            // 换行时悬挂缩进对到标题左缘，而不是顶回字形下面（整段渲染的老毛病）。
+            Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
+                plan.items.forEach { item ->
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text(
+                            text = item.glyph,
+                            fontSize = 12.sp,
+                            color = if (item.isDone) BiuZGreen else if (item.isRunning) BiuZSeal else BiuZText3,
+                            modifier = Modifier.width(BiuZSpacing.md),
+                        )
+                        Text(
+                            text = item.title,
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp,
+                                textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
+                            ),
+                            color = if (item.isDone) BiuZText3 else BiuZText2,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        } else {
+            // 无 items 的旧桌面形态：整段正文（保留原渲染，不丢内容）
+            Text(
+                text = plan.content,
+                style = TextStyle(fontSize = 12.sp, lineHeight = 18.sp),
+                color = BiuZText2,
+            )
+        }
     }
 }
 

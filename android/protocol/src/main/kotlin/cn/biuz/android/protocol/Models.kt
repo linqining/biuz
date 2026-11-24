@@ -315,10 +315,35 @@ data class RemoteGoalSummary(
 )
 
 /** state.plan 投影：计划正文只读卡（计划审批仍走 pendingInteractions 审批卡，不在此重复）（:265-269） */
+/**
+ * 计划条目（v4 `planStateSchema.items[]` 单条【实证·上游仓 snapshot.ts:504-507】：
+ * `{id, content, status: pending|inProgress|completed}`）。
+ *
+ * 为什么要有结构化条目：此前 store 把 items 拼成一行行字符串（`✓ / ▸ / ·` + 标题）塞进
+ * `content`，UI 只能整段渲染——换行行首顶到圆点左边，且丢掉「哪一条完成了」的结构，
+ * 无法做条级勾选/删除线与悬挂缩进（web todo 列表是逐条行）。
+ */
+data class PlanItem(
+    val title: String,
+    val statusWord: String? = null,
+) {
+    val isDone: Boolean
+        get() = statusWord == "completed" || statusWord == "done"
+
+    val isRunning: Boolean
+        get() = statusWord == "inProgress" || statusWord == "in_progress" || statusWord == "running"
+
+    /** 三态字形（与 store 旧拼串同字表；UI 用它做前置槽，标题独立成文本 → 悬挂缩进） */
+    val glyph: String
+        get() = if (isDone) "✓" else if (isRunning) "▸" else "·"
+}
+
 data class PlanPanelSummary(
     val title: String? = null,
     val content: String,
     val rawStatus: String? = null,
+    /** 结构化条目（空 = 只有正文形态，UI 回退整段渲染） */
+    val items: List<PlanItem> = emptyList(),
     /** 完成项数 / 总项数（chip 徽标「N/M」；0/0 = 无 items，UI 不显徽标） */
     val completedCount: Int = 0,
     val totalCount: Int = 0,
