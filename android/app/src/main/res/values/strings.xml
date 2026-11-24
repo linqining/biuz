@@ -443,6 +443,7 @@
     <string name="sessions_not_connected_detail">连接后同步桌面端的会话与消息</string>
     <string name="sessions_syncing">正在同步会话…</string>
     <string name="sessions_open_settings">设置 →</string>
+    <string name="sessions_tools_group">工具</string>
     <string name="sessions_open_files">文件 →</string>
     <string name="sessions_avatar_glyph">会</string>
     <string name="row_waiting_confirm">等待确认</string>

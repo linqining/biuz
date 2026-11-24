@@ -79,6 +79,8 @@ import cn.biuz.android.app.ui.theme.pressableScale
 import cn.biuz.android.app.ui.theme.BiuZOnSeal
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
+import cn.biuz.android.app.ui.theme.BiuZGlyph
+import cn.biuz.android.app.ui.theme.BiuZFont
 import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
@@ -635,34 +637,23 @@ fun SessionsScreen(
                 }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .clickable(onClick = onOpenFiles),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.sessions_open_files),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.testTag("04-act-open-files"),
-                )
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .clickable(onClick = onOpenSettings),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.sessions_open_settings),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+            // 工具区（2026-11-24 排版修复）：原实现把「文件 →」「设置 →」直接挂在列表尾部，
+            // 且用 bodyLarge(15sp) + colorScheme.primary（最重墨色）——比同屏所有列表文字都大、
+            // 又没有分组标题，读起来是两个游离的大字（用户报「排版混乱」）。
+            // 改为：与列表区同构的区头（14sp/text3）+ 行（14sp/text2）+ 右侧导航箭头，
+            // 并把组间距离提到 xl（24dp）——与「置顶/项目」的分区间隔同档。
+            Spacer(Modifier.height(BiuZSpacing.xl))
+            SessionSectionHeader(stringResource(R.string.sessions_tools_group))
+            SessionsToolsRow(
+                label = stringResource(R.string.sessions_open_files),
+                tag = "04-act-open-files",
+                onClick = onOpenFiles,
+            )
+            SessionsToolsRow(
+                label = stringResource(R.string.sessions_open_settings),
+                tag = null,
+                onClick = onOpenSettings,
+            )
             Spacer(Modifier.height(BiuZSpacing.lg))
         }
     }
@@ -999,12 +990,19 @@ private fun SessionRow(
             .padding(vertical = BiuZSpacing.xs, horizontal = BiuZSpacing.xs),
         verticalAlignment = Alignment.Top,
     ) {
+        // 置顶标记占**固定 14dp 槽**并居中（2026-11-24 排版修复）：原实现用 10sp 文字
+        // 自带行高 + 4dp 尾距，emoji 的固有升降部把 📌 顶得比标题高半个字，并与右侧
+        // 指示槽（转圈/红点/蓝点）挤在一起——真机上读作「📌 和转圈叠住了」。
         if (conversation.isPinned) {
-            Text(
-                text = "📌",
-                fontSize = 10.sp,
-                modifier = Modifier.padding(end = BiuZSpacing.xs, top = BiuZSpacing.xxs),
-            )
+            Box(
+                modifier = Modifier
+                    .size(width = 14.dp, height = 18.dp)
+                    .padding(end = BiuZSpacing.xxs),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = "📌", fontSize = 9.sp)
+            }
+            Spacer(Modifier.size(BiuZSpacing.tiny))
         }
         // 行前置指示槽（web 权威口径：`deriveTaskLeadingIndicator`
         // taskListItemPresentation.ts:24-51——error 红点 > unread 蓝点 > running 转圈 >
@@ -1171,6 +1169,39 @@ internal fun sectionKindLabel(kind: SectionKind): String = when (kind) {
     SectionKind.TODAY -> stringResource(R.string.group_today)
     SectionKind.YESTERDAY -> stringResource(R.string.group_yesterday)
     SectionKind.EARLIER -> stringResource(R.string.group_earlier)
+}
+
+/**
+ * 工具区行（文件 / 设置）：与列表行同一字阶（`BiuZFont.body`）与层级色（`text2`），
+ * 右侧统一导航箭头，44dp 热区。**不得**再用 `bodyLarge`/`primary`——那会让底部导航
+ * 在视觉上压过列表内容（2026-11-24 排版修复）。
+ */
+@Composable
+private fun SessionsToolsRow(
+    label: String,
+    tag: String?,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressableScale(interaction)
+            .clip(BiuZRadius.small)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .heightIn(min = 44.dp)
+            .padding(horizontal = BiuZSpacing.xs)
+            .then(if (tag != null) Modifier.testTag(tag) else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label.removeSuffix(" →").removeSuffix("→").trim(),
+            style = TextStyle(fontSize = BiuZFont.body.sp),
+            color = BiuZText2,
+            modifier = Modifier.weight(1f),
+        )
+        Text(text = "›", fontSize = BiuZGlyph.sm.sp, color = BiuZText3)
+    }
 }
 
 /** 分区标题（置顶 / 项目 / 任务 / 最近更新 / 未读 共用版式）。 */
