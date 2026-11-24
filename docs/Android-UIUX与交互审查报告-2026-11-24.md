@@ -500,6 +500,25 @@ $ 已执行  cd /Users/mac/projects/mtt_mobile &&…   ✓⌄   ×7
 `adb am start -d "zcode://share/testcode123"` → 深链解析正常 → 「会话分享」页 → 服务端真实 **HTTP 404** → 「分享预览获取失败（HTTP 404）· 链接可能已失效」+ 朱磦「重试」。失败态文案与主钮配色均正确（错误原文上屏，未折叠成空态）。
 **未取证**：成功态（需一个真实 share code；分享/发布族属 AGENTS 登记 deferred，入口未接）。
 
+### O 批次·选中态两种范式（登记为约定，不再是漂移）
+
+逐屏走查时发现「选中 ✓」有朱磦/墨两种颜色，追下去发现是**两套行组件**：
+
+| 场景 | 实现 | 视觉 |
+|---|---|---|
+| 设置型单选（外观 / 语言 / `SettingsUi.SettingsOptionRow`） | 共享设置行 | **朱磦 ✓** |
+| 密集列表单选（新建会话模型行 / 模型面板行） | 各自的列表行 | **墨 ✓ + 描边高亮** |
+
+**裁决：两种都保留，但登记为约定**——设置页行距宽、无行内边框，靠朱磦勾做唯一信号；模型列表行有描边高亮承担主信号，勾取墨（中性强调）避免与「决议色」抢。**同时登记一处重复实现**：`AppearanceScreen` 自己写了一遍选项行，与 `SettingsUi.SettingsOptionRow` 同构——下一轮 UI 收敛时合并到后者（本轮不动，避免影响已验收的外观页）。
+
+### P 批次·工作流面板：仍未取证（本轮结论）
+
+连开 4 个会话（同步 bpt-web / 修复 web-to-app / 按 mtt-web-sync 验收 / /plan flip-core），面板 chips 都只有 `Hook / 目标 / 计划 / 后台任务`——`conversationWorkflowRunsV4` 无 run 时 chip 不出现（设计如此）。**这块至今没有真机视觉证据**，只有：`SessionPanelProjectionTest`（runs 解析）+ `WorksPanelOrderTest`（面板行序）+ 其它三个面板的照片（同一个面板壳）。
+
+要收口只有两条路：
+1. 给一个**跑过 workflow 的桌面会话**（最省事，我直接截图）；
+2. 给 `teststub` 加 `state.workflowRuns` 夹具 + 一个可跑的 `main`，`adb reverse` 后用手动连接指向它——注意这会**顶掉当前真实连接**（单连接槽），且需要新增 stub 代码（本轮未做）。
+
 
 ---
 
