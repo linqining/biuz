@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -74,6 +75,8 @@ import cn.biuz.android.app.ui.theme.BiuZBlue
 import cn.biuz.android.app.ui.theme.BiuZBlueDim
 import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZGreen
+import cn.biuz.android.app.ui.theme.BiuZGreenDim
+import cn.biuz.android.app.ui.theme.BiuZRedDim
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
 import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRadius
@@ -559,7 +562,57 @@ private fun ActivitySummaryRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            if (model.isRunningAny) {
+            // 头像组（web `activityAvatars` 叠图同构）：最多 3 枚 agent 面孔，
+            // 后一枚整体压在前一枚上（web `-space-x-1.5` + `zIndex: index+1`），
+            // 各带结果徽标点。无头像时退回状态点/转圈。
+            if (model.avatarSubagents.isNotEmpty()) {
+                Row {
+                    model.avatarSubagents.take(3).forEachIndexed { index, avatar ->
+                        Box(
+                            modifier = Modifier
+                                .offset(x = (-4 * index).dp)
+                                .size(14.dp)
+                                .background(
+                                    when (avatar.badge) {
+                                        ActivityAvatarItem.AvatarStatus.Done -> BiuZGreenDim
+                                        ActivityAvatarItem.AvatarStatus.Failed -> BiuZRedDim
+                                        ActivityAvatarItem.AvatarStatus.Running -> BiuZAccentDim
+                                    },
+                                    CircleShape,
+                                )
+                                .border(1.dp, BiuZBgCard, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = avatar.name.take(1).uppercase(),
+                                style = TextStyle(fontSize = 7.sp, fontWeight = FontWeight.SemiBold),
+                                color = when (avatar.badge) {
+                                    ActivityAvatarItem.AvatarStatus.Done -> BiuZGreen
+                                    ActivityAvatarItem.AvatarStatus.Failed -> BiuZRed
+                                    ActivityAvatarItem.AvatarStatus.Running -> BiuZAccent
+                                },
+                            )
+                            // 结果徽标点（左下角，web AgentResultBadge 同位）
+                            if (avatar.result != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .offset(x = (-1).dp, y = 1.dp)
+                                        .size(4.dp)
+                                        .background(
+                                            when (avatar.result) {
+                                                ActivityResult.Completed -> BiuZGreen
+                                                ActivityResult.Failed -> BiuZRed
+                                                ActivityResult.Stopped -> BiuZText3
+                                            },
+                                            CircleShape,
+                                        ),
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (model.isRunningAny) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(10.dp),
                     strokeWidth = 1.5.dp,

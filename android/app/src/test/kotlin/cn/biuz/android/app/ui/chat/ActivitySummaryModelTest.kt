@@ -282,6 +282,31 @@ class ActivitySummaryModelTest {
     }
 
     @Test
+    fun avatarBadgeDerivesFromResultNotRawStatus() {
+        // web :1218-1224 注释：停止/失败不能回退 undefined，否则头像显示等待三点
+        val completed = ActivityAvatarItem(
+            id = "a", name = "explore",
+            status = ActivityAvatarItem.AvatarStatus.Running,
+            result = ActivityResult.Completed,
+        )
+        assertEquals(ActivityAvatarItem.AvatarStatus.Done, completed.badge, "有 final 结果时以 result 定徽标")
+
+        val stopped = ActivityAvatarItem(
+            id = "b", name = "general",
+            status = ActivityAvatarItem.AvatarStatus.Running,
+            result = ActivityResult.Stopped,
+        )
+        assertEquals(ActivityAvatarItem.AvatarStatus.Running, stopped.badge, "停止不算 Done/Failed，保留原状态")
+
+        val live = ActivityAvatarItem(
+            id = "c", name = "general",
+            status = ActivityAvatarItem.AvatarStatus.Running,
+            result = null,
+        )
+        assertEquals(ActivityAvatarItem.AvatarStatus.Running, live.badge)
+    }
+
+    @Test
     fun avatarGroupKeepsRunningAndSuccessNotDismissedFiltered() {
         val model = buildActivitySummaryModel(
             workflowRuns = emptyList(),
