@@ -724,7 +724,9 @@ fun ChatScreen(
                 )
                 Spacer(Modifier.size(BiuZSpacing.sm))
                 ModelChip(
-                    label = modelSelection?.activeModel ?: "--",
+                    // 未就绪占位用「…」而不是「--」：真机首屏 3 秒内是「--」，
+                    // 读作「模型加载失败」而不是「还在取」（随后会填成 deepseek/…）
+                    label = modelSelection?.activeModel ?: "…",
                     onClick = {
                         viewModel.openComposerPanel(ChatViewModel.ComposerPanelKind.Model) {
                             focusManager.clearFocus(force = true)
@@ -735,7 +737,7 @@ fun ChatScreen(
                 ThoughtChip(
                     label = stringResource(
                         R.string.composer_thought_prefix,
-                        modelSelection?.activeThoughtLevel ?: "--",
+                        modelSelection?.activeThoughtLevel ?: "…",
                     ),
                     onClick = {
                         viewModel.openComposerPanel(ChatViewModel.ComposerPanelKind.Thought) {

@@ -65,8 +65,9 @@ class ToolDisplayModelTest {
             ),
         )
         assertEquals(ToolFamily.Shell, plain.family)
-        assertEquals("cd /tmp && ls", plain.command)
-        assertEquals("cd /tmp && ls", plain.primary)
+        assertEquals("cd /tmp && ls", plain.command, "展开体保留完整命令")
+        // 主文案剥掉前导 `cd <dir> && ` 样板：否则同一回合十余张卡长得一模一样
+        assertEquals("ls", plain.primary)
         assertEquals("列目录", plain.secondary)
         assertNull(plain.parameters, "命令键已单独展示 → 参数块剔除")
 
@@ -81,6 +82,21 @@ class ToolDisplayModelTest {
             call(toolName = "Bash", input = """{"command":"ls","timeout":30}"""),
         )
         assertEquals("timeout = 30", extra.parameters)
+    }
+
+    @Test
+    fun shellPrimaryStripsLeadingCdBoilerplate() {
+        // 桌面执行每条命令都带 `cd <工作区> &&`；不剥则卡片不可区分（真机实证 7 张同款）
+        assertEquals(
+            "grep -rn foo src",
+            ToolDisplay.commandPrimary("cd /Users/mac/projects/mtt_mobile && grep -rn foo src"),
+        )
+        assertEquals("ls -la", ToolDisplay.commandPrimary("cd \"/Users/a b/c\" && ls -la"))
+        assertEquals("make", ToolDisplay.commandPrimary("cd /a && cd /b && make"))
+        // 只有 cd（没有后续命令）→ 保留原文，不能剥成空串
+        assertEquals("cd /tmp", ToolDisplay.commandPrimary("cd /tmp"))
+        // 非 cd 开头原样
+        assertEquals("git status", ToolDisplay.commandPrimary("git status"))
     }
 
     @Test

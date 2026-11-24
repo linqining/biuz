@@ -62,6 +62,23 @@ object ToolDisplay {
 
     private const val MAX_PRIMARY = 220
 
+    /**
+     * 命令主文案：剥掉前导 `cd <目录> && ` 样板再截断。
+     *
+     * 为什么：桌面执行每条命令都带 `cd <工作区> && …` 前缀，不剥的话同一回合十来张卡
+     * **长得一模一样**（真机实证：一个回合 7 张卡全是 `cd /Users/mac/projects/mtt_mobile &&…`），
+     * 用户无法区分哪条是哪条。展开体仍显示完整命令（[ToolDisplayModel.command] 不改）。
+     * 支持带引号路径（`cd "/a b" && …`）与前导多个 cd。
+     */
+    internal fun commandPrimary(raw: String): String {
+        val trimmed = raw.trim()
+        val stripped = LEADING_CD.replace(trimmed, "").trim()
+        return (stripped.ifEmpty { trimmed }).take(MAX_PRIMARY)
+    }
+
+    /** `cd x &&` / `cd "x y" &&` 前导串（可重复） */
+    private val LEADING_CD = Regex("""^(?:cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*&&\s*)+\s*""")
+
     /** [ToolCall] → 展示模型（唯一入口；UI 禁自行解析 toolName/inputText）。 */
     fun build(call: ToolCall): ToolDisplayModel {
         val family = familyOf(call.toolName)
@@ -73,7 +90,7 @@ object ToolDisplay {
         }
         val command = if (family == ToolFamily.Shell) extractCommand(input) else null
         val primary = when (family) {
-            ToolFamily.Shell -> command?.take(MAX_PRIMARY)
+            ToolFamily.Shell -> command?.let { commandPrimary(it) }
                 ?: call.title?.takeIf { it.isNotBlank() }
                 ?: call.toolName?.takeIf { it.isNotBlank() }
                 ?: ""

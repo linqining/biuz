@@ -440,6 +440,21 @@ C 批次把 504 处 `fontSize` 收敛到 8 档文本阶，但只挡了 **x.5 半
 **门禁**：568 例全绿。
 **说明**：MCP/插件页首次加载实测 ~10s（桌面逐 server 探测），不是卡死——但期间只有一枚转圈，无进度提示，属可接受范围（web 同）。
 
+### L 批次·工具卡主文案去样板 + 加载占位（会话详情渲染续）
+
+真机展开一个 55 命令的回合，7 张 Shell 卡**主文案完全一样**：
+
+```
+$ 已执行  cd /Users/mac/projects/mtt_mobile &&…   ✓⌄
+$ 已执行  cd /Users/mac/projects/mtt_mobile &&…   ✓⌄   ×7
+```
+
+桌面执行每条命令都带 `cd <工作区> && ` 前缀，而 `ToolDisplay` 把整条命令原样当主文案再截断 → 前缀吃光可见长度，卡片不可区分。
+
+**修法**：`ToolDisplay.commandPrimary()` 剥掉前导 `cd …&&`（支持带引号路径、多个前导 cd；剥空则回退原文），**展开体仍显示完整命令**。纯函数 + 5 条断言（`ToolDisplayModelTest.shellPrimaryStripsLeadingCdBoilerplate`），负控口径：`cd /tmp`（只有 cd）不能被剥成空串。
+
+**同一轮还修了**：composer 模型/思考胶囊未就绪时的占位 `--` → `…`（真机首屏 3 秒内显示「--」，读作「加载失败」；随后会填成 `deepseek/deepseek-v4.1-flash`——顺带再次验证了「config.modelSelection 才是权威」的修法对桌面新建会话同样生效）。
+
 
 ---
 
