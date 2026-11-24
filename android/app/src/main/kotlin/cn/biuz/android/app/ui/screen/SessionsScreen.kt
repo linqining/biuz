@@ -298,7 +298,8 @@ fun SessionsScreen(
                     .fillMaxWidth()
                     .clip(BiuZRadius.medium)
                     .clickable(onClick = onOpenDevices)
-                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.sm),
+                    // 水平不留缩进：与列表区同一左轨（真机实测原 8dp 让设备行比区头右移）
+                    .padding(vertical = BiuZSpacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(text = "💻", fontSize = 13.sp)
@@ -313,7 +314,7 @@ fun SessionsScreen(
                 )
                 Text(text = "⌃⌄", fontSize = 10.sp, color = BiuZText3)
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(BiuZSpacing.xs))
             // 新建任务行（web task-new-button：32dp 高 / padding 0 10 / gap 8 / 14sp）
             Row(
                 modifier = Modifier
@@ -321,7 +322,7 @@ fun SessionsScreen(
                     .height(32.dp)
                     .clip(BiuZRadius.medium)
                     .clickable { showNewSheet = true }
-                    .padding(horizontal = BiuZSpacing.md)
+                    .padding(end = BiuZSpacing.md)
                     .testTag("04-act-new"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -333,7 +334,7 @@ fun SessionsScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(BiuZSpacing.md))
             // 列表头（web sidebar-search-toolbar：标题 14sp/500 α0.6 + 右侧视图菜单）
             Row(
                 modifier = Modifier
@@ -346,9 +347,7 @@ fun SessionsScreen(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     color = BiuZText2,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = BiuZSpacing.md),
+                    modifier = Modifier.weight(1f),
                 )
                 Box {
                     Text(
@@ -529,13 +528,7 @@ fun SessionsScreen(
                             LazyColumn(modifier = Modifier.weight(1f)) {
                                 sections.forEach { section ->
                                     item(key = "header-${section.title}-${section.rows.firstOrNull()?.id ?: ""}") {
-                                        Text(
-                                            text = section.title,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = BiuZText3,
-                                            modifier = Modifier.padding(start = BiuZSpacing.md, top = BiuZSpacing.md, bottom = BiuZSpacing.xs, ),
-                                        )
+                                        SessionSectionHeader(section.title)
                                     }
                                     items(section.rows, key = { it.id }) { conversation ->
                                         SessionRow(
@@ -575,7 +568,7 @@ fun SessionsScreen(
                                         )
                                     }
                                 }
-                                item { Spacer(Modifier.height(BiuZSpacing.xl)) }
+                                item { Spacer(Modifier.height(BiuZSpacing.sm)) }
                             }
                         }
                     }
@@ -593,8 +586,13 @@ fun SessionsScreen(
                             }
                             if (board.projects.isNotEmpty()) {
                                 item(key = "hdr-projects") { SessionSectionHeader(projectsTitle) }
-                                board.projects.forEach { group ->
+                                board.projects.forEachIndexed { index, group ->
                                     val expanded = group.key !in collapsedProjects
+                                    // 项目节点之间的 8dp 分隔：否则「上一个项目的最后一个子行」与
+                                    // 「下一个项目节点」的行距和普通子行一致，读起来像同一个项目的子项
+                                    if (index > 0) item(key = "proj-gap-${group.key}") {
+                                        Spacer(Modifier.height(BiuZSpacing.sm))
+                                    }
                                     item(key = "proj-${group.key}") {
                                         ProjectNodeRow(
                                             group = group,
@@ -619,7 +617,7 @@ fun SessionsScreen(
                                     renderConversationRow(conversation, false)
                                 }
                             }
-                            item { Spacer(Modifier.height(BiuZSpacing.xl)) }
+                            item { Spacer(Modifier.height(BiuZSpacing.sm)) }
                         }
                     } else {
                         LazyColumn(modifier = Modifier.weight(1f)) {
@@ -631,7 +629,7 @@ fun SessionsScreen(
                                     renderConversationRow(conversation, false)
                                 }
                             }
-                            item { Spacer(Modifier.height(BiuZSpacing.xl)) }
+                            item { Spacer(Modifier.height(BiuZSpacing.sm)) }
                         }
                     }
                 }
@@ -642,7 +640,7 @@ fun SessionsScreen(
             // 又没有分组标题，读起来是两个游离的大字（用户报「排版混乱」）。
             // 改为：与列表区同构的区头（14sp/text3）+ 行（14sp/text2）+ 右侧导航箭头，
             // 并把组间距离提到 xl（24dp）——与「置顶/项目」的分区间隔同档。
-            Spacer(Modifier.height(BiuZSpacing.xl))
+            Spacer(Modifier.height(BiuZSpacing.lg))
             SessionSectionHeader(stringResource(R.string.sessions_tools_group))
             SessionsToolsRow(
                 label = stringResource(R.string.sessions_open_files),
@@ -987,7 +985,8 @@ private fun SessionRow(
                 onClick = onOpen,
                 onLongClick = { if (onArchive != null || onMarkUnread != null) menuOpen = true },
             )
-            .padding(vertical = BiuZSpacing.xs, horizontal = BiuZSpacing.xs),
+            // 行内垂直节奏 = sm(8)：原 4dp 让相邻行几乎粘在一起（真机读作「挤」）
+            .padding(vertical = BiuZSpacing.sm),
         verticalAlignment = Alignment.Top,
     ) {
         // 置顶标记占**固定 14dp 槽**并居中（2026-11-24 排版修复）：原实现用 10sp 文字
@@ -1190,7 +1189,9 @@ private fun SessionsToolsRow(
             .clip(BiuZRadius.small)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .heightIn(min = 44.dp)
-            .padding(horizontal = BiuZSpacing.xs)
+            // 左缘 0：与区头/列表行前置槽同基线（原 horizontal=xs 让工具行右移 4dp，
+            // 真机 60px vs 区头 48px）；右侧留 4dp 供箭头视觉收口
+            .padding(end = BiuZSpacing.xs)
             .then(if (tag != null) Modifier.testTag(tag) else Modifier),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1207,12 +1208,15 @@ private fun SessionsToolsRow(
 /** 分区标题（置顶 / 项目 / 任务 / 最近更新 / 未读 共用版式）。 */
 @Composable
 private fun SessionSectionHeader(title: String) {
+    // 左缘 = 0（页边距 16dp 即基线）：区头必须与行的**前置槽**同左缘。
+    // 原 start=md(12dp) 让区头比 📌/转圈槽右移 12dp（真机实测 88px vs 56px，差值
+    // 恰为一档缩进）；缩进不在 8/12/16 三档节奏里，故收敛时归零。
     Text(
         text = title,
-        fontSize = 14.sp,
+        fontSize = BiuZFont.body.sp,
         fontWeight = FontWeight.Medium,
         color = BiuZText3,
-        modifier = Modifier.padding(start = BiuZSpacing.md, top = BiuZSpacing.md, bottom = BiuZSpacing.xs),
+        modifier = Modifier.padding(top = BiuZSpacing.lg, bottom = BiuZSpacing.sm),
     )
 }
 
@@ -1231,7 +1235,8 @@ private fun ProjectNodeRow(
             .fillMaxWidth()
             .clip(BiuZRadius.small)
             .clickable(onClick = onToggle)
-            .padding(start = BiuZSpacing.md, top = BiuZSpacing.sm, bottom = BiuZSpacing.sm, end = BiuZSpacing.md)
+            // 与区头/行前置槽同左缘（start=0 → 页边距 16 即基线）；原 md(12) 让它右移 12dp
+            .padding(vertical = BiuZSpacing.sm)
             .testTag("04-project-node"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
