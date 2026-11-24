@@ -1264,12 +1264,35 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 return
             }
         }
+        // ③ 旧快照整帧丢弃（2026-11-24 与 Android 同步，用户报障「移动端落后桌面端，
+        //    消息被覆盖，新的消息不见只有旧的」）：快照路径此前**没有任何时序校验**——
+        //    迟到的 resync/重放快照会把 rows 按旧内容合并甚至整表替换，并把水位写回旧值；
+        //    水位一回退，后续新增量又被 `toSeq <= 水位` 当重复帧丢掉（表现为一直落后）。
+        //    判据只信确凿的旧证据：同纪元 toSeq 不大于水位、或 revision 严格更小；
+        //    纪元换代（CLI 重启/fork 重编号 rowId）一律认新，不按 seq 比。
+        if let snapshot = frame.snapshot {
+            let dict = snapshot.objectValue
+            let stale = Self.shouldDropStaleSnapshot(
+                frameToSeq: frame.toSeq,
+                frameRevision: dict?["revision"]?.intValue,
+                watermarkSeq: conversationWatermarks[conversationID]?.seq,
+                watermarkEpoch: conversationWatermarks[conversationID]?.logEpoch,
+                snapshotEpoch: dict?["logEpoch"]?.stringValue,
+                knownRevision: conversationStateRevisions[conversationID])
+            if stale { return }
+        }
         // 水位记录（resync base）：logEpoch 仅快照携带，缺席沿用旧值
         let previousEpoch = conversationWatermarks[conversationID]?.logEpoch
-        conversationWatermarks[conversationID] = (
-            frame.snapshot?.objectValue?["logEpoch"]?.stringValue ?? previousEpoch,
-            frame.toSeq
-        )
+        let nextEpoch = frame.snapshot?.objectValue?["logEpoch"]?.stringValue ?? previousEpoch
+        // 水位只前进不后退：同纪元内取 max（换代时以新帧为准，新纪元 seq 从头编排）
+        let previousSeq = conversationWatermarks[conversationID]?.seq
+        let nextSeq: Int
+        if let nextEpoch, let previousEpoch, nextEpoch == previousEpoch, let previousSeq {
+            nextSeq = max(frame.toSeq, previousSeq)
+        } else {
+            nextSeq = frame.toSeq
+        }
+        conversationWatermarks[conversationID] = (nextEpoch, nextSeq)
         if let snapshot = frame.snapshot {
             if let dict = snapshot.objectValue {
                 // 快照顶层 revision（会话快照可能无 state 键但带顶层 revision——CAS 用）
@@ -1313,6 +1336,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     "config", "modelTransition", "usage", "queue", "pendingInteractions",
                     "pendingCommands", "backgroundWorks", "subagents", "workflowRuns",
                     "goal", "plan", "workspaceHookAdmission", "runtimeInitialization",
+                    // v4.0.0 增补（2026-11-24 与 Android 同步）：白名单漏键 = 全量快照
+                    // 把这些键**静默丢弃**——活动摘要在 iOS 上一直算不出来即此因
+                    "activitySummaryDismissed", "completedActivityCount", "subagentProjection",
                 ]
                 var merged: [String: JSONValue] = dict["state"]?.objectValue ?? [:]
                 var hasState = !merged.isEmpty
@@ -1489,9 +1515,20 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 forKey: "diag.pend.\(conversationID.prefix(14))")
             UserDefaults.standard.synchronize()
         }
-        // 会话级模型选择（桌面 composer 改的是 state.modelSelection——workspace 级
+        // 会话级模型选择（桌面 composer 改的是会话级选择——workspace 级
         // model-selection.getView/onDidChange 不覆盖会话级变更，chips 同步以此为权威源）
-        if let ms = state.objectValue?["modelSelection"], !ms.isNull {
+        //
+        // 权威源 = **state.config.modelSelection**（2026-11-24 与 Android 同步）：上游
+        // session-config.ts:5-7 明确 config 区是「Session 接受并持久化的稀疏选择意图」，
+        // switchModelConfig 走 setModel→onModelSelected→config 投影；顶层 state.modelSelection
+        // 在真机上会滞后（Android 实证：顶层还是 GLM-5.4、config 已是 deepseek），
+        // 且桌面切模的 delta 只带 config 区时，只读顶层**连更新都不会发生**。
+        // 顶层仅作旧桌面兜底。
+        let configSelection = state.objectValue?["config"]?.objectValue?["modelSelection"]
+        let topLevelSelection = state.objectValue?["modelSelection"]
+        if let ms = configSelection, !ms.isNull {
+            sessionModelSelections[conversationID] = ms
+        } else if let ms = topLevelSelection, !ms.isNull {
             sessionModelSelections[conversationID] = ms
         }
         // 会话协作模式（state.config.mode 权威源；nil/空 = 桌面尚未投影，不落）
@@ -1499,6 +1536,68 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
            let mode = config["mode"]?.stringValue, !mode.isEmpty {
             sessionCollaborationModes[conversationID] = mode
         }
+    }
+
+    /// `state.subagents` → 完整子代理投影（v4.0.0 subagentProjectionStateSchema）。
+    /// running/ended/endedTotal 三面；旧桌面不发该键 → nil。
+    func subagentProjection(in conversationID: String) -> SubagentProjectionState? {
+        guard let dict = snapshotState[conversationID]?.objectValue?["subagents"]?.objectValue
+        else { return nil }
+        func list(_ key: String) -> [SubagentRuntimeSummary] {
+            (dict[key]?.arrayValue ?? []).compactMap { item in
+                guard let d = item.objectValue, let childId = d["childSessionId"]?.stringValue
+                else { return nil }
+                func millis(_ v: JSONValue?) -> Int? {
+                    // 毫秒数优先、ISO 兜底（复用既有的双形态解析，与服务端两代口径一致）
+                    guard let v else { return nil }
+                    if let n = v.intValue { return n }
+                    if let s = v.stringValue,
+                       let date = RemoteConversationStore.workflowRunTimestamp(["t": .string(s)], "t") {
+                        return Int(date.timeIntervalSince1970 * 1000)
+                    }
+                    return nil
+                }
+                return SubagentRuntimeSummary(
+                    childSessionId: childId,
+                    subagentType: d["subagentType"]?.stringValue ?? "",
+                    title: d["title"]?.stringValue ?? "",
+                    summary: d["summary"]?.stringValue,
+                    status: d["status"]?.stringValue ?? "",
+                    agentId: d["agentId"]?.stringValue,
+                    toolCallId: d["toolCallId"]?.stringValue,
+                    startedAt: millis(d["startedAt"]),
+                    endedAt: millis(d["endedAt"]))
+            }
+        }
+        return SubagentProjectionState(
+            revision: dict["revision"]?.intValue ?? 0,
+            childSessionIds: (dict["childSessionIds"]?.arrayValue ?? []).compactMap { $0.stringValue },
+            running: list("running"),
+            endedTotal: dict["endedTotal"]?.intValue ?? 0,
+            ended: list("ended"))
+    }
+
+    /// `state.activitySummaryDismissed` → 活动摘要忽略集（v4.0.0）。
+    func activitySummaryDismissed(in conversationID: String) -> ActivitySummaryDismissed? {
+        guard let d = snapshotState[conversationID]?.objectValue?["activitySummaryDismissed"]?.objectValue
+        else { return nil }
+        func ids(_ key: String) -> [String] {
+            (d[key]?.arrayValue ?? []).compactMap { $0.stringValue }
+        }
+        let at: Int? = RemoteConversationStore
+            .workflowRunTimestamp(d, "at")
+            .map { Int($0.timeIntervalSince1970 * 1000) }
+        return ActivitySummaryDismissed(
+            at: at,
+            workIds: ids("workIds"),
+            subagentIds: ids("subagentIds"),
+            workflowRunIds: ids("workflowRunIds"))
+    }
+
+    /// `state.completedActivityCount` → 完整历史里成功的独立 child 与 Workflow 数（不含 Bash）。
+    /// nil = 字段缺席（旧桌面）或完整历史读取失败——两种都不显示计数（不显示 0）。
+    func completedActivityCount(in conversationID: String) -> Int? {
+        snapshotState[conversationID]?.objectValue?["completedActivityCount"]?.intValue
     }
 
     /// 会话协作模式投影（state.config.mode；nil = 桌面尚未投影——订阅快照未到或
@@ -5793,6 +5892,34 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         info.activeProviderId = selection?["providerId"]?.stringValue
         info.activeThoughtLevel = selection?["options"]?.objectValue?["reasoningLevel"]?.stringValue
         return info
+    }
+
+    /// 旧快照判定（纯函数，可单测）：只信**确凿的旧证据**，宁放勿误杀。
+    ///
+    /// 背景（2026-11-24 与 Android 同步修）：用户报障「移动端落后桌面端，消息被覆盖，
+    /// 新的消息不见只有旧的」。快照帧此前没有任何时序校验——迟到的 resync/重放快照会
+    /// 把 rows 按旧内容合并甚至整表替换、并把水位写回旧值；水位一回退，后续新增量又被
+    /// `toSeq <= 水位` 当重复帧丢掉，表现为「一直落后、只看到旧的」。
+    ///
+    /// 三条判据（任一成立即丢）：
+    /// 1. **纪元换代优先认新**：快照 logEpoch 与水位不同 → 不丢（CLI 重启/fork 会重新
+    ///    编号 rowId，seq 从头编排，按 seq 比必误杀）。
+    /// 2. `toSeq > 0` 且不大于已知水位 → 旧帧（`toSeq == 0` 是部分桌面的快照哨兵，不据此判）。
+    /// 3. 快照 revision 严格小于已知会话 revision → 旧状态。
+    static func shouldDropStaleSnapshot(
+        frameToSeq: Int,
+        frameRevision: Int?,
+        watermarkSeq: Int?,
+        watermarkEpoch: String?,
+        snapshotEpoch: String?,
+        knownRevision: Int?
+    ) -> Bool {
+        if let snapshotEpoch, let watermarkEpoch, snapshotEpoch != watermarkEpoch {
+            return false
+        }
+        if frameToSeq > 0, let watermarkSeq, frameToSeq <= watermarkSeq { return true }
+        if let frameRevision, let knownRevision, frameRevision < knownRevision { return true }
+        return false
     }
 }
 

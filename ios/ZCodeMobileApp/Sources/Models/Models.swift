@@ -324,6 +324,39 @@ struct BackgroundWorkSummary: Identifiable, Equatable {
 }
 
 /// state.subagents 投影（side 面板）：子代理会话实例，只读转录下钻
+/// `state.subagents` 完整投影（v4.0.0 `subagentProjectionStateSchema`，2026-11-24 与 Android 同步）：
+/// running / ended / endedTotal 三面——活动摘要行据 running+ended 算头像、据 endedTotal 算
+/// 「已完成 N 项」。旧桌面（< 4.0.0）不发该键 → 返回 nil（不伪造）。
+struct SubagentProjectionState: Equatable {
+    var revision: Int = 0
+    var childSessionIds: [String] = []
+    var running: [SubagentRuntimeSummary] = []
+    var endedTotal: Int = 0
+    var ended: [SubagentRuntimeSummary] = []
+}
+
+struct SubagentRuntimeSummary: Equatable {
+    var childSessionId: String
+    var subagentType: String = ""
+    var title: String = ""
+    var summary: String?
+    var status: String = ""
+    var agentId: String?
+    var toolCallId: String?
+    var startedAt: Int?
+    var endedAt: Int?
+
+    var isDone: Bool { status == "completed" || status == "stopped" || status == "errored" || status == "failed" }
+}
+
+/// `state.activitySummaryDismissed`：用户「忽略活动摘要」时被打掉的条目 id 集（v4.0.0）。
+struct ActivitySummaryDismissed: Equatable {
+    var at: Int?
+    var workIds: [String] = []
+    var subagentIds: [String] = []
+    var workflowRunIds: [String] = []
+}
+
 struct SubagentSessionSummary: Identifiable, Equatable {
     var id: String { childSessionId }
     var childSessionId: String
