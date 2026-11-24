@@ -146,7 +146,7 @@ fun DesktopSettingsScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -156,7 +156,7 @@ fun DesktopSettingsScreen(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onBack() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             Text(
                 text = stringResource(R.string.desktop_settings_title),
@@ -242,7 +242,7 @@ fun DesktopSettingsScreen(
                             text = stringResource(R.string.desktop_footer),
                             fontSize = 11.sp,
                             color = BiuZText3,
-                            modifier = Modifier.padding(horizontal = 4.dp).testTag("12-desktop-footer"),
+                            modifier = Modifier.padding(horizontal = BiuZSpacing.xs).testTag("12-desktop-footer"),
                         )
                     }
                 }
@@ -390,7 +390,7 @@ private fun SettingRowView(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = BiuZSpacing.md)
             .heightIn(min = 48.dp)
             .testTag("12-desktop-setting-row-${entry.key}"),
         verticalAlignment = Alignment.CenterVertically,
@@ -457,7 +457,7 @@ private fun TrailingView(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onEdit() }
-                    .padding(horizontal = 6.dp, vertical = 8.dp)
+                    .padding(horizontal = BiuZSpacing.tiny, vertical = BiuZSpacing.sm)
                     .testTag("12-desktop-edit-${entry.key}"),
             ) {
                 Text(
@@ -467,7 +467,7 @@ private fun TrailingView(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(text = "›", fontSize = 14.sp, color = BiuZText3, modifier = Modifier.padding(start = 2.dp))
+                Text(text = "›", fontSize = 14.sp, color = BiuZText3, modifier = Modifier.padding(start = BiuZSpacing.xxs))
             }
         }
     }

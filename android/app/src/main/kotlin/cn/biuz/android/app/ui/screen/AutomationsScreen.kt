@@ -121,7 +121,7 @@ fun AutomationsScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -131,7 +131,7 @@ fun AutomationsScreen(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onBack() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             Text(
                 text = stringResource(R.string.automation_title),
@@ -177,7 +177,7 @@ fun AutomationsScreen(
                         text = stringResource(R.string.automation_summary, records.size),
                         fontSize = 11.sp,
                         color = BiuZText3,
-                        modifier = Modifier.padding(horizontal = 2.dp).testTag("14-summary"),
+                        modifier = Modifier.padding(horizontal = BiuZSpacing.xxs).testTag("14-summary"),
                     )
                 }
                 items(records, key = { it.id }) { record ->
@@ -256,7 +256,7 @@ private fun AutomationCardView(
                     .clip(RoundedCornerShape(999.dp))
                     .background(if (record.enabled) BiuZBgInput else BiuZBg)
                     .border(1.dp, BiuZBorder, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xxs),
             )
             Text(
                 text = if (expanded) "⌄" else "›",

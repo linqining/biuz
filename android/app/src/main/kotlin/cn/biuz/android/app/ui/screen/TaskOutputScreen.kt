@@ -104,7 +104,7 @@ fun TaskOutputScreen(
 
     Column(modifier = Modifier.fillMaxWidth().background(BiuZBg).statusBarsPadding()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -114,7 +114,7 @@ fun TaskOutputScreen(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onBack() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             Text(
                 text = stringResource(R.string.task_output_title),
@@ -158,7 +158,7 @@ fun TaskOutputScreen(
                         .clip(BiuZRadius.medium)
                         .background(BiuZBgCard)
                         .border(1.dp, BiuZBorder, BiuZRadius.medium)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     meta.forEach { line ->
@@ -291,7 +291,7 @@ private fun trajectoryEntries(messages: List<ChatMessage>): List<TrajectoryEntry
 @Composable
 private fun TrajectoryRow(entry: TrajectoryEntry) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

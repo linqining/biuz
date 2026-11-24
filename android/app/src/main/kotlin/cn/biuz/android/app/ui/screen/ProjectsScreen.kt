@@ -116,7 +116,7 @@ fun ProjectsScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -126,7 +126,7 @@ fun ProjectsScreen(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onBack() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             Text(
                 text = stringResource(R.string.projects_title),
@@ -186,7 +186,7 @@ fun ProjectsScreen(
                             text = stringResource(R.string.projects_intro),
                             fontSize = 11.sp,
                             color = BiuZText3,
-                            modifier = Modifier.padding(horizontal = 2.dp).testTag("18-intro"),
+                            modifier = Modifier.padding(horizontal = BiuZSpacing.xxs).testTag("18-intro"),
                         )
                     }
                     if (active.isEmpty() && removed.isEmpty()) {
@@ -264,7 +264,7 @@ fun ProjectsScreen(
                             modifier = Modifier
                                 .clip(BiuZRadius.small)
                                 .clickable { deleteDataChecked = !deleteDataChecked }
-                                .padding(vertical = 4.dp)
+                                .padding(vertical = BiuZSpacing.xs)
                                 .testTag("18-check-delete-data"),
                         ) {
                             androidx.compose.material3.Checkbox(
@@ -364,7 +364,7 @@ private fun ProjectRowView(project: ProjectRow, taskCount: Int, onRemove: () -> 
             .background(BiuZBgCard)
             .border(1.dp, BiuZBorder, BiuZRadius.medium)
             .combinedClickable(onClick = {}, onLongClick = onRemove)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md)
             .testTag("18-row-${project.id}"),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
@@ -383,7 +383,7 @@ private fun ProjectRowView(project: ProjectRow, taskCount: Int, onRemove: () -> 
                     text = stringResource(R.string.projects_pinned),
                     fontSize = 10.sp,
                     color = BiuZAccent,
-                    modifier = Modifier.padding(start = 8.dp),
+                    modifier = Modifier.padding(start = BiuZSpacing.sm),
                 )
             }
             if (project.primaryRootStatus == "missing") {
@@ -391,7 +391,7 @@ private fun ProjectRowView(project: ProjectRow, taskCount: Int, onRemove: () -> 
                     text = stringResource(R.string.projects_missing),
                     fontSize = 10.sp,
                     color = BiuZOrange,
-                    modifier = Modifier.padding(start = 8.dp),
+                    modifier = Modifier.padding(start = BiuZSpacing.sm),
                 )
             }
         }
@@ -420,7 +420,7 @@ private fun RemovedProjectRowView(project: ProjectRow, onRestore: () -> Unit) {
             .clip(BiuZRadius.medium)
             .background(BiuZBgCard)
             .border(1.dp, BiuZBorder, BiuZRadius.medium)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md)
             .testTag("18-removed-${project.id}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -436,7 +436,7 @@ private fun RemovedProjectRowView(project: ProjectRow, onRestore: () -> Unit) {
             text = stringResource(R.string.projects_removed_badge),
             fontSize = 10.sp,
             color = BiuZText3,
-            modifier = Modifier.padding(end = 8.dp),
+            modifier = Modifier.padding(end = BiuZSpacing.sm),
         )
         Text(
             text = stringResource(R.string.projects_restore),
@@ -446,7 +446,7 @@ private fun RemovedProjectRowView(project: ProjectRow, onRestore: () -> Unit) {
             modifier = Modifier
                 .clip(BiuZRadius.small)
                 .clickable { onRestore() }
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                 .testTag("18-act-restore-${project.id}"),
         )
     }

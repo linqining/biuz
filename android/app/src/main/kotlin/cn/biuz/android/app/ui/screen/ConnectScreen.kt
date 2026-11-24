@@ -842,7 +842,7 @@ private fun ConnectFailedCard(server: ServerConfig, error: ConnectError, develop
             .fillMaxWidth()
             .background(BiuZBgCard, BiuZRadius.medium)
             .border(1.dp, BiuZRed.copy(alpha = BiuZAlpha.half), BiuZRadius.medium)
-            .padding(14.dp)
+            .padding(BiuZSpacing.lg)
             .testTag("l3-card-failed"),
     ) {
         Row(verticalAlignment = Alignment.Top) {

@@ -273,7 +273,7 @@ fun ChatScreen(
                 .fillMaxWidth()
                 .height(44.dp)
                 .background(BiuZBg)
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = BiuZSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -300,7 +300,7 @@ fun ChatScreen(
                     modifier = Modifier
                         .clip(BiuZRadius.small)
                         .clickable { overflowOpen = true }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                         .testTag("05-chat-overflow"),
                 )
                 androidx.compose.material3.DropdownMenu(
@@ -331,7 +331,7 @@ fun ChatScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = BiuZSpacing.lg, vertical = BiuZSpacing.tiny),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -499,7 +499,7 @@ fun ChatScreen(
                         color = BiuZText3,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 48.dp),
+                            .padding(top = BiuZSpacing.offsetLg),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                 }
@@ -821,7 +821,7 @@ fun ChatScreen(
                         .clip(BiuZRadius.medium)
                         .background(BiuZBgInput)
                         .border1()
-                        .padding(horizontal = BiuZSpacing.md, vertical = 10.dp),
+                        .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md),
                     maxLines = 5,
                     decorationBox = { inner ->
                         if (draft.isEmpty()) {
@@ -1366,7 +1366,7 @@ private fun Chip(label: String, onClick: () -> Unit) {
             .background(BiuZBgInput)
             .border1()
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = BiuZSpacing.md, vertical = 10.dp),
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -1477,7 +1477,7 @@ private fun TurnWorkSummaryRow(
             .fillMaxWidth()
             .clip(BiuZRadius.small)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.tiny)
             .testTag("05-turn-summary"),
         verticalAlignment = Alignment.CenterVertically,
     ) {

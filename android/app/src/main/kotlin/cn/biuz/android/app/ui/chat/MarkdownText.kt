@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBgCode
 import cn.biuz.android.app.ui.theme.BiuZBorder
@@ -75,7 +76,7 @@ fun MarkdownText(
                 ) {
                     Box(
                         modifier = Modifier
-                            .padding(top = 8.dp)
+                            .padding(top = BiuZSpacing.sm)
                             .size(5.dp)
                             .clip(CircleShape)
                             .background(BiuZText3),
@@ -108,7 +109,7 @@ private fun CodeBlock(block: MdBlock.Code, codeFontSize: Float) {
         block.language?.let { language ->
             Text(
                 text = language,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                modifier = Modifier.padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.xs),
                 style = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                 color = BiuZText3,
             )
@@ -119,7 +120,7 @@ private fun CodeBlock(block: MdBlock.Code, codeFontSize: Float) {
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(scroll)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
             style = TextStyle(
                 fontSize = codeFontSize.sp,
                 lineHeight = (codeFontSize + 6f).sp,
@@ -146,7 +147,7 @@ private fun MarkdownTable(block: MdBlock.Table, cellFontSize: Float) {
             Row(
                 modifier = Modifier
                     .background(BiuZBgCode)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.tiny),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 block.header.forEach { cell ->
@@ -164,7 +165,7 @@ private fun MarkdownTable(block: MdBlock.Table, cellFontSize: Float) {
             block.rows.forEach { row ->
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BiuZBorder))
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.tiny),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     row.forEach { cell ->

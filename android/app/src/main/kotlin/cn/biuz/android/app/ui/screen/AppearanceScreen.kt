@@ -54,7 +54,7 @@ fun AppearanceScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -64,7 +64,7 @@ fun AppearanceScreen(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onBack() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             Text(
                 text = stringResource(R.string.appearance_title),
@@ -83,7 +83,7 @@ fun AppearanceScreen(
                         .fillMaxWidth()
                         .clip(BiuZRadius.small)
                         .clickable { settings.setAppearance(appearance) }
-                        .padding(horizontal = 8.dp, vertical = 14.dp)
+                        .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.lg)
                         .testTag("13-appearance-${appearance.stored}"),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

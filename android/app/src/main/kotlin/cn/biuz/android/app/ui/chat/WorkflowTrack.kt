@@ -150,7 +150,7 @@ private fun WorkflowRunRailRow(run: SessionWorkflowRunSummary) {
                         fontFamily = FontFamily.Monospace,
                     ),
                     color = BiuZText3,
-                    modifier = Modifier.padding(start = 3.dp),
+                    modifier = Modifier.padding(start = BiuZSpacing.xxs),
                 )
             }
         }

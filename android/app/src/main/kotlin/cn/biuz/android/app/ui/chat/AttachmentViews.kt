@@ -324,7 +324,7 @@ fun AttachmentThumbView(
                         .clip(BiuZRadius.medium)
                         .background(BiuZBgInput)
                         .border(1.dp, BiuZBorder, BiuZRadius.medium)
-                        .padding(6.dp)
+                        .padding(BiuZSpacing.tiny)
                         .testTag("05-attachment-file"),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -347,7 +347,7 @@ fun AttachmentThumbView(
                 // 读面在途：小转圈（预览未到达；到达后上面各分支必接管）
                 CircularProgressIndicator(
                     modifier = Modifier
-                        .padding(6.dp)
+                        .padding(BiuZSpacing.tiny)
                         .size(14.dp)
                         .testTag("05-attachment-loading"),
                     strokeWidth = 2.dp,
@@ -436,7 +436,7 @@ fun PendingAttachmentThumb(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 3.dp),
+                        .padding(horizontal = BiuZSpacing.xs, vertical = BiuZSpacing.xxs),
                     verticalArrangement = Arrangement.spacedBy(1.dp),
                 ) {
                     ThinUploadProgressBar(progress = item.progress.toFloat())
@@ -449,7 +449,7 @@ fun PendingAttachmentThumb(
                 PendingAttachment.State.pending -> CircularProgressIndicator(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(4.dp)
+                        .padding(BiuZSpacing.xs)
                         .size(14.dp),
                     strokeWidth = 2.dp,
                     color = BiuZText3,
@@ -477,7 +477,7 @@ fun PendingAttachmentThumb(
             ) {
                 Box(
                     modifier = Modifier
-                        .padding(4.dp)
+                        .padding(BiuZSpacing.xs)
                         .size(18.dp)
                         .background(BiuZBgCard.copy(alpha = BiuZAlpha.nearSolid), CircleShape),
                     contentAlignment = Alignment.Center,
@@ -500,7 +500,7 @@ fun PendingAttachmentThumb(
 private fun StatusBadge(content: @Composable BoxScope.() -> Unit) {
     Box(
         modifier = Modifier
-            .padding(3.dp)
+            .padding(BiuZSpacing.xxs)
             .size(18.dp)
             .background(BiuZBgCard.copy(alpha = BiuZAlpha.nearSolid), CircleShape),
         contentAlignment = Alignment.Center,

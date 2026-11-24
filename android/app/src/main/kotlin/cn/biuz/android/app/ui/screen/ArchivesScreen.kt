@@ -111,7 +111,7 @@ fun ArchivesScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -121,7 +121,7 @@ fun ArchivesScreen(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onBack() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             Text(
                 text = stringResource(R.string.archives_title),
@@ -154,7 +154,7 @@ fun ArchivesScreen(
                                 reload()
                             }
                         }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                         .testTag("19-unarchive-all"),
                 )
                 Text(
@@ -164,7 +164,7 @@ fun ArchivesScreen(
                     modifier = Modifier
                         .clip(BiuZRadius.small)
                         .clickable { deleteAllConfirm = true }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                         .testTag("19-delete-all"),
                 )
             }
@@ -327,7 +327,7 @@ private fun ArchivedRow(
             .background(BiuZBgCard)
             .border(1.dp, BiuZBorder, BiuZRadius.medium)
             .clickable(enabled = !busy, onClick = onOpen)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
@@ -354,7 +354,7 @@ private fun ArchivedRow(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable(enabled = !busy, onClick = onUnarchive)
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .padding(horizontal = BiuZSpacing.xs, vertical = BiuZSpacing.xxs)
                     .testTag("19-unarchive-${item.id}"),
             )
             Text(
@@ -364,7 +364,7 @@ private fun ArchivedRow(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable(enabled = !busy, onClick = onDelete)
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .padding(horizontal = BiuZSpacing.xs, vertical = BiuZSpacing.xxs)
                     .testTag("19-delete-${item.id}"),
             )
             if (busy) {

@@ -230,7 +230,7 @@ fun FilesScreen(
                 color = BiuZText3,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 48.dp)
+                    .padding(vertical = BiuZSpacing.offsetLg)
                     .testTag("08-loading-center"),
                 textAlign = TextAlign.Center,
             )
@@ -351,7 +351,7 @@ fun FilesScreen(
                                                 applyFetch(fileStore, candidate, replacesExisting = true)
                                             }
                                         }
-                                        .padding(horizontal = BiuZSpacing.md, vertical = 6.dp)
+                                        .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.tiny)
                                         .testTag("08-seg-source-${candidate.id}"),
                                 )
                             }
@@ -398,7 +398,7 @@ fun FilesScreen(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(BiuZOrange.copy(alpha = BiuZAlpha.faint))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    .padding(horizontal = BiuZSpacing.tiny, vertical = BiuZSpacing.xxs),
                             )
                         }
                     }
@@ -549,7 +549,7 @@ fun FilesScreen(
                                 if (actionError == null) reloadTick++
                             }
                         }
-                        .padding(vertical = 12.dp)
+                        .padding(vertical = BiuZSpacing.md)
                         .testTag("08-act-approve-all"),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -600,12 +600,7 @@ private fun DiffFileCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onToggle)
-                .padding(
-                    start = BiuZSpacing.md,
-                    end = BiuZSpacing.sm,
-                    top = BiuZSpacing.sm,
-                    bottom = BiuZSpacing.sm,
-                ),
+                .padding(start = BiuZSpacing.md, end = BiuZSpacing.sm, top = BiuZSpacing.sm, bottom = BiuZSpacing.sm, ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
         ) {
@@ -634,7 +629,7 @@ private fun DiffFileCard(
                 color = BiuZText3,
                 modifier = Modifier
                     .clickable(onClick = onToggle)
-                    .padding(6.dp)
+                    .padding(BiuZSpacing.tiny)
                     .testTag("08-filecard-toggle-${file.id}"),
             )
         }
@@ -683,7 +678,7 @@ private fun DiffFileCard(
                             .clip(BiuZRadius.small)
                             .border(1.dp, BiuZDel.copy(alpha = BiuZAlpha.half), BiuZRadius.small)
                             .clickable(enabled = !anyDeciding, onClick = onReject)
-                            .padding(vertical = 12.dp)
+                            .padding(vertical = BiuZSpacing.md)
                             .testTag("08-filecard-reject"),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -701,7 +696,7 @@ private fun DiffFileCard(
                             .clip(BiuZRadius.small)
                             .background(if (anyDeciding) BiuZBgInput else BiuZAccent)
                             .clickable(enabled = !anyDeciding, onClick = onApprove)
-                            .padding(vertical = 12.dp)
+                            .padding(vertical = BiuZSpacing.md)
                             .testTag("08-filecard-approve"),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -880,7 +875,7 @@ fun FileTreeScreen(
                 color = BiuZText3,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 48.dp)
+                    .padding(vertical = BiuZSpacing.offsetLg)
                     .testTag("09-loading-center"),
                 textAlign = TextAlign.Center,
             )
@@ -908,7 +903,7 @@ fun FileTreeScreen(
                                     .clip(BiuZRadius.medium)
                                     .background(BiuZBgInput)
                                     .border(1.dp, BiuZBorderStrong, BiuZRadius.medium)
-                                    .padding(horizontal = BiuZSpacing.md, vertical = 10.dp)
+                                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md)
                                     .testTag("09-search"),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -1031,7 +1026,7 @@ private fun TreeRow(
             .clip(BiuZRadius.small)
             .background(BiuZBgCard)
             .clickable(onClick = onClick)
-            .padding(horizontal = BiuZSpacing.md, vertical = 8.dp)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
             .testTag("09-row-${if (node.isDirectory) "dir" else "file"}-${node.id}"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
@@ -1208,7 +1203,7 @@ fun FilePreviewScreen(
                                 RoundedCornerShape(999.dp),
                             )
                             .clickable { segment = index }
-                            .padding(horizontal = BiuZSpacing.md, vertical = 6.dp)
+                            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.tiny)
                             .testTag("09-seg-$index"),
                     )
                 }
@@ -1229,7 +1224,7 @@ fun FilePreviewScreen(
                     color = BiuZText3,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 48.dp)
+                        .padding(vertical = BiuZSpacing.offsetLg)
                         .testTag("09-loading-file"),
                     textAlign = TextAlign.Center,
                 )
@@ -1365,7 +1360,7 @@ fun FilePreviewScreen(
                                 isLoadingMore = false
                             }
                         }
-                        .padding(vertical = 12.dp)
+                        .padding(vertical = BiuZSpacing.md)
                         .testTag("09-act-load-more"),
                     textAlign = TextAlign.Center,
                 )

@@ -119,7 +119,7 @@ fun SubagentsScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -129,7 +129,7 @@ fun SubagentsScreen(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onBack() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             Text(
                 text = stringResource(R.string.subagents_title),
@@ -149,7 +149,7 @@ fun SubagentsScreen(
                         creatingNew = true
                         editingAgent = null
                     }
-                    .padding(horizontal = 10.dp)
+                    .padding(horizontal = BiuZSpacing.md)
                     .testTag("26-act-new"),
             )
         }
@@ -307,7 +307,7 @@ fun SubagentsScreen(
                                     reload()
                                 }
                             }
-                            .padding(vertical = 8.dp)
+                            .padding(vertical = BiuZSpacing.sm)
                             .testTag("26-model-inherit"),
                     )
                     // 模型清单（getView 投影；模型 → 该模型思考档二段）
@@ -328,7 +328,7 @@ fun SubagentsScreen(
                                     .fillMaxWidth()
                                     .clip(BiuZRadius.small)
                                     .clickable { pickedModel = model }
-                                    .padding(vertical = 8.dp)
+                                    .padding(vertical = BiuZSpacing.sm)
                                     .testTag("26-model-$model"),
                             )
                             if (pickedModel == model) {
@@ -378,7 +378,7 @@ fun SubagentsScreen(
                                             }
                                         },
                                         modifier = Modifier
-                                            .padding(start = 16.dp)
+                                            .padding(start = BiuZSpacing.lg)
                                             .testTag("26-thought-$model-$thought"),
                                     ) { Text(thought) }
                                 }
@@ -537,7 +537,7 @@ private fun SubagentRowView(
                 onClick = onEdit,
                 onLongClick = onDelete,
             )
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md)
             .testTag("26-row-${agent.id}"),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
@@ -556,7 +556,7 @@ private fun SubagentRowView(
             if (agent.source == "user") {
                 if (busy) {
                     androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                        modifier = Modifier.padding(start = BiuZSpacing.sm).size(16.dp),
                         strokeWidth = 2.dp,
                         color = BiuZAccent,
                     )
@@ -565,7 +565,7 @@ private fun SubagentRowView(
                         checked = agent.enabled,
                         onCheckedChange = { onToggle(it) },
                         colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = BiuZAccent),
-                        modifier = Modifier.padding(start = 8.dp).testTag("26-toggle-${agent.id}"),
+                        modifier = Modifier.padding(start = BiuZSpacing.sm).testTag("26-toggle-${agent.id}"),
                     )
                 }
             } else {
@@ -575,7 +575,7 @@ private fun SubagentRowView(
                     ),
                     fontSize = 10.sp,
                     color = if (agent.enabled) BiuZAccent else BiuZText3,
-                    modifier = Modifier.padding(start = 8.dp),
+                    modifier = Modifier.padding(start = BiuZSpacing.sm),
                 )
             }
         }
@@ -607,7 +607,7 @@ private fun SubagentRowView(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onModelOverride() }
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = BiuZSpacing.xs)
                     .testTag("26-model-override-${agent.id}"),
             )
         }

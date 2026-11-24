@@ -124,7 +124,7 @@ fun HooksScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -134,7 +134,7 @@ fun HooksScreen(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onBack() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             Text(
                 text = stringResource(R.string.hooks_title),
@@ -204,7 +204,7 @@ fun HooksScreen(
                             ),
                             fontSize = 11.sp,
                             color = BiuZText3,
-                            modifier = Modifier.padding(horizontal = 2.dp).testTag("24-summary"),
+                            modifier = Modifier.padding(horizontal = BiuZSpacing.xxs).testTag("24-summary"),
                         )
                     }
                     listOf(
@@ -299,7 +299,7 @@ private fun HookRowView(
             .clip(BiuZRadius.medium)
             .background(BiuZBgCard)
             .border(1.dp, BiuZBorder, BiuZRadius.medium)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md)
             .testTag("24-row-${hook.id}"),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
@@ -327,7 +327,7 @@ private fun HookRowView(
                 // 桌面侧 saveHooks 过滤不落非 zcode 条目，UI 不给入口）
                 if (busy) {
                     androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                        modifier = Modifier.padding(start = BiuZSpacing.sm).size(16.dp),
                         strokeWidth = 2.dp,
                         color = BiuZAccent,
                     )
@@ -336,7 +336,7 @@ private fun HookRowView(
                         checked = hook.enabled,
                         onCheckedChange = { onToggle(it) },
                         colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = BiuZAccent),
-                        modifier = Modifier.padding(start = 8.dp).testTag("24-toggle-${hook.id}"),
+                        modifier = Modifier.padding(start = BiuZSpacing.sm).testTag("24-toggle-${hook.id}"),
                     )
                     Text(
                         text = "🗑",
@@ -344,7 +344,7 @@ private fun HookRowView(
                         modifier = Modifier
                             .clip(BiuZRadius.small)
                             .clickable { onDelete() }
-                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                            .padding(horizontal = BiuZSpacing.tiny, vertical = BiuZSpacing.xs)
                             .testTag("24-delete-${hook.id}"),
                     )
                 }
@@ -355,7 +355,7 @@ private fun HookRowView(
                     ),
                     fontSize = 10.sp,
                     color = if (hook.enabled) BiuZAccent else BiuZText3,
-                    modifier = Modifier.padding(start = 8.dp),
+                    modifier = Modifier.padding(start = BiuZSpacing.sm),
                 )
             }
         }

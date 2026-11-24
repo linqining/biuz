@@ -364,7 +364,7 @@ private fun LoginProviderButton(
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .padding(vertical = 12.dp)
+                        .padding(vertical = BiuZSpacing.md)
                         .width(1.dp)
                         .background(content.copy(alpha = BiuZAlpha.subtle)),
                 )

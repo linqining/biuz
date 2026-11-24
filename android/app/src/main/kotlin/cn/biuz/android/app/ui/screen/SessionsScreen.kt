@@ -257,7 +257,7 @@ fun SessionsScreen(
         }
     }
     val renderConversationRow: @Composable (Conversation, Boolean) -> Unit = { conversation, indented ->
-        Box(modifier = if (indented) Modifier.padding(start = 14.dp) else Modifier) {
+        Box(modifier = if (indented) Modifier.padding(start = BiuZSpacing.lg) else Modifier) {
             SessionRow(
                 conversation = conversation,
                 timeLabel = conversationRowTimeLabel(
@@ -319,7 +319,7 @@ fun SessionsScreen(
                     .height(32.dp)
                     .clip(BiuZRadius.medium)
                     .clickable { showNewSheet = true }
-                    .padding(horizontal = 10.dp)
+                    .padding(horizontal = BiuZSpacing.md)
                     .testTag("04-act-new"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -336,7 +336,7 @@ fun SessionsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(end = 8.dp, bottom = 8.dp),
+                    .padding(end = BiuZSpacing.sm, bottom = BiuZSpacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -346,7 +346,7 @@ fun SessionsScreen(
                     color = BiuZText2,
                     modifier = Modifier
                         .weight(1f)
-                        .padding(start = 10.dp),
+                        .padding(start = BiuZSpacing.md),
                 )
                 Box {
                     Text(
@@ -356,7 +356,7 @@ fun SessionsScreen(
                         modifier = Modifier
                             .clip(BiuZRadius.small)
                             .clickable { showViewMenu = true }
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.tiny)
                             .testTag("04-view-menu"),
                     )
                     DropdownMenu(expanded = showViewMenu, onDismissRequest = { showViewMenu = false }) {
@@ -467,7 +467,7 @@ fun SessionsScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .padding(top = 64.dp),
+                            .padding(top = BiuZSpacing.offsetXl),
                     ) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(28.dp),
@@ -487,7 +487,7 @@ fun SessionsScreen(
                     when {
                         taskGroupsLoading -> {
                             Column(
-                                modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 64.dp),
+                                modifier = Modifier.weight(1f).fillMaxWidth().padding(top = BiuZSpacing.offsetXl),
                                 horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
                             ) {
                                 CircularProgressIndicator(
@@ -532,9 +532,7 @@ fun SessionsScreen(
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Medium,
                                             color = BiuZText3,
-                                            modifier = Modifier.padding(
-                                                start = 10.dp, top = 12.dp, bottom = 4.dp,
-                                            ),
+                                            modifier = Modifier.padding(start = BiuZSpacing.md, top = BiuZSpacing.md, bottom = BiuZSpacing.xs, ),
                                         )
                                     }
                                     items(section.rows, key = { it.id }) { conversation ->
@@ -802,7 +800,7 @@ private fun NewConversationSheet(
                     .clip(BiuZRadius.medium)
                     .background(BiuZBgInput)
                     .border(1.dp, BiuZBorderStrong, BiuZRadius.medium)
-                    .padding(horizontal = BiuZSpacing.md, vertical = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md),
                 maxLines = 5,
                 decorationBox = { inner ->
                     if (title.isEmpty()) {
@@ -919,7 +917,7 @@ private fun NewConversationSheet(
                             scope.launch { performSubmit(selection) }
                         }
                     }
-                    .padding(horizontal = BiuZSpacing.lg, vertical = 12.dp),
+                    .padding(horizontal = BiuZSpacing.lg, vertical = BiuZSpacing.md),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -1005,7 +1003,7 @@ private fun SessionRow(
             Text(
                 text = "📌",
                 fontSize = 10.sp,
-                modifier = Modifier.padding(end = BiuZSpacing.xs, top = 2.dp),
+                modifier = Modifier.padding(end = BiuZSpacing.xs, top = BiuZSpacing.xxs),
             )
         }
         // 行前置指示槽（web 权威口径：`deriveTaskLeadingIndicator`
@@ -1014,7 +1012,7 @@ private fun SessionRow(
         // 用户所见「进行中的项目/会话不转圈」即此。
         SessionRowLeadingIndicator(
             conversation = conversation,
-            modifier = Modifier.padding(end = BiuZSpacing.sm, top = 2.dp),
+            modifier = Modifier.padding(end = BiuZSpacing.sm, top = BiuZSpacing.xxs),
         )
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1183,7 +1181,7 @@ private fun SessionSectionHeader(title: String) {
         fontSize = 14.sp,
         fontWeight = FontWeight.Medium,
         color = BiuZText3,
-        modifier = Modifier.padding(start = 10.dp, top = 12.dp, bottom = 4.dp),
+        modifier = Modifier.padding(start = BiuZSpacing.md, top = BiuZSpacing.md, bottom = BiuZSpacing.xs),
     )
 }
 
@@ -1202,7 +1200,7 @@ private fun ProjectNodeRow(
             .fillMaxWidth()
             .clip(BiuZRadius.small)
             .clickable(onClick = onToggle)
-            .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 10.dp)
+            .padding(start = BiuZSpacing.md, top = BiuZSpacing.sm, bottom = BiuZSpacing.sm, end = BiuZSpacing.md)
             .testTag("04-project-node"),
         verticalAlignment = Alignment.CenterVertically,
     ) {

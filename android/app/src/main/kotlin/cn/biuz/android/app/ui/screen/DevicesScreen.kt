@@ -177,7 +177,7 @@ fun DevicesScreen(
                     modifier = Modifier
                         .clip(BiuZRadius.small)
                         .clickable { showSwitchAccount = true }
-                        .padding(horizontal = BiuZSpacing.sm, vertical = 2.dp)
+                        .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xxs)
                         .testTag("07-switch-account"),
                 )
             }
@@ -197,14 +197,14 @@ fun DevicesScreen(
             loading && devices == null -> BiuzLoadingState(
                 text = stringResource(R.string.devices_loading),
                 tag = "03-loading",
-                modifier = Modifier.padding(top = 64.dp),
+                modifier = Modifier.padding(top = BiuZSpacing.offsetXl),
             )
 
             devices != null && devices!!.isEmpty() -> BiuzEmptyState(
                 title = stringResource(R.string.devices_empty_title),
                 hint = stringResource(R.string.devices_empty_desc),
                 tag = "03-empty",
-                modifier = Modifier.padding(top = 64.dp),
+                modifier = Modifier.padding(top = BiuZSpacing.offsetXl),
             )
 
             else -> LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = BiuZSpacing.lg)) {
@@ -278,11 +278,11 @@ fun DevicesScreen(
                                         else errorText = "连接失败"
                                     }
                                 }
-                                .padding(vertical = 12.dp)
+                                .padding(vertical = BiuZSpacing.md)
                                 .testTag("006-sheet-row-${instance.deviceSid}"),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("🖥", fontSize = 18.sp, modifier = Modifier.padding(end = 12.dp))
+                            Text("🖥", fontSize = 18.sp, modifier = Modifier.padding(end = BiuZSpacing.md))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = stringResource(R.string.devices_sheet_instance),

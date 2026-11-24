@@ -329,7 +329,7 @@ private fun UserMessageRow(
                             onClick = {},
                             onLongClick = { menuOpen = true },
                         )
-                        .padding(horizontal = BiuZSpacing.md, vertical = 10.dp),
+                        .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md),
                 ) {
                     CollapsiblePlainText(text = displayText)
                     if (copied) {
@@ -420,7 +420,7 @@ private fun CollapsiblePlainText(text: String) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(top = 18.dp)
+                    .padding(top = BiuZSpacing.lg)
                     .size(24.dp)
                     .clip(CircleShape)
                     .background(BiuZAccent)
@@ -435,7 +435,7 @@ private fun CollapsiblePlainText(text: String) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(top = 8.dp)
+                    .padding(top = BiuZSpacing.sm)
                     .size(24.dp)
                     .clip(CircleShape)
                     .background(BiuZBgInput)
@@ -581,7 +581,7 @@ private fun MessageActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 32.dp)
+            .padding(start = BiuZSpacing.xxl)
             .testTag("05-msg-actions-" + message.id),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.md),
@@ -596,7 +596,7 @@ private fun MessageActionRow(
                     clipboard.setText(androidx.compose.ui.text.AnnotatedString(message.text))
                     copied = true
                 }
-                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .padding(horizontal = BiuZSpacing.tiny, vertical = BiuZSpacing.xxs)
                 .testTag("05-msg-copy-" + message.id),
         )
         if (canFeedback) {
@@ -611,7 +611,7 @@ private fun MessageActionRow(
                         feedback = next
                         onFeedback?.invoke(message, next)
                     }
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(horizontal = BiuZSpacing.tiny, vertical = BiuZSpacing.xxs)
                     .testTag("05-msg-like-" + message.id),
             )
             Text(
@@ -625,7 +625,7 @@ private fun MessageActionRow(
                         feedback = next
                         onFeedback?.invoke(message, next)
                     }
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(horizontal = BiuZSpacing.tiny, vertical = BiuZSpacing.xxs)
                     .testTag("05-msg-dislike-" + message.id),
             )
         }
@@ -638,7 +638,7 @@ private fun MessageActionRow(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onFork() }
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(horizontal = BiuZSpacing.tiny, vertical = BiuZSpacing.xxs)
                     .testTag("05-msg-fork-" + message.id),
             )
         }
@@ -696,7 +696,7 @@ private fun AgentMessageRow(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 32.dp)
+                    .padding(start = BiuZSpacing.xxl)
                     .testTag("05-subagent-row"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -823,8 +823,11 @@ private fun AgentMessageRow(
                 },
             )
         }
-        if (message.status == MessageStatus.streaming) {
-            StreamingCursor()
+        // 流式光标：**只有真的在流正文时才出**（2026-11-24 用户报「排版混乱」）——
+        // 工具卡轮/工作流轮正文为空时，光标会孤立成一个黑方块浮在卡片下方，看着像脏点。
+        // 且必须与正文左对齐（头像 22 + 间距 8 = 30dp），不能贴屏幕左缘。
+        if (message.status == MessageStatus.streaming && message.text.isNotEmpty() && !structuredRow) {
+            StreamingCursor(modifier = Modifier.padding(start = BiuZSpacing.xxl - BiuZSpacing.xs))
         }
     }
 }
@@ -842,13 +845,19 @@ private fun AgentAvatar() {
     }
 }
 
-/** 流式光标（iOS BlinkingCursor 对位：accent 竖条）。 */
+/**
+ * 流式光标（iOS BlinkingCursor 对位）。
+ *
+ * 造型：2dp 细竖条 + `text3` 弱色（原 8×15dp `accent` 实心块——在纸质底上读作「黑色污点」，
+ * 而不是插入符；用户 2026-11-24 报「排版混乱」即此）。
+ * 不做闪烁动画：motion-spec「少即是多」，且落印/按压之外不加动效噪音。
+ */
 @Composable
-private fun StreamingCursor() {
+private fun StreamingCursor(modifier: Modifier = Modifier) {
     Box(
-        modifier = Modifier
-            .size(width = 8.dp, height = 15.dp)
-            .background(BiuZAccent, RoundedCornerShape(2.dp)),
+        modifier = modifier
+            .size(width = 2.dp, height = 14.dp)
+            .background(BiuZText3, RoundedCornerShape(1.dp)),
     )
 }
 
@@ -865,7 +874,7 @@ private fun CollapsibleBodyText(text: String, streaming: Boolean) {
         if (truncated && !streaming) {
             androidx.compose.material3.TextButton(
                 onClick = { expanded = !expanded },
-                modifier = Modifier.padding(top = 2.dp),
+                modifier = Modifier.padding(top = BiuZSpacing.xxs),
             ) {
                 Text(
                     text = if (expanded) {
@@ -1579,7 +1588,7 @@ private fun SelectChip(
             .background(if (selected) BiuZAccent else BiuZBgInput)
             .border(1.dp, if (selected) BiuZAccent else BiuZBorderStrong, RoundedCornerShape(999.dp))
             .combinedClickableSafe(enabled = enabled, onClick = onClick)
-            .padding(horizontal = BiuZSpacing.md, vertical = 10.dp),
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md),
     ) {
         Text(
             text = label,
@@ -1930,7 +1939,7 @@ private fun DecisionButton(
                 enabled = enabled,
                 onClick = onClick,
             )
-            .padding(horizontal = BiuZSpacing.lg, vertical = 11.dp),
+            .padding(horizontal = BiuZSpacing.lg, vertical = BiuZSpacing.md),
     ) {
         Text(
             text = label,
@@ -2018,7 +2027,7 @@ fun WorkflowCompletionCardView(
                         modifier = Modifier
                             .testTag("05-wf-completion-open")
                             .combinedClickableSafe(enabled = true, onClick = onOpenRun)
-                            .padding(6.dp),
+                            .padding(BiuZSpacing.tiny),
                     )
                 }
             }
@@ -2199,11 +2208,11 @@ private fun MessageChangeSummaryBar(turnChanges: cn.biuz.android.protocol.TurnFi
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 32.dp)
+            .padding(start = BiuZSpacing.xxl)
             .clip(BiuZRadius.medium)
             .border(1.dp, BiuZBorder, BiuZRadius.medium)
             .background(BiuZBgCard)
-            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.tiny)
             .testTag("05-change-summary"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

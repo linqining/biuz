@@ -87,7 +87,7 @@ fun WhiteboardPanel(
     ) {
         // 头部：关闭 + 名称即改（web Input onBlur 即改同口径；空串忽略）
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -97,7 +97,7 @@ fun WhiteboardPanel(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onClose() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             androidx.compose.material3.OutlinedTextField(
                 value = board.name,
@@ -125,7 +125,7 @@ fun WhiteboardPanel(
                         exportNotice = if (ok) addedText else addFailedText
                         exportIsError = !ok
                     }
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
                     .testTag("36-act-add-to-chat"),
             )
         }
@@ -270,7 +270,7 @@ private fun ToolButton(glyph: String, selected: Boolean, tag: String, onClick: (
             .background(if (selected) BiuZBgCard else Color.Transparent)
             .border(1.dp, if (selected) BiuZAccent else BiuZBorder, BiuZRadius.small)
             .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.tiny)
             .testTag(tag),
     )
 }
@@ -285,7 +285,7 @@ private fun ActionText(label: String, enabled: Boolean, tag: String, onClick: ()
         modifier = Modifier
             .clip(BiuZRadius.small)
             .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.tiny)
             .testTag(tag),
     )
 }

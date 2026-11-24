@@ -116,7 +116,7 @@ fun SharePreviewScreen(
             loading && preview == null -> BiuzLoadingState(
                 text = stringResource(R.string.share_loading),
                 tag = "09-loading",
-                modifier = Modifier.padding(top = 64.dp),
+                modifier = Modifier.padding(top = BiuZSpacing.offsetXl),
             )
 
             errorText != null -> Column(

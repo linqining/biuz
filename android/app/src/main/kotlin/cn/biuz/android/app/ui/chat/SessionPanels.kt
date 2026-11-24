@@ -384,7 +384,7 @@ private fun HookDetailsRow(hooks: List<cn.biuz.android.protocol.HookInvocationIn
                 .background(BiuZBgCard)
                 .border(1.dp, BiuZBorder, RoundedCornerShape(999.dp))
                 .clickable(interactionSource = hookInteraction, indication = null) { expanded = !expanded }
-                .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
+                .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                 .testTag("05-hook-details-trigger"),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -565,7 +565,7 @@ private fun ActivitySummaryRow(
                 .background(BiuZBgCard)
                 .border(1.dp, BiuZBorder, RoundedCornerShape(999.dp))
                 .clickable(interactionSource = summaryInteraction, indication = null) { expanded = !expanded }
-                .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
+                .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                 .testTag("05-activity-summary"),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -687,7 +687,7 @@ private fun ActivitySummaryRow(
                         directoryOpen = !directoryOpen
                         if (directoryOpen && directory == null) onLoadDirectory()
                     }
-                    .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                     .testTag("05-activity-subagent-directory"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -789,7 +789,7 @@ private fun ActivitySummaryRow(
                                 color = BiuZAccent,
                                 modifier = Modifier
                                     .clickable { onLoadMore() }
-                                    .padding(vertical = 3.dp)
+                                    .padding(vertical = BiuZSpacing.xxs)
                                     .testTag("05-activity-subagent-directory-more"),
                             )
                         }
@@ -893,7 +893,7 @@ private fun PanelChip(
                 RoundedCornerShape(999.dp),
             )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
+            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
             .testTag("05-panel-chip-${kind.name.lowercase()}"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1178,7 +1178,7 @@ fun StatusPill(text: String, color: Color) {
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(color.copy(alpha = BiuZAlpha.faint))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = BiuZSpacing.tiny, vertical = BiuZSpacing.xxs),
     )
 }
 
@@ -1246,7 +1246,7 @@ private fun PhaseRowScope(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onTogglePhase(node.id) }
-                    .padding(vertical = 2.dp)
+                    .padding(vertical = BiuZSpacing.xxs)
                     .testTag("05-wf-phase-$index"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
@@ -1307,7 +1307,7 @@ private fun ActorRow(actor: WorkflowActorSummary, onOpen: (WorkflowActorSummary)
             .clip(BiuZRadius.small)
             .background(BiuZBlueDim.copy(alpha = BiuZAlpha.half))
             .clickable(enabled = actionable) { onOpen(actor) }
-            .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
+            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
             .testTag("05-wf-actor-${actor.id}"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
@@ -1471,7 +1471,7 @@ private fun ControlMenuCapsule(
                 .clip(RoundedCornerShape(999.dp))
                 .background(BiuZBgInput)
                 .clickable { open = true }
-                .padding(horizontal = BiuZSpacing.sm, vertical = 4.dp),
+                .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -1519,7 +1519,7 @@ private fun PanelCapsuleButton(
             .clip(RoundedCornerShape(999.dp))
             .background(BiuZBgInput)
             .clickable(onClick = onClick)
-            .padding(horizontal = BiuZSpacing.sm, vertical = 4.dp),
+            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs),
     )
 }
 
@@ -1585,7 +1585,7 @@ private fun WorkRow(
             .fillMaxWidth()
             .clip(BiuZRadius.small)
             .background(BiuZBlueDim.copy(alpha = BiuZAlpha.half))
-            .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp),
+            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
     ) {
@@ -1654,7 +1654,7 @@ private fun WorkRowButton(label: String, onClick: () -> Unit) {
             .clip(RoundedCornerShape(999.dp))
             .background(BiuZBgInput)
             .clickable(onClick = onClick)
-            .padding(horizontal = BiuZSpacing.sm, vertical = 3.dp),
+            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xxs),
     )
 }
 
@@ -1679,7 +1679,7 @@ fun SubagentsPanelView(
                     .clip(BiuZRadius.small)
                     .background(BiuZBlueDim.copy(alpha = BiuZAlpha.half))
                     .clickable { onOpen(sub) }
-                    .padding(horizontal = BiuZSpacing.sm, vertical = 5.dp)
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                     .testTag("05-subagents-row-${sub.id}"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),

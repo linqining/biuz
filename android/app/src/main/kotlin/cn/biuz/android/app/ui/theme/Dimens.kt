@@ -5,12 +5,28 @@ import androidx.compose.ui.unit.dp
 
 // 间距：8px 增量栅格。
 object BiuZSpacing {
-    val xs = 4.dp // sp-1 微间距
-    val sm = 8.dp // sp-2 组件内间距
-    val md = 12.dp // sp-3 卡片内边距
-    val lg = 16.dp // sp-4 页面左右安全边距
-    val xl = 24.dp // sp-6 分区间隔
-    val xxl = 32.dp // sp-8 区块留白
+    /** 2dp · 描边内缩/字形微调（原散落 17 处裸 2.dp） */
+    val xxs = 2.dp
+    /** 4dp · 行内最小间距（原 3/5.dp 已并入） */
+    val xs = 4.dp
+    /** 6dp · 紧凑行/徽标（原散落 24 处裸 6.dp） */
+    val tiny = 6.dp
+    /** 8dp · 组件内间距 */
+    val sm = 8.dp
+    /** 12dp · 卡片内边距（原 10/11.dp 共 40 处已并入） */
+    val md = 12.dp
+    /** 16dp · 页面左右安全边距（原 14/18.dp 已并入） */
+    val lg = 16.dp
+    /** 24dp · 分区间隔 */
+    val xl = 24.dp
+    /** 32dp · 区块留白 */
+    val xxl = 32.dp
+    /**
+     * 48dp / 64dp · **布局偏移**（空态与占位块的下压距离），刻意不并入节奏间距：
+     * 这类值由版式构图决定（首屏平衡），按 2 的幂收敛会把空态直接顶到屏幕中线。
+     */
+    val offsetLg = 48.dp
+    val offsetXl = 64.dp
 }
 
 // 圆角：小 chips 8 / 卡片·按钮·输入框 12 / 大容器 16。

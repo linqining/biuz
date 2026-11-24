@@ -87,6 +87,40 @@ class TypographyScaleGuardTest {
     }
 
     @Test
+    fun noBarePaddingLiterals() {
+        val root = sourceRoot() ?: run {
+            println("TypographyScaleGuardTest: 源码目录不在预期位置，跳过（非失败）")
+            return
+        }
+        // padding 只允许 BiuZSpacing 令牌（8 节奏档 + 2 布局偏移档）。
+        // 例外：Modifier.padding 的 PaddingValues(...) 形式不在本正则内（另算）。
+        val bare = Regex("""\.padding\([^()]*?[0-9]+\.dp[^()]*?\)""")
+        val offenders = ArrayList<String>()
+        root.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
+            f.readLines().forEachIndexed { i, line ->
+                if (bare.containsMatchIn(line)) offenders.add("${f.path}:${i + 1}: ${line.trim()}")
+            }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "padding 只允许 BiuZSpacing 令牌（禁裸 dp 字面量）：\n" + offenders.joinToString("\n"),
+        )
+    }
+
+    @Test
+    fun spacingScaleIsAscendingWithTwoOffsetTiers() {
+        val rhythm = listOf(
+            BiuZSpacing.xxs, BiuZSpacing.xs, BiuZSpacing.tiny, BiuZSpacing.sm,
+            BiuZSpacing.md, BiuZSpacing.lg, BiuZSpacing.xl, BiuZSpacing.xxl,
+        )
+        assertTrue(rhythm == rhythm.sorted(), "节奏档必须递增：$rhythm")
+        assertEquals(8, rhythm.distinct().size, "节奏档恒 8 档：$rhythm")
+        // 布局偏移档独立于节奏档（保值，不参与 2 的幂收敛）
+        assertTrue(BiuZSpacing.offsetLg > BiuZSpacing.xxl, "偏移档必须大于最大节奏档")
+        assertTrue(BiuZSpacing.offsetXl > BiuZSpacing.offsetLg)
+    }
+
+    @Test
     fun alphaScaleHasFiveSemanticLevels() {
         val levels = listOf(
             BiuZAlpha.faint, BiuZAlpha.subtle, BiuZAlpha.half,

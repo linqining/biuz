@@ -8,11 +8,11 @@ description: 把任意 web 项目移植并持续同步为原生 App / 微信小�
 ## 方法论优先（最高优先级）
 
 实现/验收中发现任何**可复现到一类元素/页面**的偏差，先按
-`references/source-to-contract.md` 的十六类机制（M1–M16）归因；确认是方法论问题 →
+`references/source-to-contract.md` 的十七类机制（M1–M17）归因；确认是方法论问题 →
 **同一轮内更新 skill + 加机械检查 + 记 `docs/methodology-ledger.md`（ML-N）**，
 再继续实现。不得推迟到下一轮，不得只写散文。
 
-五步：归因（内容 vs 方法论）→ 定位机制（M1–M16）→ 改 skill → 上机械检查 → 记账（ML-N）。
+五步：归因（内容 vs 方法论）→ 定位机制（M1–M17）→ 改 skill → 上机械检查 → 记账（ML-N）。
 
 - 判据：同类问题会不会在别的元素/页面上再发生？会 → 方法论；只影响单个元素 → 内容缺陷。
 - **没有机械检查的方法论变更记 `partial`，不算关闭**。机械检查的固定落点：
@@ -92,6 +92,7 @@ web 源仓库**只读**（只 `fetch/log/diff/show`，不 checkout/reset/commit�
 | ⑪ 一类元素批量偏 / 原生壳层 | "改了一处伤了一片 / splash 状态栏 insets / 共享组件跨宿主" | `references/class-matrix-and-native-surfaces.md` |
 | ⑫ 布局结论要可反驳 | "满宽 / 居中 / 黑带 / 被裁 / 对齐对不对" | `references/layout-claim-evidence.md` |
 | ⑬ 双端代码审查护栏 | "代码审查 / 崩溃预防 / 负 padding / Lazy key / 验收假绿" | `references/runtime-guards.md` |
+| ⑭ 缩放比例 / 设计→屏幕变换链 | "按钮大小不对 / 整体缩放不对 / 换机型就偏 / 触控点不到 / 二次乘" | `references/source-to-contract.md` §2.9（M17） |
 
 任何工作流都遵循同一个循环：**采证（浏览器实拍/DOM/网络）→ 对照（页面索引定位各端实现）
 → 实现（各端同步改）→ 实拍验证（App 截图回比 web 基线）→ 留痕（台账登记）**。

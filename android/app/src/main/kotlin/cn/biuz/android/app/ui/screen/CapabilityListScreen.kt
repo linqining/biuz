@@ -103,7 +103,7 @@ fun CapabilityListScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = BiuZSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -113,7 +113,7 @@ fun CapabilityListScreen(
                 modifier = Modifier
                     .clip(BiuZRadius.small)
                     .clickable { onBack() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = BiuZSpacing.md),
             )
             Text(
                 text = title,
@@ -177,7 +177,7 @@ fun CapabilityListScreen(
                             .clip(BiuZRadius.medium)
                             .background(BiuZBgCard)
                             .border(1.dp, BiuZBorder, BiuZRadius.medium)
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.md)
                             .testTag("$tagPrefix-row-${row.id}"),
                         verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
@@ -195,7 +195,7 @@ fun CapabilityListScreen(
                                     text = badge,
                                     fontSize = 11.sp,
                                     color = BiuZText3,
-                                    modifier = Modifier.padding(start = 8.dp),
+                                    modifier = Modifier.padding(start = BiuZSpacing.sm),
                                 )
                             }
                         }

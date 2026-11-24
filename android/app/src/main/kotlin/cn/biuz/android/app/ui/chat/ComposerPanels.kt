@@ -273,7 +273,7 @@ fun QueueBar(
                     .clip(RoundedCornerShape(999.dp))
                     .background(if (queue.autoDrain) BiuZAccent.copy(alpha = BiuZAlpha.faint) else BiuZBgInput)
                     .clickable { onToggleAutoDrain(!queue.autoDrain) }
-                    .padding(horizontal = BiuZSpacing.sm, vertical = 4.dp),
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs),
             )
         }
         Column(
@@ -354,7 +354,7 @@ private fun QueueRow(
                     .clip(BiuZRadius.medium)
                     .background(BiuZBgInput)
                     .border(1.dp, BiuZBorderStrong, BiuZRadius.medium)
-                    .padding(horizontal = BiuZSpacing.sm, vertical = 6.dp),
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.tiny),
                 maxLines = 4,
             )
             Spacer(Modifier.size(BiuZSpacing.sm))
@@ -442,7 +442,7 @@ private fun QueueActionText(
             .clip(RoundedCornerShape(999.dp))
             .background(container)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = BiuZSpacing.sm, vertical = 6.dp),
+            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.tiny),
     ) {
         Text(
             text = label,
