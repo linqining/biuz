@@ -1,0 +1,253 @@
+# Android UIUX 与交互审查报告
+
+> 2026-11-24 · 审核对象：Android 端（`cn.zhupi.android`）
+> 依据：`brand/seal/README.md`（印系四色/用字/用印规则）、`brand/seal/motion-spec.html`（动效规格）、上游 web `packages/ui/src/v4/*`（复刻基准）
+> **本报告只出结论与方案，不改代码**（用户裁决「先给出 uiux 和交互的报告给我再改代码和设计」）。
+> 声称已改的两项见 §8「工作区在途改动」，未提交、待确认。
+
+---
+
+## 0 结论摘要
+
+| 级别 | 问题 | 影响 |
+|---|---|---|
+| **P0** | **按钮/可点面零按压反馈**——43 处 `clickable` + 95 处 `Button`，全仓 **0 处** `collectIsPressedAsState` / scale / 自定义 indication，只有 Material 默认 ripple | 「点了没反应」的观感来源之一；与朱批「落印/压实」的动效语言完全脱节 |
+| **P0** | **Material 3 的 tertiary 仍是紫色**（浅 `#7C3AED` / 容器 `#EDE4FF`；深 `#C792FF` / 容器 `#2A2140`），任何用到 tertiary 的 Material 组件都会漏紫 | 品牌只有朱磦/墨/纸/钤灰，紫是 BiuZ 时代残留 |
+| **P0** | **两级主色并存**：登录页主按钮 = 朱磦 `seal`，其余所有主按钮（发送、开始任务…）= 墨 `accent` | 同一产品两种「主操作」色，品牌识别被劈开 |
+| **P1** | **触觉反馈零基建**——全仓 0 处 `LocalHapticFeedback`；motion-spec 明写「触觉零基建：首例于落印帧」仍未做 | 落印这类「重动作」没有触觉，动效只到眼睛 |
+| **P1** | **打字排版无阶梯**——`Typography` 令牌 9 档，但正文 **504 处硬编码 `fontSize`、20 种字号**（9/9.5/10/10.5/11/11.5/12/12.5/13/13.5/14/14.5/15/16/17/18/20/22/24/26 sp） | 令牌形同虚设；半档字号（x.5）是无系统的直接证据 |
+| **P1** | **间距/透明度魔数**——121 处硬编码 `padding`、35 处 `copy(alpha=…)`（13 种不同 alpha） | 同类元素间距与描边浓度不一致 |
+| **P2** | 主题外硬编码颜色 15 处（含上面 tertiary 紫 + `MarkdownText.CODE_BG = 0x14FFFFFF` 白 8%） | 深/浅档切换时个别元素不自适应 |
+| **P2** | 决议面落印（motion-spec 五面）实现完整但**从未真机目检**；`SealStamp` 是唯一有动画的文件 | 规格与实现是否一致无视觉证据 |
+
+**一句话**：功能面已大致对齐 web，但**视觉系统（色/字/间距）与动效系统（按压/触觉/转场）都还没建立**——现在是「能用的界面」，不是「朱批的界面」。
+
+---
+
+## 1 色彩系统
+
+### 1.1 现状
+
+**品牌四色**（`brand/seal/README.md:39`）：朱磦 `#D2402E`（加深 `#B03020`）· 墨 `#17181A` · 纸 `#F7F3EC` · 钤灰 `#8A8F98`
+
+**调色板实际字段**（`ui/theme/Color.kt:87-127`）共 30 个令牌，其中品牌外色 5 个：
+
+| 令牌 | 浅色 | 深色 | 品牌内？ | 判断 |
+|---|---|---|---|---|
+| `bg / bgCard / bgElevated / bgInput / bgCode / bgTerm` | 纸系 6 档 | 墨系 6 档 | ✅ | 本轮已收敛为「同一张纸略亮一档」，真机采样 `(251,248,242)` vs `(247,243,236)` |
+| `text / text2 / text3` | 墨 100/62/40% | 纸同比例 | ✅ | 合理 |
+| `accent / accentPress / accentDim / onAccent` | 墨 | 纸 | ✅ | 主色=墨（见 1.2 冲突） |
+| `seal / sealPress / sealDim / onSeal` | 朱磦 | 朱磦 | ✅ | 登录页主按钮用 |
+| `border / borderStrong` | 墨 12/18% | 纸 | ✅ | 合理 |
+| **`violet`** | **`#7C3AED`** | **`#C792FF`** | ❌ | 不在四色内；**已在工作区改为 seal（见 §8）** |
+| **`blue` `#3B82F6` / `green` `#16A34A` / `orange` `#B45309` / `red` `#DC2626`** | — | — | ❌ | 状态语义色，web 同样存在，**建议保留**（不属品牌标识层） |
+| `add` / `del` | 绿 / 红 | — | ❌ | diff 语义色，web 同源，保留 |
+
+### 1.2 两个真问题
+
+**(a) Material 3 tertiary 漏紫**（`ui/theme/Theme.kt:29-33` 深 / `:67-71` 浅）
+`tertiary = p.violet`、`tertiaryContainer = Color(0xFFEDE4FF)`（浅紫）。任何 Material 内置组件（Chip/Badge/Card 变体）一旦取 tertiary 就出紫，且**不走 `BiuZ*` getter**，所以本轮把 `BiuZViolet` 引用全改朱磦也不影响它。这是「改了 16 处还是觉得有偏差」的隐藏来源。
+
+**(b) 主操作色分裂**
+- 登录页主按钮：朱磦实底 `seal`/`onSeal`（2026-11-24 用户裁决「登录 z.ai 是不是也应该改成红色，和 logo 更匹配」）
+- 发送按钮 / 「开始任务」/ 其他主 CTA：墨实底 `accent`/`onAccent`
+
+同一 App 里「最重要的那个按钮」有两种颜色。**建议二选一并全局统一**（推荐朱磦：它是印面主色，且用户已就登录页明确表达过偏好；墨留给正文与描边，纸留给底）。
+
+### 1.3 建议
+
+1. `tertiary / tertiaryContainer / onTertiary*` 全部改映射到 `seal` 系或中性（不再引用 violet）。
+2. `violet` 令牌从调色板**删除**（连同名 getter 一起），杜绝再被引用。
+3. 主 CTA 统一为 `seal`；`accent`（墨/纸）降级为「中性强调/反色底」。
+4. 若担心朱磦面积过大，规则：**只有「一次操作的最终提交」用朱磦实底**（发送、批准、开始任务、登录），导航/开关/芯片一律中性。
+
+---
+
+## 2 排版系统
+
+### 2.1 现状
+
+`ui/theme/Type.kt:10-25` 定义了 9 档（22/17/15/15/14/12/14/11/10 sp）。但正文里：
+
+```
+硬编码 fontSize = 504 处
+不同字号 = 20 种：9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5,
+                    15, 16, 17, 18, 20, 22, 24, 26 (sp)
+```
+
+其中 x.5 档共 **108 处**（10.5/11.5/12.5/13.5/14.5/9.5），是最明确的「无阶梯」证据：差 0.5sp 在 400+ ppi 屏上肉眼几乎不可辨，却制造了 6 个额外样式。
+
+### 2.2 建议阶梯（7 档，映射到现有 Typography 令牌）
+
+| 语义 | 字号/行高 | 用途 | 现状对应 |
+|---|---|---|---|
+| Display | 22 / 28 | 页面标题 | `displayLarge` |
+| Title | 17 / 24 | 页/卡主标题 | `titleLarge` |
+| Subtitle | 15 / 22 | 区块标题、正文强调 | `titleMedium`/`bodyLarge` |
+| Body | 14 / 22 | 消息正文、列表主行 | `bodyMedium` |
+| Caption | 12 / 18 | 次级说明、时间戳 | `bodySmall` |
+| Micro | 11 / 16 | 芯片文案、徽标 | `labelMedium` |
+| Mono | 10 / 14 | 命令/路径/ID（等宽） | `labelSmall` |
+
+规则：**禁止 x.5**；正文只允许上表 7 档；`sp` 字面量只出现在 `Type.kt`。
+（本轮新增的面板/目录/状态行已按 9.5/10.5/11.5 写——属于待收敛的存量之一，共 ~30 处。）
+
+---
+
+## 3 间距 · 形状 · 层次
+
+- 令牌：`BiuZSpacing` 6 档（4/8/12/16/24/32）、`BiuZRadius` 3 档（8/12/16）+ 胶囊 999。
+- 但**硬编码 `padding` 121 处**、`copy(alpha=)` **35 处 / 13 种 alpha**（0.3/0.4/0.45/0.5/0.55/0.6/0.7/0.8/0.85/0.9/0.14/0.10）。
+- 后果：同类元素（面板边框、芯片底、失败色底）浓度不齐；深浅档切换时对比度不同步。
+
+**建议**：alpha 收敛为 4 档语义令牌（`tintSurface 8%` / `tintBorder 12%` / `tintStrong 18%` / `tintAccent 16%`）；padding 只允许 6 档 + 行内 2dp/6dp 两个微调例外。
+
+---
+
+## 4 交互动效（本次重点）
+
+### 4.1 现状：几乎为零
+
+| 能力 | 现状 | 证据 |
+|---|---|---|
+| 按压反馈（scale/色调） | **0 处** | 全仓无 `collectIsPressedAsState`、无 `interactionSource` 自定义 |
+| 按压 ripple | 全用 Material 默认 | 无 `LocalIndication` / `ripple(` 覆盖（默认 ripple 是方形 RoundedCorner 继承、颜色取 primary=墨，与纸质底不协调） |
+| 触觉 | **0 处** | 无 `LocalHapticFeedback` / `performHapticFeedback` |
+| 动画基建 | **1 个文件** | `animateFloatAsState`/`Animatable`/`AnimatedVisibility`/`animateContentSize` 全仓只出现在 `SealStamp.kt` |
+| 转场 / 列表动画 | 无 | `LazyColumn` 无 `animateItem()`；面板展开无 `AnimatedVisibility` |
+| 减弱动态 | 只有落印做了 | `SealStamp.kt` 读 `ANIMATOR_DURATION_SCALE`；其余无动画故无影响 |
+
+### 4.2 motion-spec 只规定了「落印」，没规定按钮点击
+
+`brand/seal/motion-spec.html` 的规格对象始终是**决议面落印**：
+
+```
+落印 460ms · scale 1.6→0.96→1.04→1.0 · rotate −10°→−2.5° · cubic-bezier(.22,.68,.32,1)
+印泥外溢 520ms（延迟 180ms，颜色随印）· 停驻 700ms · 离场 180ms（opacity + scale .96）
+触觉：success/error，落印即触发 · 减弱动态：全部停用、印以终态直出
+印随批准权走：只在 ACK 权威成功之后落印；失败/未送达不落印
+```
+
+它**没有**定义普通按钮的点击反馈。所以「按 motion-spec 实现按钮点击交互动画」需要从品牌动效语言派生出按钮规格——以下是建议方案，等确认后再实现。
+
+### 4.3 建议的按钮按压规格（从落印语言派生，但**刻意收窄**）
+
+落印的签名是「过冲后收束」（1.6→0.96→1.04→1.0）。若把这个过冲复用到每个按钮上，签名的稀缺性会被稀释——**过冲留给印，按钮只做「压实」**：
+
+| 态 | 变换 | 时长/缓动 |
+|---|---|---|
+| 按下（press） | `scale 1.00 → 0.96`，底色向下一档（`bgCard→bgInput`；朱磦实底 → `sealPress`） | **90ms** · `cubic-bezier(.22,.68,.32,1)` |
+| 松手/取消（release） | `scale 0.96 → 1.00`，底色回原档 | **140ms** · 同缓动 |
+| 触觉 | **仅主 CTA**（朱磦实底：发送/批准/开始任务/登录）触发 `HapticFeedbackType.LongPress` 轻击；列表行、芯片、图标钮**不触发** | 按下帧 |
+| 减弱动态 | `ANIMATOR_DURATION_SCALE == 0` 时跳过 scale，仅保留色调阶跃 | — |
+
+补充三条与品牌一致的细节：
+1. **不动旋转**——`−2.5°` 是落印专用（`brand/seal/README.md` 用印规则），按钮永不旋转。
+2. **按下不做透明度闪烁**（默认 ripple 的扩散圆点在纸质底上像污渍）；改为**底色阶跃 + 压缩**，这是「压实」而非「水波」。
+3. **禁用态不动**（`scale` 保持 1，仅文字降到 `text3`），避免「按了但没动」与「按了有反馈但被拒」混淆。
+
+### 4.4 建议的令牌与落点
+
+```kotlin
+// ui/theme/Motion.kt（新增）
+object BiuZMotion {
+    const val pressIn = 90
+    const val pressOut = 140
+    const val stamp = 460        // motion-spec
+    const val stampHold = 700    // motion-spec
+    const val stampExit = 180    // motion-spec
+    const val ring = 520         // motion-spec
+    const val ringDelay = 180    // motion-spec
+    val emphasized = CubicBezierEasing(0.22f, 0.68f, 0.32f, 1f) // 全品牌唯一缓动
+}
+
+// ui/theme/PressableScale.kt（新增）—— 唯一入口，所有可点面用它
+fun Modifier.pressableScale(pressedScale: Float = 0.96f): Modifier
+```
+
+落点（按优先级）：
+1. **主 CTA**：发送钮、开始任务、登录、批准/拒绝（`PrimaryButton`/`SendButton`/`LoginProviderButton`）
+2. **芯片/胶囊**：模式·模型·思考、活动摘要、Hook、面板 chip、tab
+3. **行**：会话行、消息动作（复制/赞/踩/Fork）、工具卡展开
+4. **不适用**：开关（Switch 自带）、滑动手势、Swatch/色板
+
+### 4.5 落印（motion-spec）现状对账
+
+| spec 要求 | Android 实现 | 判定 |
+|---|---|---|
+| 落印 460ms / keyframes / −2.5° | `SealStamp.kt:66-…`（Animatable 分段 + CubicBezier） | ✅ 代码一致 |
+| 印泥外溢 520ms 延迟 180ms，颜色随印 | `SealStamp.kt` ringScale/ringAlpha + delay(180) | ✅ |
+| 停驻 700ms → 入账 decidedIds | `ChatScreen.kt:566-573`（stampHolds → VM 入账） | ✅ |
+| 离场 180ms | VM 侧延迟收卡 | ✅（未见独立离场动画，卡随列表移除） |
+| **失败/未送达不落印** | 只在权威成功置 `stampHolds` | ✅ |
+| **触觉 success/error（落印帧）** | **无** | ❌ 缺 |
+| 五决议面覆盖 | `visibleInteractions.forEach` 统一包 | ✅（四面共用一套） |
+| 减弱动态 = 终态直出 | 读 `ANIMATOR_DURATION_SCALE` | ✅ |
+| **真机目检** | **从未目检**（AGENTS §6 已如实挂账） | ❌ 缺证据 |
+
+→ 落印本体只差**触觉**与**目检**两件。
+
+---
+
+## 5 层次与可读性
+
+1. **卡面与底的差只有 4~6 RGB**（`#FBF8F2` vs `#F7F3EC`）。层次完全靠 12% 墨描边承担——在纸质底上这最接近「油墨压印」，方向对；但**卡片一多，页面会显得全是描边**（工具卡每张都有 1dp 边）。建议：连续同类卡（工具卡串）只保留首尾或分组边界，组内用 4dp 间距而非描边分隔。
+2. **状态色面积偏大**：头像圆此前用状态色铺底（已改中性，见 §8）；活动摘要的绿点/红点若无文字并行，色盲不可辨——建议状态一律「色点 + 文字/字形」双编码（现状 `已完成/失败` 有文字，✅）。
+3. **深色档未审**：本轮全部证据在浅色。深色下 `bgCard #1C1D20` vs `bg #17181A` 差 5 RGB，同款问题；纯白字在墨底上也没有降对比。
+
+---
+
+## 6 文案（copy）
+
+按「界面语言即导航」的标准，现存三处不一致：
+
+| 位置 | 现状 | 问题 | 建议 |
+|---|---|---|---|
+| 活动摘要计数 | 「活跃中 1」「已完成 5」 | 量词缺失（中文可接受），但**「活跃中」与「运行中」并存**（`后台 1 运行中`） | 统一为「运行中」 |
+| 面板名 | 「后台」「工作」「Works」混用（代码 `panel_works`=后台） | 同一个面三种叫法 | 定为「后台任务」 |
+| 目录入口 | 「子代理目录」 | 与「子代理」chip 并列时读起来像两个子代理 | 「历史子代理」 |
+
+---
+
+## 7 与 web 的设计差异（非缺陷，需登记）
+
+| 项 | web | Android | 结论 |
+|---|---|---|---|
+| 状态胶囊位置 | composer 下方（`ComposerStatusRow`） | 消息列表顶部（`SessionPanelsSection`） | 触屏等价承载，保留 |
+| 活动摘要形态 | popover 胶囊 | 常驻摘要行 | 保留（信息等价） |
+| 每轮 Hook 详情 | 消息流内小按钮 | 面板区一行 | 保留（触屏热区更大） |
+| 头 Avatars | 面孔插画 + 徽标 | 首字母圆 + 徽标点 | 保留（无插画资源） |
+| git 胶囊 | popover 内变更清单 + 分支 | 独立「文件」页 | 保留 |
+
+---
+
+## 8 工作区在途改动（已改、未提交、待确认）
+
+在你「先出报告」的指示前，为响应「主题配色有偏差」我改了两处，**尚未提交、未装机验证**：
+
+1. **violet → seal（16 处）**：`SessionPanels.kt`(8) / `ComposerPanels.kt`(3) / `WorkflowTrack.kt`(2) / `ChatScreen.kt`(2)，即面板 chip 图标、展开面板描边、折叠头、目标/计划/工作流图标、composer 相关图标全部由紫 `#7C3AED` 改朱磦 `#D2402E`。
+2. **头像中性化**：活动摘要头像底色由「状态色 dim + 状态色字」改为 `bgInput` 底 + `text2` 字，状态只由左下徽标点承载（web「面孔 + 标记」的两件事分开）。
+
+这两项与 §1.3 建议 1/2 部分重合。**要不要保留、要不要连 `tertiary` 一起改，请你定**；若按报告方案走，我会把 `tertiary` 映射与 `violet` 令牌删除一并做完再提交。
+
+---
+
+## 9 建议实施顺序（待批准）
+
+| 批次 | 内容 | 验收 |
+|---|---|---|
+| **A（动效基建）** | `BiuZMotion` + `pressableScale` + 主 CTA 触觉；落印补触觉 | 真机逐面点按录屏/截图；`ANIMATOR_DURATION_SCALE=0` 回归 |
+| **B（色彩收敛）** | `tertiary` 去紫、删 `violet`、主 CTA 统一朱磦 | 全屏像素采样（无 `#7C3AED` 族）；深浅两档目检 |
+| **C（排版收敛）** | 7 档阶梯落 `Type.kt`；清 x.5；仅 `Type.kt` 允许字面量 | grep 断言 `fontSize =` 只出现在 `Type.kt`（允许白名单 < 20 处） |
+| **D（间距/alpha）** | 4 档语义 alpha + 6 档间距；清 121 处硬编码 | 同上 grep 断言 |
+| **E（层次/文案）** | 卡分组去描边、术语统一 | 截图比对 |
+
+建议 **A 先做**：它是你本次点名要的，且不依赖 B/C/D；B 可以紧随（已经改了一半）。
+
+---
+
+## 10 需要你裁决的三件事
+
+1. **主 CTA 用朱磦还是墨？**（推荐朱磦，与 logo/登录页一致）
+2. **按钮按压要不要触觉？**（推荐只给主 CTA 轻击，列表/芯片不给）
+3. **§8 那两项在途改动保留吗？**（violet→朱磦、头像中性化）
