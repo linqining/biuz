@@ -888,7 +888,16 @@ private fun PanelChip(
         modifier = Modifier
             .pressableScale(interaction)
             .clip(RoundedCornerShape(999.dp))
-            .background(if (selected) BiuZAccentDim.copy(alpha = BiuZAlpha.half) else BiuZBgCard)
+            // 选中底 = accentDim(10%) × 50% ≈ 5% 墨（iOS SessionPanelsView.swift:196
+            // `accentDim.opacity(0.55)` 同义）。`copy(alpha=)` 是赋值不是相乘，写成 half 会
+            // 直接变 50% 墨——墨字压中灰底，实测对比 ≈1.9:1（WCAG 不过）。
+            .background(
+                if (selected) {
+                    BiuZAccentDim.copy(alpha = BiuZAccentDim.alpha * BiuZAlpha.half)
+                } else {
+                    BiuZBgCard
+                },
+            )
             .border(
                 1.dp,
                 if (selected) BiuZAccent.copy(alpha = BiuZAlpha.half) else BiuZBorder,
@@ -1308,7 +1317,8 @@ private fun ActorRow(actor: WorkflowActorSummary, onOpen: (WorkflowActorSummary)
             .fillMaxWidth()
             .padding(start = BiuZSpacing.md)
             .clip(BiuZRadius.small)
-            .background(BiuZBlueDim.copy(alpha = BiuZAlpha.half))
+            // 同 works 行口径：dim 色自带 alpha 必须**相乘**（iOS :782 `blueDim.opacity(0.5)`）
+            .background(BiuZBlueDim.copy(alpha = BiuZBlueDim.alpha * BiuZAlpha.half))
             .clickable(enabled = actionable) { onOpen(actor) }
             .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
             .testTag("05-wf-actor-${actor.id}"),
@@ -1691,7 +1701,7 @@ fun SubagentsPanelView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(BiuZRadius.small)
-                    .background(BiuZBlueDim.copy(alpha = BiuZAlpha.half))
+                    .background(BiuZBlueDim.copy(alpha = BiuZBlueDim.alpha * BiuZAlpha.half))
                     .clickable { onOpen(sub) }
                     .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
                     .testTag("05-subagents-row-${sub.id}"),
