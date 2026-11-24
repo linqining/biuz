@@ -118,7 +118,7 @@ import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
-import cn.biuz.android.app.ui.theme.BiuZViolet
+import cn.biuz.android.app.ui.theme.BiuZSeal
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -385,7 +385,7 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
             ) {
-                Text(text = "⑂", fontSize = 13.sp, color = BiuZViolet)
+                Text(text = "⑂", fontSize = 13.sp, color = BiuZSeal)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "工作流运行中 · " + run.name,

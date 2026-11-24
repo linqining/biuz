@@ -75,8 +75,6 @@ import cn.biuz.android.app.ui.theme.BiuZBlue
 import cn.biuz.android.app.ui.theme.BiuZBlueDim
 import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZGreen
-import cn.biuz.android.app.ui.theme.BiuZGreenDim
-import cn.biuz.android.app.ui.theme.BiuZRedDim
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
 import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRadius
@@ -85,7 +83,7 @@ import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
-import cn.biuz.android.app.ui.theme.BiuZViolet
+import cn.biuz.android.app.ui.theme.BiuZSeal
 import cn.biuz.android.protocol.BackgroundWorkSummary
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.MessageRole
@@ -251,7 +249,7 @@ fun SessionPanelsSection(
                     .fillMaxWidth()
                     .clip(BiuZRadius.medium)
                     .background(BiuZBgCard)
-                    .border(1.dp, BiuZViolet.copy(alpha = 0.35f), BiuZRadius.medium)
+                    .border(1.dp, BiuZSeal.copy(alpha = 0.35f), BiuZRadius.medium)
                     .padding(BiuZSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
             ) {
@@ -575,25 +573,17 @@ private fun ActivitySummaryRow(
                             modifier = Modifier
                                 .offset(x = (-4 * index).dp)
                                 .size(14.dp)
-                                .background(
-                                    when (avatar.badge) {
-                                        ActivityAvatarItem.AvatarStatus.Done -> BiuZGreenDim
-                                        ActivityAvatarItem.AvatarStatus.Failed -> BiuZRedDim
-                                        ActivityAvatarItem.AvatarStatus.Running -> BiuZAccentDim
-                                    },
-                                    CircleShape,
-                                )
+                                // 中性底 + 墨字（印系：头像不该用状态色铺底——那会变成「绿团」，
+                                // web 的 WorkflowAgentFace 也是「面孔 + 结果徽标点」两件事分开）。
+                                // 状态只由下面的徽标点承载。
+                                .background(BiuZBgInput, CircleShape)
                                 .border(1.dp, BiuZBgCard, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = avatar.name.take(1).uppercase(),
                                 style = TextStyle(fontSize = 7.sp, fontWeight = FontWeight.SemiBold),
-                                color = when (avatar.badge) {
-                                    ActivityAvatarItem.AvatarStatus.Done -> BiuZGreen
-                                    ActivityAvatarItem.AvatarStatus.Failed -> BiuZRed
-                                    ActivityAvatarItem.AvatarStatus.Running -> BiuZAccent
-                                },
+                                color = BiuZText2,
                             )
                             // 结果徽标点（左下角，web AgentResultBadge 同位）
                             if (avatar.result != null) {
@@ -897,7 +887,7 @@ private fun PanelChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(text = kind.glyph, fontSize = 10.sp, color = if (selected) BiuZAccent else BiuZViolet)
+        Text(text = kind.glyph, fontSize = 10.sp, color = if (selected) BiuZAccent else BiuZSeal)
         Text(
             text = stringResource(kind.labelRes),
             style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
@@ -957,11 +947,11 @@ private fun PanelCollapseHeader(kind: SessionPanelKind, onCollapse: () -> Unit) 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
     ) {
-        Text(text = kind.glyph, fontSize = 10.sp, color = BiuZViolet)
+        Text(text = kind.glyph, fontSize = 10.sp, color = BiuZSeal)
         Text(
             text = stringResource(kind.labelRes),
             style = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
-            color = BiuZViolet,
+            color = BiuZSeal,
         )
         Spacer(Modifier.weight(1f))
         Text(text = "▴", fontSize = 10.sp, color = BiuZText3)
@@ -1010,7 +1000,7 @@ fun GoalPanelView(goal: RemoteGoalSummary, onTogglePause: () -> Unit, modifier: 
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
         ) {
-            Text(text = "◎", fontSize = 12.sp, color = BiuZViolet)
+            Text(text = "◎", fontSize = 12.sp, color = BiuZSeal)
             Text(
                 text = stringResource(R.string.panel_goal_title),
                 style = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
@@ -1045,7 +1035,7 @@ fun PlanPanelView(plan: PlanPanelSummary, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
         ) {
-            Text(text = "☰", fontSize = 12.sp, color = BiuZViolet)
+            Text(text = "☰", fontSize = 12.sp, color = BiuZSeal)
             Text(
                 text = plan.title ?: stringResource(R.string.panel_plan_title),
                 style = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
@@ -1097,7 +1087,7 @@ fun WorkflowPanelCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
         ) {
-            Text(text = "⑂", fontSize = 13.sp, color = BiuZViolet)
+            Text(text = "⑂", fontSize = 13.sp, color = BiuZSeal)
             Text(
                 text = run.name,
                 style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),

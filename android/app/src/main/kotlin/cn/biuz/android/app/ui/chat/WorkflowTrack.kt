@@ -44,7 +44,7 @@ import cn.biuz.android.app.ui.theme.BiuZGreen
 import cn.biuz.android.app.ui.theme.BiuZRed
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText3
-import cn.biuz.android.app.ui.theme.BiuZViolet
+import cn.biuz.android.app.ui.theme.BiuZSeal
 import cn.biuz.android.protocol.SessionWorkflowPhase
 import cn.biuz.android.protocol.SessionWorkflowRunSummary
 import cn.biuz.android.protocol.WorkflowActivitySummary
@@ -134,7 +134,7 @@ private fun WorkflowRunRailRow(run: SessionWorkflowRunSummary) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(text = "⑂", fontSize = 10.sp, color = BiuZViolet)
+        Text(text = "⑂", fontSize = 10.sp, color = BiuZSeal)
         // 站点灯（●●●○○：running 蓝 / done 绿 / failed 红 / pending 灰空心；并行双线段）
         Row(verticalAlignment = Alignment.CenterVertically) {
             stations.forEachIndexed { index, station ->

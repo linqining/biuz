@@ -58,7 +58,7 @@ import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText
 import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
-import cn.biuz.android.app.ui.theme.BiuZViolet
+import cn.biuz.android.app.ui.theme.BiuZSeal
 import cn.biuz.android.store.ConversationQueueInfo
 import cn.biuz.android.store.ModelPlanGroup
 import cn.biuz.android.store.ModelSelectionInfo
@@ -247,7 +247,7 @@ fun QueueBar(
             Text(
                 text = "▤",
                 fontSize = 12.sp,
-                color = BiuZViolet,
+                color = BiuZSeal,
             )
             Spacer(Modifier.size(BiuZSpacing.xs))
             Text(
@@ -383,7 +383,7 @@ private fun QueueRow(
                     Text(
                         text = stringResource(R.string.queue_guide_badge),
                         style = TextStyle(fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
-                        color = BiuZViolet,
+                        color = BiuZSeal,
                     )
                 }
             }
