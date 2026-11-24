@@ -319,7 +319,13 @@ data class PlanPanelSummary(
     val title: String? = null,
     val content: String,
     val rawStatus: String? = null,
-)
+    /** 完成项数 / 总项数（chip 徽标「N/M」；0/0 = 无 items，UI 不显徽标） */
+    val completedCount: Int = 0,
+    val totalCount: Int = 0,
+) {
+    /** 全部完成（web todoStatus === "completed" 判据之一）。 */
+    val allCompleted: Boolean get() = totalCount > 0 && completedCount == totalCount
+}
 
 /** state.backgroundWorks 投影（btw 面板）：后台工作条目，cancel/resume 命令面（:272-308） */
 data class BackgroundWorkSummary(

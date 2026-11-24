@@ -2427,10 +2427,24 @@ class RemoteConversationStore(
             content = lines.takeIf { it.isNotEmpty() }?.joinToString("\n")
         }
         if (content.isNullOrEmpty()) return null
+        // 进度计数（chip 徽标「N/M」；web `model.plan.completedCount/totalCount` 同义）
+        var completed = 0
+        var total = 0
+        for (entry in (d["items"]?.arrayValue ?: d["entries"]?.arrayValue
+            ?: d["steps"]?.arrayValue ?: emptyList())) {
+            val o = entry.objectValue ?: continue
+            total += 1
+            val word = o["status"]?.stringValue
+            if (word == "completed" || word == "done" || o["completed"]?.boolValue == true) {
+                completed += 1
+            }
+        }
         return PlanPanelSummary(
             title = d["title"]?.stringValue ?: d["name"]?.stringValue,
             content = content,
             rawStatus = d["status"]?.stringValue,
+            completedCount = completed,
+            totalCount = total,
         )
     }
 

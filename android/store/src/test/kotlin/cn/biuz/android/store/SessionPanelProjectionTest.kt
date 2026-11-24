@@ -216,6 +216,9 @@ class SessionPanelProjectionTest {
         )
         val p = store.planPanel("sess-1")!!
         assertEquals("✓ 读 schema\n▸ 写实现\n· 跑真机", p.content, "v4 三态标记逐行")
+        assertEquals(1, p.completedCount, "chip 徽标完成数（web todo secondary 同义）")
+        assertEquals(3, p.totalCount)
+        assertFalse(p.allCompleted)
         // 旧桌面宽容：正文直取键优先于 items
         val legacy = storeWith("plan" to testObj("content" to JSONValue.Str("- a\n- b")))
         assertEquals("- a\n- b", legacy.planPanel("sess-1")!!.content)

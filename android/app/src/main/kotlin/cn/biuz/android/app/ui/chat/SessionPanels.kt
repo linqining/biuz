@@ -237,7 +237,7 @@ fun SessionPanelsSection(
                     PanelChip(
                         kind = kind,
                         selected = expanded == kind,
-                        badge = panelBadgeText(kind, goal, runs, works, subagents),
+                        badge = panelBadgeText(kind, goal, plan, runs, works, subagents),
                         onClick = { onExpandedChange(if (expanded == kind) null else kind) },
                     )
                 }
@@ -921,13 +921,16 @@ private fun PanelChip(
 private fun panelBadgeText(
     kind: SessionPanelKind,
     goal: RemoteGoalSummary?,
+    plan: PlanPanelSummary?,
     runs: List<WorkflowRunSummary>,
     works: List<BackgroundWorkSummary>,
     subagents: List<SubagentSessionSummary>,
 ): String? = when (kind) {
     SessionPanelKind.Goal -> if (goal?.isPaused == true) "已暂停" else null
 
-    SessionPanelKind.Plan -> null
+    // 进度徽标（web todo 胶囊 secondary `completedCount/totalCount` 同义）
+    SessionPanelKind.Plan -> plan?.takeIf { it.totalCount > 0 }
+        ?.let { "${it.completedCount}/${it.totalCount}" }
 
     SessionPanelKind.Workflow ->
         if (runs.size > 1) {
