@@ -237,7 +237,13 @@ fun WhiteboardPanel(
                 onValueChange = { strokeWidth = it },
                 valueRange = WhiteboardDocument.MIN_STROKE_WIDTH.toFloat()..
                     WhiteboardDocument.MAX_STROKE_WIDTH.toFloat(),
-                colors = SliderDefaults.colors(thumbColor = BiuZAccent),
+                // 笔宽滑杆是**中性控件**，不是主操作：只锁 thumb 的话，active track 会落到
+                // Material 默认 primary（= 朱磦），真机读作「一条红色告警条 + 右端红点」。
+                // 一律取墨（中性强调），与「朱磦只盖在决议/主 CTA 上」一致。
+                colors = SliderDefaults.colors(
+                    thumbColor = BiuZAccent,
+                    activeTrackColor = BiuZAccent,
+                ),
                 modifier = Modifier.weight(1f).testTag("36-width-slider"),
             )
             Text(
