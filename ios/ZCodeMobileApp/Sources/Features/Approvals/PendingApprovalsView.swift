@@ -26,6 +26,10 @@ final class ApprovalSessionModel: InteractionDeciding {
     private let store: ConversationStore
 
     var isLoading = true
+    /// 慢加载标记：订阅超时/失败的兜底（2026-11-25 用户报「点击载入详情一直转」——
+    /// messages(in:) 订阅在桌面忙/超时时会长时间不返回，此前只有一个无出口的转圈）。
+    /// 超时后 UI 给「在会话中查看」明确出口，不再让用户干等。
+    var loadSlow = false
     var pendingInteractions: [RemotePendingInteraction] = []
     var stampHolds: [String: StampHold] = [:]
     var snoozeFeedback: String?
@@ -47,9 +51,18 @@ final class ApprovalSessionModel: InteractionDeciding {
     /// （observeConversations 全局流，按 id 过滤）。
     func start() async {
         guard observeTask == nil else { return }
+        // 慢加载看门狗：6s 未取到投影就置 loadSlow（订阅本身不取消——到货仍会刷新）
+        let slowTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard let self, self.isLoading else { return }
+            self.loadSlow = true
+        }
         _ = await store.messages(in: conversationID)
+        slowTask.cancel()
         await refreshPendingInteractions()
         isLoading = false
+        loadSlow = false
         observeTask = Task { [weak self] in
             await self?.observeLoop()
         }
@@ -371,9 +384,23 @@ struct PendingApprovalsView: View {
         if model.isLoading {
             HStack(spacing: T.sp2) {
                 SpinnerView(size: 13)
-                Text("正在载入待批详情…")
+                Text(model.loadSlow
+                    ? String(localized: "详情加载较慢（桌面忙）…")
+                    : String(localized: "正在载入待批详情…"))
                     .font(T.font(11.5))
                     .foregroundColor(T.text3)
+                Spacer(minLength: 0)
+                // 出口常显：这是从会话来的条目，随时可跳过去看完整上下文
+                Button {
+                    router.openChatFromApprovals(conversationID: conversation.id)
+                } label: {
+                    Text(String(localized: "在会话中查看"))
+                        .font(T.font(11.5, .semibold))
+                        .foregroundColor(T.seal)
+                        .frame(minHeight: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("09-approvals-open-chat-\(conversation.id)")
             }
             .padding(.vertical, 6)
             .accessibilityIdentifier("09-approvals-loading-\(conversation.id)")

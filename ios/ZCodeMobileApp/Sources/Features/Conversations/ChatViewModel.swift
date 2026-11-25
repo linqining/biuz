@@ -568,14 +568,30 @@ final class ChatViewModel: InteractionDeciding {
         guard let rowId = Self.messageRowId(message), let entityId = message.entityId, !entityId.isEmpty else {
             return String(localized: "该消息缺少行游标，无法反馈")
         }
-        let ack = await store.setAssistantFeedback(
-            conversationID, rowId: rowId, entityId: entityId, value: value)
-        recordControlDiag("feedback=\(value.map(String.init) ?? "clear") row=\(rowId)", workId: nil, ack: ack)
-        if let failure = Self.controlFeedback(ack, verb: "feedback") { return failure }
+        // 乐观落态（2026-11-25 用户报「点赞点击没反应」）：真机 diag 实证命令已发出
+        // （feedback=true row=4369）但 ack=nil，UI 干等回执 + 3s 后错误行自清 → 观感
+        // 就是「没反应」。改为点击即变；失败回滚并给**真实**拒因（RPCError 原文）。
+        let previous = assistantFeedback[message.id]
         if let value {
             assistantFeedback[message.id] = value
         } else {
             assistantFeedback.removeValue(forKey: message.id)
+        }
+        let ack = await store.setAssistantFeedback(
+            conversationID, rowId: rowId, entityId: entityId, value: value)
+        recordControlDiag("feedback=\(value.map(String.init) ?? "clear") row=\(rowId)", workId: nil, ack: ack)
+        if var failure = Self.controlFeedback(ack, verb: "feedback") {
+            // 回滚到点击前
+            if let previous {
+                assistantFeedback[message.id] = previous
+            } else {
+                assistantFeedback.removeValue(forKey: message.id)
+            }
+            // 真实拒因优先于「未送达」笼统文案（§5-12）
+            if let real = await store.lastCommandErrorText(), !real.isEmpty {
+                failure = real
+            }
+            return failure
         }
         return nil
     }

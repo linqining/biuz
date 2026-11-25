@@ -2456,6 +2456,15 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// guard.heldQueueConfirmationStale 时置位，确认重发成功/新发送清除）
     private var heldQueuePending: [String: Bool] = [:]
 
+    /// 最近一次命令的传输层错误原文（RPCError.message / 异常描述）。
+    /// 反馈/重发这类「点了没反应」的动作需要它——此前只落 `diag.cmd.err`（且仅
+    /// diag 模式下），UI 只能给一句笼统的「命令未送达」（2026-11-25 用户报
+    /// 「会话里的点赞点击没反应」，真机 diag 实证 ack=nil 而原文被吞）。
+    func lastCommandErrorText() async -> String? {
+        let text = _lastCommandErrorText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
     func sendRejectionText(in conversationID: String) async -> String? {
         sendRejections[conversationID]
     }

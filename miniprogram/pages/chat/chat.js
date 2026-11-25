@@ -328,7 +328,7 @@ Page({
     this.setData({ cards: cards });
   },
 
-  /** 印向推导（motion-spec：reject*/decline → 墨印「不准」，其余 → 朱印「照办」）。 */
+  /** 印向推导（motion-spec：reject / decline → 墨印「不准」，其余 → 朱印「照办」）。 */
   permissionOptionId(card, approved) {
     const family = approved ? 'allow' : 'reject';
     const want = family + (card.scope === 'always' ? 'Always' : 'Once');
@@ -438,11 +438,28 @@ Page({
     }
     const rowId = parseInt(id.replace('row-', ''), 10) || 0;
     const sessionId = this.data.sessionId || '';
-    conn.setAssistantFeedback(sessionId, rowId, msg.entityId, value)
+    const self = this;
+    // 点击即变（乐观落态）+ 失败回滚：与 iOS/Android 同口径——干等回执时
+    // 用户观感就是「点了没反应」（2026-11-25 三端统一修）
+    const next = msg.feedback === value ? null : value;
+    this.setData({
+      rows: this.data.rows.map(function (r) {
+        return r.id === id ? Object.assign({}, r, { feedback: next }) : r;
+      }),
+    });
+    const rollback = function () {
+      self.setData({
+        rows: self.data.rows.map(function (r) {
+          return r.id === id ? Object.assign({}, r, { feedback: msg.feedback }) : r;
+        }),
+      });
+    };
+    conn.setAssistantFeedback(sessionId, rowId, msg.entityId, next)
       .then(function (error) {
-        if (error) wx.showToast({ title: error, icon: 'none' });
+        if (error) { rollback(); wx.showToast({ title: error, icon: 'none' }); }
       })
       .catch(function (err) {
+        rollback();
         wx.showToast({ title: (err && err.message) || '反馈失败', icon: 'none' });
       });
   },

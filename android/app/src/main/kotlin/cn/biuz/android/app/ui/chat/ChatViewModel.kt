@@ -1507,8 +1507,12 @@ class ChatViewModel(
             value = value,
         )
         val commandAck = CommandAck(ack)
+        // 无回执 = 传输层失败/超时（真机 iOS 同型：ack=nil 而真实原因被吞，用户只
+        // 看到「点了没反应」）——把 store 记下的 RPC 原文优先上屏（具体实现类才有该读面）
+        val realTransportError = (store as? cn.biuz.android.store.RemoteConversationStore)
+            ?.lastCommandErrorText()?.trim()?.takeIf { it.isNotEmpty() }
         _feedbackFailure.value = when {
-            ack == null -> "消息未送达（无回执）"
+            ack == null -> realTransportError ?: "消息未送达（无回执，可能是传输超时）"
             commandAck.isFailure -> commandAck.failureText ?: "桌面端拒绝"
             commandAck.isAuthoritativeSuccess -> null
             else -> "桌面回执状态未知"

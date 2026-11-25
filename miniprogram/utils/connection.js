@@ -782,7 +782,16 @@ function setAssistantFeedback(sessionId, rowId, entityId, value) {
   };
   return conn
     .call('zcode-agent', 'setAssistantFeedback', [payload])
-    .then(function () { return null; })
+    .then(function (reply) {
+      // 回执六态词表（accepted|rejected|stale|duplicate|noop|failed）——此前直接
+      // `.then(() => null)` 吞掉 ack，桌面拒收也当成功（用户点完什么都没发生）
+      var status = reply && reply.status;
+      if (!status || status === 'accepted' || status === 'noop' || status === 'duplicate') {
+        return null;
+      }
+      var reason = (reply && (reply.message || reply.reasonCode)) || status;
+      return '反馈被拒 · ' + String(reason).substring(0, 120);
+    })
     .catch(function (err) {
       return '反馈失败 · ' + ((err && err.message) || String(err)).substring(0, 120);
     });

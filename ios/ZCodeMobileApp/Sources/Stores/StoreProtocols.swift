@@ -151,6 +151,9 @@ protocol ConversationStore: AnyObject, Sendable {
 
     /// 本轮 Hook 汇总（`hookInvocation` 行派生；默认空 = 不渲染入口）
     func hookInvocations(in conversationID: String) async -> [HookInvocationInfo]
+
+    /// 最近一次命令的传输层错误原文（nil = 无/空）。动作失败时 UI 呈现真实拒因用。
+    func lastCommandErrorText() async -> String?
     /// 目标暂停/继续（pauseGoal / resumeGoal；桌面代执行；返回命令回执供失败反馈）
     @discardableResult
     func setGoalPaused(_ paused: Bool, conversationID: String) async -> JSONValue?
@@ -485,6 +488,7 @@ extension ConversationStore {
     func subagentSessions(in conversationID: String) async -> [SubagentSessionSummary] { [] }
     func subagentProjection(in conversationID: String) async -> SubagentProjectionState? { nil }
     func hookInvocations(in conversationID: String) async -> [HookInvocationInfo] { [] }
+    func lastCommandErrorText() async -> String? { nil }
     func setGoalPaused(_ paused: Bool, conversationID: String) async -> JSONValue? { nil }
     func cancelWork(_ conversationID: String, workId: String) async -> JSONValue? { nil }
     func resumeWorkflowRun(_ conversationID: String, workId: String, name: String?) async -> JSONValue? { nil }

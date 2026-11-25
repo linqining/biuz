@@ -283,13 +283,10 @@ struct MessageFeedbackRow: View {
             let target: Bool? = selected ? nil : value // 再点已选项 = 取消反馈
             Task {
                 if let result = await onAction(target) {
+                    // 失败行**常驻**到下次点击（3s 自清让「点了没反应」更真——用户
+                    // 2026-11-25 报障时橙色行恰好在消失后）
                     failureClear?.cancel()
                     failure = result
-                    failureClear = Task {
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        guard !Task.isCancelled else { return }
-                        failure = nil
-                    }
                 } else {
                     failure = nil
                     UISelectionFeedbackGenerator().selectionChanged()
