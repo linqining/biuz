@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -30,9 +31,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import cn.biuz.android.app.R
 import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.BiuZBorder
+import cn.biuz.android.app.ui.theme.BiuZGlyph
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
 import cn.biuz.android.app.ui.theme.BiuZText3
@@ -123,6 +126,8 @@ internal fun SettingsNavRow(
     testTagId: String,
     modifier: Modifier = Modifier,
     value: String? = null,
+    /// 行首字形（与 iOS rowLeading 同位同义；null = 不占位——仅少数纯文本行）
+    icon: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
     Row(
@@ -140,6 +145,14 @@ internal fun SettingsNavRow(
             .padding(horizontal = BiuZSpacing.md)
             .testTag(testTagId),
     ) {
+        if (icon != null) {
+            // 行首字形（与 iOS 设置页同位；24dp 槽，字阶走 BiuZGlyph）
+            Text(
+                text = icon,
+                fontSize = BiuZGlyph.sm.sp,
+                modifier = Modifier.width(24.dp),
+            )
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,

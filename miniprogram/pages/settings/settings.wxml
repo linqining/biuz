@@ -9,11 +9,13 @@
     <view class="group">
       <text class="group__title">基础设置</text>
       <view class="row" bind:tap="onChooseLanguage">
+        <text class="row__icon">🌐</text>
         <text class="row__label">语言</text>
         <text class="row__value">{{languageLabel}}</text>
         <text class="row__chevron">›</text>
       </view>
       <view class="row" bind:tap="onChooseAppearance">
+        <text class="row__icon">🌗</text>
         <text class="row__label">外观</text>
         <text class="row__value">{{appearanceLabel}}</text>
         <text class="row__chevron">›</text>
@@ -23,6 +25,7 @@
     <view class="group">
       <text class="group__title">数据与统计</text>
       <view class="row" bind:tap="onOpenUsage">
+        <text class="row__icon">📊</text>
         <text class="row__label">用量统计</text>
         <text class="row__value">需要连接桌面端</text>
         <text class="row__chevron">›</text>
@@ -32,21 +35,25 @@
     <view class="group">
       <text class="group__title">Agent 能力</text>
       <view class="row" bind:tap="onOpenCapability" data-kind="memory" data-test="12-row-memory">
+        <text class="row__icon">🧠</text>
         <text class="row__label">记忆</text>
         <text class="row__value">桌面端项目记忆（只读）</text>
         <text class="row__chevron">›</text>
       </view>
       <view class="row" bind:tap="onOpenCapability" data-kind="skills" data-test="12-row-skills">
+        <text class="row__icon">✨</text>
         <text class="row__label">技能</text>
         <text class="row__value">桌面端技能目录（只读）</text>
         <text class="row__chevron">›</text>
       </view>
       <view class="row" bind:tap="onOpenCapability" data-kind="mcp" data-test="12-row-mcp">
+        <text class="row__icon">🖧</text>
         <text class="row__label">MCP</text>
         <text class="row__value">MCP 服务器状态（只读）</text>
         <text class="row__chevron">›</text>
       </view>
       <view class="row" bind:tap="onOpenCapability" data-kind="plugins" data-test="12-row-plugins">
+        <text class="row__icon">🧩</text>
         <text class="row__label">插件</text>
         <text class="row__value">桌面端已装插件（只读）</text>
         <text class="row__chevron">›</text>

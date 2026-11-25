@@ -226,18 +226,21 @@ fun SettingsScreen(
                 // 018 项目管理（web「项目排在归档管理之前」同位；readTree 只读第一波）
                 SettingsNavRow(
                     title = stringResource(R.string.projects_title),
+                    icon = "📁",
                     subtitle = stringResource(R.string.settings_row_projects_sub),
                     testTagId = "13-row-projects",
                     onClick = onOpenProjects,
                 )
                 SettingsNavRow(
                     title = stringResource(R.string.settings_row_archives),
+                    icon = "🗄",
                     subtitle = stringResource(R.string.settings_row_archives_sub),
                     testTagId = "13-row-archives",
                     onClick = onOpenArchives,
                 )
                 SettingsNavRow(
                     title = stringResource(R.string.settings_row_usage),
+                    icon = "📊",
                     subtitle = stringResource(R.string.settings_row_usage_sub),
                     testTagId = "12-row-usage",
                     onClick = onOpenUsage,
@@ -261,6 +264,7 @@ fun SettingsScreen(
                 // setting 频道直写；导航面经 onOpenBehavior 参数挂 BiuZApp）
                 SettingsNavRow(
                     title = stringResource(R.string.settings_row_behavior),
+                    icon = "⚙",
                     subtitle = stringResource(R.string.settings_row_behavior_sub),
                     value = null,
                     testTagId = "12-row-behavior",
@@ -268,6 +272,7 @@ fun SettingsScreen(
                 )
                 SettingsNavRow(
                     title = stringResource(R.string.settings_row_appearance),
+                    icon = "🌗",
                     subtitle = null,
                     value = when (appearance) {
                         AppAppearance.SYSTEM -> stringResource(R.string.appearance_system)
@@ -279,6 +284,7 @@ fun SettingsScreen(
                 )
                 SettingsNavRow(
                     title = stringResource(R.string.language_title),
+                    icon = "🌐",
                     subtitle = null,
                     value = when (language) {
                         AppLanguagePreference.SYSTEM -> stringResource(R.string.language_opt_system)
@@ -297,12 +303,14 @@ fun SettingsScreen(
                 // 027 个性化（web Agent 能力组第一项同位；「仅本地桌面端」指引页）
                 SettingsNavRow(
                     title = stringResource(R.string.personalization_title),
+                    icon = "🧬",
                     subtitle = stringResource(R.string.settings_row_personalization_sub),
                     testTagId = "13-row-personalization",
                     onClick = onOpenPersonalization,
                 )
                 SettingsNavRow(
                     title = stringResource(R.string.cap_memory_title),
+                    icon = "🧠",
                     subtitle = stringResource(R.string.settings_row_memory_sub),
                     testTagId = "13-row-memory",
                     onClick = { onOpenCapability("memory") },
@@ -310,24 +318,28 @@ fun SettingsScreen(
                 // 026 子智能体（web Agent 能力组同位；subagents.list 只读清单）
                 SettingsNavRow(
                     title = stringResource(R.string.subagents_title),
+                    icon = "🤖",
                     subtitle = stringResource(R.string.settings_row_subagents_sub),
                     testTagId = "13-row-subagents",
                     onClick = onOpenSubagents,
                 )
                 SettingsNavRow(
                     title = stringResource(R.string.cap_skills_title),
+                    icon = "✨",
                     subtitle = stringResource(R.string.settings_row_skills_sub),
                     testTagId = "13-row-skills",
                     onClick = { onOpenCapability("skills") },
                 )
                 SettingsNavRow(
                     title = stringResource(R.string.cap_mcp_title),
+                    icon = "🖧",
                     subtitle = stringResource(R.string.settings_row_mcp_sub),
                     testTagId = "13-row-mcp",
                     onClick = { onOpenCapability("mcp") },
                 )
                 SettingsNavRow(
                     title = stringResource(R.string.cap_plugins_title),
+                    icon = "🧩",
                     subtitle = stringResource(R.string.settings_row_plugins_sub),
                     testTagId = "13-row-plugins",
                     onClick = { onOpenCapability("plugins") },
@@ -335,6 +347,7 @@ fun SettingsScreen(
                 // 023 自动化（iOS 12-row-automation 同位；只读清单 + 运行历史）
                 SettingsNavRow(
                     title = stringResource(R.string.automation_title),
+                    icon = "⏰",
                     subtitle = stringResource(R.string.settings_row_automation_sub),
                     testTagId = "12-row-automation",
                     onClick = onOpenAutomations,
@@ -342,6 +355,7 @@ fun SettingsScreen(
                 // 024 钩子（web Agent 能力组同位；hooks.loadHooks 只读清单）
                 SettingsNavRow(
                     title = stringResource(R.string.hooks_title),
+                    icon = "⚓",
                     subtitle = stringResource(R.string.settings_row_hooks_sub),
                     testTagId = "13-row-hooks",
                     onClick = onOpenHooks,
@@ -351,6 +365,7 @@ fun SettingsScreen(
                     session.mode.collectAsStateWithLifecycle().value is AppSession.Mode.Connected
                 SettingsNavRow(
                     title = stringResource(R.string.desktop_settings_title),
+                    icon = "🖥",
                     subtitle = stringResource(
                         if (connectedForDesktopSettings) {
                             R.string.desktop_settings_sub_connected

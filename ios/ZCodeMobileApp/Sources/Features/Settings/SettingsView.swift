@@ -225,10 +225,7 @@ struct SettingsView: View {
     private func sessionRow(icon: String, title: String, subtitle: String,
                             online: Bool?, value: String?) -> some View {
         HStack(spacing: T.sp2) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundColor(T.accentText)
-                .frame(width: 30)
+            rowLeading(icon: icon)
             VStack(alignment: .leading, spacing: 1) {
                 // G-007 同口径（2026-11-25 Language test02 实证）：Text(_ String) 不查
                 // 本地化表——H1 重构后「设备与配对」行 en 态直出中文。包装恢复 xcstrings
@@ -697,11 +694,27 @@ struct SettingsView: View {
         .frame(minHeight: 48)
     }
 
+    /// 行首图标（带兜底）：`Image(systemName:)` 对**无效符号名静默渲染空白**——
+    /// 用户看到的「部分配置项没有图标」就是几行符号名在当前系统版本不存在
+    /// （2026-11-25 报障）。这里校验后兜底到通用字形，并把失效名落 diag 便于替换。
     private func rowLeading(icon: String) -> some View {
-        Image(systemName: icon)
-            .font(.system(size: 14))
-            .foregroundColor(T.accentText)
-            .frame(width: 30)
+        Group {
+            if UIImage(systemName: icon) != nil {
+                Image(systemName: icon)
+            } else {
+                Image(systemName: "circle.grid.2x2")
+                    .onAppear {
+                        var seen = UserDefaults.standard.stringArray(forKey: "diag.settings.badIcons") ?? []
+                        if !seen.contains(icon) {
+                            seen.append(icon)
+                            UserDefaults.standard.set(seen, forKey: "diag.settings.badIcons")
+                        }
+                    }
+            }
+        }
+        .font(.system(size: 14))
+        .foregroundColor(T.accentText)
+        .frame(width: 30)
     }
 }
 
