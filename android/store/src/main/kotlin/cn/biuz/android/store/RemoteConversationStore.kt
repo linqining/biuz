@@ -5387,7 +5387,11 @@ fun shouldDropStaleSnapshot(
     val epochChanged = snapshotEpoch != null && watermarkEpoch != null &&
         snapshotEpoch != watermarkEpoch
     if (epochChanged) return false
-    if (frameToSeq > 0 && watermarkSeq != null && frameToSeq <= watermarkSeq) return true
+    // 判据**互斥**：seq 有值就只由 seq 决定。revision 曾作为独立判据叠加，但「快照顶层
+    // revision」与「state.updated patch.revision」未必同源同域——一个 toSeq 更新的合法
+    // 快照会被 revision 单独判死，连带丢掉它携带的 pendingInteractions（审批卡）。
+    // revision 只在哨兵帧（toSeq == 0，seq 无法判定）时作兜底证据。
+    if (frameToSeq > 0 && watermarkSeq != null) return frameToSeq <= watermarkSeq
     if (frameRevision != null && knownRevision != null && frameRevision < knownRevision) return true
     return false
 }

@@ -70,4 +70,13 @@ class StaleSnapshotGuardTest {
         assertFalse(drop(toSeq = 0, rev = null, watermarkSeq = 12, knownRev = null), "无 revision 证据 → 不误杀")
         assertTrue(drop(toSeq = 5, rev = null, watermarkSeq = 12, knownRev = null), "仍有 seq 证据 → 丢")
     }
+
+    @Test
+    fun newerSeqIsNeverDroppedByLowerRevision() {
+        // 回归（2026-11-25）：快照顶层 revision 与 state.updated patch.revision 未必同源，
+        // 曾把 revision 当独立判据 → toSeq 更新的合法快照被单独判死，连带丢掉
+        // pendingInteractions（用户报「iOS 端审批没看到」）。seq 有值就只信 seq。
+        assertFalse(drop(toSeq = 9, rev = 1, watermarkSeq = 8, knownRev = 99), "toSeq 已前进 → 不丢")
+        assertTrue(drop(toSeq = 0, rev = 1, watermarkSeq = 8, knownRev = 99), "哨兵帧才用 revision 兜底")
+    }
 }
