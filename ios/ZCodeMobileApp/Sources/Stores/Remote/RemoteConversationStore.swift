@@ -5976,7 +5976,12 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         if let snapshotEpoch, let watermarkEpoch, snapshotEpoch != watermarkEpoch {
             return false
         }
-        if frameToSeq > 0, let watermarkSeq, frameToSeq <= watermarkSeq { return true }
+        // ⚠ 判据必须**互斥**（2026-11-25 回归修正）：seq 有值就只由 seq 决定。
+        // 曾把 revision 当独立判据叠加，而「快照顶层 revision」与「state.updated patch.revision」
+        // 未必同源同域——那样一个 toSeq 更新的合法快照会被 revision 单独判死，
+        // 连带把快照携带的 pendingInteractions（审批卡）一起丢掉（用户报「iOS 端审批没看到」）。
+        // revision 只在哨兵帧（toSeq == 0，seq 无法判定）时才作为兜底证据。
+        if frameToSeq > 0, let watermarkSeq { return frameToSeq <= watermarkSeq }
         if let frameRevision, let knownRevision, frameRevision < knownRevision { return true }
         return false
     }

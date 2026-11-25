@@ -57,4 +57,16 @@ final class StaleSnapshotGuardTests: XCTestCase {
         XCTAssertFalse(drop(toSeq: 0, rev: nil, watermarkSeq: 12, knownRev: nil), "无 revision 证据 → 不误杀")
         XCTAssertTrue(drop(toSeq: 5, rev: nil, watermarkSeq: 12, knownRev: nil), "仍有 seq 证据 → 丢")
     }
+
+    func testNewerSeqIsNeverDroppedByLowerRevision() {
+        // 回归（2026-11-25）：快照顶层 revision 与 state.updated patch.revision 未必同源，
+        // 曾把 revision 当独立判据 → 一个 toSeq 更新的合法快照被单独判死，连带丢掉
+        // 它携带的 pendingInteractions（用户报「iOS 端审批没看到」）。seq 有值就只信 seq。
+        XCTAssertFalse(
+            drop(toSeq: 9, rev: 1, watermarkSeq: 8, knownRev: 99),
+            "toSeq 已前进 → 不得因 revision 更小而丢")
+        XCTAssertTrue(
+            drop(toSeq: 0, rev: 1, watermarkSeq: 8, knownRev: 99),
+            "哨兵帧才用 revision 兜底")
+    }
 }
