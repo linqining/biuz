@@ -139,7 +139,8 @@ struct SealStampView: View {
 /// a11y：印本体纯视觉（hidden），标识/label 挂容器静态文本（XCUITest 可查，
 /// VoiceOver 播「已批准/已拒绝」）
 struct ApprovalStampOverlay: ViewModifier {
-    let viewModel: ChatViewModel
+    // 2026-11-25 待批 tab 批2：协议化（InteractionDeciding）——待批页与 会话页共用落印链路
+    let viewModel: any InteractionDeciding
     let interactionId: String
 
     func body(content: Content) -> some View {

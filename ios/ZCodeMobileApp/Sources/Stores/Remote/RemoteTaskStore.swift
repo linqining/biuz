@@ -485,6 +485,7 @@ actor RemoteTaskStore: @preconcurrency TaskStore {
         return DesktopTaskGrouping.Group(
             id: id,
             name: dict["title"]?.stringValue ?? id,
+            color: dict["color"]?.stringValue,
             taskRefs: [],
             taskIDs: [])
     }
@@ -504,6 +505,9 @@ struct DesktopTaskGrouping: Equatable, Sendable {
         let id: String
         /// 组名（TaskGroup.title；title 缺席时以 id 兜底显示）
         let name: String
+        /// G36 组色（TaskGroup.color 七档词表 gray/red/orange/yellow/green/blue/purple；
+        /// contract.ts:4 union【实证·上游仓】；缺席 = nil 灰点）
+        var color: String?
         /// 组成员（回执 members 序；sortOrder 升序）
         var taskRefs: [TaskRef]
         /// 成员 taskId（taskRefs 投影；消费侧 TaskBoardView 按 id 对齐缓存、

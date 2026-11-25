@@ -11,8 +11,12 @@ final class LanguageE2ETests: XCTestCase {
     private func launch(language: String, arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         // -ZCodeDemoData：E2E 演示开关（对齐修复后 Mock 仅测试用例允许装配）；
-        // -ZCodeDevMode：开发者模式（L1 手动入口英文断言依赖该入口在场）
-        app.launchArguments = ["-ZCodeDemoData", "-ZCodeDevMode", "-AppleLanguages", "(\(language))", "-AppleLocale", language == "en" ? "en_US" : "zh_CN"] + arguments
+        // -ZCodeDevMode：开发者模式（L1 手动入口英文断言依赖该入口在场）；
+        // -ZCodeE2EResetState：清空凭据态（KeychainStore.swift:39 契约「不依赖存量
+        // Keychain」）——真机验证轮 -ZCodeDebugJWT 会把「已登录（调试注入）」持久进
+        // Keychain，兜底名「未登录/Signed out」断言必须每用例复位（2026-11-25 实证）。
+        // -AppleLanguages 启动参数走 argument domain（只读、复位不触及），语言态不受影响。
+        app.launchArguments = ["-ZCodeDemoData", "-ZCodeDevMode", "-ZCodeE2EResetState", "-AppleLanguages", "(\(language))", "-AppleLocale", language == "en" ? "en_US" : "zh_CN"] + arguments
         app.launch()
         return app
     }
@@ -49,7 +53,15 @@ final class LanguageE2ETests: XCTestCase {
         XCTAssertFalse(zhName.exists,
                       "en 态不得残留中文兜底名「未登录」")
         // 关键断言②：设置行标题英文（zh 源键 en 列：设备与配对→Devices & pairing、语言→Language）
-        XCTAssertTrue(app.staticTexts["Devices & pairing"].waitForExistence(timeout: 4),
+        // 设置页增长（G41/G42/G43 行新增）会把目标行推到 List 懒加载折叠外（未物化行
+        // 不进 a11y 树）——上滑至出现（有界 8 次）再断言（AGENTS §5-14 同纪律）
+        let devicesRow = app.staticTexts["Devices & pairing"]
+        var scrolls = 0
+        while !devicesRow.exists && scrolls < 8 {
+            app.swipeUp()
+            scrolls += 1
+        }
+        XCTAssertTrue(devicesRow.waitForExistence(timeout: 4),
                       "en 态设置页「设备与配对」行应显示英文标题")
         XCTAssertTrue(app.staticTexts["Language"].waitForExistence(timeout: 4),
                       "en 态设置页「语言」行应显示英文标题")
@@ -70,11 +82,20 @@ final class LanguageE2ETests: XCTestCase {
         XCTAssertFalse(connectApp.staticTexts["服务器地址"].exists,
                        "en 态手动页不得残留「服务器地址」中文标签")
 
-        // G-002 复审补强：登录页 en 态抽样
+        // G-002 复审补强：登录页 en 态抽样（2026-11-25 O1 对齐 Android 后按钮文案
+        // 「连接 Z.ai 继续使用 / Continue with Z.ai」，含扫码并列入口与暂不登录）。
+        // 注意主按钮 label 聚合子文本（"Continue with Z.ai, Global"）——精确匹配恒败，
+        // 用 CONTAINS 谓词（LanguageE2E 实证 2026-11-25）。
         let loginApp = launch(language: "en", arguments: ["-ZCodeOpenLoginFlow", "-ZCodeE2EResetState"])
-        XCTAssertTrue(loginApp.buttons["Sign in with Z.ai"].waitForExistence(timeout: 10),
-                      "en 态登录页 OAuth 入口应为英文（Sign in with Z.ai）")
-        XCTAssertFalse(loginApp.buttons["使用 Z.ai 账号登录"].exists,
+        let oauthButton = loginApp.buttons
+            .matching(NSPredicate(format: "label CONTAINS 'Continue with Z.ai'")).firstMatch
+        XCTAssertTrue(oauthButton.waitForExistence(timeout: 10),
+                      "en 态登录页 OAuth 入口应为英文（Continue with Z.ai）")
+        let loginScanButton = loginApp.buttons
+            .matching(NSPredicate(format: "label CONTAINS 'Scan to connect desktop'")).firstMatch
+        XCTAssertTrue(loginScanButton.waitForExistence(timeout: 6),
+                      "en 态登录页扫码入口应为英文（Scan to connect desktop）")
+        XCTAssertFalse(loginApp.buttons.matching(NSPredicate(format: "label CONTAINS '连接 Z.ai 继续使用'")).firstMatch.exists,
                        "en 态登录页不得残留中文 OAuth 入口")
     }
 }

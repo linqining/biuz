@@ -355,6 +355,14 @@ class RemoteSessionsIndexStore(
     /** 本地新建会话即刻入表（RemoteConversationStore.performCreateConversation 回写口；iOS :2548-2558）。 */
     suspend fun upsertLocalSession(summary: SessionSummary) = table.upsertLocalSession(summary)
 
+    /** G52：旧连接表快照导出（adoptRows 的种子面）。 */
+    suspend fun exportCaches(): Map<String, SessionSummary> = table.snapshot()
+
+    /** G52：采纳旧连接会话表（更新者赢；订阅簿记不迁移）。 */
+    suspend fun adoptCaches(previous: RemoteSessionsIndexStore) {
+        table.adoptRows(previous.exportCaches())
+    }
+
     /**
      * 字段级回填（RemoteConversationStore.refreshDueSessionMeta 的表侧；只改既有行
      * 不新增行，标题让位本地 override）。返回标题发生变化的 sessionId 集。

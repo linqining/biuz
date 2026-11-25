@@ -349,11 +349,26 @@ final class FeatureCompletionE2ETests: XCTestCase {
     private func openConversation(_ row: XCUIElement, application: XCUIApplication,
                                   timeout: TimeInterval = 18) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
+        /// 陈旧帧防御（§5-14④ 家族，2026-11-25 test20 门禁红实证）：离屏已物化行的
+        /// a11y 帧可能**停在界内的旧位置**（实测 y=777–830，正压 tab 栏「待批」键），
+        /// isOnScreen/isHittable 全部为真但 tap 全被 tab 栏吞掉。判据 = 同一帧坐标
+        /// 重复 tap 而导航未发生 → 帧失准 → 抖动滚动一拍强制 List 重排刷新帧。
+        var lastTappedFrame: String?
         while Date() < deadline {
             if element(application, "05-composer-input").exists { return true }
             scrollToHittable(row, application: application, maxSwipes: 4)
             if isOnScreen(row, application: application), row.isHittable {
+                let frameNow = NSCoder.string(for: row.frame)
+                if frameNow == lastTappedFrame {
+                    dragScroll(application, fromDY: 0.5, toDY: 0.42)
+                    Thread.sleep(forTimeInterval: 0.4)
+                    lastTappedFrame = nil
+                    continue
+                }
+                lastTappedFrame = frameNow
                 row.tap()
+            } else {
+                lastTappedFrame = nil
             }
             let settle = Date().addingTimeInterval(1.2)
             while Date() < settle {
@@ -611,6 +626,9 @@ final class FeatureCompletionE2ETests: XCTestCase {
         element(application, "12-tab-me").tap()
         let accountRow = element(application, "l4-row-account")
         XCTAssertTrue(accountRow.waitForExistence(timeout: 8), "设置页应有账户行")
+        // 2026-11-25 H1：设置首卡新增「设备与配对」行，账户行下移 ~48pt——先滚到可点
+        // 再 tap（旧写法直 tap 在折叠线下落空/命中邻行，首跑实证）
+        _ = scrollToHittable(accountRow, application: application)
         accountRow.tap()
         let loginCard = element(application, "l4-b-card-login")
         XCTAssertTrue(loginCard.waitForExistence(timeout: 8), "账户页应有未登录卡")
@@ -720,8 +738,11 @@ final class FeatureCompletionE2ETests: XCTestCase {
 
     func test05_planTodoPanelRendersCountCollapseExpand() throws {
         // -ZCodeE2EStampHold：停驻拉长到 5s——XCUITest 快照延迟在重载环境下
-        // 会错过 700ms 停驻窗（实测首次快照 ≥1s），断言窗内印必须稳定在场
-        let application = connectAndEnterMain(launchFresh(), extraArguments: ["-ZCodeE2EStampHold"])
+        // 会错过 700ms 停驻窗（实测首次快照 ≥1s），断言窗内印必须稳定在场。
+        // -ZCodeShowStreamTodos（G7 2026-11-25）：消息流内待办卡默认隐藏（web
+        // messageStreamShowTodos default(false) 同值同义）——本用例专测 TodoCardView
+        // 渲染逻辑（计数/步骤三态），显式 opt-in 打开
+        let application = connectAndEnterMain(launchFresh(), extraArguments: ["-ZCodeE2EStampHold", "-ZCodeShowStreamTodos"])
         let planRow = element(application, "04-row-sess-e2e-plan")
         XCTAssertTrue(planRow.waitForExistence(timeout: 15),
                       "重连后列表应呈现流程面板投影会话（sess-e2e-plan）")
@@ -997,14 +1018,15 @@ final class FeatureCompletionE2ETests: XCTestCase {
         }
         XCTAssertTrue(selected, "点选 medium 后思考等级行应回显（菜单点选生效）")
 
-        // ②b UI/UX 目检快照（本轮重设计交付）：模型自绘面板 / slash 建议菜单 /
+        // ②b UI/UX 目检快照（2026-11-25 批4：模型行改二级选择器 ModelPickerSheet——
+        // 一级搜索+最近+分组下钻；断言面随实施更新）：模型选择器 / slash 建议菜单 /
         // 附件来源面板（新建 sheet 三态；快照入 xcresult 供验收 agent 复核）
         element(application, "03-row-model").tap()
-        XCTAssertTrue(element(application, "05-composer-option-sheet").waitForExistence(timeout: 6),
-                      "模型行应弹自绘面板（ComposerOptionSheet）")
+        XCTAssertTrue(element(application, "05-model-sheet").waitForExistence(timeout: 6),
+                      "模型行应弹二级模型选择器（ModelPickerSheet）")
         snap(application, "52-new-sheet-model-panel")
-        element(application, "05-composer-option-cancel").tap()
-        _ = waitGoneQuickly(element(application, "05-composer-option-sheet"), within: 4)
+        element(application, "05-model-close").tap()
+        _ = waitGoneQuickly(element(application, "05-model-sheet"), within: 4)
 
         let sheetInput = element(application, "03-input-title")
         tapAndWaitKeyboard(sheetInput, application: application)
@@ -1041,6 +1063,212 @@ final class FeatureCompletionE2ETests: XCTestCase {
             + "实际=\(String(describing: stub.lastCreateSessionModelSelection))")
         XCTAssertEqual(stub.blockedWriteCommandCount, 0,
                        "模型选择全程不应产生任何直写/配置写类命令")
+    }
+
+    /// LIVE 探针（不进门禁；环境变量 ZCODE_LIVE_LINK=<中继配对链接> 才执行）：
+    /// 真实桌面全链路验证闭环（2026-11-25 用户裁决「测试使用个人版 glm5.3-flash 或
+    /// ccgithub 的 deepseek-v4.1-flash，不要用错」）：
+    /// ① 中继链接冷启直连桌面（-ZCodeRelayLink，链接由桌面端 UI 现生成——
+    ///    版本门要求链接声明版本=桌面实际版本）；
+    /// ② 新建会话 sheet → 二级模型选择器搜索选 deepseek（ccgithub 自定义 provider
+    ///    走「其他」组回退正是本轮批4修复面；个人版 GLM 走套餐组同理）；
+    /// ③ 发送一条 ≤20 字消息 → 断言模型芯片回显所选模型（createSession firstInput
+    ///    modelSelection + state.modelSelection 投影链路）且无发送失败行（U-5）；
+    /// ④ 会话行长按 → 归档（可逆，桌面归档管理可见）——测试会话不残留主列表。
+    /// 费用护栏：只发一条 ≤20 字消息；模型由 ZCODE_LIVE_MODEL 指定（默认
+    /// deepseek/deepseek-v4.1-flash），测试内不做任何其他模型选择。
+    func testLive_realModelSessionVerification() throws {
+        // 环境变量不穿透 testmanagerd→runner（实测 skip）；改读宿主文件（模拟器
+        // 进程即 macOS 进程，可直接读宿主路径）：{"link":..., "jwt":..., "model":...}
+        let envPath = "/tmp/zhupi-live-env.json"
+        guard let envData = FileManager.default.contents(atPath: envPath),
+              let env = try? JSONSerialization.jsonObject(with: envData) as? [String: String],
+              let link = env["link"], let jwt = env["jwt"], !link.isEmpty, !jwt.isEmpty else {
+            XCTSkip("LIVE 探针：仅宿主文件 \(envPath) 含 {link, jwt, model} 时执行（不进门禁）")
+            return
+        }
+        let wantedModel = env["model"] ?? "deepseek/deepseek-v4.1-flash"
+
+        let application = XCUIApplication()
+        application.launchArguments = [
+            "-ZCodeRelayLink", link,
+            "-ZCodeDebugJWT", jwt,
+            "-AppleLanguages", "(zh-Hans)",
+        ]
+        application.launch()
+
+        // ① 中继直连：会话列表出现真实会话行（此构建注册表无替身——出现 04-row-*
+        //    即为真连）。给足 45s（中继 token→auth→bridge→订阅链）。
+        let anyRow = application.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH '04-row-'")).firstMatch
+        XCTAssertTrue(anyRow.waitForExistence(timeout: 45),
+                      "中继链接应直连桌面并呈现真实会话列表")
+
+        // ② 新建会话 sheet：二级模型选择器搜索框定位目标模型（真实清单分组随
+        //    桌面 provider 配置浮动——跨组 CONTAINS 匹配最稳）
+        element(application, "04-tab-chat").tap()
+        let newButton = element(application, "04-act-new")
+        XCTAssertTrue(newButton.waitForExistence(timeout: 8), "会话页应有新建入口")
+        newButton.tap()
+        let modelRow = element(application, "03-row-model")
+        XCTAssertTrue(modelRow.waitForExistence(timeout: 10),
+                      "连接态应呈现可点模型行（真实 getView 投影）")
+        modelRow.tap()
+        XCTAssertTrue(element(application, "05-model-sheet").waitForExistence(timeout: 6),
+                      "应弹二级模型选择器")
+        let search = element(application, "05-model-search")
+        XCTAssertTrue(search.waitForExistence(timeout: 4), "模型选择器搜索框应在场")
+        search.tap()
+        search.typeText(wantedModel)
+        let hit = application.buttons
+            .matching(NSPredicate(format: "identifier CONTAINS '05-model-row-' AND label CONTAINS %@",
+                                  wantedModel)).firstMatch
+        XCTAssertTrue(hit.waitForExistence(timeout: 6),
+                      "应找到目标模型「\(wantedModel)」（真实 getView 未含它时请核对 provider 配置）")
+        hit.tap()
+        XCTAssertTrue(waitGoneQuickly(element(application, "05-model-sheet"), within: 4),
+                      "点选后选择器应收起")
+        waitLabel(modelRow, contains: wantedModel, timeout: 8,
+                  "模型行应回显所选模型")
+
+        // ③ 提交建会话（firstInput.modelSelection 携所选模型）→ 发送一条短消息
+        let titleInput = element(application, "03-input-title")
+        tapAndWaitKeyboard(titleInput, application: application)
+        titleInput.typeText("live-model-verify")
+        element(application, "03-submit-start").tap()
+        let composer = element(application, "05-composer-input")
+        XCTAssertTrue(composer.waitForExistence(timeout: 12), "应进入新会话页")
+        tapAndWaitKeyboard(composer, application: application)
+        composer.typeText("移动端真实模型验证")
+        let send = element(application, "05-composer-send")
+        XCTAssertTrue(send.waitForExistence(timeout: 6), "发送按钮应在场")
+        send.tap()
+        // U-5：不得出现发送失败行（出现即 ACK 未达）
+        let sendFail = element(application, "05-composer-send-fail")
+        XCTAssertFalse(waitVisibleQuickly(sendFail, within: 4),
+                       "发送不应失败（失败行=\(sendFail.label)）")
+        // 模型芯片回显所选模型（会话 state.modelSelection 投影链路闭环）
+        let chip = element(application, "05-chip-model")
+        XCTAssertTrue(waitUntil(timeout: 20, "模型芯片应回显所选模型") {
+            chip.exists && chip.label.contains(wantedModel)
+        }, "模型芯片应回显所选模型；实际=\(chip.exists ? chip.label : "absent")")
+        snap(application, "90-live-model-chip")
+
+        // ④ 归档测试会话（可逆——桌面归档管理可见）：返回列表 → 按标题定位行 →
+        //    长按 → 归档，主列表不残留测试会话
+        app_navigationBack(application)
+        waitGoneQuickly(element(application, "05-composer-input"), within: 4)
+        let newRow = application.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH '04-row-' AND label CONTAINS 'live-model-verify'"))
+            .firstMatch
+        XCTAssertTrue(newRow.waitForExistence(timeout: 12),
+                      "新会话行应出现在列表（标题 live-model-verify）")
+        newRow.press(forDuration: 1.2)
+        let archiveItem = application.buttons["归档"].firstMatch
+        XCTAssertTrue(archiveItem.waitForExistence(timeout: 6), "长按应弹出含「归档」的菜单")
+        archiveItem.tap()
+        XCTAssertTrue(waitUntil(timeout: 10, "归档后测试会话行应离场") {
+            !newRow.exists
+        }, "归档应从主列表移除测试会话（可逆，桌面归档管理可见）")
+        snap(application, "91-live-archived")
+    }
+
+    /// LIVE 真机探针（不进门禁）：`testLive_realModelSessionVerification` 的真机
+    /// 变体（2026-11-25，用户已在真机登录+配对——Keychain JWT 与已存服务器随
+    /// 覆盖安装保留，无需 link/jwt 注入；宿主 /tmp 文件在真机沙盒不可读，故独立
+    /// 门控：模拟器 destination 一律 skip，真机才执行）。链路同模拟器版：
+    /// 二级模型选择器搜索选 deepseek（ccgithub 自定义 provider 走「其他」组回退，
+    /// 本轮批4修复面）→ 发一条 ≤20 字消息 → 芯片回显 → 归档收尾。
+    /// 费用护栏：只发一条 ASCII 短消息（真机软键盘 typeText 对 CJK 不可靠），
+    /// 模型固定 deepseek/deepseek-v4.1-flash，不做其他模型选择。
+    func testLive_realModelSessionVerification_device() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("LIVE 真机探针：仅真机 destination 执行（模拟器版见 testLive_realModelSessionVerification）")
+        #else
+        let wantedModel = "deepseek/deepseek-v4.1-flash"
+
+        let application = XCUIApplication()
+        // 真机自身凭据直连：不带 -ZCodeRelayLink/-ZCodeDebugJWT（AppSession
+        // bootstrap 读 Keychain + 已存服务器自动建 ws2）；语言钉中文保证断言 label 稳定
+        application.launchArguments = ["-AppleLanguages", "(zh-Hans)"]
+        application.launch()
+
+        // ① 真连判据：会话列表出现真实会话行（此构建无替身/无 Mock 装配）。
+        //    真机中继自连链（JWT→一次性 token→ws2→订阅）给足 60s
+        let anyRow = application.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH '04-row-'")).firstMatch
+        XCTAssertTrue(anyRow.waitForExistence(timeout: 60),
+                      "真机应凭已登录凭据直连桌面并呈现真实会话列表（若停在连接页请核对桌面在线/登录态）")
+
+        // ② 新建会话 → 二级模型选择器 → 搜索定位 deepseek（跨组 CONTAINS 最稳）
+        element(application, "04-tab-chat").tap()
+        let newButton = element(application, "04-act-new")
+        XCTAssertTrue(newButton.waitForExistence(timeout: 8), "会话页应有新建入口")
+        newButton.tap()
+        let modelRow = element(application, "03-row-model")
+        XCTAssertTrue(modelRow.waitForExistence(timeout: 10),
+                      "连接态应呈现可点模型行（真实 getView 投影）")
+        modelRow.tap()
+        XCTAssertTrue(element(application, "05-model-sheet").waitForExistence(timeout: 6),
+                      "应弹二级模型选择器")
+        let search = element(application, "05-model-search")
+        XCTAssertTrue(search.waitForExistence(timeout: 4), "模型选择器搜索框应在场")
+        search.tap()
+        search.typeText(wantedModel)
+        let hit = application.buttons
+            .matching(NSPredicate(format: "identifier CONTAINS '05-model-row-' AND label CONTAINS %@",
+                                  wantedModel)).firstMatch
+        XCTAssertTrue(hit.waitForExistence(timeout: 6),
+                      "应找到目标模型「\(wantedModel)」（其他组回退面；找不到请核对桌面 ccgithub provider 配置）")
+        hit.tap()
+        XCTAssertTrue(waitGoneQuickly(element(application, "05-model-sheet"), within: 4),
+                      "点选后选择器应收起")
+        // 行回显放宽到前缀匹配（真机投影可能带显示名后缀）
+        XCTAssertTrue(waitUntil(timeout: 8, "模型行应回显所选模型") {
+            modelRow.exists && modelRow.label.lowercased().contains("deepseek")
+        }, "模型行应回显 deepseek；实际=\(modelRow.exists ? modelRow.label : "absent")")
+
+        // ③ 提交建会话（firstInput.modelSelection 携所选模型）→ 发送一条 ASCII 短消息
+        let titleInput = element(application, "03-input-title")
+        tapAndWaitKeyboard(titleInput, application: application)
+        titleInput.typeText("live-model-verify")
+        element(application, "03-submit-start").tap()
+        let composer = element(application, "05-composer-input")
+        XCTAssertTrue(composer.waitForExistence(timeout: 12), "应进入新会话页")
+        tapAndWaitKeyboard(composer, application: application)
+        composer.typeText("ping")
+        let send = element(application, "05-composer-send")
+        XCTAssertTrue(send.waitForExistence(timeout: 6), "发送按钮应在场")
+        send.tap()
+        // U-5：不得出现发送失败行（出现即 ACK 未达）
+        let sendFail = element(application, "05-composer-send-fail")
+        XCTAssertFalse(waitVisibleQuickly(sendFail, within: 4),
+                       "发送不应失败（失败行=\(sendFail.label)）")
+        // 模型芯片回显所选模型（会话 modelSelection 投影链路闭环；忙 turn 增量滞后
+        // 由 3s 护栏/投影覆盖，放宽到 25s）
+        let chip = element(application, "05-chip-model")
+        XCTAssertTrue(waitUntil(timeout: 25, "模型芯片应回显所选模型") {
+            chip.exists && chip.label.lowercased().contains("deepseek")
+        }, "模型芯片应回显 deepseek；实际=\(chip.exists ? chip.label : "absent")")
+        snap(application, "90-live-device-model-chip")
+
+        // ④ 归档测试会话（可逆——桌面归档管理可见）：返回列表 → 长按 → 归档
+        app_navigationBack(application)
+        waitGoneQuickly(element(application, "05-composer-input"), within: 4)
+        let newRow = application.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH '04-row-' AND label CONTAINS 'live-model-verify'"))
+            .firstMatch
+        XCTAssertTrue(newRow.waitForExistence(timeout: 12),
+                      "新会话行应出现在列表（标题 live-model-verify）")
+        newRow.press(forDuration: 1.2)
+        let archiveItem = application.buttons["归档"].firstMatch
+        XCTAssertTrue(archiveItem.waitForExistence(timeout: 6), "长按应弹出含「归档」的菜单")
+        archiveItem.tap()
+        XCTAssertTrue(waitUntil(timeout: 10, "归档后测试会话行应离场") {
+            !newRow.exists
+        }, "归档应从主列表移除测试会话（可逆，桌面归档管理可见）")
+        snap(application, "91-live-device-archived")
+        #endif
     }
 
     /// LIVE 探针（不进门禁；环境变量 ZCODE_LIVE_PANEL=1 才执行）：真实中继链路
@@ -1801,14 +2029,19 @@ final class FeatureCompletionE2ETests: XCTestCase {
         waitLabel(modelRow, contains: "GLM-5.3", timeout: 15,
                   "多套餐 getView 行值应回显当前模型")
         modelRow.tap()
-        XCTAssertTrue(element(application, "05-composer-option-sheet").waitForExistence(timeout: 6),
-                      "模型行应弹自绘面板（双套餐分组）")
-        let starterRow = element(application, "05-composer-option-体验套餐|GLM-5.3")
+        // 2026-11-25 批4：模型行改二级选择器——一级分组下钻行 → 二级组内复合行键
+        XCTAssertTrue(element(application, "05-model-sheet").waitForExistence(timeout: 6),
+                      "模型行应弹二级模型选择器（双套餐分组）")
+        let starterGroup = element(application, "05-model-group-体验套餐")
+        XCTAssertTrue(starterGroup.waitForExistence(timeout: 6),
+                      "体验套餐分组下钻行应在场（套餐分组投影）")
+        starterGroup.tap()
+        let starterRow = element(application, "05-model-row-体验套餐|GLM-5.3")
         XCTAssertTrue(starterRow.waitForExistence(timeout: 6),
-                      "体验套餐|GLM-5.3 复合行键应在场（套餐分组投影）")
+                      "体验套餐|GLM-5.3 复合行键应在场（二级组内单选）")
         starterRow.tap()
-        XCTAssertTrue(waitGoneQuickly(element(application, "05-composer-option-sheet"), within: 4),
-                      "点选后面板应收起")
+        XCTAssertTrue(waitGoneQuickly(element(application, "05-model-sheet"), within: 4),
+                      "点选后选择器应收起")
         let titleInput = element(application, "03-input-title")
         tapAndWaitKeyboard(titleInput, application: application)
         titleInput.typeText("multi-plan-e2e")
@@ -1981,19 +2214,46 @@ final class FeatureCompletionE2ETests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 12, "userInput 挂起交互应渲染提问卡") {
             card.exists
         }, "真实链路 userInput 不再落 EmptyView")
-        XCTAssertTrue(application.staticTexts.matching(
+        // G22 多题向导（web ElicitationDialog 同构）：一次一题——第 1 题「选择模型」
+        // 在场，第 2 题不提前上屏。卡域断言：会话行文本含「补充说明」，不卡域会被误放水。
+        XCTAssertTrue(card.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "选择模型")).firstMatch.exists,
-                      "题目文本应上屏")
-        XCTAssertTrue(application.staticTexts.matching(
+                      "第 1 题文本应上屏")
+        XCTAssertFalse(card.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "补充说明")).firstMatch.exists,
-                      "第二题（自由输入）应上屏")
+                       "向导态第 2 题不应提前上屏（一次一题）")
+        XCTAssertTrue(card.staticTexts["05-userinput-progress"].exists, "进度「第 1/2 题」应在场")
 
         let glm = card.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", "GLM")).firstMatch
         XCTAssertTrue(glm.waitForExistence(timeout: 6), "选项 chip 应在场")
         glm.tap()
+        // 非末题只出「下一题」；提交按钮在末题才出现
+        let next = card.buttons["05-userinput-next"].firstMatch
+        XCTAssertTrue(next.waitForExistence(timeout: 4), "非末题应出下一题钮")
+        XCTAssertFalse(card.buttons["05-userinput-submit"].firstMatch.exists, "末题前不应出提交钮")
+        next.tap()
+
+        // 第 2 题（自由输入）上场 + G22 主语义「上一题」返回（drafts 不重置）
+        XCTAssertTrue(card.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "补充说明")).firstMatch.waitForExistence(timeout: 4),
+                      "下一题后第 2 题应上屏")
+        let previous = card.buttons["05-userinput-previous"].firstMatch
+        XCTAssertTrue(previous.waitForExistence(timeout: 4), "第 2 题应出上一题钮")
+        previous.tap()
+        XCTAssertTrue(card.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "选择模型")).firstMatch.waitForExistence(timeout: 4),
+                      "上一题应回到第 1 题")
+        XCTAssertFalse(card.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "补充说明")).firstMatch.exists,
+                       "上一题后第 2 题应收起")
+        let glmChecked = card.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "✓ GLM")).firstMatch
+        XCTAssertTrue(glmChecked.waitForExistence(timeout: 4), "回退后已选 GLM 应保留 ✓ 徽标（drafts 不重置）")
+
+        card.buttons["05-userinput-next"].firstMatch.tap()
         let submit = card.buttons["05-userinput-submit"].firstMatch
-        XCTAssertTrue(submit.waitForExistence(timeout: 4), "多题卡应出现提交按钮")
+        XCTAssertTrue(submit.waitForExistence(timeout: 4), "末题应出现提交按钮")
         snap(application, "60b-userinput-card-before-submit")
         submit.tap()
 
@@ -2005,6 +2265,9 @@ final class FeatureCompletionE2ETests: XCTestCase {
         let answer = stub.lastResolveInteraction?.payload["answer"] as? [String: Any]
         XCTAssertEqual(answer?["action"] as? String, "accept",
                        "多题/表单答案应走 action=accept + content")
+        let answers = (answer?["content"] as? [String: Any])?["answers"] as? [String: Any]
+        XCTAssertEqual(answers?["选择模型"] as? String, "glm",
+                       "answers 汇总应存 optionId（iOS submitQuestions 同构）")
         XCTAssertTrue(waitUntil(timeout: 8, "应答后卡片应撤下") { !card.exists },
                       "服务端 pendingInteractions 清空后卡片应消失")
         snap(application, "61-userinput-card")

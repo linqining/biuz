@@ -10,7 +10,7 @@ enum PillKind {
         case .wait: return T.orange
         case .done: return T.accentText
         case .err: return T.red
-        case .tag: return T.violet
+        case .tag: return T.text2
         }
     }
     var bg: Color {
@@ -19,7 +19,7 @@ enum PillKind {
         case .wait: return T.orangeDim
         case .done: return T.accentDim
         case .err: return T.redDim
-        case .tag: return T.violetDim
+        case .tag: return T.bgInput
         }
     }
 }
@@ -86,15 +86,19 @@ struct PrimaryButton: View {
     // G-007：LocalizedStringKey 使字面量标题走 Localizable 查表（调用点全为字面量，已核对）
     let title: LocalizedStringKey
     var identifier: String = ""
+    /// 品牌入口主 CTA 用朱磦（2026-11-25 用户「按钮配色不对」：连接页扫码钮为墨黑，
+    /// 与主印/登录主钮不成对）。规则：**入口页**主 CTA=seal/onSeal；**流程内**主按钮
+    /// 保持墨 accent（印色只给入口与落笔语义，design-spec §2）
+    var sealStyle = false
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(T.font(15, .semibold))
-                .foregroundColor(T.onAccent)
+                .foregroundColor(sealStyle ? T.onSeal : T.onAccent)
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .background(T.accent)
+                .background(sealStyle ? T.seal : T.accent)
                 .clipShape(RoundedRectangle(cornerRadius: T.rM))
         }
         .buttonStyle(PressableButtonStyle())
@@ -132,7 +136,10 @@ struct PressableButtonStyle: ButtonStyle {
 // MARK: - spinner（1s 线性旋转）
 
 struct SpinnerView: View {
-    var color: Color = T.greenBright
+    // 2026-11-25 UIUX 审查（用户「这个转圈还是绿色的，是之前版本的设计语言」）：
+    // 默认色由旧版绿 #46bf72 改中性钤灰（T.text3）——转圈是「进行中」不是「成功」，
+    // 绿色属旧设计语言；品牌场合（连接中卡）显式传 T.seal
+    var color: Color = T.text3
     var size: CGFloat = 18
     @State private var rotating = false
 
@@ -252,7 +259,7 @@ struct ZSegmentedPicker<Item: Hashable>: View {
                             if selection == item {
                                 RoundedRectangle(cornerRadius: T.rS)
                                     .fill(T.bgElevated)
-                                    .shadow(color: T.shadowCard.opacity(0.3), radius: 6, y: 2)
+                                    
                             }
                         }
                 }
@@ -333,7 +340,7 @@ struct AgentAvatar: View {
             .font(T.font(size * 0.45, .bold))
             .foregroundColor(.white)
             .frame(width: size, height: size)
-            .background(T.gradAvatar)
+            .background(T.bgInput)
             .clipShape(RoundedRectangle(cornerRadius: size * 0.28))
     }
 }

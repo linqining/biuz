@@ -90,6 +90,7 @@ import cn.biuz.android.protocol.DiffFile
 import cn.biuz.android.protocol.DiffLine
 import cn.biuz.android.protocol.DiffLineKind
 import cn.biuz.android.protocol.FileNode
+import cn.biuz.android.protocol.CodePreviewSettings
 import cn.biuz.android.store.FileStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -821,6 +822,10 @@ fun FileTreeScreen(
     var tree by remember(surface.epoch) { mutableStateOf<List<FileNode>>(emptyList()) }
     var expanded by remember { mutableStateOf(setOf<String>()) }
     var query by remember { mutableStateOf("") }
+    // G32 仅显示变更（web WorkspaceFileTree showChangedOnly → model.ts:341-360
+    // changedOnly 过滤——file 行 path ∈ git unstaged 变更集才显示；iOS FileTreeView 同构）
+    var showChangedOnly by remember { mutableStateOf(false) }
+    var changedPaths by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isLoading by remember(surface.epoch) { mutableStateOf(true) }
     var searchResults by remember { mutableStateOf<List<FileNode>?>(null) }
     var loadError by remember(surface.epoch) { mutableStateOf<String?>(null) }
@@ -861,12 +866,16 @@ fun FileTreeScreen(
     }
 
     // 命中行：搜索回执优先（连接态），否则树内过滤（演示态 + 未命中时回退）（iOS :50-67）
-    val visibleRows = remember(tree, expanded, query, searchResults) {
+    val visibleRows = remember(tree, expanded, query, searchResults, showChangedOnly, changedPaths) {
         searchResults ?: run {
             val rows = ArrayList<FileNode>()
             fun walk(nodes: List<FileNode>) {
                 for (node in nodes) {
-                    if (query.isEmpty() || node.name.contains(query, ignoreCase = true)) rows.add(node)
+                    val queryHit = query.isEmpty() || node.name.contains(query, ignoreCase = true)
+                    // G32：仅变更开 → 叠加 path ∈ 变更集（目录行不参与）
+                    val changedHit = !showChangedOnly ||
+                        (!node.isDirectory && node.path in changedPaths)
+                    if (queryHit && changedHit) rows.add(node)
                     if (node.isDirectory && node.id in expanded) walk(node.children ?: emptyList())
                 }
             }
@@ -900,6 +909,32 @@ fun FileTreeScreen(
                 text = stringResource(R.string.tree_title),
                 style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold),
                 color = BiuZText,
+            )
+            Spacer(Modifier.weight(1f))
+            // G32 仅显示变更 chip（web WorkspaceFileTree showChangedOnly 同位；
+            // 开 = 拉一次 git unstaged 变更集叠加过滤）
+            Text(
+                text = if (showChangedOnly) "✓ 仅变更" else "仅变更",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (showChangedOnly) BiuZAccent else BiuZText2,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (showChangedOnly) BiuZAccent.copy(alpha = BiuZAlpha.faint) else BiuZBgInput)
+                    .clickable {
+                        showChangedOnly = !showChangedOnly
+                        if (showChangedOnly && changedPaths.isEmpty()) {
+                            scope.launch {
+                                runCatching {
+                                    changedPaths = fileStore.diffFiles()
+                                        .map { it.path }
+                                        .toSet()
+                                }
+                            }
+                        }
+                    }
+                    .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
+                    .testTag("09-chip-changed-only"),
             )
         }
         if (isLoading) {
@@ -1129,6 +1164,16 @@ fun FilePreviewScreen(
     val scope = rememberCoroutineScope()
 
     var segment by remember(path) { mutableStateOf(0) } // 0=预览 1=源码
+    // G42 残面：代码预览偏好（字号 12–20/行号/换行；web codePreviewSettings 同语义）
+    var previewSettings by remember(path) {
+        mutableStateOf(
+            CodePreviewSettings(
+                fontSizePx = cn.biuz.android.app.ui.theme.UiFontScale.px.coerceIn(12, 20),
+                showLineNumbers = true,
+                wrapLongLines = false,
+            ),
+        )
+    }
     var content by remember(path) { mutableStateOf("") }
     var isLoading by remember(path) { mutableStateOf(true) }
     var loadedBytes by remember(path) { mutableStateOf(0) }
@@ -1340,6 +1385,62 @@ fun FilePreviewScreen(
                 )
 
                 else -> {
+                    // G42 残面：源码段顶三键行内控制（字号循环 12→20→12 / 行号 / 换行；
+                    // web settingsCodePreview 移动端化——独立设置页入口成本高，行内即达意）
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = BiuZSpacing.xs),
+                        horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "${previewSettings.fontSizePx}px",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = BiuZText2,
+                            modifier = Modifier
+                                .clip(BiuZRadius.small)
+                                .background(BiuZBgInput)
+                                .clickable {
+                                    previewSettings = previewSettings.copy(
+                                        fontSizePx = if (previewSettings.fontSizePx >= 20) 12 else previewSettings.fontSizePx + 1,
+                                    )
+                                }
+                                .padding(horizontal = BiuZSpacing.xs, vertical = BiuZSpacing.xxs)
+                                .testTag("09-font-size-cycle"),
+                        )
+                        Text(
+                            text = if (previewSettings.showLineNumbers) "行号 开" else "行号 关",
+                            fontSize = 11.sp,
+                            color = if (previewSettings.showLineNumbers) BiuZAccent else BiuZText3,
+                            modifier = Modifier
+                                .clip(BiuZRadius.small)
+                                .background(BiuZBgInput)
+                                .clickable {
+                                    previewSettings = previewSettings.copy(
+                                        showLineNumbers = !previewSettings.showLineNumbers,
+                                    )
+                                }
+                                .padding(horizontal = BiuZSpacing.xs, vertical = BiuZSpacing.xxs)
+                                .testTag("09-line-numbers-toggle"),
+                        )
+                        Text(
+                            text = if (previewSettings.wrapLongLines) "换行 开" else "换行 关",
+                            fontSize = 11.sp,
+                            color = if (previewSettings.wrapLongLines) BiuZAccent else BiuZText3,
+                            modifier = Modifier
+                                .clip(BiuZRadius.small)
+                                .background(BiuZBgInput)
+                                .clickable {
+                                    previewSettings = previewSettings.copy(
+                                        wrapLongLines = !previewSettings.wrapLongLines,
+                                    )
+                                }
+                                .padding(horizontal = BiuZSpacing.xs, vertical = BiuZSpacing.xxs)
+                                .testTag("09-wrap-toggle"),
+                        )
+                    }
                     // 源码视图：等宽 + 行号（横滚禁折行；iOS sourceView :715-741 直译）
                     Column(
                         modifier = Modifier
@@ -1351,18 +1452,23 @@ fun FilePreviewScreen(
                     ) {
                         content.split("\n").forEachIndexed { index, line ->
                             Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.md)) {
-                                Text(
-                                    text = "${index + 1}",
-                                    style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
-                                    color = BiuZText3,
-                                    modifier = Modifier.width(32.dp),
-                                )
+                                if (previewSettings.showLineNumbers) {
+                                    Text(
+                                        text = "${index + 1}",
+                                        style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                                        color = BiuZText3,
+                                        modifier = Modifier.width(32.dp),
+                                    )
+                                }
                                 Text(
                                     text = line.ifEmpty { " " },
-                                    style = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                                    style = TextStyle(
+                                        fontSize = previewSettings.fontSizePx.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                    ),
                                     color = BiuZText2,
-                                    maxLines = 1,
-                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                    maxLines = if (previewSettings.wrapLongLines) Int.MAX_VALUE else 1,
+                                    modifier = if (previewSettings.wrapLongLines) Modifier else Modifier.horizontalScroll(rememberScrollState()),
                                 )
                             }
                         }

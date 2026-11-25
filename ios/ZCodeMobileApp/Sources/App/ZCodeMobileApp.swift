@@ -70,8 +70,8 @@ struct ZCodeMobileApp: App {
                             // 扫码页/失败页现读 AppSettingsModel（开发者模式 gating），
                             // 缺注入 = EnvironmentValues 下标 trap 闪退（test16 首跑实证）
                             .environment(appSettings)
-                    case .connect(let editTokenOnly):
-                        ConnectFlowView(initialEditTokenOnly: editTokenOnly)
+                    case .connect(let editTokenOnly, let initialScan):
+                        ConnectFlowView(initialEditTokenOnly: editTokenOnly, initialScan: initialScan)
                             .environment(session)
                             .environment(appSettings)
                     }
@@ -79,17 +79,13 @@ struct ZCodeMobileApp: App {
         }
     }
 
-    /// 通知点击路由（P1-7）：跳对应任务详情（任务不在缓存时退回任务 Tab 根）
+    /// 通知点击路由（P1-7；2026-11-25 三 tab 重构改道）：任务/审批通知 → 直接打开
+    /// 对应会话（taskID 即 sessionId；不在会话列表时落会话列表根，不猜详情）
     private func installNotificationRoute() async {
         guard NotificationService.shared.routeHandler == nil else { return }
         NotificationService.shared.routeHandler = { taskID in
             Task { @MainActor in
-                router.selectedTab = .tasks
-                router.taskPath = []
-                let tasks = await taskStore.tasks()
-                if let match = tasks.first(where: { $0.id == taskID }) {
-                    router.pushTask(taskID: taskID, task: match)
-                }
+                router.openChat(conversationID: taskID)
             }
         }
     }
@@ -98,6 +94,7 @@ struct ZCodeMobileApp: App {
     private func bootstrapIfNeeded() async {
         #if DEBUG
         session.applyDebugAccountIfNeeded(arguments: ProcessInfo.processInfo.arguments)
+        session.applyDebugJWTIfNeeded(arguments: ProcessInfo.processInfo.arguments)
         session.applyDebugVersionMismatchIfNeeded(arguments: ProcessInfo.processInfo.arguments)
         #endif
         await session.bootstrap()
@@ -159,7 +156,7 @@ extension AppSession.PresentedFlow: Identifiable {
     var id: String {
         switch self {
         case .login: return "login"
-        case .connect(let editTokenOnly): return "connect-\(editTokenOnly)"
+        case .connect(let editTokenOnly, let initialScan): return "connect-\(editTokenOnly)-\(initialScan)"
         }
     }
 }

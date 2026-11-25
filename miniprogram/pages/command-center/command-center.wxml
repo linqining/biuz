@@ -1,0 +1,45 @@
+<view class="cc">
+  <view class="cc__head">
+    <text class="cc__back" bind:tap="onBack">‹</text>
+    <text class="cc__title">统一搜索</text>
+  </view>
+  <input class="cc__input" placeholder="统一搜索" value="{{query}}"
+    bindinput="onQueryInput" confirm-type="search" />
+  <view class="cc__scopes">
+    <text class="cc__scope {{scope === 'all' ? 'cc__scope--on' : ''}}"
+      data-scope="all" bind:tap="onScope">全部</text>
+    <text class="cc__scope {{scope === 'conversations' ? 'cc__scope--on' : ''}}"
+      data-scope="conversations" bind:tap="onScope">会话</text>
+    <text class="cc__scope {{scope === 'files' ? 'cc__scope--on' : ''}}"
+      data-scope="files" bind:tap="onScope">文件</text>
+  </view>
+  <scroll-view class="cc__history" scroll-x wx:if="{{query.length === 0 && history.length}}">
+    <view class="cc__history-row">
+      <text class="cc__history-chip" wx:for="{{history}}" wx:key="updatedAt"
+        data-entry="{{item}}" bind:tap="onHistoryTap">{{item.scope === 'files' ? '@' : ':'}}{{item.query}}</text>
+    </view>
+  </scroll-view>
+  <scroll-view class="cc__results" scroll-y>
+    <view wx:if="{{query.length === 0}}" class="cc__hint">输入关键词检索会话与文件</view>
+    <view wx:elif="{{searching}}" class="cc__hint">检索中…</view>
+    <block wx:else>
+      <view wx:if="{{scope === 'all' || scope === 'conversations'}}">
+        <view class="cc__section">会话</view>
+        <view class="cc__empty" wx:if="{{sessions.length === 0}}">无匹配会话</view>
+        <view class="cc__row" wx:for="{{sessions}}" wx:key="id"
+          data-id="{{item.id}}" bind:tap="onOpenSession">
+          <text class="cc__row-title">{{item.title}}</text>
+          <text class="cc__row-meta" wx:if="{{item.projectName}}">{{item.projectName}}</text>
+        </view>
+      </view>
+      <view wx:if="{{scope === 'all' || scope === 'files'}}">
+        <view class="cc__section">文件</view>
+        <view class="cc__empty" wx:if="{{files.length === 0}}">无匹配文件</view>
+        <view class="cc__row" wx:for="{{files}}" wx:key="id" bind:tap="onPickFile">
+          <text class="cc__row-title">{{item.name}}</text>
+          <text class="cc__row-meta">{{item.path}}</text>
+        </view>
+      </view>
+    </block>
+  </scroll-view>
+</view>

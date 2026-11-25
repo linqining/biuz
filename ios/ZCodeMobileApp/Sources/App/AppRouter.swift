@@ -1,16 +1,23 @@
 import SwiftUI
 
 // APP-DIFF[D002] platform: 全局导航用 NavigationStack 系统返回语义（web 为 history.pushState +
-// popstate，浏览器历史无原生对应；4 Tab 各自独立 stack，Push 层隐藏 Tab 栏）
-/// 全局导航路由：4 Tab 各自独立 NavigationStack，Push 层隐藏 Tab 栏
+// popstate，浏览器历史无原生对应；3 Tab 各自独立 stack，Push 层隐藏 Tab 栏）
+// 2026-11-25 重设计裁决 R2：底部三 tab = 会话 / 待批 / 设置；任务看板与全局文件页撤除
+// （更改/文件收进会话页 sheet，执行输出挂会话 ⋯ 菜单——见 design/design-spec.md §1）。
 enum ChatRoute: Hashable {
     case chat(String)
 }
 
-enum TaskRoute: Hashable {
-    case output(TaskRecord)
+/// 待批 tab 内打开会话的路由值：**独立类型**——chat 与待批两个 NavigationStack
+/// 常驻 ZStack 同时挂载，若共用 ChatRoute 会对同一类型重复注册 navigationDestination
+/// （SwiftUI 多栈同类型注册歧义：push 被路由进未选中的栈，点行不导航——2026-11-25
+/// test20 门禁红 + 基线对照实证）。
+enum ApprovalChatRoute: Hashable {
+    case chat(String)
 }
 
+/// 会话页「文件」sheet 内的导航值（树 → 预览 → 提交图谱；栈归 sheet 宿主私有，
+/// 不再是全局 tab 路由——2026-11-25 三 tab 重构）
 enum FileRoute: Hashable {
     case tree
     case preview(FileNode)
@@ -25,6 +32,8 @@ enum SettingsRoute: String, Hashable {
     // P2 批次只读页（G-022/G-024/G-025）
     case savedWorkflows, offPeakTasks, feedbackTickets
     case desktopSettings // P3-11C 桌面设置同步（settingService get/update）
+    case autoArchive // G43 自动归档（setting 频道 taskAutoArchiveEnabled/OlderThanDays）
+    case behaviorSettings // G41 行为设置（setting 频道五键策展面）
     // 027/024/026/018 四页（上游取证 2026-11-10；RemoteSettingsExtrasViews.swift）
     case personalization, hooks, subagents, projects
     case diagnostics // G-061 导出诊断日志
@@ -34,54 +43,30 @@ enum SettingsRoute: String, Hashable {
 @Observable
 final class AppRouter {
     enum Tab: Int, CaseIterable, Hashable {
-        case chat = 0, tasks, files, settings
+        case chat = 0, approvals, settings
     }
 
     var selectedTab: Tab = .chat
     var chatPath: [ChatRoute] = []
-    var taskPath: [TaskRoute] = []
-    var filePath: [FileRoute] = []
+    /// 待批 tab 自己的导航栈（内联打开会话，返回回待批列表；独立路由类型——
+    /// 与会话栈同挂载，共用类型会对 ChatRoute 重复注册 navigationDestination）
+    var approvalsPath: [ApprovalChatRoute] = []
     var settingsPath: [SettingsRoute] = []
 
     /// Push 深度 > 0 时隐藏底部 Tab 栏
     var isPushing: Bool {
-        !chatPath.isEmpty || !taskPath.isEmpty || !filePath.isEmpty || !settingsPath.isEmpty
+        !chatPath.isEmpty || !approvalsPath.isEmpty || !settingsPath.isEmpty
     }
-
-    /// Diff 动作栏显隐：文件 Tab 根页（底部动作栏叠于 Tab 栏之上）
-    var showsDiffActionBar: Bool {
-        selectedTab == .files && filePath.isEmpty
-    }
-
-    /// 跨视图刷新令牌（底部动作栏全部批准后驱动列表与角标刷新）
-    var diffReloadToken = 0
 
     func openChat(conversationID: String) {
         selectedTab = .chat
         chatPath = [.chat(conversationID)]
     }
 
-    func pushTask(taskID: String, task: TaskRecord) {
-        selectedTab = .tasks
-        taskPath.append(.output(task))
-    }
-
-    func pushFileTree() {
-        selectedTab = .files
-        filePath.append(.tree)
-    }
-
-    /// G-023：文件域内 push（提交图谱等只读页）
-    func pushFileRoute(_ route: FileRoute) {
-        selectedTab = .files
-        filePath.append(route)
-    }
-
-    /// 「查看完整 Diff」从会话内跳转到文件 Tab 根
-    func openDiffFromChat() {
-        selectedTab = .files
-        filePath = []
-        diffReloadToken += 1
+    /// 待批列表点行：在待批栈内打开会话（返回键回待批列表，不丢上下文）
+    func openChatFromApprovals(conversationID: String) {
+        selectedTab = .approvals
+        approvalsPath = [.chat(conversationID)]
     }
 
     func pushSettings(_ route: SettingsRoute) {
@@ -110,18 +95,12 @@ final class AppRouter {
         case "011-会话对话", "chat":
             guard let id = arg, !id.isEmpty else { return false }
             openChat(conversationID: id)
+        case "012-待批", "approvals":
+            selectedTab = .approvals
+            approvalsPath = []
         case "013-设置", "settings":
             selectedTab = .settings
             settingsPath = arg.flatMap(SettingsRoute.init(rawValue:)).map { [$0] } ?? []
-        case "029-Diff/Git 面板", "git":
-            selectedTab = .files
-            filePath = []
-        case "030-文件管理器", "files":
-            selectedTab = .files
-            filePath = [.tree]
-        case "038-模型轨迹", "tasks":
-            selectedTab = .tasks
-            taskPath = []
         default:
             return false
         }
@@ -129,12 +108,13 @@ final class AppRouter {
     }
 }
 
-// MARK: - Tab 角标数据（三色语义：任务蓝 / 会话橙 / 文件橙）
+// MARK: - Tab 角标数据（会话橙 / 待批朱磦——印色只给「要你落笔」的位置，design-spec §2）
 
 @MainActor
 @Observable
 final class TabBadges {
-    var runningTasks = 0
     var unreadChats = 0
-    var pendingDiffs = 0
+    /// 跨会话待批合计（sessions-index pendingInteractionSummary 投影；
+    /// permission + userInput，RemoteConversationStore.sortedConversations 已逐行投影）
+    var pendingApprovals = 0
 }

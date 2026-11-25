@@ -83,6 +83,7 @@ fun SettingsScreen(
     onOpenArchives: () -> Unit = {},
     onOpenCapability: (String) -> Unit = {},
     onOpenAppearance: () -> Unit = {},
+    onOpenBehavior: () -> Unit = {},
     onOpenDesktopSettings: () -> Unit = {},
     onOpenAutomations: () -> Unit = {},
     onOpenPersonalization: () -> Unit = {},
@@ -244,8 +245,27 @@ fun SettingsScreen(
             }
             Spacer(Modifier.height(BiuZSpacing.md))
 
-            // 基础设置分组（外观 / 语言）
+            // 基础设置分组（外观 / 语言 / G7 消息流待办卡开关）
             SettingsGroup(title = stringResource(R.string.settings_group_basic)) {
+                // G7（2026-11-25 与 iOS 同步）：消息流内待办卡开关（web
+                // messageStreamShowTodos default(false) 同值同义；本机偏好）
+                val showTodosInStream by settings.showTodosInStream.collectAsStateWithLifecycle()
+                SettingsToggleRow(
+                    title = stringResource(R.string.settings_row_stream_todos),
+                    subtitle = stringResource(R.string.settings_row_stream_todos_sub),
+                    isOn = showTodosInStream,
+                    onToggle = { enabled -> settings.setShowTodosInStream(enabled) },
+                    testTagId = "12-row-stream-todos",
+                )
+                // G41（2026-11-25 与 iOS 同步）：行为设置（桌面行为五键策展面——
+                // setting 频道直写；导航面经 onOpenBehavior 参数挂 BiuZApp）
+                SettingsNavRow(
+                    title = stringResource(R.string.settings_row_behavior),
+                    subtitle = stringResource(R.string.settings_row_behavior_sub),
+                    value = null,
+                    testTagId = "12-row-behavior",
+                    onClick = onOpenBehavior,
+                )
                 SettingsNavRow(
                     title = stringResource(R.string.settings_row_appearance),
                     subtitle = null,

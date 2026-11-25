@@ -116,8 +116,10 @@ final class NavigationAndBotsE2ETests: XCTestCase {
         let app = launch(arguments: ["-ZCodeOpenLoginFlow", "-ZCodeE2EResetState"])
         let oauthButton = element(app, "o1-btn-oauth")
         XCTAssertTrue(oauthButton.waitForExistence(timeout: 10), "应进入登录主页")
-        let closeButton = element(app, "o1-act-close")
-        XCTAssertTrue(closeButton.waitForExistence(timeout: 6), "登录主页应有 ✕ 关闭钮")
+        // 2026-11-25 UIUX 审查 E2：home 步唯一退出 =「暂不登录」（顶栏 ✕ 只在
+        // 授权中/失败步渲染，消除重复退出点）
+        let closeButton = element(app, "o1-login-close")
+        XCTAssertTrue(closeButton.waitForExistence(timeout: 6), "登录主页应有「暂不登录」退出")
         // 真点关闭：cover 收起（✕ 与登录主页均离场）
         closeButton.tap()
         let closed = XCTNSPredicateExpectation(
@@ -142,10 +144,11 @@ final class NavigationAndBotsE2ETests: XCTestCase {
         XCTAssertTrue(typeInto(app, element(app, "l1-field-token"), text: "e2e-token"), "令牌栏应可输入")
         submitConnect(app)
 
-        // L2 连接态出现（不可路由地址 → 连接挂起数秒，窗口足够点取消）
-        let cancel = element(app, "l2-act-cancel")
+        // L2 连接态出现（不可路由地址 → 连接挂起数秒，窗口足够点取消）。
+        // 2026-11-25 UIUX 审查：底部「取消连接」大按钮撤除，取消入口收敛为顶栏 ✕
+        let cancel = element(app, "l2-act-close")
         XCTAssertTrue(cancel.waitForExistence(timeout: 15),
-                      "连接进行中应出现 L2 连接视图与取消入口（G-003②前置）")
+                      "连接进行中应出现 L2 连接视图与顶栏取消入口（G-003②前置）")
         cancel.tap()
         // 取消生效：L2 覆盖层收起、L1 根页回归（手动入口重新可见）
         let l2Gone = XCTNSPredicateExpectation(
@@ -156,7 +159,7 @@ final class NavigationAndBotsE2ETests: XCTestCase {
         // 保留已输入地址供改址重试，为有意 UX；「退出连接流程」由 ✕ 路径（test01）承担）
         XCTAssertTrue(element(app, "l1-field-host").waitForExistence(timeout: 8),
                       "取消后应回手动连接页（L2 不悬挂，地址保留可改址重试）")
-        XCTAssertFalse(element(app, "l2-act-cancel").exists, "L2 连接视图应完全收起（无悬挂 connecting 态）")
+        XCTAssertFalse(element(app, "l2-card-status").exists, "L2 连接视图应完全收起（无悬挂 connecting 态）")
         let hostField = element(app, "l1-field-host")
         XCTAssertEqual(hostField.value as? String ?? "", "http://10.255.255.1:3030",
                        "取消后手动页应保留原输入地址（供改址重试，非清空丢弃）")
@@ -230,8 +233,8 @@ final class NavigationAndBotsE2ETests: XCTestCase {
                        "L1 ✕ 后 cover 收起（再进干净由 test01/test04 覆盖）")
         // 登录域：O1 cover（✕）
         let login = launch(arguments: ["-ZCodeOpenLoginFlow", "-ZCodeE2EResetState"])
-        let o1Close = element(login, "o1-act-close")
-        XCTAssertTrue(o1Close.waitForExistence(timeout: 10), "登录 cover 应有 ✕（G-004①）")
+        let o1Close = element(login, "o1-login-close")
+        XCTAssertTrue(o1Close.waitForExistence(timeout: 10), "登录 cover 应有退出（暂不登录，G-004①）")
         snap(login, "g004-exit-traversal-login")
     }
 }

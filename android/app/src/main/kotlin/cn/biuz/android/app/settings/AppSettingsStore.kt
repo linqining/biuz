@@ -15,6 +15,9 @@ interface AppSettingsPersistence {
     fun saveLanguage(raw: String?)
     fun loadAppearance(): String?
     fun saveAppearance(raw: String?)
+    /** G7 通用布尔键读写（缺省实现 = 键不支持，读恒默认、写静默——旧持久化实现免改）。 */
+    fun loadBoolean(key: String, default: Boolean): Boolean = default
+    fun saveBoolean(key: String, value: Boolean) {}
 }
 
 /**
@@ -128,6 +131,18 @@ class AppSettingsStore(
     fun setDeveloperMode(enabled: Boolean) {
         _developerMode.value = enabled
         persistence.saveDeveloperMode(enabled)
+    }
+
+    // G7 消息流待办卡开关（web messageStreamShowTodos default(false) 同值同义；
+    // 本机偏好——桌面侧同名设置走「桌面设置」面同步）
+    private val _showTodosInStream =
+        MutableStateFlow(persistence.loadBoolean("showTodosInStream", default = false))
+    val showTodosInStream: StateFlow<Boolean>
+        get() = _showTodosInStream
+
+    fun setShowTodosInStream(enabled: Boolean) {
+        _showTodosInStream.value = enabled
+        persistence.saveBoolean("showTodosInStream", enabled)
     }
 
     private val _language = MutableStateFlow(AppLanguagePreference.fromStored(persistence.loadLanguage()))

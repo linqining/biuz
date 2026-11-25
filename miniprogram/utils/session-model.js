@@ -68,7 +68,44 @@ function normalizeRow(raw) {
     projectName: raw.projectName || null,
     groupName: raw.groupName || null,
     track: normalizeTrack(raw),
+    // G33 行内待批徽标（轻量投影透传；行未携带 = null 不渲染——宽容读，
+    // listTaskList 行携带面未取证）
+    pendingInteractionId: raw.pendingInteractionId || null,
+    pendingInteractionKind: raw.pendingInteractionKind || null,
+    pendingInteractionDeadline: raw.pendingInteractionDeadline || null,
+    pendingInteractionVisibleAt: raw.pendingInteractionVisibleAt || null,
+    pendingInteractionSnoozedAt: raw.pendingInteractionSnoozedAt || null,
+    // G40 残面透传（cron/off-peak/worktree/远端设备；缺席 = null 不渲染）
+    isCron: raw.isCron === true,
+    isOffPeak: raw.isOffPeak === true,
+    worktreeRoot: raw.worktreeRoot || null,
+    serverDisplayName: raw.serverDisplayName || null,
   };
+}
+
+/** G40 残面：worktree 显示名 `<仓> · <桶>`（web worktreeLabel.ts 同构——切两种
+ * 分隔符取末段/次末段；段数不足两段 = null 不显示）。 */
+function worktreeLabel(root) {
+  if (!root) return null;
+  const segments = String(root).split(/[\\/]+/).filter(function (s) { return s.length > 0; });
+  if (segments.length < 2) return null;
+  return segments[segments.length - 1] + ' · ' + segments[segments.length - 2];
+}
+
+/**
+ * G33 倒计时进度 0…1（web TaskInteractionBadge.tsx:44-58 同式；2026-11-25 与 iOS 同步）：
+ * 仅 userInput；snoozed / 静默期（now < visibleAt）/ 分母非正 = null 不画环。
+ */
+function countdownProgress(row, nowMs) {
+  if (!row || row.pendingInteractionKind !== 'userInput') return null;
+  if (row.pendingInteractionSnoozedAt) return null;
+  const deadline = Number(row.pendingInteractionDeadline) || 0;
+  const visibleAt = Number(row.pendingInteractionVisibleAt) || 0;
+  if (!deadline || !visibleAt || nowMs < visibleAt) return null;
+  const span = deadline - visibleAt;
+  if (span <= 0) return null;
+  const progress = (deadline - nowMs) / span;
+  return Math.min(1, Math.max(0, progress));
 }
 
 function byUpdatedDesc(a, b) {
@@ -76,10 +113,24 @@ function byUpdatedDesc(a, b) {
 }
 
 /** 置顶区：web 侧恒定在最前，且不受视图影响（index.tsx:256-261 / :287-292 两处都先渲染 pinned）。 */
-function pinnedSection(rows) {
-  const items = rows.filter(function (r) { return r.isPinned; }).sort(byUpdatedDesc);
-  if (!items.length) return null;
+const PINNED_PAGE_SIZE = 20;
+
+/**
+ * G34 置顶 20 上限（web ProjectTaskRows.tsx:112 `kind === "pinned" ? (showAll ?
+ * ordered : ordered.slice(0, 20))` 同语义；2026-11-25 与 iOS/Android 同步）。
+ * showAll = 翻页后全量；溢出数由 pinnedOverflowCount 给「显示更多」行。
+ */
+function pinnedSection(rows, showAll) {
+  const all = rows.filter(function (r) { return r.isPinned; }).sort(byUpdatedDesc);
+  if (!all.length) return null;
+  const items = showAll ? all : all.slice(0, PINNED_PAGE_SIZE);
   return { key: PINNED_SECTION_KEY, title: '已置顶', items: items, collapsible: false, collapsed: false };
+}
+
+/** G34：置顶溢出数（>20 时「显示更多置顶（N）」行数据源）。 */
+function pinnedOverflowCount(rows, showAll) {
+  if (showAll) return 0;
+  return Math.max(0, rows.filter(function (r) { return r.isPinned; }).length - PINNED_PAGE_SIZE);
 }
 
 function groupBy(rows, pick) {
@@ -124,12 +175,12 @@ function toSections(groups, prefix, collapsedKeys) {
  * @param {string} view projects | grouped | timeline | unread
  * @param {Array<string>} collapsedKeys 已折叠分区 key
  */
-function buildView(rows, view, collapsedKeys) {
+function buildView(rows, view, collapsedKeys, showAllPinned) {
   const all = (rows || []).map(normalizeRow);
   const collapsed = collapsedKeys || [];
   const sections = [];
 
-  const pinned = pinnedSection(all);
+  const pinned = pinnedSection(all, showAllPinned === true);
   if (pinned) sections.push(pinned);
 
   const rest = all.filter(function (r) { return !r.isPinned; });
@@ -247,4 +298,7 @@ module.exports = {
   decorateSections: decorateSections,
   formatTime: formatTime,
   viewLabel: viewLabel,
+  countdownProgress: countdownProgress,
+  worktreeLabel: worktreeLabel,
+  pinnedOverflowCount: pinnedOverflowCount,
 };

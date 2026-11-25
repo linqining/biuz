@@ -73,6 +73,16 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     /// forceFullResync（base=null）已发出、下一帧快照按全量语义整表替换的会话集
     /// （此前 merge 残留幽灵行——桌面已移除的行在全量 resync 后仍显示，P2）
     private var fullResyncSnapshotsPending: Set<String> = []
+    /// keep-warm 退订定时器（2026-11-25 批5，design-spec §3.5）：closeConversation 不再
+    /// 立即真退订——置 30s 定时器，窗口内重开（messages(in:)）取消即缓存命中零 RPC；
+    /// 到期 disposeConversation（保 rows/messages 缓存，重开=重订阅+快照权威替换）。
+    /// web sessionDataLayer.ts:31/149-159 同构；用户裁决「镜像 web 的 30s keep-warm」
+    /// （2026-10-08「每次点击会话都要请求一次很慢」）此前只落注释未落实现。
+    private var keepWarmTasks: [String: Task<Void, Never>] = [:]
+    /// 行缓存 LRU 访问序（touchLRU 维护；上限 12，超出淘汰最久未访问且未订阅的会话）
+    private var conversationAccessOrder: [String] = []
+    static let keepWarmNanos: UInt64 = 30_000_000_000
+    static let maxCachedConversations = 12
 
     /// 按 Web 构造取证缺失 API 的真实响应（conversationWorkflowRunArtifactsV4 /
     /// ArtifactDataV4 / conversationPlansV4；Web: {...workspace, sessionId, runId}）。
@@ -250,6 +260,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         var lastAssistantPreview: String?
         var pendingPermissionCount: Int = 0
         var pendingUserInputCount: Int = 0
+        // G33 行内待批徽标（sessions-index pendingInteraction 轻量投影；缺席 = nil）
+        var pendingInteractionId: String?
+        var pendingInteractionKind: String?
+        var pendingInteractionToolName: String?
+        var pendingInteractionDeadline: Date?
+        var pendingInteractionVisibleAt: Date?
+        var pendingInteractionSnoozedAt: Date?
         /// sessions-index 投影（setTaskPinned/archiveTask 写后的服务端回推；缺席 = 未投影）
         var pinned: Bool?
         var archived: Bool?
@@ -258,6 +275,14 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         /// task_status 列 2026-10-09 本机实测三值在案）。sessions-index 行无此键（phase 才是
         /// 它的活性词表）——nil = 行未携带。
         var taskStatus: String?
+        // G40 行元数据身份标记（web isCronTask/isOffPeakTask 同源——zcode-task-types.ts:56-64
+        // 【实证·上游仓】：cronAutomationId‖automationId / offPeakTaskId；缺席 = nil 不画图标）
+        var isCron = false
+        var isOffPeak = false
+        // G40 残面：worktree 根（tasks-index worktree_root，docs/git/worktree.md §3.7）
+        // + 远端设备显示名（serverDisplayName；UUID 片段禁上屏——web taskSourceAttribution.ts:19-24 同规）
+        var worktreeRoot: String?
+        var serverDisplayName: String?
         /// 行内是否真实携带 phase 键（缺省回填 "completedSuccess" 与真实终态不可辨——
         /// 合成 isRunning 时缺 phase 行才能采纳 taskStatus，实携终态 phase 的行以
         /// sessions-index 实时值为准，防 task-index 迟到 running 压过实时已收口）
@@ -334,6 +359,24 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             all: allWorkspaces, bootstrap: bootstrapWorkspaces, current: workspace)
         var pinned: Set<String> = []
         var archived: Set<String> = []
+        // ① host-scope 专查优先（跨项目置顶/归档；与 timeline 同源口径）——逐区枚举只能覆盖
+        // 桌面当前打开的 tabs，非当前项目的置顶/归档永远拿不到（与 Android 2026-11-24 同修）
+        for (kind, isPinned) in [("pinned", true), ("archived", false)] {
+            var builder = JSONObjectBuilder()
+            builder.set("kind", kind)
+            builder.set("workspaceScopes", .string("host"))
+            builder.set("sortBy", "updated")
+            if let result = try? await connection.call(
+                "zcode-task", "listTaskList", .json(.object(builder.fields))) {
+                let items = result.jsonValue?["items"]?.arrayValue
+                    ?? result.jsonValue?.arrayValue ?? []
+                let ids = items.compactMap {
+                    $0.objectValue?["taskId"]?.stringValue
+                        ?? $0.objectValue?["sessionId"]?.stringValue
+                }
+                if isPinned { pinned.formUnion(ids) } else { archived.formUnion(ids) }
+            }
+        }
         await withTaskGroup(of: (Bool, [String]).self) { group in
             for scope in scopes {
                 let method = scope.pinned ? "listPinnedTasks" : "listArchivedTasks"
@@ -526,19 +569,50 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         var totalMerged = 0
         var totalBackfilled = 0
         var allWorkspacesSeen = Set<String>()
-        for path in scopePaths {
-            var builder = JSONObjectBuilder()
-            builder.set("kind", "timeline")
-            var scope: [String: JSONValue] = ["workspacePath": .string(path)]
-            if let identity = scopeIdentities[path] ?? nil, !identity.isEmpty {
-                scope["workspaceIdentity"] = .string(identity)
+        // ① host-scope 单调用优先（2026-11-25 用户报「会话项目不全」根修）：
+        // 此前只按 `allWorkspaces` 逐区枚举，而 workspace-list-request 只回桌面**当前打开
+        // 的 tabs**（上游 rootPlatformWorkspaceSync.ts:75-95）——桌面没开着的项目整块缺席，
+        // 真机表现为列表只有一个项目分区。host-scope 由存储 owner 决定全部范围
+        // （zcodeTaskListTypes.ts:15；web useGlobalTaskList 同源），一次调用拿全量且每行
+        // 自带 workspacePath（分组键）。老桌面（≤3.16）不认该形态 → 抛错回落逐区。
+        var hostScopedItems: [JSONValue]? = nil
+        do {
+            var hostBuilder = JSONObjectBuilder()
+            hostBuilder.set("kind", "timeline")
+            hostBuilder.set("workspaceScopes", .string("host"))
+            hostBuilder.set("sortBy", "updated")
+            let result = try await connection.call(
+                "zcode-task", "listTaskList", .json(.object(hostBuilder.fields)))
+            let items = result.jsonValue?["items"]?.arrayValue
+                ?? result.jsonValue?.arrayValue ?? []
+            if !items.isEmpty { hostScopedItems = items }
+        } catch {
+            hostScopedItems = nil // 老桌面无 host 语义 → 逐区回退
+        }
+        let sources: [String?] = hostScopedItems != nil ? [nil] : scopePaths.map { Optional($0) }
+        for sourcePath in sources {
+            let items: [JSONValue]
+            if let hostItems = hostScopedItems, sourcePath == nil {
+                items = hostItems
+            } else {
+                let path = sourcePath ?? connected
+                var builder = JSONObjectBuilder()
+                builder.set("kind", "timeline")
+                var scope: [String: JSONValue] = ["workspacePath": .string(path)]
+                if let identity = scopeIdentities[path] ?? nil, !identity.isEmpty {
+                    scope["workspaceIdentity"] = .string(identity)
+                }
+                builder.set("workspaceScopes", .array([.object(scope)]))
+                do {
+                    let result = try await connection.call(
+                        "zcode-task", "listTaskList", .json(.object(builder.fields)))
+                    items = result.jsonValue?["items"]?.arrayValue
+                        ?? result.jsonValue?.arrayValue ?? []
+                } catch {
+                    continue
+                }
             }
-            builder.set("workspaceScopes", .array([.object(scope)]))
             do {
-                let result = try await connection.call(
-                    "zcode-task", "listTaskList", .json(.object(builder.fields)))
-                let items = result.jsonValue?["items"]?.arrayValue
-                    ?? result.jsonValue?.arrayValue ?? []
                 var parsed: [(String, SessionSummary)] = []
                 for item in items {
                     guard var d = item.objectValue else { continue }
@@ -582,6 +656,20 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                         if let status = summary.taskStatus {
                             existing.taskStatus = status
                         }
+                        // G40：cron/off-peak 标记回填（缺席不动——防剥既有值）
+                        if summary.isCron {
+                            existing.isCron = true
+                        }
+                        if summary.isOffPeak {
+                            existing.isOffPeak = true
+                        }
+                        // G40 残面：worktree/远端标签回填（缺席不动）
+                        if let ws = summary.worktreeRoot, !ws.isEmpty {
+                            existing.worktreeRoot = ws
+                        }
+                        if let name = summary.serverDisplayName, !name.isEmpty {
+                            existing.serverDisplayName = name
+                        }
                         if existing.lastActivityAt == nil {
                             existing.lastActivityAt = summary.lastActivityAt
                         }
@@ -590,13 +678,6 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 }
                 totalMerged += merged
                 totalBackfilled += backfilled
-            } catch {
-                if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
-                    UserDefaults.standard.set(
-                        "scope=\(path) err=\(String(describing: error).prefix(200))",
-                        forKey: "diag.tasks.merge.\(path.suffix(24))")
-                    UserDefaults.standard.synchronize()
-                }
             }
         }
         if UserDefaults.standard.string(forKey: "diag.wf.mode") != nil {
@@ -673,6 +754,19 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                 let pending = summary.pendingPermissionCount + summary.pendingUserInputCount
                 // 服务端挂起审批数（行「等待确认」绿标数据源；桌面侧栏同口径）
                 conversation.pendingApprovalCount = pending
+                // G33 行内待批徽标数据（轻量投影逐字段透传）
+                conversation.pendingInteractionId = summary.pendingInteractionId
+                conversation.pendingInteractionKind = summary.pendingInteractionKind
+                conversation.pendingInteractionToolName = summary.pendingInteractionToolName
+                conversation.pendingInteractionDeadline = summary.pendingInteractionDeadline
+                conversation.pendingInteractionVisibleAt = summary.pendingInteractionVisibleAt
+                conversation.pendingInteractionSnoozedAt = summary.pendingInteractionSnoozedAt
+                // G40 行身份透传（task-index merge 回填后经 SessionSummary 到行）
+                conversation.isCronTask = summary.isCron
+                conversation.isOffPeakTask = summary.isOffPeak
+                conversation.worktreeRoot = summary.worktreeRoot ?? conversation.worktreeRoot
+                conversation.serverDisplayName = summary.serverDisplayName
+                    ?? conversation.serverDisplayName
                 // 未读 = 待交互数；「标记未读」本地置位（服务端无未读投影时仍可呈现）
                 conversation.unreadCount = localUnreadFlags[summary.sessionId] == true
                     ? max(pending, 1) : pending
@@ -873,6 +967,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
     // MARK: 消息
 
     func messages(in conversationID: String) async -> [ChatMessage] {
+        // keep-warm 窗口内重开：取消退订定时器 = 缓存命中零 RPC（design-spec §3.5）
+        keepWarmTasks[conversationID]?.cancel()
+        keepWarmTasks[conversationID] = nil
+        touchLRU(conversationID)
         await ensureConversationSubscribed(conversationID)
         // 拉历史分页（rowsRange 向前，limit ≤200）
         if rows[conversationID]?.isEmpty ?? true {
@@ -1073,13 +1171,49 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
     }
 
-    /// 会话关闭释放（2026-10-08 回归审核轮 §11.1#2）：官方 web 在 pane 引用归零后
-    /// 经 keep-warm 退订（sessionDataLayer.ts:130-164）；移动端对位——ChatViewModel
-    /// deinit 时调用（导航栈弹出销毁 @StateObject 的时机），订阅/帧 handler/
-    /// 水位/revision 一并回收 + 携 subscriptionId 真退订。重进会话由
-    /// ensureConversationSubscribed 幂等重订（快照权威重建）。
+    /// 会话关闭释放（2026-10-08 回归审核轮 §11.1#2；2026-11-25 批5 keep-warm 化）：
+    /// 关闭 = 置 30s keep-warm 定时器（web sessionDataLayer 同构），窗口内重开即
+    /// 缓存命中；到期 disposeConversation 真退订（携 subscriptionId + 回收帧 handler/
+    /// 水位/revision，**保 rows/messages 缓存**——重开由 ensureConversationSubscribed
+    /// 幂等重订 + 快照权威替换，rows 非空不重拉历史）。定时器自身持有 dispose 语义，
+    /// 不再经 EventSubscription.cancel 触发（避免双重 dispose；disposeConversation
+    /// 幂等门 `removeValue != nil` 兜底）。
     func closeConversation(_ conversationID: String) async {
-        conversationSubscriptions[conversationID]?.cancel()
+        keepWarmTasks[conversationID]?.cancel()
+        guard conversationSubscriptions[conversationID] != nil else { return }
+        keepWarmTasks[conversationID] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.keepWarmNanos)
+            guard !Task.isCancelled else { return }
+            await self?.expireKeepWarm(conversationID)
+        }
+    }
+
+    /// keep-warm 到期（actor 隔离入口）：真退订 + 清定时器句柄
+    private func expireKeepWarm(_ conversationID: String) async {
+        keepWarmTasks[conversationID] = nil
+        await disposeConversation(conversationID)
+    }
+
+    /// 行缓存 LRU（design-spec §3.5）：touch 访问序；超上限淘汰「最久未访问且当前
+    /// 无订阅」的会话行/消息（订阅中的会话不淘汰——淘汰它的行表会破坏在订流）。
+    private func touchLRU(_ conversationID: String) {
+        conversationAccessOrder.removeAll { $0 == conversationID }
+        conversationAccessOrder.append(conversationID)
+        while conversationAccessOrder.count > Self.maxCachedConversations {
+            guard let oldest = conversationAccessOrder.first else { break }
+            if conversationSubscriptions[oldest] != nil {
+                // 订阅中的会话跳过（挪到队尾避免死循环）；正常路由下订阅中的 id
+                // 刚被 touch 置尾，此处仅防御 keep-warm 窗口交叉
+                conversationAccessOrder.removeFirst()
+                conversationAccessOrder.append(oldest)
+                continue
+            }
+            conversationAccessOrder.removeFirst()
+            rows.removeValue(forKey: oldest)
+            messages.removeValue(forKey: oldest)
+            keepWarmTasks[oldest]?.cancel()
+            keepWarmTasks[oldest] = nil
+        }
     }
 
     private func disposeConversation(_ conversationID: String) async {
@@ -1339,6 +1473,10 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
                     // v4.0.0 增补（2026-11-24 与 Android 同步）：白名单漏键 = 全量快照
                     // 把这些键**静默丢弃**——活动摘要在 iOS 上一直算不出来即此因
                     "activitySummaryDismissed", "completedActivityCount", "subagentProjection",
+                    // G24（2026-11-25）：工作区 MCP 准入待审核快照（snapshot.ts:531-536
+                    // {pendingCount, bundleDigest, workspaceIdentity?}，顶层 nullable optional
+                    // :592【实证·上游仓】）
+                    "workspaceMcpAdmission",
                 ]
                 var merged: [String: JSONValue] = dict["state"]?.objectValue ?? [:]
                 var hasState = !merged.isEmpty
@@ -1592,6 +1730,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             workIds: ids("workIds"),
             subagentIds: ids("subagentIds"),
             workflowRunIds: ids("workflowRunIds"))
+    }
+
+    /// G24：`state.workspaceMcpAdmission` → 工作区 MCP 待审核快照（pendingCount>0 =
+    /// 指示条在场；键缺席/null = 无准入面不渲染）
+    func workspaceMcpAdmission(in conversationID: String) -> WorkspaceMcpAdmissionState? {
+        guard let d = snapshotState[conversationID]?.objectValue?["workspaceMcpAdmission"]?.objectValue
+        else { return nil }
+        let count = d["pendingCount"]?.intValue ?? 0
+        return WorkspaceMcpAdmissionState(
+            pendingCount: count,
+            bundleDigest: d["bundleDigest"]?.stringValue,
+            workspaceIdentity: d["workspaceIdentity"]?.stringValue)
     }
 
     /// `state.completedActivityCount` → 完整历史里成功的独立 child 与 Workflow 数（不含 Bash）。
@@ -2000,6 +2150,15 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             return .ask
         case let name where name.contains("browser") || name.contains("navigate"):
             return .browser
+        // G1（2026-11-25）：mcp/webfetch/search 三族专属判定（toolIdentity.ts 同序——
+        // webfetch 先于 search：WebFetch 含 "fetch"、Grep/Glob 已被 read 族吞，Search
+        // 工具名含 "search" 独立族）
+        case let name where name.contains("mcp"):
+            return .mcp
+        case let name where name.contains("webfetch") || name.contains("fetch") || name.contains("web_fetch"):
+            return .webfetch
+        case let name where name.contains("websearch"):
+            return .search
         default:
             return .bash
         }
@@ -2046,21 +2205,37 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             diff: nil,
             entityId: includeRetryCursor ? row["entityId"]?.stringValue : nil,
             workflowRunId: workflowRunId)
+        // 2026-11-25 批5（design-spec §3.4）：TodoWrite/TodoRead 工具行解析出待办清单
+        // → 消息携带 todos，ToolCallCardView 的 .todo 族渲染结构化待办卡（不再裸 JSON）；
+        // 解析不出（非清单形状/整组失败）回退原始工具卡
+        let todoSteps = ToolPlanAdapter.isTodoPlanToolName(row["toolName"]?.stringValue)
+            ? ToolPlanAdapter.planSteps(inputText: row["inputText"]?.stringValue, outputText: outputText)
+            : nil
         return ChatMessage(
             id: id, role: .agent,
             text: "",
             status: status == "running" || status == "inputStreaming" || status == "pendingApproval" ? .streaming : .done,
             timestamp: Date(),
-            toolCall: toolCall)
+            toolCall: toolCall,
+            todos: todoSteps)
     }
 
     // MARK: plan/todo 步骤解析（项 3）
 
-    /// 会话 state.todos → [TodoItem]（桌面 v4 schema：todos[] = {content,
-    /// status: pending|in_progress|completed, priority}，src-wmk2orCZ.js:154965 yp）。
-    /// 宽容兼容 title/label 与 error|failed 扩展态；空/缺失返回 nil（不渲染面板）。
+    /// 会话 state → [TodoItem]（2026-11-25 批5 待办统一，design-spec §3.4）：
+    /// 权威源 = `state.plan.items`（v4.0.0 planStateSchema【实证·上游仓 snapshot.ts:504-507】
+    /// items[] = {id, content, status: pending|inProgress|completed}；web「待办」胶囊
+    /// PlanStatusSection 同源）；旧键 `todos / todoGroups.todos`（todos[] = {content,
+    /// status, priority}）保留兜底。plan.items 在场但整组不可解析 → 返回 nil（权威
+    /// 缺席不落旧键，防两源拼凑）。空/缺失返回 nil（不渲染面板）。
     static func parseStateTodos(_ state: JSONValue?) -> [TodoItem]? {
         guard let dict = state?.objectValue else { return nil }
+        if let planItems = dict["plan"]?.objectValue?["items"]?.arrayValue {
+            if let todos = parseTodoItems(planItems, idPrefix: "plan-item") {
+                return todos
+            }
+            if !planItems.isEmpty { return nil }
+        }
         let items = dict["todos"]?.arrayValue
             ?? dict["todoGroups"]?.objectValue?["todos"]?.arrayValue
             ?? []
@@ -2107,11 +2282,13 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         return todos.isEmpty ? nil : todos
     }
 
-    /// 步骤状态宽容映射：completed→done；in_progress/running→now；failed/error→failed（朱批 扩展）
+    /// 步骤状态宽容映射：completed→done；in_progress/inprogress→now（planStateSchema
+    /// 的 inProgress 小写归一——此前混写 case "inProgress" 在 lowercased 值上永不命中）；
+    /// failed/error→failed（朱批 扩展）
     static func mapTodoStatus(_ raw: String) -> TodoState {
         switch raw.lowercased() {
         case "completed", "done", "success": return .done
-        case "in_progress", "inProgress", "running", "active", "now": return .now
+        case "in_progress", "inprogress", "running", "active", "now": return .now
         case "failed", "error", "cancelled", "aborted": return .failed
         default: return .todo
         }
@@ -2886,6 +3063,56 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
     }
 
+    /// G43 批量删除已归档任务（web archivedTaskDeletion.ts:58-100 同构——同一
+    /// workspace 一次 RPC 让桌面统一发事件；归档 guard 在桌面逐项事务，一项失败
+    /// 不回滚其它）。【实证·上游仓 zcodeTaskServiceAdapter.ts:3059】params
+    /// {workspacePath, workspaceIdentity?, taskIds[]} → {deletedTaskIds, skippedTaskIds,
+    /// failedTaskIds}。归档行自带 workspacePath（listArchivedTasks 行 :209），分块按它；
+    /// identity 查 allWorkspaces（:470 同源）。
+    func deleteArchivedTasks(
+        _ conversations: [Conversation]
+    ) async -> (deleted: Int, skipped: Int, failed: Int, unavailable: Int) {
+        guard let connection else {
+            return (0, 0, 0, conversations.count)
+        }
+        var groups: [String: (identity: String?, ids: [String])] = [:]
+        for row in conversations {
+            let path = row.directory.isEmpty ? workspace.path : row.directory
+            if groups[path] == nil {
+                groups[path] = (
+                    allWorkspaces.first(where: { $0.path == path })?.workspaceIdentity,
+                    []
+                )
+            }
+            groups[path]?.ids.append(row.id)
+        }
+        var deleted = 0
+        var skipped = 0
+        var failed = 0
+        for (path, group) in groups {
+            var builder = JSONObjectBuilder()
+            builder.set("workspacePath", path)
+            if let identity = group.identity {
+                builder.set("workspaceIdentity", identity)
+            }
+            builder.set(
+                "taskIds",
+                .array(group.ids.map { .string($0) }))
+            guard let result = try? await connection.call(
+                "zcode-task", "deleteArchivedTasks", .json(.object(builder.fields))) else {
+                failed += group.ids.count
+                continue
+            }
+            let dict = result.jsonValue?.objectValue ?? [:]
+            let ok = Set(dict["deletedTaskIds"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+            let skip = Set(dict["skippedTaskIds"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+            deleted += group.ids.filter { ok.contains($0) }.count
+            skipped += group.ids.filter { skip.contains($0) }.count
+            failed += group.ids.filter { !ok.contains($0) && !skip.contains($0) }.count
+        }
+        return (deleted, skipped, failed, 0)
+    }
+
     /// 标记未读（P1-5）：本地置位 + setTaskUnread unread:true（compare-and-clear 的反向）。
     /// 写失败回滚本地置位 + 拒因上屏（写面禁静默 §5-12；回滚=可见失败，下次快照真置位
     /// 会再同步）。
@@ -3199,7 +3426,58 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         if kind == "workspaceHookReview" {
             interaction.hookReviewItems = Self.parseHookReviewItems(payload: payload, dict: dict)
         }
+        // G21 权限卡反馈文本框开关（snapshot.ts:277 permissionRequestPayloadSchema.freeText
+        // 【实证·上游仓】——true 且存在拒绝类选项时 UI 显示可选输入行，反馈随 deny 进
+        // answer.freeText；permission 之外不读）
+        if interaction.isPermission {
+            interaction.permissionFreeText = payload["freeText"]?.boolValue
+                ?? dict["freeText"]?.boolValue ?? false
+        }
+        // G23 插件安装卡字段族（pluginInstall.ts pluginInstallRequestPayloadSchema
+        // 【实证·上游仓】：pluginId/name/displayName/description/icon/reason/
+        // action "install"|"enable"/scope "user"|"workspace"）
+        if kind == "pluginInstall" {
+            interaction.pluginName = payload["displayName"]?.stringValue
+                ?? payload["name"]?.stringValue
+                ?? dict["displayName"]?.stringValue
+                ?? dict["name"]?.stringValue
+                ?? interaction.title
+            interaction.pluginDescription = payload["description"]?.stringValue
+                ?? dict["description"]?.stringValue
+            interaction.pluginReason = payload["reason"]?.stringValue
+                ?? dict["reason"]?.stringValue
+            interaction.pluginScope = payload["scope"]?.stringValue
+                ?? dict["scope"]?.stringValue
+            interaction.pluginAction = payload["action"]?.stringValue
+                ?? dict["action"]?.stringValue
+        }
+        // G33 行内自动决议倒计时（interactionAutoResolutionSchema snapshot.ts:329-341
+        // 两态【实证·上游仓】：hiddenGrace/visibleCountdown {startedAt,visibleAt,deadlineAt}
+        // | snoozed {startedAt,snoozedAt}；时间字段毫秒/ISO 双形态宽容，同 workflowRunTimestamp）
+        if let auto = payload["autoResolution"]?.objectValue ?? dict["autoResolution"]?.objectValue {
+            interaction.autoResolutionState = auto["state"]?.stringValue
+            interaction.autoResolutionDeadline = Self.interactionTimestamp(auto, "deadlineAt")
+            interaction.autoResolutionVisibleAt = Self.interactionTimestamp(auto, "visibleAt")
+            interaction.autoResolutionSnoozedAt = Self.interactionTimestamp(auto, "snoozedAt")
+        }
         return interaction
+    }
+
+    /// 交互时间字段双形态宽容解析（workflowRunTimestamp 同口径；毫秒数/ISO）
+    nonisolated static func interactionTimestamp(
+        _ dict: [String: JSONValue], _ key: String
+    ) -> Date? {
+        if let value = dict[key]?.doubleValue, value > 0 {
+            if value > 100_000_000_000 { return Date(timeIntervalSince1970: value / 1000) }
+            if value > 100_000_000 { return Date(timeIntervalSince1970: value) }
+        }
+        if let iso = dict[key]?.stringValue {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: iso) { return date }
+            return ISO8601DateFormatter().date(from: iso)
+        }
+        return nil
     }
 
     /// userInput questions[] 宽容解析（上游元素：{question, header, options[{value,label,
@@ -3939,6 +4217,9 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         }
         let concurrencyLimit = dict["concurrency"]?.objectValue?["limit"]?.intValue
             ?? dict["maxConcurrency"]?.intValue
+        // G25（2026-11-25）：血缘/终态/用量/并发对象形态（上游 workflowRunSchema
+        // workflow-runs.ts:419-583【实证·上游仓】；旧桌面缺键 → nil，UI 分支不渲染）
+        let cooldownMs = dict["concurrency"]?.objectValue?["cooldownMs"]?.intValue
         return WorkflowRunSummary(
             id: id,
             name: name,
@@ -3965,7 +4246,18 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             workId: workId,
             hasPhaseVocabulary: hasVocabulary,
             startedAt: workflowRunTimestamp(dict, "startedAt"),
-            updatedAt: workflowRunTimestamp(dict, "updatedAt"))
+            updatedAt: workflowRunTimestamp(dict, "updatedAt"),
+            error: dict["error"]?.stringValue,
+            resultPreview: dict["resultPreview"]?.stringValue,
+            resumedFrom: dict["resumedFrom"]?.stringValue,
+            supersededBy: dict["supersededBy"]?.stringValue,
+            usageNodesUsed: dict["usage"]?.objectValue?["nodesUsed"]?.intValue,
+            concurrencyCap: dict["concurrency"]?.objectValue?["cap"]?.intValue,
+            concurrencyCooldownMs: cooldownMs,
+            concurrencyCooldownUntil: (cooldownMs ?? 0) > 0
+                ? Date().addingTimeInterval(Double(cooldownMs!) / 1000)
+                : nil,
+            failureCode: dict["failureCode"]?.stringValue)
     }
 
     // MARK: 会话面板（goal / plan / btw 后台工作 / side 子代理）
@@ -4513,6 +4805,105 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
         if let args, !args.isEmpty { payload["args"] = .object(args) }
         return await sendCommand(
             "startSavedWorkflow", sessionId: conversationID, payload: .object(payload))
+    }
+
+    // MARK: 工作流 run 保存（G25，2026-11-25）
+    //
+    // web 完成卡「保存/再次运行」读写面【实证·上游仓 zcodeAgentWorkflowParams.ts:53-74 +
+    // zcodeAgentService.ts:5789-5818 + zcode-protocol/index.ts:3599-3680】：
+    // - 已保存判定 = `findSavedWorkflowForRun`（wire 方法名 = 服务接口名，远控经
+    //   zcode-agent 频道按服务方法名透传，同 conversationWorkflowRunsV4 先例）——
+    //   params {workspace 信封, runId}；回执 `{entry?{name,scope,path…}, match?, runArgs?}`，
+    //   entry 缺席 = 未保存（判定的答案是推导得来的：用户删掉已存档后自动不再算数）。
+    // - 保存 = `saveSavedWorkflowFromRun`：**不收脚本只收 runId**（脚本取 journal 里
+    //   实际执行的那份）；params {workspace 信封, runId, name, meta:{description,…},
+    //   scope?("project"|"global" 缺省 project), overwrite?}；回执 union ok:true
+    //   {name,scope,path,overwritten,shadowing?} | ok:false {reason: invalid_name|
+    //   run_not_found|script_missing|target_exists|compile_failed|write_error}。
+    //   target_exists 仅在用户已见过覆盖警告后带 overwrite:true 重发（覆盖是用户决定，
+    //   不是保存副作用）；写面不自动重试（防双写，与 setting.update 同纪律）。
+
+    /// 这次 run 对应的已保存工作流（nil = 未保存或查询失败——失败不挡保存，上游同口径：
+    /// 「探测失败不该挡住保存，agent 仍会用 target_exists 给出最终答案」）
+    func savedWorkflowForRun(in conversationID: String, runId: String) async -> WorkflowRunSavedRef? {
+        guard let connection else { return nil }
+        var builder = JSONObjectBuilder()
+        applySessionTarget(&builder, sessionID: conversationID)
+        builder.set("runId", runId)
+        guard let result = try? await connection.call(
+            "zcode-agent", "findSavedWorkflowForRun", .json(.object(builder.fields))) else {
+            return nil
+        }
+        let entry = result.jsonValue?["entry"]?.objectValue
+        guard let name = entry?["name"]?.stringValue, !name.isEmpty else { return nil }
+        return WorkflowRunSavedRef(name: name, scope: entry?["scope"]?.stringValue ?? "project")
+    }
+
+    /// 从 run 保存工作流（完成卡「保存」；name 必填，description 进 meta.description）
+    func saveWorkflowRun(
+        in conversationID: String, runId: String, name: String, description: String,
+        scope: String, overwrite: Bool
+    ) async -> WorkflowRunSaveOutcome {
+        guard let connection else {
+            return .failed(String(localized: "未连接桌面端"))
+        }
+        var builder = JSONObjectBuilder()
+        applySessionTarget(&builder, sessionID: conversationID)
+        builder.set("runId", runId)
+        builder.set("name", name)
+        builder.set("meta", .object(["description": .string(description)]))
+        builder.set("scope", scope)
+        if overwrite { builder.set("overwrite", true) }
+        guard let result = try? await connection.call(
+            "zcode-agent", "saveSavedWorkflowFromRun", .json(.object(builder.fields))) else {
+            return .failed(String(localized: "连接中断或超时，请检查桌面端状态"))
+        }
+        let value = result.jsonValue
+        if value?["ok"] == .bool(true) {
+            let savedName = value?["name"]?.stringValue ?? name
+            let savedScope = value?["scope"]?.stringValue ?? scope
+            let overwritten = value?["overwritten"]?.boolValue ?? false
+            return .saved(name: savedName, scope: savedScope, overwritten: overwritten)
+        }
+        let reason = value?["reason"]?.stringValue ?? "unknown"
+        if reason == "target_exists" { return .targetExists }
+        let detail = value?["detail"]?.stringValue
+        return .failed(detail ?? reason)
+    }
+
+    // MARK: G27 后台 bash 输出（2026-11-25）
+    //
+    // 【实证·上游仓 zcodeAgentService.ts:7632-7650】：wire = zcode-agent 频道
+    // `backgroundBashOutputV4`，params {sessionId, workId}（strict，无 offset——
+    // 全量有界快照式，output ≤8192 字节 + truncated 标记）；回执 union
+    // {kind:"output", status, output, truncated, outputPath} |
+    // {kind:"unavailable"|"unsupported"|"read_failed", workId, code?}。
+    // unsupported（旧桌面无该方法）由 UI 降级隐藏入口。ReadOnlyGate 已放行只读面。
+
+    /// 后台 bash 输出快照（works 面板行「查看输出」数据源；nil = 调用失败）
+    func backgroundBashOutput(in conversationID: String, workId: String) async -> BackgroundBashOutputInfo? {
+        guard let connection else { return nil }
+        var builder = JSONObjectBuilder()
+        applySessionTarget(&builder, sessionID: conversationID)
+        builder.set("workId", workId)
+        guard let result = try? await connection.call(
+            "zcode-agent", "backgroundBashOutputV4", .json(.object(builder.fields))) else {
+            return nil
+        }
+        guard let d = result.jsonValue?.objectValue else { return nil }
+        let kind = d["kind"]?.stringValue ?? "read_failed"
+        if kind == "output" {
+            return BackgroundBashOutputInfo(
+                kind: kind,
+                status: d["status"]?.stringValue,
+                output: d["output"]?.stringValue,
+                truncated: d["truncated"]?.boolValue ?? false,
+                outputPath: d["outputPath"]?.stringValue,
+                code: nil)
+        }
+        return BackgroundBashOutputInfo(
+            kind: kind, status: nil, output: nil, truncated: false,
+            outputPath: nil, code: d["code"]?.stringValue)
     }
 
     // MARK: workspace hook 信任审核（web 对齐 2026-10-06：respond/request/toggle/revoke 四命令）
@@ -5106,6 +5497,54 @@ actor RemoteConversationStore: @preconcurrency ConversationStore {
             return nil
         } catch {
             return String(localized: "重命名分组失败（\(Self.rpcErrorText(error))）")
+        }
+    }
+
+    /// G36 组置顶排序（move 组节点形态；2026-11-25 wire 取证【实证·上游仓
+    /// task-groups/index.ts:31-34 nodeSchema 判别联合 + repository.ts:189-202 moveInside】：
+    /// ① group 节点 `{type:"group", groupId}` strict 合法；② 组只能在**顶层**重排——
+    /// `input.groupId || !hasGroup → invalid-group`，故 groupId 恒 null；③ sourceGroupId
+    /// 对组节点恒 null（parent(null)===null 需相等）；④ **无 anchor 时 index=0 = 置顶**
+    /// （destination.splice(0,0,node)）。失败如实透出（stale-source/invalid-group 词表）。
+    func pinTaskGroupToTop(groupId: String) async -> String? {
+        guard let connection else { return String(localized: "未连接桌面端") }
+        var builder = JSONObjectBuilder()
+        builder.set(
+            "node",
+            .object(["type": .string("group"), "groupId": .string(groupId)]))
+        builder.set("sourceGroupId", .null)
+        builder.set("groupId", .null)
+        do {
+            _ = try await connection.call("task-groups", "move", .json(.object(builder.fields)))
+            return nil
+        } catch {
+            return String(localized: "置顶失败（\(Self.rpcErrorText(error))）")
+        }
+    }
+
+    /// G36 组排序「上移一位」（move 组节点 + anchor 形态【实证·上游仓 repository.ts
+    /// :199-202——destination.findIndex(anchor) → splice(index+0,0,node) 即插到 anchor
+    /// 之前；anchor = task-groups.read `order` 数组中目标组的前一个 {type:"group",key}】）。
+    /// 首组无上移语义（index 已 0）。
+    func moveTaskGroupUp(groupId: String, beforeGroupKey: String) async -> String? {
+        guard let connection else { return String(localized: "未连接桌面端") }
+        var builder = JSONObjectBuilder()
+        builder.set(
+            "node",
+            .object(["type": .string("group"), "groupId": .string(groupId)]))
+        builder.set("sourceGroupId", .null)
+        builder.set("groupId", .null)
+        builder.set(
+            "anchor",
+            .object([
+                "node": .object(["type": .string("group"), "key": .string(beforeGroupKey)]),
+                "side": .string("before"),
+            ]))
+        do {
+            _ = try await connection.call("task-groups", "move", .json(.object(builder.fields)))
+            return nil
+        } catch {
+            return String(localized: "上移失败（\(Self.rpcErrorText(error))）")
         }
     }
 
@@ -6027,9 +6466,37 @@ private extension RemoteConversationStore.SessionSummary {
             ["running", "completed", "error"].contains(candidate) {
             summary.taskStatus = candidate
         }
+        // G40 行身份标记（cron 两代字段名兼容——「运行态派发/旧链路 automationId」
+        // 同判，web isCronTask :59 注释同规）
+        summary.isCron = dict["cronAutomationId"]?.stringValue?.isEmpty == false
+            || dict["automationId"]?.stringValue?.isEmpty == false
+        summary.isOffPeak = dict["offPeakTaskId"]?.stringValue?.isEmpty == false
+        summary.worktreeRoot = dict["worktreeRoot"]?.stringValue
+            ?? dict["worktree_root"]?.stringValue
+        summary.serverDisplayName = dict["serverDisplayName"]?.stringValue
         if let pending = dict["pendingInteractionSummary"]?.objectValue {
             summary.pendingPermissionCount = pending["permissionCount"]?.intValue ?? 0
             summary.pendingUserInputCount = pending["userInputCount"]?.intValue ?? 0
+        }
+        // G33 行内待批徽标：pendingInteraction 轻量投影（zcode-task-types-core.ts:262-268
+        // 【实证·上游仓】；缺席 = 行不渲染倒计时）。时间字段毫秒/ISO 双形态宽容。
+        if let light = dict["pendingInteraction"]?.objectValue,
+           let interactionId = light["interactionId"]?.stringValue, !interactionId.isEmpty,
+           let kind = light["kind"]?.stringValue, ["permission", "userInput"].contains(kind) {
+            summary.pendingInteractionId = interactionId
+            summary.pendingInteractionKind = kind
+            summary.pendingInteractionToolName = light["toolName"]?.stringValue
+            if let auto = light["autoResolution"]?.objectValue {
+                summary.pendingInteractionDeadline =
+                    RemoteConversationStore.workflowRunTimestamp(auto, "deadlineAt")
+                summary.pendingInteractionVisibleAt =
+                    RemoteConversationStore.workflowRunTimestamp(auto, "visibleAt")
+                summary.pendingInteractionSnoozedAt =
+                    RemoteConversationStore.workflowRunTimestamp(auto, "snoozedAt")
+            }
+        } else {
+            summary.pendingInteractionId = nil
+            summary.pendingInteractionKind = nil
         }
         // 3.16.2 sessions-index 新字段（optional 兼容旧 frame）
         summary.titleSource = dict["titleSource"]?.stringValue

@@ -43,7 +43,11 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,6 +77,7 @@ import cn.biuz.android.app.ui.theme.BiuZAccent
 import cn.biuz.android.app.ui.theme.BiuZAccentDim
 import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBgElevated
+import cn.biuz.android.app.ui.theme.BiuZBgCode
 import cn.biuz.android.app.ui.theme.BiuZBgInput
 import cn.biuz.android.app.ui.theme.BiuZBlue
 import cn.biuz.android.app.ui.theme.BiuZBlueDim
@@ -89,6 +94,7 @@ import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.app.ui.theme.BiuZSeal
 import cn.biuz.android.app.ui.theme.pressableScale
 import cn.biuz.android.protocol.BackgroundWorkSummary
+import cn.biuz.android.protocol.BackgroundBashOutputInfo
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.MessageRole
 import cn.biuz.android.protocol.PlanPanelSummary
@@ -97,6 +103,8 @@ import cn.biuz.android.protocol.SubagentSessionSummary
 import cn.biuz.android.protocol.WorkflowActorSummary
 import cn.biuz.android.protocol.WorkflowNodeSummary
 import cn.biuz.android.protocol.WorkflowRunSummary
+import cn.biuz.android.protocol.WorkflowRunSavedRef
+import cn.biuz.android.protocol.WorkflowRunSaveOutcome
 import cn.biuz.android.protocol.WorkflowStepStatus
 import kotlinx.coroutines.launch
 
@@ -308,6 +316,7 @@ fun SessionPanelsSection(
                             works = works,
                             onCancel = { workId -> scope.launch { viewModel.cancelWork(workId) } },
                             onResume = { workId, name -> scope.launch { viewModel.resumeWork(workId, name) } },
+                            onBashOutput = { workId -> viewModel.backgroundBashOutput(workId) },
                         )
 
                         SessionPanelKind.Subagents -> SubagentsPanelView(
@@ -1176,6 +1185,66 @@ fun WorkflowPanelCard(
                 color = if (run.rawStatus == "completed") BiuZAccent else BiuZText3,
             )
         }
+        // G25 血缘行（web WorkflowRunSidePaneSections.tsx:264-304 同构；iOS 面板为
+        // 全部 run 平铺卡，supersededBy 的后继卡同屏在场——静态行承载同一信息即可达）
+        if (run.resumedFrom != null || run.supersededBy != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                run.resumedFrom?.takeIf { it.isNotEmpty() }?.let { parent ->
+                    LineageRow(label = "改自", ref = parent, testTag = "05-wf-lineage-amends")
+                }
+                run.supersededBy?.takeIf { it.isNotEmpty() }?.let { child ->
+                    LineageRow(label = "已被替代，后继", ref = child, testTag = "05-wf-lineage-superseded")
+                }
+            }
+        }
+        // G25 并发冷却 chip（live 才渲染；数据 = cooldownMs 近似 receivedAt——解析即入池）
+        if (run.isLive && (run.concurrencyCooldownMs ?: 0) > 0) {
+            Text(
+                text = "并发限流冷却中",
+                style = TextStyle(
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                ),
+                color = BiuZOrange,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(BiuZOrange.copy(alpha = BiuZAlpha.faint))
+                    .padding(horizontal = BiuZSpacing.tiny, vertical = BiuZSpacing.xxs)
+                    .testTag("05-wf-cooldown-chip"),
+            )
+        }
+        // G25 终态区（web WorkflowRunResultSections 同位：完成预览 / 错误面板 + 停止原因）
+        if (!run.isLive) {
+            run.resultPreview?.takeIf { it.isNotEmpty() }?.let { preview ->
+                if (run.rawStatus == "completed") {
+                    TerminalBlock(
+                        icon = "✓",
+                        tint = BiuZAccent,
+                        body = preview,
+                        testTag = "05-wf-result",
+                    )
+                }
+            }
+            run.error?.takeIf { it.isNotEmpty() }?.let { errorText ->
+                TerminalBlock(
+                    icon = "!",
+                    tint = BiuZRed,
+                    body = errorText,
+                    testTag = "05-wf-error",
+                )
+            }
+            if (run.rawStatus == "stopped" && run.error == null) {
+                stopReasonText(run.stopReason)?.let { reason ->
+                    TerminalBlock(
+                        icon = "■",
+                        tint = BiuZText3,
+                        body = "停止原因：$reason",
+                        testTag = "05-wf-stopreason",
+                    )
+                }
+            }
+        }
         WorkflowPhaseChain(
             run = run,
             expandedPhases = expandedPhases,
@@ -1190,12 +1259,280 @@ fun WorkflowPanelCard(
                 viewModel.openActorTranscript(title = actor.name, sessionId = actor.sessionId)
             },
         )
+        // G25 保存 / 再次运行行（web saveVerb「保存/再次运行」同构；已保存判定 = forRun）
+        WorkflowSaveRow(viewModel = viewModel, run = run)
         WorkflowControlBar(
             viewModel = viewModel,
             run = run,
             goal = goal,
         )
     }
+}
+
+/** G25 血缘单行（图标 + 标签 + runId mono）。 */
+@Composable
+private fun LineageRow(label: String, ref: String, testTag: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
+        modifier = Modifier.testTag(testTag),
+    ) {
+        Text(text = "↳", fontSize = 10.sp, color = BiuZText3)
+        Text(text = label, fontSize = 11.sp, color = BiuZText3)
+        Text(
+            text = ref,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            color = BiuZText2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** G25 终态区单块（图标 + 正文；bgElevated 圆角块）。 */
+@Composable
+private fun TerminalBlock(icon: String, tint: Color, body: String, testTag: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BiuZBgElevated, BiuZRadius.small)
+            .padding(BiuZSpacing.sm)
+            .testTag(testTag),
+        horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+    ) {
+        Text(text = icon, fontSize = 11.sp, color = tint)
+        Text(
+            text = body,
+            style = TextStyle(fontSize = 12.sp, lineHeight = 17.sp),
+            color = BiuZText2,
+            maxLines = 8,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** G25 stopReason 文案表（web WorkflowRunSidePaneSections.tsx:432-440 同表；词表外原词透传）。 */
+internal fun stopReasonText(raw: String?): String? = when (raw) {
+    null, "" -> null
+    "user" -> "手动停止"
+    "model" -> "模型停止"
+    "provider" -> "供应商中断"
+    "interrupted" -> "已中断"
+    "superseded" -> "已被新运行替代"
+    else -> raw
+}
+
+/**
+ * G25 保存 / 再次运行行（web useWorkflowRunSave 同构）：已保存判定 = findSavedWorkflowForRun
+ * （entry 缺席 = 未保存）；保存表单（name/description/scope）→ saveSavedWorkflowFromRun；
+ * target_exists 走覆盖确认 AlertDialog 后带 overwrite=true 重发（覆盖是用户决定，
+ * 不是保存副作用——zcode-protocol/index.ts:3610-3613 纪律）。
+ */
+@Composable
+private fun WorkflowSaveRow(viewModel: ChatViewModel, run: WorkflowRunSummary) {
+    val coroutineScope = rememberCoroutineScope()
+    var savedRef by remember(run.id) { mutableStateOf<WorkflowRunSavedRef?>(null) }
+    var queried by remember(run.id) { mutableStateOf(false) }
+    var formOpen by remember(run.id) { mutableStateOf(false) }
+    var overwritePrompt by remember(run.id) { mutableStateOf(false) }
+    var pendingName by remember(run.id) { mutableStateOf("") }
+    var pendingDesc by remember(run.id) { mutableStateOf("") }
+    var pendingScope by remember(run.id) { mutableStateOf("project") }
+    var pendingOverwrite by remember(run.id) { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var noticeIsError by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(run.id) {
+        if (!queried) {
+            queried = true
+            savedRef = viewModel.savedWorkflowForRun(run.id)
+        }
+    }
+
+    suspend fun submit(name: String, description: String, scope: String, overwrite: Boolean) {
+        busy = true
+        val outcome = viewModel.saveWorkflowRun(
+            runId = run.id,
+            name = name,
+            description = description,
+            scope = scope,
+            overwrite = overwrite,
+        )
+        busy = false
+        when (outcome) {
+            is WorkflowRunSaveOutcome.Saved -> {
+                savedRef = WorkflowRunSavedRef(name = outcome.name, scope = outcome.scope)
+                formOpen = false
+                notice = if (outcome.overwritten) "已覆盖保存" else "已保存"
+                noticeIsError = false
+            }
+            is WorkflowRunSaveOutcome.TargetExists -> {
+                formOpen = false
+                overwritePrompt = true
+            }
+            is WorkflowRunSaveOutcome.Failed -> {
+                notice = outcome.message
+                noticeIsError = true
+            }
+        }
+    }
+
+    if (savedRef != null) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+        ) {
+            TextButton(
+                onClick = {
+                    if (busy) return@TextButton
+                    coroutineScope.launch {
+                        val failure = viewModel.rerunSavedWorkflow(savedRef!!.name, savedRef!!.scope)
+                        if (failure != null) {
+                            notice = when (failure) {
+                                is ChatViewModel.InteractionFailure.Rejected -> failure.text
+                                else -> "命令未送达（连接中断或不在连接态）"
+                            }
+                            noticeIsError = true
+                        } else {
+                            notice = "已发起再次运行"
+                            noticeIsError = false
+                        }
+                    }
+                },
+                enabled = !busy,
+                modifier = Modifier.testTag("05-wf-act-rerun"),
+            ) {
+                Text("再次运行", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = BiuZSeal)
+            }
+            Text("已保存", fontSize = 11.sp, color = BiuZText3)
+            notice?.let {
+                Text(
+                    text = it,
+                    fontSize = 11.sp,
+                    color = if (noticeIsError) BiuZRed else BiuZText3,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    } else {
+        TextButton(
+            onClick = {
+                pendingName = run.name
+                pendingDesc = ""
+                pendingScope = savedRef?.scope ?: "project"
+                pendingOverwrite = false
+                formOpen = true
+            },
+            enabled = !busy,
+            modifier = Modifier.testTag("05-wf-act-save"),
+        ) {
+            Text("保存为工作流", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = BiuZAccent)
+        }
+        notice?.let {
+            Text(
+                text = it,
+                fontSize = 11.sp,
+                color = if (noticeIsError) BiuZRed else BiuZText3,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+
+    if (formOpen) {
+        WorkflowSaveFormDialog(
+            initialName = run.name,
+            initialScope = savedRef?.scope ?: "project",
+            busy = busy,
+            onSubmit = { name, description, scopeId, overwrite ->
+                coroutineScope.launch { submit(name, description, scopeId, overwrite) }
+            },
+            onDismiss = { formOpen = false },
+        )
+    }
+    if (overwritePrompt) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { overwritePrompt = false },
+            title = { Text("同名工作流已存在") },
+            text = { Text("覆盖目标档已有的同名定义？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    overwritePrompt = false
+                    pendingOverwrite = true
+                    coroutineScope.launch {
+                        submit(pendingName, pendingDesc, pendingScope, overwrite = true)
+                    }
+                }) { Text("覆盖保存", color = BiuZRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { overwritePrompt = false }) { Text("取消") }
+            },
+        )
+    }
+}
+
+/** G25 保存表单（name/description/scope 三行；§5-15 呈现期捕获同口径）。 */
+@Composable
+private fun WorkflowSaveFormDialog(
+    initialName: String,
+    initialScope: String,
+    busy: Boolean,
+    onSubmit: (String, String, String, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var description by remember { mutableStateOf("") }
+    var scope by remember { mutableStateOf(initialScope) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("保存为工作流") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("名称") },
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.testTag("05-wf-save-name"),
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("描述") },
+                    enabled = !busy,
+                    modifier = Modifier.testTag("05-wf-save-desc"),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+                    FilterChip(
+                        selected = scope == "project",
+                        onClick = { scope = "project" },
+                        label = { Text("项目") },
+                        enabled = !busy,
+                    )
+                    FilterChip(
+                        selected = scope == "global",
+                        onClick = { scope = "global" },
+                        label = { Text("全局") },
+                        enabled = !busy,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSubmit(name.trim(), description.trim(), scope, false) },
+                enabled = name.isNotBlank() && !busy,
+                modifier = Modifier.testTag("05-wf-save-submit"),
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 /** run 五态原词 → 文案（桌面五态闭集；未知回退「待执行」）（iOS runStatusText :906-914）。 */
@@ -1601,21 +1938,48 @@ private fun PanelSpinner(size: Dp, color: Color) {
 // 可见**。移动端保留独立 chip（下钻入口更直接），因此面板必须同样把两类都列出来。
 // 运行中判定 = rawStatus == "running"（上游 backgroundWorkSummarySchema 官方派生口径）。
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorksPanelView(
     works: List<BackgroundWorkSummary>,
     onCancel: (String) -> Unit,
     onResume: (String, String?) -> Unit,
+    /** G27：后台 bash 输出查询（null = 演示态不渲染「输出」入口） */
+    onBashOutput: (suspend (String) -> BackgroundBashOutputInfo?)? = null,
     modifier: Modifier = Modifier,
 ) {
     val ordered = remember(works) { orderWorksForPanel(works) }
+    // G27 输出下钻 sheet 呈现态
+    var bashOutputWorkId by remember { mutableStateOf<String?>(null) }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .testTag("05-panel-works"),
         verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
     ) {
-        ordered.forEach { work -> WorkRow(work, onCancel, onResume) }
+        ordered.forEach { work ->
+            WorkRow(
+                work = work,
+                onCancel = onCancel,
+                onResume = onResume,
+                onBashOutput = if (onBashOutput != null) {
+                    { bashOutputWorkId = it }
+                } else null,
+            )
+        }
+    }
+    // G27 输出 sheet（running 时 1s 轮询——useBackgroundBashOutput.ts:41-59 同频）
+    if (bashOutputWorkId != null && onBashOutput != null) {
+        ModalBottomSheet(
+            onDismissRequest = { bashOutputWorkId = null },
+            containerColor = BiuZBgElevated,
+        ) {
+            BackgroundBashOutputSheetContent(
+                workId = bashOutputWorkId!!,
+                fetch = onBashOutput,
+                onDismiss = { bashOutputWorkId = null },
+            )
+        }
     }
 }
 
@@ -1634,6 +1998,8 @@ private fun WorkRow(
     work: BackgroundWorkSummary,
     onCancel: (String) -> Unit,
     onResume: (String, String?) -> Unit,
+    /** G27「输出」入口（null = 演示态不渲染；仅 bash 族有输出面——kind 闭集） */
+    onBashOutput: ((String) -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -1690,11 +2056,102 @@ private fun WorkRow(
                 }
             }
         }
+        // G27：查看输出（web background-bash-open 移动端化为行内钮；仅 bash 族有
+        // 输出面——kind 闭集 bash|subagent|workflow；回调缺席（演示态）不渲染）
+        if (onBashOutput != null && (work.kind == "bash" || work.kind == null)) {
+            WorkRowButton(
+                label = stringResource(R.string.works_act_output),
+                onClick = { onBashOutput(work.workId) },
+                modifier = Modifier.testTag("05-works-act-output-${work.workId}"),
+            )
+        }
         if (work.resumable) {
             WorkRowButton(label = stringResource(R.string.works_act_resume)) { onResume(work.workId, work.title) }
         }
         if (work.cancellable) {
             WorkRowButton(label = stringResource(R.string.works_act_cancel)) { onCancel(work.workId) }
+        }
+    }
+}
+
+/** G27 后台 bash 输出 sheet 内容（status=="running" 时 1s 轮询；output ≤8KB 快照式）。 */
+@Composable
+private fun BackgroundBashOutputSheetContent(
+    workId: String,
+    fetch: suspend (String) -> BackgroundBashOutputInfo?,
+    onDismiss: () -> Unit,
+) {
+    var info by remember(workId) { mutableStateOf<BackgroundBashOutputInfo?>(null) }
+    var errorText by remember(workId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(workId) {
+        while (true) {
+            val fetched = fetch(workId)
+            if (fetched != null) {
+                info = fetched
+                errorText = null
+                // 非 output / 非 running：终态或不可用，停止轮询
+                if (fetched.kind != "output" || fetched.status != "running") break
+            } else {
+                errorText = "输出读取失败（连接中断或桌面端不支持）"
+                break
+            }
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = BiuZSpacing.lg)
+            .padding(bottom = BiuZSpacing.lg)
+            .testTag("05-bash-output-sheet"),
+        verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+    ) {
+        Text(
+            text = stringResource(R.string.works_output_title),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = BiuZText,
+        )
+        val current = info
+        if (current != null) {
+            current.status?.let { status ->
+                Text(
+                    text = status,
+                    style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace),
+                    color = if (status == "running") BiuZBlue else BiuZText3,
+                )
+            }
+            val output = current.output
+            if (!output.isNullOrEmpty()) {
+                Text(
+                    text = output,
+                    style = TextStyle(fontSize = 11.sp, lineHeight = 16.sp, fontFamily = FontFamily.Monospace),
+                    color = BiuZText,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(BiuZBgCode, BiuZRadius.small)
+                        .padding(BiuZSpacing.sm),
+                )
+            } else {
+                Text(text = "（暂无输出）", fontSize = 12.sp, color = BiuZText3)
+            }
+            if (current.truncated) {
+                Text(text = "输出过长，仅显示末尾部分", fontSize = 11.sp, color = BiuZOrange)
+            }
+            current.outputPath?.takeIf { it.isNotEmpty() }?.let { path ->
+                Text(
+                    text = path,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = BiuZText3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else if (errorText != null) {
+            Text(text = errorText!!, fontSize = 12.sp, color = BiuZRed)
+        } else {
+            CircularProgressIndicator(modifier = Modifier.testTag("05-bash-output-loading"))
         }
     }
 }
@@ -1711,12 +2168,12 @@ fun worksDurationText(work: BackgroundWorkSummary, nowMs: Long = System.currentT
 }
 
 @Composable
-private fun WorkRowButton(label: String, onClick: () -> Unit) {
+private fun WorkRowButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Text(
         text = label,
         style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
         color = BiuZText2,
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(999.dp))
             .background(BiuZBgInput)
             .clickable(onClick = onClick)

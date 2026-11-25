@@ -62,6 +62,7 @@ import java.util.TimeZone
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1578,6 +1579,21 @@ class AppSession(
             backgroundDispatcher = backgroundDispatcher,
         )
         fileStore.diagListener = { key, value -> diagListener?.invoke(key, value) }
+        // G52 重连缓存采纳（2026-11-25 与 iOS AppSession.swift:1703-1704 同口径）：
+        // 同工作区重建 Store 时行/消息/state 投影与会话表从旧实例迁移——重连后首开
+        // 命中缓存即渲染，不等订阅与全量拉取；跨工作区不采纳（归属面不同）
+        runBlocking {
+            runCatching {
+                val prevConversation = previous.conversation as? RemoteConversationStore
+                val prevIndex = previous.sessionsIndex
+                if (prevConversation != null && previous.workspace?.path == workspace.path) {
+                    conversationStore.adoptCaches(prevConversation.exportCaches())
+                }
+                if (prevIndex != null && previous.workspace?.path == workspace.path) {
+                    sessionsIndex.adoptCaches(prevIndex)
+                }
+            }
+        }
         _storeSurface.value = StoreSurface(
             epoch = previous.epoch + 1,
             conversation = conversationStore,

@@ -371,7 +371,7 @@ final class ZCodeMobileLoginE2ETests: XCTestCase {
         XCTAssertTrue(element(application, "o1-btn-oauth").waitForExistence(timeout: 10),
                       "授权中点击登录页右上角 ✕ 应回到登录主页")
 
-        element(application, "o1-act-close").tap()
+        element(application, "o1-login-close").tap()
 
         XCTAssertTrue(element(application, "04-tab-chat").waitForExistence(timeout: 10), "关闭登录流程后应回到主界面")
         element(application, "12-tab-me").tap()

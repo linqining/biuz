@@ -66,6 +66,8 @@ struct NewConversationSheet: View {
     @State private var slashCommands: [WorkspaceConfigInfo.SlashCommand] = []
     // 模型/思考自绘面板（ComposerOptionSheet 统一语言，用户 2026-10-07「样式一致」）
     @State private var composerSheet: ComposerSheetKind?
+    /// 二级模型选择器（2026-11-25 批4）
+    @State private var showModelPicker = false
     /// 「重新获取」重开标记：onDismiss（关闭完成态）再呈现——此前在 pick 闭包
     /// dismiss 进行中 200ms 后直接重开，present-while-dismissing 真机可丢呈现
     /// （AGENTS §5-15 同型竞态）
@@ -219,13 +221,39 @@ struct NewConversationSheet: View {
             }
             .ignoresSafeArea()
         }
-        // 模型/思考自绘面板（ComposerOptionSheet；medium/large——模型清单可能超一屏）
-        .sheet(item: $composerSheet, onDismiss: {
+        // 模型二级选择器（2026-11-25 批4；「重新获取」重开经 onDismiss 链）
+        .sheet(isPresented: $showModelPicker, onDismiss: {
             if reopenModelPanelAfterDismiss {
                 reopenModelPanelAfterDismiss = false
-                composerSheet = .model
+                showModelPicker = true
             }
-        }) { kind in
+        }) {
+            ModelPickerSheet(
+                selection: modelInfo,
+                onPick: { rowKey, modelLabel, _ in
+                    // 行键复合解析：selectedModel 存纯模型名（行值展示 + 思考档词表查询），
+                    // provider 经 selectedModelRowKey 复合表解析（pendingModelSelection）；
+                    // 新建语境思考档由「思考等级」行独立承载（pickedThought 不在此落）
+                    selectedModelRowKey = rowKey
+                    selectedModel = modelLabel
+                    selectedThought = nil
+                    Task { await reloadThoughtOptions() }
+                    UISelectionFeedbackGenerator().selectionChanged()
+                },
+                onReload: {
+                    reopenModelPanelAfterDismiss = true
+                    Task {
+                        modelInfo = await conversationStore.modelSelectionView()
+                        if modelInfo?.models.isEmpty == false {
+                            modelLoadHint = nil
+                        } else {
+                            modelLoadHint = String(localized: "模型列表获取失败 · 桌面端未回执，点按重试")
+                        }
+                    }
+                })
+        }
+        // 思考档自绘面板（ComposerOptionSheet；medium/large——档位清单可能超一屏）
+        .sheet(item: $composerSheet, onDismiss: nil) { kind in
             ComposerOptionSheet(
                 title: kind.title,
                 footer: sheetFooter(kind),
@@ -413,55 +441,11 @@ struct NewConversationSheet: View {
     }
 
     // MARK: 模型/思考面板装配（NewConversationSheet 侧状态源）
+    // 2026-11-25 批4：模型装配迁 ModelPickerSheet（本文件 sheetOptions/applySheetPick
+    // 仅余思考档分支）。
 
     private func sheetOptions(_ kind: ComposerSheetKind) -> [ComposerOptionItem] {
         switch kind {
-        case .model:
-            // 清单未就绪（getView 失败/为空）给「重新获取」项——面板不空白死路
-            let reloadItem = ComposerOptionItem(
-                id: "reload-model", title: String(localized: "重新获取模型列表"),
-                detail: "", icon: "arrow.clockwise")
-            guard let info = modelInfo, !info.models.isEmpty else { return [reloadItem] }
-            let items: [ComposerOptionItem]
-            if info.planGroups.isEmpty {
-                items = info.models.map { model in
-                    ComposerOptionItem(id: model, title: model, detail: "", icon: "cpu",
-                                       // 用户点选优先（裸名分支 selectedModelRowKey 存裸名）
-                                       selected: selectedModelRowKey == model
-                                           || (selectedModelRowKey == nil && model == selectedModel))
-                }
-            } else {
-                // 行 id/payload 携「套餐|模型」复合键（同名模型跨套餐按组解析
-                // providerId——payload 曾存裸名，modelProviders 后到覆盖先到：
-                // 点个人套餐行带出体验套餐 providerId，2026-10-08 报障）。
-                // 选中勾跟随用户点选行（selectedModelRowKey）；未点选过才按桌面
-                // 当前绑定预勾（providerMatches 消歧同名跨套餐）——此前勾恒按
-                // 「provider == 桌面绑定」比对，点同名他套餐行勾纹丝不动，观感
-                // 「选不中」（2026-10-09 报障「还是不能选」根因之一）
-                items = info.planGroups.flatMap { group in
-                    group.models.map { model in
-                        let rowKey = "\(group.plan)|\(model)"
-                        let checked: Bool
-                        if let picked = selectedModelRowKey {
-                            checked = picked == rowKey
-                        } else {
-                            let providerMatches = info.activeProviderId?.isEmpty == false
-                                ? info.modelProvidersByPlan[rowKey] == info.activeProviderId
-                                : true
-                            checked = model == selectedModel && providerMatches
-                        }
-                        return ComposerOptionItem(
-                            id: rowKey,
-                            title: model,
-                            detail: "",
-                            icon: "cpu",
-                            selected: checked,
-                            section: group.plan,
-                            payload: rowKey)
-                    }
-                }
-            }
-            return items.isEmpty ? [reloadItem] : items
         case .thought:
             return displayedThoughtLevels.map { level in
                 ComposerOptionItem(id: level, title: level, detail: "", icon: "brain",
@@ -474,28 +458,6 @@ struct NewConversationSheet: View {
 
     private func applySheetPick(_ kind: ComposerSheetKind, _ option: ComposerOptionItem) {
         switch kind {
-        case .model:
-            // 「重新获取」项：置重开标记（onDismiss 关闭完成后再呈现，消
-            // present-while-dismissing 竞态），重拉 getView 成功即以新清单重开
-            if option.id == "reload-model" {
-                reopenModelPanelAfterDismiss = true
-                Task {
-                    modelInfo = await conversationStore.modelSelectionView()
-                    if modelInfo?.models.isEmpty == false {
-                        modelLoadHint = nil
-                    } else {
-                        modelLoadHint = String(localized: "模型列表获取失败 · 桌面端未回执，点按重试")
-                    }
-                }
-                return
-            }
-            // 行键复合解析：selectedModel 存纯模型名（行值展示 + 思考档词表查询），
-            // provider 经 selectedModelRowKey 复合表解析（pendingModelSelection）
-            selectedModelRowKey = option.id
-            selectedModel = modelInfo?.modelLabel(forRowKey: option.id) ?? option.id
-            selectedThought = nil
-            Task { await reloadThoughtOptions() }
-            UISelectionFeedbackGenerator().selectionChanged()
         case .thought:
             selectedThought = option.payload ?? option.id
             UISelectionFeedbackGenerator().selectionChanged()
@@ -1019,7 +981,8 @@ struct NewConversationSheet: View {
             selectedThought = modelInfo?.activeThoughtLevel
             await reloadThoughtOptions()
         }
-        composerSheet = .model
+        // 2026-11-25 批4：模型行改二级选择器（搜索+最近+分组下钻+「其他」组回退）
+        showModelPicker = true
     }
 
     /// 思考档行：词表按当前模型查询（workspace-config），缺席退化为 getView 词表 →

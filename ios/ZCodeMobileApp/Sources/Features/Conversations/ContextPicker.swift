@@ -432,9 +432,16 @@ struct ReferenceFilePickerSheet: View {
     @State private var query = ""
     @State private var nodes: [FileNode] = []
     @State private var isLoading = true
+    /// G15 服务端检索结果（连接态 searchFiles；nil = 未命中/未启用走本地过滤）
+    @State private var searchResults: [FileNode]?
+    @State private var searchTask: Task<Void, Never>?
 
-    /// 本地过滤（服务端 searchFiles 的服务端聚合由文件 Tab 承载，此处为工作区树内选择）
+    /// 命中行：连接态服务端 searchResults 优先（G15 file.searchWorkspaceFiles 接线——
+    /// FileTreeView :198-220 同构），否则树内本地过滤
     private var matched: [FileNode] {
+        if let searchResults {
+            return searchResults
+        }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nodes }
         return nodes.filter {
@@ -533,6 +540,22 @@ struct ReferenceFilePickerSheet: View {
             walk(tree, depth: 0)
             nodes = flattened
             isLoading = false
+        }
+        // G15：连接态防抖走服务端 searchWorkspaceFiles（250ms，FileTreeView 同窗）；
+        // 演示态 store.isRemote=false → searchResults 恒 nil 保持本地过滤
+        .onChange(of: query) { _, newValue in
+            searchTask?.cancel()
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard store.isRemote else { return }
+            if trimmed.isEmpty {
+                searchResults = nil
+                return
+            }
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard !Task.isCancelled else { return }
+                searchResults = await store.searchFiles(trimmed, limit: 50)
+            }
         }
     }
 }

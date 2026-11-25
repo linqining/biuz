@@ -264,6 +264,10 @@
   background: var(--color-card);
 }
 .chip--on { background: var(--color-accent); color: var(--color-on-accent); }
+
+/* G22 多题向导：题面 + 进度（一次一题，iOS 向导段同构） */
+.card__qtitle { display: block; font-size: 14px; color: var(--color-foreground); margin-bottom: 4px; }
+.card__qcount { display: block; font-size: 11px; color: var(--color-muted); margin-bottom: 8px; }
 .card__actions { display: flex; gap: 16rpx; }
 .btn {
   font-size: var(--font-sm);
@@ -350,3 +354,72 @@
   0% { transform: scale(0.9); opacity: 0.7; }
   100% { transform: scale(1.45); opacity: 0; }
 }
+
+/* G15 @ 提及候选浮层 */
+.mention { position: fixed; inset: 0; z-index: 999; }
+.mention__mask { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
+.mention__panel {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-height: 70vh; background: #fbf8f2;
+  border-radius: 24rpx 24rpx 0 0; padding: 24rpx;
+  display: flex; flex-direction: column;
+}
+.mention__head { display: flex; justify-content: space-between; align-items: center; }
+.mention__title { font-size: 34rpx; font-weight: 700; color: #17181a; }
+.mention__close { font-size: 30rpx; color: #8a8f98; padding: 8rpx; }
+.mention__input {
+  margin: 16rpx 0; padding: 12rpx 24rpx; font-size: 26rpx;
+  background: #efe9df; border-radius: 16rpx;
+}
+.mention__list { max-height: 50vh; }
+.mention__empty { font-size: 26rpx; color: #8a8f98; padding: 32rpx 0; text-align: center; }
+.mention__row { padding: 16rpx 8rpx; border-bottom: 1rpx solid rgba(23,24,26,0.06); }
+.mention__row-name { display: block; font-size: 28rpx; color: #17181a; }
+.mention__row-path {
+  display: block; font-size: 20rpx; color: #8a8f98;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* G15 scope tabs */
+.mention__tabs { display: flex; gap: 16rpx; }
+.mention__tab {
+  font-size: 24rpx; font-weight: 600; color: #5b5e63;
+  padding: 8rpx 24rpx; border-radius: 999rpx; background: #efe9df;
+}
+.mention__tab--on { color: #d2402e; background: rgba(210, 64, 46, 0.14); }
+
+/* G25 工作流 run 卡 */
+.runs { padding: 8rpx 24rpx 0; }
+.run-card {
+  background: #fbf8f2; border-radius: 12rpx; padding: 16rpx 20rpx;
+  margin-bottom: 8rpx; border: 1rpx solid rgba(210, 64, 46, 0.3);
+}
+.run-card__head { display: flex; align-items: center; gap: 12rpx; }
+.run-card__glyph { color: #d2402e; font-size: 26rpx; }
+.run-card__name { font-size: 26rpx; font-weight: 600; color: #17181a; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-card__status { font-size: 20rpx; color: #8a8f98; }
+.run-card__status--running { color: #339cff; }
+.run-card__status--completed { color: #16a34a; }
+.run-card__status--errored { color: #dc2626; }
+.run-card__lineage { margin-top: 8rpx; }
+.run-card__lineage-text { font-size: 20rpx; color: #8a8f98; margin-right: 16rpx; }
+.run-card__terminal {
+  margin-top: 8rpx; background: #efe9df; border-radius: 8rpx; padding: 12rpx;
+}
+.run-card__terminal-text { font-size: 24rpx; color: #5b5e63;
+  display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+.run-card__stopreason { margin-top: 8rpx; }
+.run-card__stopreason-text { font-size: 22rpx; color: #8a8f98; }
+.run-card__actions { margin-top: 12rpx; display: flex; gap: 16rpx; align-items: center; }
+.run-card__act { font-size: 24rpx; font-weight: 600; }
+.run-card__act--save { color: #17181a; }
+.run-card__act--rerun { color: #d2402e; }
+.run-card__notice { font-size: 20rpx; color: #8a8f98; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* G25 收口：阶段链 */
+.run-card__phases { margin-top: 8rpx; }
+.run-card__phase { display: flex; gap: 12rpx; padding: 4rpx 0; }
+.run-card__phase-glyph { font-size: 22rpx; color: #d2402e; }
+.run-card__phase-name { font-size: 24rpx; color: #5b5e63; }

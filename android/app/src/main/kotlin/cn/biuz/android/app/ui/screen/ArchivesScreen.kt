@@ -1,5 +1,11 @@
 package cn.biuz.android.app.ui.screen
 
+import androidx.compose.material3.Switch
+import cn.biuz.android.protocol.AutoArchiveSettings
+import androidx.compose.foundation.shape.RoundedCornerShape
+import cn.biuz.android.app.ui.theme.BiuZAccent
+import cn.biuz.android.app.ui.theme.BiuZBgInput
+import cn.biuz.android.app.ui.theme.BiuZOnAccent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -88,6 +94,16 @@ fun ArchivesScreen(
     var query by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<Conversation?>(null) }
     var deleteAllConfirm by remember { mutableStateOf(false) }
+    // G43 自动归档设置（setting 频道两键；null = 未读取/未连接——区块呈失败态）
+    var autoArchive by remember { mutableStateOf<AutoArchiveSettings?>(null) }
+    var autoArchiveError by remember { mutableStateOf<String?>(null) }
+    var autoArchiveBusy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(connected) {
+        if (!connected) return@LaunchedEffect
+        autoArchive = runCatching { store.autoArchiveSettings() }.getOrNull()
+        autoArchiveError = if (autoArchive == null) "自动归档设置读取失败" else null
+    }
 
     suspend fun reload() {
         loading = true
@@ -181,6 +197,84 @@ fun ArchivesScreen(
                 .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
                 .testTag("19-search"),
         )
+
+        // G43 自动归档设置区（web TaskAutoArchiveSettings 同位入归档页；写 = setting
+        // 频道单键补丁直接写不确认，busy 期禁改 + 失败行如实上屏——iOS AutoArchiveSettingsPage 同口径）
+        if (connected) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.xs)
+                    .background(BiuZBgCard, BiuZRadius.medium)
+                    .padding(BiuZSpacing.md)
+                    .testTag("19-auto-archive"),
+                verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "自动归档旧任务",
+                        fontSize = 13.sp,
+                        color = BiuZText,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = autoArchive?.enabled == true,
+                        onCheckedChange = { newValue ->
+                            if (autoArchiveBusy) return@Switch
+                            autoArchiveBusy = true
+                            autoArchiveError = null
+                            scope.launch {
+                                val failure = store.setAutoArchiveSetting(enabled = newValue, olderThanDays = null)
+                                autoArchiveBusy = false
+                                if (failure != null) {
+                                    autoArchiveError = "写入失败：$failure"
+                                } else {
+                                    autoArchive = autoArchive?.copy(enabled = newValue)
+                                        ?: AutoArchiveSettings(enabled = newValue, olderThanDays = 30)
+                                }
+                            }
+                        },
+                        enabled = autoArchive != null && !autoArchiveBusy,
+                        modifier = Modifier.testTag("19-auto-archive-switch"),
+                    )
+                }
+                if (autoArchive?.enabled == true) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+                        listOf(3, 7, 14, 30).forEach { days ->
+                            val selected = autoArchive?.olderThanDays == days
+                            Text(
+                                text = "$days 天",
+                                fontSize = 12.sp,
+                                color = if (selected) BiuZOnAccent else BiuZText2,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(if (selected) BiuZAccent else BiuZBgInput)
+                                    .clickable(enabled = !autoArchiveBusy) {
+                                        if (autoArchiveBusy) return@clickable
+                                        autoArchiveBusy = true
+                                        autoArchiveError = null
+                                        scope.launch {
+                                            val failure = store.setAutoArchiveSetting(enabled = null, olderThanDays = days)
+                                            autoArchiveBusy = false
+                                            if (failure != null) {
+                                                autoArchiveError = "写入失败：$failure"
+                                            } else {
+                                                autoArchive = autoArchive?.copy(olderThanDays = days)
+                                                    ?: AutoArchiveSettings(enabled = true, olderThanDays = days)
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.xs)
+                                    .testTag("19-auto-archive-days-$days"),
+                            )
+                        }
+                    }
+                }
+                autoArchiveError?.let {
+                    Text(text = it, fontSize = 11.sp, color = BiuZRed)
+                }
+            }
+        }
 
         actionError?.let {
             BiuzInlineNotice(message = it, modifier = Modifier.padding(horizontal = BiuZSpacing.md))
@@ -293,12 +387,21 @@ fun ArchivesScreen(
                     scope.launch {
                         actionError = null
                         val snapshot = filtered
-                        var failed = 0
-                        snapshot.forEach { item ->
-                            val ok = runCatching { store.deleteTask(item.id) }.getOrDefault(false)
-                            if (!ok) failed += 1
+                        // G43：deleteArchivedTasks 批量 RPC（web archivedTaskDeletion 同构——
+                        // 归档 guard 桌面逐项事务；此前逐行 deleteTask 对已归档行报
+                        // sessionNotFound，批量面才是桌面正规入口）
+                        val result = runCatching {
+                            store.deleteArchivedTasks(snapshot.map { it.id })
+                        }.getOrNull()
+                        if (result == null) {
+                            actionError = "删除失败（未连接或桌面端不支持）"
+                        } else {
+                            val failed = result.failedTaskIds.size
+                            if (failed > 0 || result.skippedTaskIds.isNotEmpty()) {
+                                actionError = "已删 ${result.deletedTaskIds.size} 项 · " +
+                                    "失败 $failed · 跳过 ${result.skippedTaskIds.size}"
+                            }
                         }
-                        if (failed > 0) actionError = "删除失败 $failed 项"
                         reload()
                     }
                 }) { Text(stringResource(R.string.archives_delete), color = BiuZRed) }

@@ -10,6 +10,9 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,11 +74,21 @@ class MainActivity : ComponentActivity() {
             val darkTheme = resolveDarkTheme(appearance, isSystemInDarkTheme())
             LaunchedEffect(darkTheme) { applySystemBars(darkTheme) }
             BiuZTheme(darkTheme = darkTheme) {
-                BiuZApp(
-                    session = session,
-                    settings = settings,
-                    initialShareCode = shareCodeState.value,
-                )
+                // G42 界面字号缩放（web --ui-font-size 同构）：fontScale 乘数只缩 sp
+                // 文本，不动 dp 图标/间距/圆角（uiFontSize.ts applyUiFontSizePx :24 同口径）
+                val currentDensity = LocalDensity.current
+                CompositionLocalProvider(
+                    LocalDensity provides Density(
+                        density = currentDensity.density,
+                        fontScale = currentDensity.fontScale * cn.biuz.android.app.ui.theme.UiFontScale.multiplier,
+                    ),
+                ) {
+                    BiuZApp(
+                        session = session,
+                        settings = settings,
+                        initialShareCode = shareCodeState.value,
+                    )
+                }
             }
         }
     }

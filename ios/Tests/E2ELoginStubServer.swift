@@ -359,6 +359,7 @@ final class E2ELoginStubServer {
     private var _sendTextCount = 0
     private var _resolveInteractionCount = 0
     private var _lastResolveInteraction: (interactionId: String, payload: [String: Any])?
+
     private var _stopCount = 0
     private var _createSessionCount = 0
     private var _createSessionWithFirstInputCount = 0
@@ -2213,19 +2214,12 @@ private var _recordedPinned: [String: Bool] = [:]
             fireConversationDelta(sessionId: sessionId, row: userRow, channel: channel, delay: 0.3)
             fireConversationDelta(sessionId: sessionId, row: assistantRow, channel: channel, delay: 0.35)
         case "resolveInteraction":
+            // G22：全深度递归转换（此前只展开一层——content.answers 深度 2 被静默
+            // 丢弃，多题信封断言拿 nil；标量沿用 1→true 旧约定不破既有用例）
             let payloadDict = effective?["payload"]?.objectValue ?? [:]
             var payloadJSON: [String: Any] = [:]
             for (key, value) in payloadDict {
-                if let s = value.stringValue { payloadJSON[key] = s }
-                else if let i = value.intValue { payloadJSON[key] = i == 1 }
-                else if let obj = value.objectValue {
-                    var nested: [String: Any] = [:]
-                    for (k, v) in obj {
-                        if let s = v.stringValue { nested[k] = s }
-                        else if let i = v.intValue { nested[k] = i == 1 }
-                    }
-                    payloadJSON[key] = nested
-                }
+                payloadJSON[key] = StubRPC.jsonToAny(value)
             }
             let interactionId = payloadJSON["interactionId"] as? String ?? ""
             lock.lock()
@@ -3268,6 +3262,22 @@ enum StubRPC {
     var arrayValue: [StubRPC]? {
         if case .array(let items) = self { return items }
         return nil
+    }
+
+    /// StubRPC → Any 全深度递归（G22 多题信封 content.answers 断言数据源——
+    /// resolveInteraction 载荷此前只展开一层，深度 2 对象被静默丢弃）。
+    /// 标量约定沿用旧转换：Int 1 → true（替身历史口径，既有用例依赖）。
+    static func jsonToAny(_ v: StubRPC) -> Any {
+        if case .bool(let b) = v { return b }
+        if let s = v.stringValue { return s }
+        if let i = v.intValue { return i == 1 }
+        if let arr = v.arrayValue { return arr.map { jsonToAny($0) } }
+        if let obj = v.objectValue {
+            var out: [String: Any] = [:]
+            for (k, item) in obj { out[k] = jsonToAny(item) }
+            return out
+        }
+        return String(describing: v)
     }
 
     var stringValue: String? {

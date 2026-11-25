@@ -32,7 +32,23 @@
 
     <block wx:elif="{{sections.length}}">
       <view class="section" wx:for="{{sections}}" wx:key="key">
+        <!-- G36 grouped 分区组头：色点 + 点击循环换色 + 长按置顶（web TaskGroupedView 同构） -->
+        <view wx:if="{{view === 'grouped' && item.key !== 'section:pinned' && item.key !== 'section:unread' && item.key !== 'ungrouped'}}"
+          class="group-head" bind:tap="onGroupHeaderTap" bind:longpress="onGroupHeaderLongPress"
+          data-title="{{item.title}}" data-testid="04-group-header">
+          <view class="group-head__dot" wx:if="{{groupColors[item.title]}}"
+            style="background: {{item.colorHex || groupColors[item.title]}};"></view>
+          <view class="group-head__dot group-head__dot--gray" wx:else></view>
+          <section-header
+            title="{{item.title}}"
+            count="{{item.count}}"
+            collapsible="{{item.collapsible}}"
+            collapsed="{{item.collapsed}}"
+            sectionKey="{{item.key}}"
+            bind:toggle="onToggleSection" />
+        </view>
         <section-header
+          wx:else
           title="{{item.title}}"
           count="{{item.count}}"
           collapsible="{{item.collapsible}}"
@@ -46,7 +62,13 @@
             wx:key="id"
             row="{{row}}"
             bind:open="onOpenRow"
-            bind:menu="onRowMenu" />
+            bind:menu="onRowMenu"
+            bind:snooze="onRowSnooze" />
+          <!-- G34 置顶溢出「显示更多/收起」（web taskList.showMore/showLess 同语义） -->
+          <view class="pinned-more" wx:if="{{item.key === 'section:pinned' && pinnedOverflow > 0}}"
+            bind:tap="onTogglePinnedMore" data-testid="04-act-pinned-more">
+            <text>{{showAllPinned ? '收起置顶' : '显示更多置顶（' + pinnedOverflow + '）'}}</text>
+          </view>
         </block>
       </view>
     </block>
@@ -74,6 +96,8 @@
       <view class="footer__avatar">{{accountInitial || '·'}}</view>
       <text class="footer__name">{{accountName || '未登录'}}</text>
     </view>
+    <!-- G38 统一搜索入口（web ⌘K CommandCenter 移动对位） -->
+    <view class="footer__settings" bind:tap="onOpenCommandCenter" data-testid="04-act-command-center">🔍</view>
     <view class="footer__settings" bind:tap="onSettings">⚙</view>
   </view>
 </view>

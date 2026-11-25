@@ -226,61 +226,45 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
     // MARK: - G-010/G-006 会话来源过滤：两档过滤（演示）+ 连接态隐藏 cloud 档 + 持久化
     //（H7 后「云端沙盒」档整档隐藏，原三档断言改写为隐藏断言）
 
-    func test01_sourceFilterRoundTripDemoAndConnected() throws {
+    func test01_sourceChipsOnlyWhenMultiSource() throws {
         let application = launchDemo()
 
-        // ① 演示态两档各自非空（G-006：mock seed 补 source 演示值——c3/c4=cloud，其余=mac）
+        // 2026-11-25 UIUX 审查 A3：来源 chips 改为「数据真实存在 ≥2 种非空来源
+        // 才渲染」（单源时「全部/我的 Mac」内容恒等=纯噪）。演示数据 mac 为主、
+        // c3/c4=cloud（mock seed），属**多源**场景 → chips 应呈现且过滤生效；
+        // 生产单桌面连接后全为 mac → chips 自动隐藏（②段由连接态验证）。
         XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 10),
                       "演示态应进入会话列表（mock 会话在场）")
         XCTAssertTrue(element(application, "04-chip-source-all").waitForExistence(timeout: 6),
-                      "来源过滤 chips 应在场")
-        // HIDDEN(对齐修复) H7/L-4：「云端沙盒」档已整档隐藏（无 cloud 会话数据源，
-        // 恒空档）· 恢复条件：cloud 会话源接入后还原档位与下述过滤断言
+                      "多源演示数据应呈现来源 chips（mac + cloud）")
+        // HIDDEN(对齐修复) H7/L-4：「云端沙盒」档整档隐藏（恒空档不渲染）
         XCTAssertFalse(element(application, "04-chip-source-cloud").exists,
-                       "「云端沙盒」档应隐藏（H7：恒空档不渲染）")
+                       "「云端沙盒」档应隐藏（H7）")
         element(application, "04-chip-source-mac").tap()
-        // 档位切换后 List 重排 + LazyVStack 重新物化，等待窗给足时序容忍（同等待遇用于三档）
         if !element(application, "04-row-c1").waitForExistence(timeout: 4) {
-            // 首次 tap 若落在 chips 行重排动画期（XCUI 坐标解析先于布局稳定），有界重试一次
+            // 首次 tap 落在 chips 行重排动画期（XCUI 坐标解析先于布局稳定）时重试一次
             element(application, "04-chip-source-mac").tap()
         }
         XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 12),
-                      "演示态「我的 Mac」档应返回演示 mac 会话集合（c1/c2/c5/c6）")
+                      "「我的 Mac」档应返回演示 mac 会话集合（c1/c2/c5/c6）")
         XCTAssertFalse(element(application, "04-row-c3").exists,
                        "mac 档不应混入 cloud 会话（c3）")
         element(application, "04-chip-source-all").tap()
         XCTAssertTrue(element(application, "04-row-c1").waitForExistence(timeout: 12),
                       "切回「全部」后 mock 会话行应回归")
 
-        // ② 连接态：替身会话归「我的 Mac」档；「云端沙盒」档按 H7 隐藏不渲染
-        // （G-006 验收②/G-010 原断言「置灰禁用」随 H7 升格为整档隐藏）
+        // ② 连接态：替身数据全为 mac（单源）→ chips 整行隐藏，行正常
         connectAndEnterMain(application)
-        let stubRow = element(application, "04-row-sess-e2e-1")
-        XCTAssertTrue(stubRow.waitForExistence(timeout: 15), "连接态应呈现替身快照会话行")
-        element(application, "04-chip-source-mac").tap()
-        XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 8),
-                      "连接态 mac 会话应出现在「我的 Mac」档")
-        XCTAssertFalse(element(application, "04-chip-source-cloud").exists,
-                       "连接态「云端沙盒」档应整档隐藏（H7，不再呈现置灰死档）")
-        element(application, "04-chip-source-all").tap()
-        XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 8),
-                      "切回「全部」后替身会话行应回归")
+        XCTAssertTrue(element(application, "04-row-sess-e2e-1").waitForExistence(timeout: 15),
+                      "连接态应呈现替身快照会话行")
+        XCTAssertFalse(element(application, "04-chip-source-all").exists,
+                       "单源数据不应渲染来源 chips 行（A3 核心断言）")
 
-        // ③ 持久化：切「我的 Mac」→ 重启后档位保持（list.sourceFilter.v1）且 mac 行仍在。
-        // 选中态判别（防假阳性）：替身只有 mac 会话，「全部」档回退同样能显示该行——
-        // 故必须断言 mac chip 处于选中态（背景 accent = 选中），且回退判别用 c1
-        //（stub 会话 source=mac；若回退「全部」则 demo c1 行也会出现）
-        element(application, "04-chip-source-mac").tap()
+        // ③ 冷启：chips 隐藏不影响列表恢复
         relaunchKeepState(application)
-        let macChip = element(app, "04-chip-source-mac")
-        XCTAssertTrue(macChip.waitForExistence(timeout: 10),
-                      "重启后来源 chips 应在场")
-        XCTAssertTrue(macChip.isSelected,
-                      "重启后「我的 Mac」chip 应保持选中（list.sourceFilter.v1 持久化；"
-                      + "回退「全部」档该断言失败）")
         XCTAssertTrue(element(app, "04-row-sess-e2e-1").waitForExistence(timeout: 15),
-                      "重启后（mac 档持久化）替身会话行应仍归档显示")
-        snap(app, "matrix-g010-source-filter-persisted")
+                      "重启后列表应恢复（chips 隐藏不影响行）")
+        snap(app, "matrix-a3-source-chips-single-source")
     }
 
     // MARK: - 要求 4：多项目分组（分组键=会话自带工作区字段，与桌面侧栏项目全集对齐；
@@ -713,25 +697,41 @@ final class MatrixAcceptanceE2ETests: XCTestCase {
         element(app, "12-language-zh-Hans").tap()
     }
 
-    // MARK: - G-026 协议名可点 → 内嵌 WebView Sheet 可关闭
+    // MARK: - O1 登录页平台切换（2026-11-25 对齐 Android LoginProviderButton）
+    // 原 G-026 协议 WebView 用例：协议脚注随 Android 对齐撤除（AgreementWebViewSheet
+    // 暂无入口，cleanup-list 在案）→ 改写覆盖新的右侧下拉箭头平台切换。
 
-    func test11_agreementWebViewOpensAndClosable() throws {
+    func test11_loginProviderSwitchViaArrowMenu() throws {
         let application = launchDemo(extra: ["-ZCodeOpenLoginFlow"])
         let oauthButton = element(application, "o1-btn-oauth")
         XCTAssertTrue(oauthButton.waitForExistence(timeout: 15), "应进入 O1 登录主页")
+        XCTAssertTrue(oauthButton.label.contains("Z.ai"), "默认平台应为 Z.ai；实际=\(oauthButton.label)")
 
-        let agreementEntry = element(application, "o1-act-agreement")
-        XCTAssertTrue(agreementEntry.waitForExistence(timeout: 8),
-                      "登录页协议脚注应可点（《用户协议》入口 o1-act-agreement）")
-        agreementEntry.tap()
-        let closeButton = element(application, "o1-legal-close")
-        XCTAssertTrue(closeButton.waitForExistence(timeout: 10),
-                      "应弹出内嵌协议 WebView Sheet（带关闭钮）")
-        closeButton.tap()
-        XCTAssertTrue(waitUntil(timeout: 8, "关闭后应回到登录页") {
-            !closeButton.exists && oauthButton.exists
-        })
-        snap(application, "matrix-g026-agreement-closed")
+        // 扫码并列入口在场（用户裁决「两个登录选项」）
+        XCTAssertTrue(element(application, "o1-btn-scan-desktop").exists,
+                      "登录页应有「扫码连接桌面端」第二入口")
+
+        // 点右侧箭头 → 平台菜单 → 选 BigModel → 主按钮文案随平台切换
+        element(application, "o1-btn-provider-switch").tap()
+        let bigmodelOption = application.buttons
+            .matching(NSPredicate(format: "label CONTAINS 'BigModel'")).firstMatch
+        XCTAssertTrue(bigmodelOption.waitForExistence(timeout: 6),
+                      "箭头菜单应展开平台选项（含 BigModel）")
+        bigmodelOption.tap()
+        XCTAssertTrue(waitUntil(timeout: 8, "主按钮应切换为 BigModel") {
+            oauthButton.label.contains("BigModel")
+        }, "选择 BigModel 后主按钮文案应随平台切换；实际=\(oauthButton.label)")
+        snap(application, "matrix-o1-provider-bigmodel")
+
+        // 第二个登录选项：扫码连接桌面端 → 登录 cover 切连接流程并**直接起扫**
+        //（initialScan；取景器在场判据 = 关闭钮或权限拒绝卡，二者都属扫码页）
+        element(application, "o1-btn-scan-desktop").tap()
+        let scannerClose = element(application, "l1-s-act-close")
+        let scannerDenied = element(application, "l1-s-btn-settings")
+        XCTAssertTrue(waitUntil(timeout: 15, "登录页扫码入口应直接拉起取景器") {
+            scannerClose.exists || scannerDenied.exists
+        }, "扫码入口应直达取景器（不再绕连接页主钮）")
+        snap(application, "matrix-o1-scan-direct")
     }
 
     // MARK: - G-015 分享只读页：冷启入口 + 失效码明确错误态

@@ -9,7 +9,7 @@
 <style>
   :root{
     --zhu:#D2402E; --zhu-deep:#B03020; --mo:#17181A; --mo-soft:#2A2B2E;
-    --zhi:#F2EADB; --zhi-dim:#EFE9DF; --hui:#8A8F98;
+    --zhi:#F7f3ec; --zhi-dim:#EFE9DF; --hui:#8A8F98;
     --hairline:rgba(23,24,26,.14); --hairline-dark:rgba(247,243,236,.16);
     --serif:"Songti SC","Noto Serif SC","Source Han Serif SC",serif;
     --sans:"PingFang SC","Noto Sans SC",-apple-system,sans-serif;
@@ -469,7 +469,7 @@
         var isReject = !approved;
         var ground = isReject ? "#17181A" : "#D2402E";
         var chars  = isReject ? ["不","准"] : ["照","办"];
-        zone.innerHTML = stampSVG(ground, "#F2EADB", chars, isReject ? "ink" : "");
+        zone.innerHTML = stampSVG(ground, "#F7f3ec", chars, isReject ? "ink" : "");
         if (reduceMotion) { zone.firstElementChild.style.animation = "none"; zone.lastElementChild.style.display = "none"; }
         eyebrow.textContent = isReject ? "已拒绝 · 墨印" : "已批准 · 阴文落印";
         eyebrow.classList.remove("deciding");

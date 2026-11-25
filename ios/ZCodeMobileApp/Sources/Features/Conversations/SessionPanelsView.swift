@@ -73,10 +73,10 @@ struct SessionPanelsView: View {
                         HStack(spacing: T.sp1) {
                             Image(systemName: kind.icon)
                                 .font(.system(size: 10))
-                                .foregroundColor(T.violet)
+                                .foregroundColor(T.seal)
                             Text(kind.label)
                                 .font(T.font(11.5, .semibold))
-                                .foregroundColor(T.violet)
+                                .foregroundColor(T.seal)
                             Spacer(minLength: 0)
                             Image(systemName: "chevron.up")
                                 .font(.system(size: 10, weight: .semibold))
@@ -102,7 +102,7 @@ struct SessionPanelsView: View {
                 .padding(T.sp3)
                 .background(T.bgCard)
                 .clipShape(RoundedRectangle(cornerRadius: T.rM))
-                .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.violet.opacity(0.35), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.seal.opacity(0.35), lineWidth: 1))
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
             if let message = controlFeedback {
@@ -403,6 +403,17 @@ struct SessionPanelsView: View {
                     },
                     onLoadActorTranscript: { sessionId in
                         await viewModel.storeActorTranscript(sessionId: sessionId)
+                    },
+                    onQuerySaved: {
+                        await viewModel.savedWorkflowForRun(runId: run.id)
+                    },
+                    onSaveRun: { name, description, scope, overwrite in
+                        await viewModel.saveWorkflowRun(
+                            runId: run.id, name: name, description: description,
+                            scope: scope, overwrite: overwrite)
+                    },
+                    onRerun: { name, scope in
+                        await viewModel.rerunSavedWorkflow(name: name, scope: scope)
                     })
                 if index < runs.count - 1 {
                     Divider().overlay(T.border).padding(.vertical, T.sp1)
@@ -417,6 +428,8 @@ struct SessionPanelsView: View {
                 if let message = await viewModel.resumeWork(workId, name: name) {
                     showControlFeedback(message)
                 }
+            } onBashOutput: { workId in
+                await viewModel.backgroundBashOutput(workId: workId)
             }
         case .subagents:
             SubagentsPanelView(subagents: viewModel.subagentSessions) { sub in
@@ -461,7 +474,7 @@ struct GoalPanelView: View {
             HStack(spacing: T.sp2) {
                 Image(systemName: "target")
                     .font(.system(size: 12))
-                    .foregroundColor(T.violet)
+                    .foregroundColor(T.seal)
                 Text(String(localized: "当前目标"))
                     .font(T.font(12.5, .semibold))
                     .foregroundColor(T.text)
@@ -638,7 +651,7 @@ struct PlanPanelView: View {
             HStack(spacing: T.sp2) {
                 Image(systemName: "list.clipboard")
                     .font(.system(size: 12))
-                    .foregroundColor(T.violet)
+                    .foregroundColor(T.seal)
                 Text(plan.title ?? String(localized: "当前计划"))
                     .font(T.font(12.5, .semibold))
                     .foregroundColor(T.text)
@@ -663,7 +676,7 @@ struct PlanPanelView: View {
                         HStack(alignment: .top, spacing: 0) {
                             Text(item.glyph)
                                 .font(T.font(12))
-                                .foregroundColor(item.isDone ? T.green : (item.isRunning ? T.violet : T.text3))
+                                .foregroundColor(item.isDone ? T.green : (item.isRunning ? T.seal : T.text3))
                                 .frame(width: T.sp3, alignment: .center)
                             Text(item.title)
                                 .font(T.font(12))
@@ -702,20 +715,33 @@ struct WorkflowPanelContent: View {
     var onCancelRun: () async -> Void
     var onResumeRun: () async -> Void
     var onLoadActorTranscript: (String) async -> [ChatMessage]
+    // G25（2026-11-25）：保存/再次运行（web 完成卡 saveVerb 同构；nil 回调 = 演示态不渲染）
+    var onQuerySaved: (() async -> WorkflowRunSavedRef?)?
+    var onSaveRun: ((String, String, String, Bool) async -> WorkflowRunSaveOutcome)?
+    var onRerun: ((String, String) async -> String?)?
 
     @State private var expandedPhases: Set<String> = []
     @State private var transcriptActor: WorkflowActorSummary?
     @State private var transcript: [ChatMessage] = []
     @State private var transcriptLoading = false
     @State private var sendingControl = false
+    // G25 保存态：已存档引用（非 nil = 卡片翻「再次运行」）、保存表单呈现态
+    @State private var savedRef: WorkflowRunSavedRef?
+    @State private var saveFormPresented = false
+    @State private var saveNotice: String?
+    @State private var saveNoticeIsError = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
             header
+            lineageRows
+            concurrencyChip
+            terminalSection
             if !run.holes.isEmpty {
                 holesPanel
             }
             phaseChain
+            saveRow
             // 已结束的 run 不渲染控制条：amendWorkflowRunSettings / 并发调整对死 run 桌面
             // 必拒（假可供性），「暂停目标」在「目标」面板有同功能入口（与 Android 同步）
             if run.isLive {
@@ -728,8 +754,37 @@ struct WorkflowPanelContent: View {
                 messages: transcript,
                 isLoading: transcriptLoading)
         }
+        .sheet(isPresented: $saveFormPresented) {
+            WorkflowSaveFormSheet(
+                initialName: Self.displayRunName(run, ordinal: ordinal),
+                initialScope: savedRef?.scope ?? "project",
+                perform: { name, description, scope, overwrite in
+                    guard let onSaveRun else {
+                        return .failed(String(localized: "演示态不支持保存工作流"))
+                    }
+                    return await onSaveRun(name, description, scope, overwrite)
+                },
+                onFinished: { outcome in
+                    switch outcome {
+                    case .saved(let savedName, let savedScope, let overwritten):
+                        savedRef = WorkflowRunSavedRef(name: savedName, scope: savedScope)
+                        showSaveNotice(
+                            overwritten ? String(localized: "已覆盖保存") : String(localized: "已保存"),
+                            isError: false)
+                    case .targetExists:
+                        break // sheet 内已引导覆盖确认，无需面板提示
+                    case .failed(let message):
+                        showSaveNotice(message, isError: true)
+                    }
+                })
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-panel-workflow")
+        .task {
+            // G25：已保存判定（entry 推导得来——用户删档后自动翻回「保存」）
+            guard let onQuerySaved else { return }
+            savedRef = await onQuerySaved()
+        }
         .onAppear {
             // 诊断钩子：-ZCodePanelExpandPhases 冷启自动展开全部阶段行（无点按路径的
             // actor 行/转录入口取证；模式同 -ZCodePanelExpand）
@@ -754,7 +809,7 @@ struct WorkflowPanelContent: View {
         HStack(spacing: T.sp2) {
             Image(systemName: "flowchart.fill")
                 .font(.system(size: 13))
-                .foregroundColor(T.violet)
+                .foregroundColor(T.seal)
             Text(Self.displayRunName(run, ordinal: ordinal))
                 .font(T.font(13, .semibold))
                 .foregroundColor(T.text)
@@ -770,6 +825,195 @@ struct WorkflowPanelContent: View {
                 .font(T.mono(10.5, .semibold))
                 .foregroundColor(run.status == .done ? T.accentText : T.text3)
         }
+    }
+
+    // MARK: G25 血缘行（改自 / 已被替代；web WorkflowRunSidePaneSections.tsx:264-304 同构）
+    //
+    // 上游 supersededBy 可点开后继 run 详情（SidePane 单 run 语境）；iOS 面板是
+    // 全部 run 平铺卡，后继 run 的卡片同屏在场——静态行承载同一信息即可达。
+
+    @ViewBuilder
+    private var lineageRows: some View {
+        if run.resumedFrom != nil || run.supersededBy != nil {
+            VStack(alignment: .leading, spacing: 2) {
+                if let resumedFrom = run.resumedFrom, !resumedFrom.isEmpty {
+                    lineageLabel(icon: "arrow.turn.up.right", text: String(localized: "改自"), ref: resumedFrom)
+                }
+                if let supersededBy = run.supersededBy, !supersededBy.isEmpty {
+                    lineageLabel(icon: "arrow.triangle.branch", text: String(localized: "已被替代，后继"), ref: supersededBy)
+                }
+            }
+        }
+    }
+
+    private func lineageLabel(icon: String, text: String, ref: String) -> some View {
+        HStack(spacing: T.sp1) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundColor(T.text3)
+            Text(text)
+                .font(T.font(10.5))
+                .foregroundColor(T.text3)
+            Text(ref)
+                .font(T.mono(9.5))
+                .foregroundColor(T.text2)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: G25 并发冷却 chip（web 并发 chip + RunHolesWaitingChip 同位；live 才渲染）
+    //
+    // 数据 = run.concurrencyCooldownUntil（解析时刻 + cooldownMs 近似 receivedAt 口径）；
+    // 过期即不渲染（state 投影再到达时会刷新）。cap/limit 展示走既有控制条 Menu，
+    // 这里只补「限流冷却中」这一缺失状态。
+
+    @ViewBuilder
+    private var concurrencyChip: some View {
+        if run.isLive, let until = run.concurrencyCooldownUntil, until > Date() {
+            HStack(spacing: 4) {
+                Image(systemName: "hourglass")
+                    .font(.system(size: 9))
+                let remaining = Int(until.timeIntervalSinceNow.rounded(.up))
+                Text(String(localized: "并发限流冷却 \(remaining)s"))
+                    .font(T.mono(9.5, .semibold))
+            }
+            .foregroundColor(T.orange)
+            .padding(.horizontal, T.sp2)
+            .padding(.vertical, 3)
+            .background(T.orange.opacity(0.12))
+            .clipShape(Capsule())
+            .accessibilityIdentifier("05-wf-cooldown-chip")
+        }
+    }
+
+    // MARK: G25 终态区（web WorkflowRunResultSections 同位：完成预览 / 错误面板）
+
+    @ViewBuilder
+    private var terminalSection: some View {
+        if !run.isLive {
+            // completed：resultPreview 预览块（上游 resultPreview :441；缺省不渲染空块）
+            if run.rawStatus == "completed", let preview = run.resultPreview, !preview.isEmpty {
+                terminalBlock(icon: "checkmark.seal.fill", tint: T.accentText) {
+                    Text(preview)
+                        .font(T.font(11.5))
+                        .foregroundColor(T.text2)
+                        .lineLimit(6)
+                }
+                .accessibilityIdentifier("05-wf-result")
+            }
+            // errored：error 正文；stopped：stopReason 文案（词表 user/model/provider/
+            // interrupted/superseded——上游 :432-440）；两者正文都缺则不渲染空块
+            if run.rawStatus == "errored", let errorText = run.error, !errorText.isEmpty {
+                terminalBlock(icon: "exclamationmark.triangle.fill", tint: T.red) {
+                    Text(errorText)
+                        .font(T.font(11.5))
+                        .foregroundColor(T.text2)
+                        .lineLimit(8)
+                }
+                .accessibilityIdentifier("05-wf-error")
+            } else if run.rawStatus == "stopped" {
+                if let reasonText = WorkflowRunSummary.stopReasonText(run.stopReason),
+                   run.stopReason != nil, reasonText != run.stopReason {
+                    terminalBlock(icon: "stop.circle.fill", tint: T.text3) {
+                        Text(String(localized: "停止原因：\(reasonText)"))
+                            .font(T.font(11.5))
+                            .foregroundColor(T.text3)
+                    }
+                    .accessibilityIdentifier("05-wf-stopreason")
+                }
+                if let errorText = run.error, !errorText.isEmpty {
+                    terminalBlock(icon: "exclamationmark.triangle.fill", tint: T.red) {
+                        Text(errorText)
+                            .font(T.font(11.5))
+                            .foregroundColor(T.text2)
+                            .lineLimit(8)
+                    }
+                }
+            }
+        }
+    }
+
+    private func terminalBlock(
+        icon: String, tint: Color, @ViewBuilder content: () -> some View
+    ) -> some View {
+        HStack(alignment: .top, spacing: T.sp2) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundColor(tint)
+            content()
+            Spacer(minLength: 0)
+        }
+        .padding(T.sp2)
+        .background(T.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+    }
+
+    // MARK: G25 保存 / 再次运行（web saveVerb「保存/再次运行」同构）
+
+    @ViewBuilder
+    private var saveRow: some View {
+        if onSaveRun != nil || onRerun != nil {
+            HStack(spacing: T.sp2) {
+                if let savedRef {
+                    // 已保存：主动词翻「再次运行」（startSavedWorkflow {name, scope}）
+                    if let onRerun {
+                        Button {
+                            guard !sendingControl else { return }
+                            sendingControl = true
+                            Task {
+                                if let message = await onRerun(savedRef.name, savedRef.scope) {
+                                    showSaveNotice(message, isError: true)
+                                }
+                                sendingControl = false
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.clockwise.circle.fill")
+                                    .font(.system(size: 11))
+                                Text(String(localized: "再次运行"))
+                                    .font(T.font(11.5, .semibold))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(T.seal)
+                        .disabled(sendingControl)
+                        .accessibilityIdentifier("05-wf-act-rerun")
+                    }
+                    Text(String(localized: "已保存"))
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text3)
+                } else if onSaveRun != nil {
+                    Button {
+                        saveFormPresented = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 11))
+                            Text(String(localized: "保存为工作流"))
+                                .font(T.font(11.5, .semibold))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(T.accentText)
+                    .accessibilityIdentifier("05-wf-act-save")
+                }
+                Spacer(minLength: 0)
+                if let notice = saveNotice {
+                    Text(notice)
+                        .font(T.font(10.5))
+                        .foregroundColor(saveNoticeIsError ? T.red : T.text3)
+                        .lineLimit(2)
+                }
+            }
+        }
+    }
+
+    private func showSaveNotice(_ text: String, isError: Bool) {
+        saveNotice = text
+        saveNoticeIsError = isError
     }
 
     // MARK: 阶段链（桌面同构：阶段行 n/m + chevron；展开为子代理实例行）
@@ -1125,6 +1369,108 @@ struct WorkflowPanelContent: View {
     }
 }
 
+// MARK: - G25 保存为工作流表单（name/description/scope + target_exists 覆盖确认）
+//
+// 上游纪律【实证·zcode-protocol/index.ts:3610-3613】：overwrite 只有在 GUI 已把覆盖
+// 警告摆给用户看过才为 true——故 target_exists 不静默重发，confirmationDialog 二次
+// 确认后才带 overwrite:true 重试一次。关闭单路径 = 保存成功 dismiss / 取消钮（§5-15）。
+
+struct WorkflowSaveFormSheet: View {
+    let initialName: String
+    let initialScope: String
+    let perform: (String, String, String, Bool) async -> WorkflowRunSaveOutcome
+    let onFinished: (WorkflowRunSaveOutcome) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var descriptionText = ""
+    @State private var scope = "project"
+    @State private var busy = false
+    @State private var errorText: String?
+    @State private var overwritePrompt = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(String(localized: "名称")) {
+                    TextField(String(localized: "工作流名称"), text: $name)
+                        .accessibilityIdentifier("05-wf-save-name")
+                }
+                Section(String(localized: "描述")) {
+                    TextField(
+                        String(localized: "一句话说明（可选）"), text: $descriptionText,
+                        axis: .vertical)
+                        .lineLimit(2...4)
+                        .accessibilityIdentifier("05-wf-save-desc")
+                }
+                Section(String(localized: "保存位置")) {
+                    Picker(String(localized: "范围"), selection: $scope) {
+                        Text(String(localized: "项目")).tag("project")
+                        Text(String(localized: "全局")).tag("global")
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("05-wf-save-scope")
+                }
+                if let errorText {
+                    Section {
+                        Text(errorText)
+                            .font(T.font(11.5))
+                            .foregroundColor(T.red)
+                    }
+                }
+            }
+            .navigationTitle(String(localized: "保存为工作流"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "取消")) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(busy ? String(localized: "保存中…") : String(localized: "保存")) {
+                        Task { await submit(overwrite: false) }
+                    }
+                    .disabled(cleanName.isEmpty || busy)
+                    .accessibilityIdentifier("05-wf-save-submit")
+                }
+            }
+            .confirmationDialog(
+                String(localized: "同名工作流已存在，覆盖保存？"),
+                isPresented: $overwritePrompt, titleVisibility: .visible
+            ) {
+                Button(String(localized: "覆盖保存"), role: .destructive) {
+                    Task { await submit(overwrite: true) }
+                }
+                Button(String(localized: "取消"), role: .cancel) {}
+            }
+            .onAppear {
+                if name.isEmpty { name = initialName }
+                scope = initialScope
+            }
+        }
+    }
+
+    private var cleanName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func submit(overwrite: Bool) async {
+        guard !cleanName.isEmpty, !busy else { return }
+        busy = true
+        errorText = nil
+        let outcome = await perform(cleanName, descriptionText.trimmingCharacters(in: .whitespacesAndNewlines), scope, overwrite)
+        busy = false
+        switch outcome {
+        case .saved:
+            onFinished(outcome)
+            dismiss()
+        case .targetExists:
+            overwritePrompt = true
+        case .failed(let message):
+            errorText = message
+        }
+    }
+}
+
 /// Menu 内选项（SwiftUI Menu content 需要 View；picker 化避免闭包重载歧义）
 private struct MenuPicker: View {
     let label: String
@@ -1175,8 +1521,12 @@ struct WorksPanelView: View {
     let works: [BackgroundWorkSummary]
     var onCancel: (String) async -> Void
     var onResume: (String, String?) async -> Void
+    /// G27：后台 bash 输出查询（nil = 演示态不渲染「查看输出」入口）
+    var onBashOutput: ((String) async -> BackgroundBashOutputInfo?)?
 
     @State private var historyExpanded = false
+    /// G27 输出下钻 sheet 呈现态（Identifiable 包装——String 不满足 sheet(item:)）
+    @State private var bashOutputTarget: BashOutputTarget?
 
     private var running: [BackgroundWorkSummary] { works.filter(\.isRunning) }
     private var history: [BackgroundWorkSummary] { works.filter { !$0.isRunning } }
@@ -1212,6 +1562,11 @@ struct WorksPanelView: View {
                     }
                     .transition(.opacity)
                 }
+            }
+        }
+        .sheet(item: $bashOutputTarget) { target in
+            BackgroundBashOutputSheet(workId: target.workId) { wid in
+                await onBashOutput?(wid)
             }
         }
         .accessibilityElement(children: .contain)
@@ -1258,6 +1613,15 @@ struct WorksPanelView: View {
                 }
             }
             Spacer(minLength: 0)
+            // G27：查看输出（web background-bash-open 行覆盖按钮移动端化为行内钮；
+            // 仅 bash 族有输出面——kind 闭集 bash|subagent|workflow，subagent/workflow
+            // 各有专属下钻；回调缺席（演示态）不渲染）
+            if onBashOutput != nil, work.kind == "bash" || work.kind == nil {
+                rowButton(icon: "doc.text", label: String(localized: "输出")) {
+                    bashOutputTarget = BashOutputTarget(workId: work.workId)
+                }
+                .accessibilityIdentifier("05-works-act-output-\(work.workId)")
+            }
             if work.resumable {
                 rowButton(icon: "arrow.clockwise", label: String(localized: "恢复")) {
                     await onResume(work.workId, work.title)
@@ -1349,5 +1713,105 @@ struct SubagentsPanelView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("05-panel-subagents")
+    }
+}
+
+
+/// G27 sheet(item:) 的 workId 包装
+struct BashOutputTarget: Identifiable {
+    let workId: String
+    var id: String { workId }
+}
+
+// MARK: - G27 后台 bash 输出 sheet（web useBackgroundBashOutput + bash-output pane 同构）
+//
+// status=="running" 时 1s 轮询（useBackgroundBashOutput.ts:41-59 同频）；output ≤8KB
+// 快照式 + truncated 标记 + outputPath；unsupported（旧桌面无该方法）= 如实文案不轮询。
+
+struct BackgroundBashOutputSheet: View {
+    let workId: String
+    let fetch: (String) async -> BackgroundBashOutputInfo?
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var info: BackgroundBashOutputInfo?
+    @State private var errorText: String?
+    @State private var pollTask: Task<Void, Never>?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: T.sp2) {
+                    if let info {
+                        if let status = info.status {
+                            Text(status)
+                                .font(T.mono(10, .semibold))
+                                .foregroundColor(status == "running" ? T.blue : T.text3)
+                        }
+                        if let output = info.output, !output.isEmpty {
+                            Text(output)
+                                .font(T.mono(11))
+                                .foregroundColor(T.text)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(T.sp2)
+                                .background(T.bgCode)
+                                .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                                .textSelection(.enabled)
+                        } else {
+                            Text("（暂无输出）")
+                                .font(T.font(11.5))
+                                .foregroundColor(T.text3)
+                        }
+                        if info.truncated {
+                            Text(String(localized: "输出过长，仅显示末尾部分"))
+                                .font(T.font(10.5))
+                                .foregroundColor(T.orange)
+                        }
+                        if let path = info.outputPath, !path.isEmpty {
+                            Text(path)
+                                .font(T.mono(9.5))
+                                .foregroundColor(T.text3)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    } else if let errorText {
+                        Text(errorText)
+                            .font(T.font(11.5))
+                            .foregroundColor(T.red)
+                    } else {
+                        SpinnerView(size: 14)
+                    }
+                }
+                .padding(T.sp3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle(String(localized: "后台输出"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "关闭")) { dismiss() }
+                }
+            }
+        }
+        .task { await poll() }
+        .onDisappear { pollTask?.cancel() }
+        .accessibilityIdentifier("05-bash-output-sheet")
+    }
+
+    private func poll() async {
+        pollTask?.cancel()
+        pollTask = Task {
+            while !Task.isCancelled {
+                if let fetched = await fetch(workId) {
+                    info = fetched
+                    errorText = nil
+                    // 非 output / 非 running：终态或不可用，停止轮询
+                    if fetched.kind != "output" || fetched.status != "running" { return }
+                } else {
+                    errorText = String(localized: "输出读取失败（连接中断或桌面端不支持）")
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
     }
 }

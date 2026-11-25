@@ -82,6 +82,10 @@ protocol ConversationStore: AnyObject, Sendable {
     func pendingInteractionList(in conversationID: String) async -> [RemotePendingInteraction]
     /// 运行时初始化态（3.16.2 snapshot.runtimeInitialization；nil = 旧桌面未投影）
     func runtimeInitialization(in conversationID: String) async -> RuntimeInitializationInfo?
+    /// G24：工作区 MCP 待审核快照（state.workspaceMcpAdmission；nil = 键缺席不渲染）
+    func workspaceMcpAdmission(in conversationID: String) async -> WorkspaceMcpAdmissionState?
+    /// G27：后台 bash 输出快照（{sessionId, workId} 无 offset 全量有界；nil = 失败）
+    func backgroundBashOutput(in conversationID: String, workId: String) async -> BackgroundBashOutputInfo?
     /// 3.17.2 输入预测 ghost hint（只读无 CAS；能力位门控在实现内；任何异常 = nil 无 hint）
     func inputPrediction(in conversationID: String, draft: String, requestId: String) async -> InputPredictionResult?
     /// 重命名会话（连接态 zcode-task.renameTask 双写；演示态本地改）
@@ -113,6 +117,10 @@ protocol ConversationStore: AnyObject, Sendable {
     func moveConversationToGroup(_ conversationID: String, groupName: String) async -> String?
     func renameTaskGroup(groupId: String, title: String) async -> String?
     func updateTaskGroupColor(groupId: String, color: String) async -> String?
+    /// G36 组置顶排序（move 组节点 wire——实现处注释含取证）
+    func pinTaskGroupToTop(groupId: String) async -> String?
+    /// G36 组排序「上移一位」（move 组节点 + anchor 形态；首组无语义）
+    func moveTaskGroupUp(groupId: String, beforeGroupKey: String) async -> String?
     func deleteTaskGroup(groupId: String) async -> String?
     /// 子代理只读转录（G-021）：按 actor.sessionId 拉一页 rowsRange 渲染（无新协议）
     func actorTranscript(sessionId: String, limit: Int) async -> [ChatMessage]
@@ -138,6 +146,8 @@ protocol ConversationStore: AnyObject, Sendable {
     func backgroundWorks(in conversationID: String) async -> [BackgroundWorkSummary]
     /// state.subagents 只读投影（side 面板数据源）
     func subagentSessions(in conversationID: String) async -> [SubagentSessionSummary]
+    /// G28 头像叠组数据源（v4 subagentProjectionState running/ended 完整投影；nil = 无数据）
+    func subagentProjection(in conversationID: String) async -> SubagentProjectionState?
 
     /// 本轮 Hook 汇总（`hookInvocation` 行派生；默认空 = 不渲染入口）
     func hookInvocations(in conversationID: String) async -> [HookInvocationInfo]
@@ -157,6 +167,12 @@ protocol ConversationStore: AnyObject, Sendable {
     func amendWorkflowRunSettings(
         _ conversationID: String, workId: String,
         subagentModel: String??, maxConcurrency: Int??) async -> JSONValue?
+    /// G25：这次 run 对应的已保存工作流（nil = 未保存/未连接/查询失败——失败不挡保存）
+    func savedWorkflowForRun(in conversationID: String, runId: String) async -> WorkflowRunSavedRef?
+    /// G25：从 run 保存工作流（target_exists 返回后由 UI 确认覆盖再重发 overwrite:true）
+    func saveWorkflowRun(
+        in conversationID: String, runId: String, name: String, description: String,
+        scope: String, overwrite: Bool) async -> WorkflowRunSaveOutcome
     /// 主模型/思考强度切换（switchModelConfig {provider, model, thought}；桌面代执行，
     /// onDidChange 回流驱动 chips 同步）
     @discardableResult
@@ -224,10 +240,14 @@ protocol ConversationStore: AnyObject, Sendable {
     @discardableResult
     func sendGoalCommand(_ conversationID: String, text: String) async -> JSONValue?
     /// 启动已保存工作流（conversationID 传 nil = 无会话上下文，会话由桌面创建；
-    /// 回执 result.sessionId 宽容提取交调用方跳转；args 为动态参数表单键值）
+    /// 回执 result.sessionId 宽容提取交调用方跳转；args 为动态参数表单键值）。
+    /// 签名对齐 wire schema {name, scope?, args?}（command.ts:236-240【实证·上游仓】
+    /// ——旧 workflowId 形态是臆造键，RemoteConversationStore 实现已改 name+scope，
+    /// 2026-11-25 G25 随再次运行入口把协议签名一并修正）
     @discardableResult
     func startSavedWorkflow(
-        _ conversationID: String?, workflowId: String, args: [String: JSONValue]?) async -> JSONValue?
+        _ conversationID: String?, name: String, scope: String?,
+        args: [String: JSONValue]?) async -> JSONValue?
     // MARK: workspace hook 信任审核（web 对齐：respond/request/toggle/revoke 四命令，
     // 均非 CAS 普通信封；payload 基座 M8e 字段族由远端实现从挂起交互透传）
     /// 应答信任审核（decision:{action:'trust_selected', reviewItemIds}，web 实证唯一
@@ -389,6 +409,8 @@ extension ConversationStore {
 
     /// 运行时初始化态（演示态无 runtime，nil）
     func runtimeInitialization(in conversationID: String) async -> RuntimeInitializationInfo? { nil }
+    func workspaceMcpAdmission(in conversationID: String) async -> WorkspaceMcpAdmissionState? { nil }
+    func backgroundBashOutput(in conversationID: String, workId: String) async -> BackgroundBashOutputInfo? { nil }
     func inputPrediction(in conversationID: String, draft: String, requestId: String) async -> InputPredictionResult? { nil }
 
     /// 重命名会话（mock 默认本地改，连接态由远端实现双写覆写）
@@ -399,6 +421,12 @@ extension ConversationStore {
 
     /// 已归档会话（演示态空：归档行即刻从列表消失，与既有行为一致）
     func archivedConversations() async -> [Conversation] { [] }
+
+    /// G43：批量删除已归档任务（web archivedTaskDeletion 同构；按行 workspace 分组一次
+    /// RPC；返回 deleted/skipped/failed/unavailable 计数——演示态 unavailable=全数）
+    func deleteArchivedTasks(_ conversations: [Conversation]) async -> (
+        deleted: Int, skipped: Int, failed: Int, unavailable: Int
+    ) { (0, 0, 0, conversations.count) }
     func deleteTask(_ conversationID: String) async -> Bool { false }
 
     /// 交互应答信封（演示态无挂起交互，默认空实现）
@@ -419,6 +447,10 @@ extension ConversationStore {
     func renameTaskGroup(groupId: String, title: String) async -> String? {
         String(localized: "未连接桌面端，分组未同步")
     }
+    /// G36 组置顶排序（move 组节点 wire，见实现处注释）
+    func pinTaskGroupToTop(groupId: String) async -> String? { nil }
+    func moveTaskGroupUp(groupId: String, beforeGroupKey: String) async -> String? { nil }
+
     func updateTaskGroupColor(groupId: String, color: String) async -> String? {
         String(localized: "未连接桌面端，分组未同步")
     }
@@ -451,6 +483,7 @@ extension ConversationStore {
     func planPanel(in conversationID: String) async -> PlanPanelSummary? { nil }
     func backgroundWorks(in conversationID: String) async -> [BackgroundWorkSummary] { [] }
     func subagentSessions(in conversationID: String) async -> [SubagentSessionSummary] { [] }
+    func subagentProjection(in conversationID: String) async -> SubagentProjectionState? { nil }
     func hookInvocations(in conversationID: String) async -> [HookInvocationInfo] { [] }
     func setGoalPaused(_ paused: Bool, conversationID: String) async -> JSONValue? { nil }
     func cancelWork(_ conversationID: String, workId: String) async -> JSONValue? { nil }
@@ -458,6 +491,12 @@ extension ConversationStore {
     func amendWorkflowRunSettings(
         _ conversationID: String, workId: String,
         subagentModel: String??, maxConcurrency: Int??) async -> JSONValue? { nil }
+    func savedWorkflowForRun(in conversationID: String, runId: String) async -> WorkflowRunSavedRef? { nil }
+    func saveWorkflowRun(
+        in conversationID: String, runId: String, name: String, description: String,
+        scope: String, overwrite: Bool) async -> WorkflowRunSaveOutcome {
+        .failed(String(localized: "演示态不支持保存工作流"))
+    }
     func switchModelConfig(_ conversationID: String, provider: String, model: String, thought: String?) async -> JSONValue? { nil }
     func triggerResync(_ conversationID: String) async {}
     func thoughtLevels(for model: String) async -> [String] { [] }
@@ -485,7 +524,8 @@ extension ConversationStore {
         _ conversationID: String, interactionId: String) async -> JSONValue? { nil }
     func sendGoalCommand(_ conversationID: String, text: String) async -> JSONValue? { nil }
     func startSavedWorkflow(
-        _ conversationID: String?, workflowId: String, args: [String: JSONValue]?) async -> JSONValue? { nil }
+        _ conversationID: String?, name: String, scope: String?,
+        args: [String: JSONValue]?) async -> JSONValue? { nil }
     // MARK: workspace hook 信任审核（演示态无 hook 审核面，默认空实现；远端实现覆写）
     func respondWorkspaceHookReview(
         _ conversationID: String, reviewItemIds: [String]) async -> JSONValue? { nil }

@@ -405,7 +405,7 @@ struct OAuthAvatar: View {
             .font(T.font(size * 0.4, .heavy))
             .foregroundColor(.white)
             .frame(width: size, height: size)
-            .background(T.gradAvatar)
+            .background(T.bgInput)
     }
 
     private var decodedImage: UIImage? {

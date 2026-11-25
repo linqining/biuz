@@ -245,6 +245,26 @@ data class WorkflowRunSummary(
      * 字段未在桌面 §10 词表取证，仅移动端显示排序用）。epoch 毫秒。 */
     val startedAt: Long? = null,
     val updatedAt: Long? = null,
+    // MARK: G25 run 详情深化（2026-11-25 与 iOS 同步；字段权威 = 上游 workflowRunSchema
+    // workflow-runs.ts:419-583【实证·上游仓】；旧桌面缺键全 null，UI 分支不渲染承载）
+    /** 错误正文（:435；errored 终态区正文） */
+    val error: String? = null,
+    /** 完成结果预览（:441；completed 终态区预览块） */
+    val resultPreview: String? = null,
+    /** 血缘「改自」（:429-431，来自 run-started 载荷；恢复型 run 的父 runId） */
+    val resumedFrom: String? = null,
+    /** 血缘「已被替代」（:432-434，只随 stopReason=superseded 的 run-settled；后继 runId） */
+    val supersededBy: String? = null,
+    /** 用量节点数（usage.nodesUsed，:174-189） */
+    val usageNodesUsed: Int? = null,
+    /** 本 run 自己的并发界（concurrency.limit :322-329；null = 跟随默认 ceiling） */
+    val concurrencyLimit: Int? = null,
+    /** 并发上限（concurrency.cap；v4.0.0 对象形态 {key?,cap,ceiling,limit?,cooldownMs?}） */
+    val concurrencyCap: Int? = null,
+    /** 并发冷却时长 ms（concurrency.cooldownMs；>0 = 该 key 曾限流） */
+    val concurrencyCooldownMs: Long? = null,
+    /** 枚举面失败归因（conversationWorkflowRunsV4 summary failureCode） */
+    val failureCode: String? = null,
 ) {
     /** 站点灯四态映射（stopped→pending，UI 另以文案区分「已停止」）（:210） */
     val status: WorkflowStepStatus
@@ -417,6 +437,13 @@ data class SubagentSessionSummary(
 
 /** 待处理交互的服务端选项（A-3：应答=回传 optionId，label 仅作展示）。
  * 元素形状宽容（对象 id/optionId + label/title；裸字符串 id=label=该串）。（:331-334） */
+/** G22 多题向导单题（userInputRequestPayloadSchema.questions[] 元素） */
+data class RemoteInteractionQuestion(
+    val question: String,
+    val options: List<RemoteInteractionOption> = emptyList(),
+    val multiSelect: Boolean = false,
+)
+
 data class RemoteInteractionOption(
     val id: String,
     val label: String,
@@ -462,6 +489,30 @@ data class RemotePendingInteraction(
     val planText: String? = null,
     /** workspaceHookReview 审核项（payload 宽容解析；非该 kind 恒空） */
     val hookReviewItems: List<WorkspaceHookReviewItem> = emptyList(),
+    /** G21 权限卡拒绝反馈文本框开关（payload.freeText=true；snapshot.ts:277【实证·上游仓】，
+     * 缺席 = 不显示） */
+    val permissionFreeText: Boolean = false,
+    /** G23 插件安装卡字段族（kind=="pluginInstall"；schema=pluginInstall.ts【实证·上游仓】） */
+    val pluginName: String? = null,
+    val pluginDescription: String? = null,
+    /** 请求原因（agent 为何要装/启用；缺席 = 只显示名称与描述） */
+    val pluginReason: String? = null,
+    /** "user" | "workspace"（安装落点档位） */
+    val pluginScope: String? = null,
+    /** "install" | "enable"（确认按钮文案分叉） */
+    val pluginAction: String? = null,
+    /** G22 多题向导（userInputRequestPayloadSchema.questions——{question, options[{value,
+     * label}], multiSelect?}【实证·上游仓 snapshot.ts userInputRequestPayloadSchema】；
+     * 缺席/空 = 单题卡） */
+    val questions: List<RemoteInteractionQuestion> = emptyList(),
+    /** G22 提问自由输入开关（payload.freeText / 存在无选项题 / 纯自由输入——iOS
+     * RemoteConversationStore.swift:3358-3366 同构【实证·上游仓 snapshot.ts freeText】） */
+    val freeTextEnabled: Boolean = false,
+    /** G33 行内自动决议倒计时（interactionAutoResolutionSchema snapshot.ts:329-341 两态） */
+    val autoResolutionState: String? = null,
+    val autoResolutionDeadline: Long? = null,
+    val autoResolutionVisibleAt: Long? = null,
+    val autoResolutionSnoozedAt: Long? = null,
 ) {
     /** 是否权限审批类（批准/拒绝下发 resolveInteraction） */
     val isPermission: Boolean
@@ -475,6 +526,27 @@ data class RemotePendingInteraction(
      * 应答走 respondWorkspaceHookReview，与 resolveInteraction 是姊妹 kind） */
     val isWorkspaceHookReview: Boolean
         get() = kind == "workspaceHookReview"
+
+    /** G23：是否插件安装卡（上游 pendingInteractionSchema.kind 第四枚举值 snapshot.ts:347） */
+    val isPluginInstall: Boolean
+        get() = kind == "pluginInstall"
+
+    /** G33：倒计时是否在场且可暂停（web TaskInteractionBadge.tsx:21-31——只有
+     * userInput+autoResolution 才给进度与 snooze；permission 恒 false） */
+    val canSnoozeCountdown: Boolean
+        get() = kind == "userInput" && autoResolutionState != null
+
+    /** G33：进度 0.0…1.0（snoozed/静默期 = null 不画环；web :44-58 同式） */
+    fun countdownProgress(nowMs: Long): Double? {
+        if (!canSnoozeCountdown || autoResolutionState == "snoozed") return null
+        val deadline = autoResolutionDeadline ?: return null
+        val visible = autoResolutionVisibleAt ?: return null
+        if (nowMs < visible) return null
+        val span = deadline - visible
+        if (span <= 0) return null
+        val remaining = deadline - nowMs
+        return (remaining.toDouble() / span).coerceIn(0.0, 1.0)
+    }
 }
 
 /**
@@ -753,6 +825,64 @@ data class SubagentRuntimeSummary(
     val isRunning: Boolean get() = status == "running" || status == "waiting"
 }
 
+// MARK: G21/G23/G24/G25/G27/G33 镜像模型（2026-11-25 与 iOS 同步；wire 取证见各字段注释）
+
+/** G24 工作区 MCP 准入待审核快照（state.workspaceMcpAdmission；schema =
+ * workspaceMcpAdmissionStateSchema snapshot.ts:531-536【实证·上游仓】——无状态枚举，
+ * 非 null 且 pendingCount>0 即待审核） */
+data class WorkspaceMcpAdmissionState(
+    val pendingCount: Int,
+    val bundleDigest: String? = null,
+    val workspaceIdentity: String? = null,
+)
+
+/** G27 后台 bash 输出快照（v4/conversation/backgroundBashOutput 回执；
+ * schema = background-bash-output.ts【实证·上游仓】——成功 kind="output"
+ * {status: running|completed|failed|timed_out|cancelled|spawn_error, output ≤8192,
+ * truncated, outputPath}；失败 kind = unavailable|unsupported|read_failed） */
+data class BackgroundBashOutputInfo(
+    val kind: String,
+    val status: String? = null,
+    val output: String? = null,
+    val truncated: Boolean = false,
+    val outputPath: String? = null,
+    val code: String? = null,
+)
+
+/** G25 run ↔ 已保存工作流判定（workflows/forRun 回执 entry 子集；仅 name+scope 供「再次运行」） */
+data class WorkflowRunSavedRef(
+    val name: String,
+    /** "project" | "global" */
+    val scope: String,
+)
+
+/** G25 保存结果（workflows/save 回执 union ok:true/false 的 UI 承载；targetExists 仅在
+ * 用户已见过覆盖警告后带 overwrite=true 重发——覆盖是用户决定，不是保存副作用） */
+sealed interface WorkflowRunSaveOutcome {
+    data class Saved(val name: String, val scope: String, val overwritten: Boolean) : WorkflowRunSaveOutcome
+    data object TargetExists : WorkflowRunSaveOutcome
+    data class Failed(val message: String) : WorkflowRunSaveOutcome
+}
+
+/** G43 批量删除已归档结果（zcode-task deleteArchivedTasks 回执；【实证·上游仓
+ * zcodeTaskServiceAdapter.ts:3059】deletedTaskIds/skippedTaskIds/failedTaskIds 三表） */
+data class ArchivedTaskDeletionResult(
+    val deletedTaskIds: List<String>,
+    val skippedTaskIds: List<String>,
+    val failedTaskIds: List<String>,
+)
+
+/** G43 自动归档设置（setting 频道 taskAutoArchiveEnabled/taskAutoArchiveOlderThanDays；
+ * web 档位枚举 TASK_AUTO_ARCHIVE_DAY_OPTIONS=[3,7,14,30] 默认 30——
+ * validationAppSettings.ts:555-557 + settingsPageHelpers.tsx:69【实证·上游仓】） */
+data class AutoArchiveSettings(
+    val enabled: Boolean,
+    val olderThanDays: Int,
+)
+
+/** G21/G23/G33 交互投影扩展字段（RemotePendingInteraction 等价物挂 app 层——
+ * 见 ChatMessageViews/AppModels 解析） */
+
 /** 活动摘要忽略集（v4.0.0 `activitySummaryDismissedSchema`【实证·上游仓 snapshot.ts:439-444】）：
  * 用户忽略过的活动摘要条目（按三类 id 分别记录 + 忽略时刻），用于折叠行不再重复提示。 */
 data class ActivitySummaryDismissed(
@@ -787,6 +917,24 @@ data class Conversation(
     /** 服务端挂起审批数（pendingInteractionSummary permission+userInput 合计；
      * 桌面侧栏「等待确认」同源口径，2026-10-08 用户报障「待审批的有显示移动端也需要」） */
     val pendingApprovalCount: Int = 0,
+    // MARK: G33 行内待批徽标（sessions-index pendingInteraction 轻量投影
+    // ZCodeTaskPendingInteraction【实证·上游仓 zcode-task-types-core.ts:262-268】）
+    /** 挂起交互 id（snooze 定位键；null = 行无轻量投影不渲染倒计时徽标） */
+    val pendingInteractionId: String? = null,
+    /** "permission" | "userInput"（徽标 kind 区分；词表外不渲染徽标） */
+    val pendingInteractionKind: String? = null,
+    /** 自动决议倒计时截止 epoch 毫秒（hiddenGrace/visibleCountdown 态） */
+    val pendingInteractionDeadline: Long? = null,
+    /** 倒计时可见起点 epoch 毫秒（进度分母 = deadline - visible，web :44-58 同式） */
+    val pendingInteractionVisibleAt: Long? = null,
+    /** snoozed 态时间戳（非 null = 已暂停不画进度） */
+    val pendingInteractionSnoozedAt: Long? = null,
+    // G40 行元数据身份（task-index cronAutomationId/offPeakTaskId 透传）
+    val isCronTask: Boolean = false,
+    val isOffPeakTask: Boolean = false,
+    /** G40 残面：worktree 根 + 远端设备显示名 */
+    val worktreeRoot: String? = null,
+    val serverDisplayName: String? = null,
     val isPinned: Boolean = false,
     /** 行转圈（web `isTaskListRowRunning`：只认 sessions-index 实时 phase running/prewarming） */
     val isRunning: Boolean = false,
@@ -971,4 +1119,14 @@ data class AppSettings(
      * `-ZCodeDevMode` 启动参数可强制开启（E2E 手动链路用例依赖）
      */
     val developerMode: Boolean = false,
+)
+
+/** G42 残面 代码预览偏好（web codePreviewSettings 同构：fontSizePx 12–20 默认 12
+ * （store/index.ts:112-115 clamp 同值）、showLineNumbers 默认 true、wrapLongLines
+ * 默认 false【实证·上游仓 codePreviewSettings.ts:18-24】；主题双键 shiki 移动端
+ * TinySyntax 无主题面不投影，登记差异）。 */
+data class CodePreviewSettings(
+    val fontSizePx: Int = 12,
+    val showLineNumbers: Boolean = true,
+    val wrapLongLines: Boolean = false,
 )

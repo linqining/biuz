@@ -218,6 +218,23 @@ final class AppSession {
               index + 1 < arguments.count else { return }
         versionMismatch = arguments[index + 1]
     }
+
+    /// 调试缝：`-ZCodeDebugJWT <真实 zcode JWT>` 种入 Keychain tokenSet（仅 DEBUG，
+    /// 走正常 save 路径使中继 V2 的 JWT→一次性 token 交换可用）。用于真实模型验证轮：
+    /// JWT 由桌面端同账号 OAuth 授权流取得（2026-11-25 真实模型验证闭环），
+    /// 非本机登录者不可用。无 userInfo 显示名时账户行显示 JWT 首段截断。
+    func applyDebugJWTIfNeeded(arguments: [String]) {
+        guard let index = arguments.firstIndex(of: "-ZCodeDebugJWT"),
+              index + 1 < arguments.count else { return }
+        let jwt = arguments[index + 1]
+        guard !jwt.isEmpty, jwt.contains("."), !jwt.hasPrefix("debug") else { return }
+        let tokenSet = OAuthTokenSet(accessToken: jwt, zcodeJwtToken: jwt, expiresAt: nil)
+        let userInfo = OAuthUserInfo(id: "debug-jwt", username: "debug-jwt",
+                                     displayName: "已登录（调试注入）", avatarUrl: nil)
+        oauthTokenSet = tokenSet
+        oauthUserInfo = userInfo
+        try? OAuthCredentialStore.save(tokenSet: tokenSet, userInfo: userInfo)
+    }
     #endif
 
     /// 用户确认「重新加载」：把实际桌面版本回写进已保存链接，再重连。
@@ -298,7 +315,10 @@ final class AppSession {
 
     enum PresentedFlow: Equatable {
         case login
-        case connect(editTokenOnly: Bool)
+        /// 连接流程 cover。initialScan=登录页「扫码连接桌面端」直达扫码
+        /// （2026-11-25 用户裁决：登录页在 Android 结构上并列入口两选项——
+        /// 账号登录 + 扫码连接桌面端；扫码不再绕 L1 一步）
+        case connect(editTokenOnly: Bool, initialScan: Bool)
     }
 
     var presentedFlow: PresentedFlow?
@@ -307,8 +327,8 @@ final class AppSession {
         presentedFlow = .login
     }
 
-    func requestConnectFlow(editTokenOnly: Bool) {
-        presentedFlow = .connect(editTokenOnly: editTokenOnly)
+    func requestConnectFlow(editTokenOnly: Bool, initialScan: Bool = false) {
+        presentedFlow = .connect(editTokenOnly: editTokenOnly, initialScan: initialScan)
     }
 
     func dismissFlow() {
@@ -486,7 +506,7 @@ final class AppSession {
         if arguments.contains("-ZCodeOpenLoginFlow") {
             presentedFlow = .login
         } else if arguments.contains("-ZCodeOpenConnectFlow") {
-            presentedFlow = .connect(editTokenOnly: false)
+            presentedFlow = .connect(editTokenOnly: false, initialScan: false)
         } else if let relayURL = Self.relayLinkArgument(from: arguments) {
             await connectRelayLink(relayURL)
             return

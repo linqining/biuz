@@ -53,11 +53,34 @@
       <text class="preview__close" bind:tap="onClosePreview">✕</text>
     </view>
     <text class="preview__path">{{preview.path}}</text>
-    <view class="preview__body" wx:if="{{previewContent}}">
-      <text class="preview__text">{{previewContent}}</text>
+    <!-- G42 残面：三键行内控制（字号循环/行号/换行；web codePreviewSettings 同语义） -->
+    <view class="preview__controls" wx:if="{{previewContent}}">
+      <text class="preview__ctl" bind:tap="onPreviewFontSize"
+        data-testid="42-font-size">{{previewSettings.fontSizePx}}px</text>
+      <text class="preview__ctl {{previewSettings.showLineNumbers ? 'preview__ctl--on' : ''}}"
+        bind:tap="onPreviewToggleLineNumbers" data-testid="42-line-numbers">行号</text>
+      <text class="preview__ctl {{previewSettings.wrapLongLines ? 'preview__ctl--on' : ''}}"
+        bind:tap="onPreviewToggleWrap" data-testid="42-wrap">换行</text>
+    </view>
+    <view class="preview__loading" wx:if="{{preview.loading}}">
+      <text class="preview__hint">读取中…</text>
+    </view>
+    <view class="preview__body" wx:elif="{{previewContent}}">
+      <block wx:if="{{previewSettings.showLineNumbers}}">
+        <view class="preview__line" wx:for="{{previewLines}}" wx:key="index">
+          <text class="preview__ln">{{index + 1}}</text>
+          <text class="preview__line-text"
+            style="font-size: {{previewSettings.fontSizePx * 2}}rpx; {{previewSettings.wrapLongLines ? '' : 'white-space: nowrap;'}}">{{item || ' '}}</text>
+        </view>
+        <view class="preview__truncated" wx:if="{{preview.truncated}}">
+          内容过长，仅显示前 256KB
+        </view>
+      </block>
+      <text wx:else class="preview__text"
+        style="font-size: {{previewSettings.fontSizePx * 2}}rpx; {{previewSettings.wrapLongLines ? '' : 'white-space: nowrap;'}}">{{previewContent}}</text>
     </view>
     <view class="preview__empty" wx:else>
-      <text class="preview__hint">预览需要连接桌面端（文件只读，写操作由桌面端执行）</text>
+      <text class="preview__hint">{{preview.loading ? '读取中…' : '预览需要连接桌面端（文件只读，写操作由桌面端执行）'}}</text>
     </view>
     <view class="preview__safe"></view>
   </view>

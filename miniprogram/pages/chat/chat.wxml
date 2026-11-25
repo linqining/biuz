@@ -18,7 +18,47 @@
   </view>
 
   <!-- 消息流 -->
-  <scroll-view class="chat-list" scroll-y scroll-into-view="{{scrollTarget}}">
+  <!-- G25 工作流 run 卡（血缘/终态/冷却 + 保存/再次运行；web WorkflowRunSidePane
+       移动端同构子集——阶段链/actors 留待工作流面板独立轮） -->
+  <view class="runs" wx:if="{{workflowRuns.length}}">
+    <view class="run-card" wx:for="{{workflowRuns}}" wx:key="id" wx:for-item="run"
+      data-testid="05-wf-card-{{run.id}}">
+      <view class="run-card__head">
+        <text class="run-card__glyph">⑂</text>
+        <text class="run-card__name">{{run.name}}</text>
+        <text class="run-card__status run-card__status--{{run.rawStatus}}">{{run.rawStatus}}</text>
+      </view>
+      <!-- G25 血缘行（web WorkflowRunSidePaneSections.tsx:264-304 同构） -->
+      <view class="run-card__lineage" wx:if="{{run.resumedFrom || run.supersededBy}}">
+        <text class="run-card__lineage-text" wx:if="{{run.resumedFrom}}">改自 {{run.resumedFrom}}</text>
+        <text class="run-card__lineage-text" wx:if="{{run.supersededBy}}">已被 {{run.supersededBy}} 替代</text>
+      </view>
+      <!-- G25 终态区（completed 预览 / errored 正文 / stopped 停止原因） -->
+      <view class="run-card__terminal" wx:if="{{!run.isLive && (run.resultPreview || run.error)}}">
+        <text class="run-card__terminal-text">{{run.resultPreview || run.error}}</text>
+      </view>
+      <view class="run-card__stopreason" wx:if="{{run.rawStatus === 'stopped' && run.stopReason}}">
+        <text class="run-card__stopreason-text">停止原因：{{run.stopReason}}</text>
+      </view>
+      <!-- G25 收口：阶段链（phases[].name/status；web phasesOf 同口径） -->
+      <view class="run-card__phases" wx:if="{{run.phases.length}}">
+        <view class="run-card__phase" wx:for="{{run.phases}}" wx:for-item="phase" wx:key="name">
+          <text class="run-card__phase-glyph">{{phase.status === 'completed' ? '✓' : (phase.status === 'running' ? '▸' : '·')}}</text>
+          <text class="run-card__phase-name">{{phase.name}}</text>
+        </view>
+      </view>
+      <!-- G25 保存 / 再次运行行（forRun 判定收口——savedByRun[runId] 翻面） -->
+      <view class="run-card__actions">
+        <text class="run-card__act run-card__act--save" wx:if="{{!savedByRun[run.id]}}"
+          data-runid="{{run.id}}" bind:tap="onSaveRun">保存为工作流</text>
+        <text class="run-card__act run-card__act--rerun" wx:if="{{savedByRun[run.id]}}"
+          data-runid="{{run.id}}" bind:tap="onRerunRun">再次运行</text>
+        <text class="run-card__notice" wx:if="{{workflowNotice}}">{{workflowNotice}}</text>
+      </view>
+    </view>
+  </view>
+  <scroll-view class="chat-list" scroll-y scroll-into-view="{{scrollTarget}}"
+    scroll-top="{{scrollTop}}" bindscroll="onListScroll">
     <view wx:if="{{status === 'loading' && rows.length === 0}}" class="chat-state">
       <loading-state text="正在加载会话…" />
     </view>
@@ -115,9 +155,26 @@
           <text class="chip {{item.scope === 'always' ? 'chip--on' : ''}}" data-id="{{item.id}}"
             data-scope="always" bind:tap="onScope">始终允许</text>
         </view>
+        <!-- G21 拒绝反馈输入行（payload.freeText=true 才显示；可选） -->
+        <input class="card__input" wx:if="{{item.permissionFreeText}}"
+          placeholder="告诉模型接下来应该怎么做…（可选）" value="{{item.feedbackDraft}}"
+          data-id="{{item.id}}" bindinput="onFeedbackInput" />
         <view class="card__actions">
           <text class="btn" data-id="{{item.id}}" bind:tap="onPermissionApprove">批准执行</text>
           <text class="btn btn--ghost" data-id="{{item.id}}" bind:tap="onPermissionReject">拒绝</text>
+        </view>
+      </block>
+
+      <!-- G23 插件安装卡（kind=pluginInstall；跳过/安装两钮，确认文案按 action×scope 分叉） -->
+      <block wx:elif="{{item.kind === 'pluginInstall'}}">
+        <text class="card__impact" wx:if="{{item.pluginName}}">{{item.pluginName}}</text>
+        <text class="card__impact" wx:if="{{item.pluginDescription}}">{{item.pluginDescription}}</text>
+        <text class="card__impact" wx:if="{{item.pluginReason}}">{{item.pluginReason}}</text>
+        <view class="card__actions">
+          <text class="btn" data-id="{{item.id}}" data-option="install"
+            bind:tap="onPluginRespond">{{item.pluginAction === 'enable' ? (item.pluginScope === 'workspace' ? '在工作区启用' : '启用') : (item.pluginScope === 'workspace' ? '安装并在工作区启用' : '安装并启用')}}</text>
+          <text class="btn btn--ghost" data-id="{{item.id}}" data-option="skip"
+            bind:tap="onPluginRespond">跳过</text>
         </view>
       </block>
 
@@ -132,15 +189,34 @@
         </view>
       </block>
 
-      <!-- 提问族：选项点选即发 + 自由文本（userInput/elicitation/question） -->
+      <!-- 提问族：多题向导（G22 一次一题 + 上一题/下一题，drafts 保留）+ 单题原形态
+           （userInput/elicitation/question） -->
       <block wx:elif="{{item.kind === 'userInput' || item.kind === 'question' || item.kind === 'elicitation'}}">
-        <view class="card__chips" wx:if="{{item.options.length}}">
+        <block wx:if="{{item.qnow}}">
+          <text class="card__qtitle">{{item.qnow.question}}</text>
+          <text class="card__qcount">第 {{item.qnow.index + 1}}/{{item.qnow.count}} 题</text>
+          <view class="card__chips" wx:if="{{item.qnow.options.length}}">
+            <text class="chip {{opt.on ? 'chip--on' : ''}}" wx:for="{{item.qnow.options}}" wx:for-item="opt" wx:key="id"
+              data-id="{{item.id}}" data-index="{{item.qnow.index}}" data-option="{{opt.id}}" data-multi="{{item.qnow.multiSelect}}"
+              bind:tap="onWizardToggle">{{opt.label}}</text>
+          </view>
+          <input class="card__input" wx:if="{{item.qnow.showText}}" placeholder="补充回答（可选）"
+            value="{{item.qnow.text}}" data-id="{{item.id}}" data-index="{{item.qnow.index}}"
+            bindinput="onWizardTextInput" />
+          <view class="card__actions">
+            <text class="btn btn--ghost" wx:if="{{item.qnow.index > 0}}" data-id="{{item.id}}" bind:tap="onWizardPrev">上一题</text>
+            <text class="btn btn--ghost" data-id="{{item.id}}" bind:tap="onWizardSkip">跳过</text>
+            <text class="btn" wx:if="{{item.qnow.index < item.qnow.count - 1}}" data-id="{{item.id}}" bind:tap="onWizardNext">下一题</text>
+            <text class="btn" wx:else data-id="{{item.id}}" bind:tap="onWizardSubmit">提交回答</text>
+          </view>
+        </block>
+        <view class="card__chips" wx:if="{{!item.qnow && item.options.length}}">
           <text class="chip" wx:for="{{item.options}}" wx:for-item="opt" wx:key="id"
             data-id="{{item.id}}" data-option="{{opt.id}}" bind:tap="onQuestionOption">{{opt.label}}</text>
         </view>
-        <input class="card__input" placeholder="或在此自由作答……" value="{{questionDraft}}"
+        <input class="card__input" wx:if="{{!item.qnow}}" placeholder="或在此自由作答……" value="{{questionDraft}}"
           bindinput="onQuestionInput" />
-        <view class="card__actions">
+        <view class="card__actions" wx:if="{{!item.qnow}}">
           <text class="btn" data-id="{{item.id}}" bind:tap="onQuestionSubmit">提交回答</text>
         </view>
       </block>
@@ -173,11 +249,69 @@
         maxlength="8000"
         bindinput="onDraftInput" />
       <view class="composer__tools">
+        <!-- G15 @ 文件提及（web promptInputTriggers @ 触发的触屏对位——显式入口+候选面板） -->
+        <text class="composer__tool" bind:tap="onMentionOpen" data-testid="05-chip-mention">@</text>
+        <!-- G18 prompt 历史循环（发送接线后入账；无历史时空转） -->
+        <text class="composer__tool" bind:tap="onCyclePromptHistory" data-testid="05-chip-history">🕘</text>
         <text class="composer__tool">＋</text>
         <text class="composer__tool">🛡</text>
         <text class="composer__spacer"></text>
         <text class="composer__send" bind:tap="onSend">↑</text>
       </view>
+    </view>
+  </view>
+
+  <!-- G15 @ 提及候选浮层（检索 + 点选插 @"path" 进草稿） -->
+  <view class="mention" wx:if="{{mentionOpen}}" data-testid="15-mention-panel">
+    <view class="mention__mask" bind:tap="onMentionClose"></view>
+    <view class="mention__panel">
+      <view class="mention__head">
+        <text class="mention__title">引用</text>
+        <text class="mention__close" bind:tap="onMentionClose">✕</text>
+      </view>
+      <!-- G15 scope tabs：@文件 / #会话 -->
+      <view class="mention__tabs">
+        <text class="mention__tab {{mentionScope === 'files' ? 'mention__tab--on' : ''}}"
+          data-scope="files" bind:tap="onMentionScope">@ 文件</text>
+        <text class="mention__tab {{mentionScope === 'conversations' ? 'mention__tab--on' : ''}}"
+          data-scope="conversations" bind:tap="onMentionScope"># 会话</text>
+        <text class="mention__tab {{mentionScope === 'skills' ? 'mention__tab--on' : ''}}"
+          data-scope="skills" bind:tap="onMentionScope">$ 技能</text>
+      </view>
+      <input class="mention__input" placeholder="{{mentionScope === 'files' ? '搜索文件名或路径' : '搜索会话'}}"
+        value="{{mentionQuery}}" bindinput="onMentionQuery" focus />
+      <scroll-view class="mention__list" scroll-y>
+        <block wx:if="{{mentionScope === 'files'}}">
+          <view wx:if="{{mentionQuery.length > 0 && mentionResults.length === 0}}" class="mention__empty">
+            没有匹配的文件
+          </view>
+          <view class="mention__row" wx:for="{{mentionResults}}" wx:key="id"
+            data-kind="file" data-path="{{item.path}}" bind:tap="onMentionPick">
+            <text class="mention__row-name">{{item.name}}</text>
+            <text class="mention__row-path">{{item.path}}</text>
+          </view>
+        </block>
+        <block wx:elif="{{mentionScope === 'conversations'}}">
+          <view wx:if="{{mentionQuery.length > 0 && mentionSessions.length === 0}}" class="mention__empty">
+            没有匹配的会话
+          </view>
+          <view class="mention__row" wx:for="{{mentionSessions}}" wx:key="id"
+            data-kind="session" data-id="{{item.id}}" data-title="{{item.title}}" bind:tap="onMentionPick">
+            <text class="mention__row-name">{{item.title}}</text>
+            <text class="mention__row-path" wx:if="{{item.projectName}}">{{item.projectName}}</text>
+          </view>
+        </block>
+        <block wx:else>
+          <view wx:if="{{mentionSkills.length === 0}}" class="mention__empty">
+            暂无可用技能（未连接或桌面端未安装）
+          </view>
+          <view class="mention__row" wx:for="{{mentionSkills}}" wx:key="id"
+            data-kind="skill" data-name="{{item.name}}" bind:tap="onMentionPick">
+            <text class="mention__row-name">{{item.name}}</text>
+            <text class="mention__row-path" wx:if="{{item.description}}">{{item.description}}</text>
+          </view>
+        </block>
+      </scroll-view>
     </view>
   </view>
 </view>

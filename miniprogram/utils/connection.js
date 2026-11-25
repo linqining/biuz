@@ -320,6 +320,372 @@ function resolveInteraction(sessionId, interactionId, answer) {
     });
 }
 
+/**
+ * G33 行内倒计时暂停（snoozeInteractionAutoResolution；2026-11-25 与 iOS 同步）。
+ * 信封纪律与 resolveInteraction 同构（非 CAS 不带 base*；payload 恒 {interactionId}
+ * 单键——command.ts:342-344【实证·上游仓】；首次有效操作永久暂停，重复/迟到幂等 noop）。
+ */
+function snoozeInteractionAutoResolution(sessionId, interactionId) {
+  const face = commandFace;
+  if (!face.client) {
+    return Promise.resolve({ ok: false, failure: { kind: 'undelivered', text: '未连接桌面端' } });
+  }
+  const rpcCommand = require('./rpc-command.js');
+  const args = rpcCommand.makeSendConversationArgs({
+    clientId: face.clientId,
+    type: 'snoozeInteractionAutoResolution',
+    payload: { interactionId: interactionId },
+    sessionId: sessionId,
+    workspacePath: face.workspacePath,
+  });
+  return face.client
+    .call('zcode-agent', 'sendConversationCommandV4', args)
+    .then(function (ack) {
+      const status = rpcCommand.ackStatus(ack);
+      if (rpcCommand.isAuthoritativeSuccess(status)) return { ok: true, status: status };
+      if (rpcCommand.isFailureStatus(status)) {
+        const detail = (ack && (ack.reasonCode || (ack.ack && ack.ack.reasonCode))) || status || '?';
+        return { ok: false, failure: { kind: 'rejected', text: detail } };
+      }
+      return { ok: false, failure: { kind: 'unknown', text: '回执状态缺席（旧桌面）' } };
+    })
+    .catch(function (err) {
+      return { ok: false, failure: { kind: 'undelivered', text: (err && err.message) || '命令未送达' } };
+    });
+}
+
+/**
+ * G15 @ 提及文件检索（file.searchWorkspaceFiles；2026-11-25 与 iOS RemoteFileStore
+ * .searchFiles :204-222 同构：{rootPath, query, limit} → [{name,path,type}]）。
+ * 未连接/失败如实空。
+ */
+function searchWorkspaceFiles(query, limit) {
+  const face = commandFace;
+  if (!face.client) return Promise.resolve([]);
+  const trimmed = String(query || '').trim();
+  if (!trimmed) return Promise.resolve([]);
+  const args = [{ rootPath: face.workspacePath, query: trimmed, limit: limit || 50 }];
+  return face.client.call('file', 'searchWorkspaceFiles', args).then(function (value) {
+    const entries = Array.isArray(value) ? value : [];
+    return entries.map(function (entry) {
+      if (!entry || typeof entry !== 'object') return null;
+      const name = entry.name;
+      const path = entry.path;
+      if (!name || !path) return null;
+      return { id: String(path), name: String(name), path: String(path) };
+    }).filter(function (row) { return !!row; });
+  }).catch(function () { return []; });
+}
+
+/**
+ * G25 工作流 run 查询/保存/再次运行（2026-11-25 与 iOS/Android 同步）。
+ * wire 取证【实证·上游仓 + 协议文档 §9.1.11】：
+ * - conversationWorkflowRunsV4 {workspacePath, sessionId, limit} → 宽容
+ *   {runs} | {result:{runs}} | 单 run（iOS RemoteConversationStore :3594-3599 同宽容链）；
+ * - saveSavedWorkflowFromRun {workspacePath, runId, name, meta:{description}, scope}
+ *   → ok:true {name,scope,overwritten} | ok:false {reason}（zcode-protocol/index.ts:3599-3644；
+ *   target_exists 仅在 UI 已见过覆盖警告后带 overwrite:true 重发——覆盖是用户决定）；
+ * - 再次运行 = startSavedWorkflow 信封命令 {name, scope?}（command.ts:236-240）。
+ */
+function workflowRunsFor(sessionId) {
+  const face = commandFace;
+  if (!face.client) return Promise.resolve([]);
+  const args = [{
+    workspacePath: face.workspacePath,
+    sessionId: sessionId,
+    limit: 20,
+  }];
+  return face.client.call('zcode-agent', 'conversationWorkflowRunsV4', args)
+    .then(function (value) {
+      const runs = (value && value.runs) ||
+        (value && value.result && value.result.runs) ||
+        (value && value.result && value.result.workflowRun) || null;
+      const list = Array.isArray(runs) ? runs : (runs ? [runs] : []);
+      return list.map(parseWorkflowRun).filter(function (r) { return !!r; });
+    }).catch(function () { return []; });
+}
+
+/** run 负载宽容解析（iOS parseWorkflowRun 投影子集：G25 卡消费面字段）。 */
+function parseWorkflowRun(json) {
+  const d = json && typeof json === 'object' ? json : null;
+  if (!d) return null;
+  const id = d.runId || d.workflowRunId || d.id;
+  if (!id) return null;
+  const concurrency = (d.concurrency && typeof d.concurrency === 'object') ? d.concurrency : {};
+  return {
+    id: String(id),
+    name: d.name || d.workflowName || d.title || '工作流',
+    rawStatus: d.status || 'pending',
+    isLive: d.status === 'pending' || d.status === 'running',
+    stopReason: d.stopReason || null,
+    error: d.error || null,
+    resultPreview: d.resultPreview || null,
+    resumedFrom: d.resumedFrom || null,
+    supersededBy: d.supersededBy || null,
+    spentTokens: (d.usage && d.usage.spentTokens) || null,
+    usageNodesUsed: (d.usage && d.usage.nodesUsed) || null,
+    phaseCount: (d.phases && d.phases.length) || (d.phaseNames && d.phaseNames.length) || null,
+    // G25 阶段链结构化（phases[].{name,status}——web phasesOf 同口径；phaseNames
+    // 旧形态退化为名称列表 status 由 run 状态继承）
+    phases: (Array.isArray(d.phases) && d.phases.length > 0)
+      ? d.phases.map(function (p) {
+          if (!p || typeof p !== 'object' || !p.name) return null;
+          return { name: String(p.name), status: String(p.status || 'pending') };
+        }).filter(function (p) { return !!p; })
+      : (Array.isArray(d.phaseNames)
+        ? d.phaseNames.map(function (n) {
+            return n ? { name: String(n), status: d.status || 'pending' } : null;
+          }).filter(function (p) { return !!p; })
+        : []),
+    artifactsCount: (d.artifacts && d.artifacts.length) || 0,
+    concurrencyLimit: concurrency.limit || null,
+    concurrencyCap: concurrency.cap || null,
+    concurrencyCooldownMs: concurrency.cooldownMs || null,
+    failureCode: d.failureCode || null,
+    workId: d.workId || String(id),
+  };
+}
+
+/** G25 从 run 保存工作流（返回 {ok, text?, name?, scope?, overwritten?}）。 */
+function saveWorkflowRun(sessionId, runId, name, description, scope, overwrite) {
+  const face = commandFace;
+  if (!face.client) {
+    return Promise.resolve({ ok: false, text: '未连接桌面端' });
+  }
+  const fields = {
+    workspacePath: face.workspacePath,
+    runId: runId,
+    name: name,
+    meta: { description: description || '' },
+    scope: scope || 'project',
+  };
+  if (overwrite) fields.overwrite = true;
+  return face.client.call('zcode-agent', 'saveSavedWorkflowFromRun', [fields])
+    .then(function (value) {
+      const d = value || {};
+      if (d.ok === true) {
+        return { ok: true, name: d.name || name, scope: d.scope || scope,
+                 overwritten: d.overwritten === true };
+      }
+      const reason = d.reason || 'unknown';
+      if (reason === 'target_exists') return { ok: false, targetExists: true };
+      return { ok: false, text: d.detail || reason };
+    }).catch(function (err) {
+      return { ok: false, text: (err && err.message) || '连接中断或超时' };
+    });
+}
+
+/** G25 已存判定（workflows/forRun {workspace, runId} → entry {name,scope}；
+ * entry 缺席 = 未保存——判定推导得来，用户删档后自动翻回「保存」。iOS
+ * savedWorkflowForRun :5390 同 wire。失败不挡保存——上游「探测失败不该挡住保存，
+ * agent 仍会用 target_exists 给出最终答案」同口径。） */
+function savedWorkflowForRun(sessionId, runId) {
+  const face = commandFace;
+  if (!face.client) return Promise.resolve(null);
+  const args = [{
+    workspacePath: face.workspacePath,
+    sessionId: sessionId,
+    runId: runId,
+  }];
+  return face.client.call('zcode-agent', 'findSavedWorkflowForRun', args)
+    .then(function (value) {
+      const entry = value && value.entry;
+      if (!entry || !entry.name) return null;
+      return { name: String(entry.name), scope: String(entry.scope || 'project') };
+    }).catch(function () { return null; });
+}
+
+/** G25 再次运行（startSavedWorkflow 信封命令 {name, scope?}；非 CAS 直发）。 */
+function rerunWorkflow(name, scope) {
+  const face = commandFace;
+  if (!face.client) {
+    return Promise.resolve({ ok: false, text: '未连接桌面端' });
+  }
+  const rpcCommand = require('./rpc-command.js');
+  const payload = { name: name };
+  if (scope) payload.scope = scope;
+  const args = rpcCommand.makeSendConversationArgs({
+    clientId: face.clientId,
+    type: 'startSavedWorkflow',
+    payload: payload,
+    sessionId: null, // 无会话上下文——桌面创建新会话（iOS :4585 同口径）
+    workspacePath: face.workspacePath,
+  });
+  return face.client.call('zcode-agent', 'sendConversationCommandV4', args)
+    .then(function (ack) {
+      const status = rpcCommand.ackStatus(ack);
+      if (rpcCommand.isAuthoritativeSuccess(status)) return { ok: true };
+      return { ok: false, text: rpcCommand.isFailureStatus(status)
+        ? (status || '桌面端拒绝') : '回执状态缺席（旧桌面）' };
+    }).catch(function (err) {
+      return { ok: false, text: (err && err.message) || '命令未送达' };
+    });
+}
+
+/**
+ * G15 $ 技能候选（skills 频道 list；2026-11-25 wire 取证【实证·上游仓
+ * skills/skills.ts:43-45 createServiceDescriptor(ServiceChannels.Skills)——wire
+ * 方法名 = 接口方法名，task-groups read/save 先例同形态】params
+ * {workspacePath, workspaceIdentity?} → SkillsListResult {skills:[SkillSummary
+ * {id,name,description,…}], capability, diagnostics}。$ 触发语义归一（¥/￥→$
+ * 只归一触发不改输入字符——promptInputTriggers.ts:31-36 同规）。
+ */
+function listSkills() {
+  const face = commandFace;
+  if (!face.client) return Promise.resolve([]);
+  const args = [{ workspacePath: face.workspacePath }];
+  return face.client.call('skills', 'list', args).then(function (value) {
+    const skills = (value && value.skills) || [];
+    return skills.map(function (s) {
+      if (!s || typeof s !== 'object' || !s.id) return null;
+      return {
+        id: String(s.id),
+        name: String(s.name || s.id),
+        description: String(s.description || ''),
+      };
+    }).filter(function (row) { return !!row; });
+  }).catch(function () { return []; });
+}
+
+/**
+ * G42 前置 文件文本读取（file.readTextFile；2026-11-25 wire 取证【实证·上游仓
+ * FileTextSlice 回执 {path, content, offset, bytesRead, totalBytes}——Android
+ * RemoteFileStore.readTextSlice :347-361 同构】）。截断提示由调用方按 totalBytes 判。
+ */
+function readFileText(path, offset, length) {
+  const face = commandFace;
+  if (!face.client) return Promise.resolve(null);
+  const fields = { path: path };
+  if (offset > 0) fields.offset = offset;
+  if (length) fields.length = length;
+  return face.client.call('file', 'readTextFile', [fields]).then(function (value) {
+    const d = value || {};
+    if (typeof d.content !== 'string') return null;
+    return {
+      content: d.content,
+      totalBytes: Number(d.totalBytes || 0),
+      bytesRead: Number(d.bytesRead || 0),
+    };
+  }).catch(function () { return null; });
+}
+
+/**
+ * G38 命令中心检索（2026-11-25 与 iOS CommandCenterSheet 同构）：
+ * - 会话/任务 = zcode-task listTaskList {kind:"timeline", workspaceScopes, sortBy,
+ *   limit:50, search}（wire 取证见 iOS searchSessions :3527-3550——键名 `search`
+ *   非 searchQuery，2026-10-08 §11.1#7）；
+ * - 文件 = file.searchWorkspaceFiles {rootPath, query, limit}（iOS :204-222 同构）。
+ * 返回 {sessions, files}；未连接/失败如实空（写面禁静默的读面镜像）。
+ */
+function commandCenterSearch(query) {
+  const face = commandFace;
+  if (!face.client) {
+    return Promise.resolve({ sessions: [], files: [] });
+  }
+  const trimmed = String(query || '').trim();
+  if (!trimmed) return Promise.resolve({ sessions: [], files: [] });
+  const listTaskArgs = [{
+    kind: 'timeline',
+    workspaceScopes: [{ workspacePath: face.workspacePath }],
+    sortBy: 'updated',
+    limit: 50,
+    search: trimmed,
+  }];
+  const fileArgs = [{
+    rootPath: face.workspacePath,
+    query: trimmed,
+    limit: 20,
+  }];
+  return Promise.all([
+    face.client.call('zcode-task', 'listTaskList', listTaskArgs).catch(function () { return null; }),
+    face.client.call('file', 'searchWorkspaceFiles', fileArgs).catch(function () { return null; }),
+  ]).then(function (results) {
+    const taskValue = results[0];
+    const fileValue = results[1];
+    const items = (taskValue && taskValue.items) || [];
+    const sessions = items.map(function (item) {
+      if (!item || typeof item !== 'object') return null;
+      const id = item.sessionId || item.id || item.taskId;
+      if (!id) return null;
+      return {
+        id: String(id),
+        title: item.title || '未命名会话',
+        projectName: item.projectName || null,
+        updatedAt: Number(item.updatedAt || 0),
+      };
+    }).filter(function (row) { return !!row; });
+    const fileEntries = (fileValue && Array.isArray(fileValue)) ? fileValue : [];
+    const files = fileEntries.map(function (entry) {
+      if (!entry || typeof entry !== 'object') return null;
+      const name = entry.name;
+      const path = entry.path;
+      if (!name || !path) return null;
+      return {
+        id: String(path),
+        name: String(name),
+        path: String(path),
+        isDirectory: entry.type === 'directory',
+      };
+    }).filter(function (row) { return !!row; });
+    return { sessions: sessions, files: files };
+  });
+}
+
+/**
+ * G36 分组组色/置顶（task-groups 频道 read/save/move；2026-11-25 与 iOS/Android 同步）。
+ * wire 取证【实证·上游仓 task-groups/contract.ts:4-33 + index.ts:31-34 + repository.ts:189-202】：
+ * - read 回执 {groups:[{id,title,color,…}], members:[…], order:[…]}；
+ * - save {id, color} 更新组色（七档词表）；
+ * - move 组节点 {node:{type:"group",groupId}, sourceGroupId:null, groupId:null} 无
+ *   anchor = 顶层 index 0 = 置顶（组只能在顶层重排）。
+ */
+function readTaskGroups() {
+  const face = commandFace;
+  if (!face.client) return Promise.resolve(null);
+  const args = [{ workspacePath: face.workspacePath }];
+  return face.client.call('task-groups', 'read', args).then(function (value) {
+    const d = value || {};
+    const groups = (d.groups || []).map(function (g) {
+      return { id: g.id, title: g.title, color: g.color || null };
+    }).filter(function (g) { return g.id; });
+    const members = (d.members || []).map(function (m) {
+      return { groupId: m.groupId, taskId: m.taskId };
+    }).filter(function (m) { return m.groupId && m.taskId; });
+    return { groups: groups, members: members };
+  }).catch(function () { return null; });
+}
+
+function saveTaskGroupColor(groupId, color) {
+  const face = commandFace;
+  if (!face.client) return Promise.resolve({ ok: false, text: '未连接桌面端' });
+  const args = [{
+    workspacePath: face.workspacePath,
+    id: groupId,
+    color: color,
+  }];
+  return face.client.call('task-groups', 'save', args).then(function () {
+    return { ok: true };
+  }).catch(function (err) {
+    return { ok: false, text: (err && err.message) || '保存失败' };
+  });
+}
+
+function pinTaskGroupToTop(groupId) {
+  const face = commandFace;
+  if (!face.client) return Promise.resolve({ ok: false, text: '未连接桌面端' });
+  const args = [{
+    workspacePath: face.workspacePath,
+    node: { type: 'group', groupId: groupId },
+    sourceGroupId: null,
+    groupId: null,
+  }];
+  return face.client.call('task-groups', 'move', args).then(function () {
+    return { ok: true };
+  }).catch(function (err) {
+    return { ok: false, text: (err && err.message) || '置顶失败' };
+  });
+}
+
 /** 断开时清写面上下文（store 断开路径统一调用）。 */
 function disposeCommandFace() {
   commandFace.client = null;
@@ -458,6 +824,29 @@ function mapTaskRows(value) {
         const segments = String(item.workspacePath).split('/').filter(Boolean);
         projectName = segments.length ? segments[segments.length - 1] : null;
       }
+      // G33 轻量投影宽容读（zcode-task-types-core.ts:262-268【实证·上游仓】形状；
+      // listTaskList 行是否携带未取证——缺席/词表外即 null，徽标不渲染，不造假面）
+      let lightId = null;
+      let lightKind = null;
+      let lightDeadline = null;
+      let lightVisibleAt = null;
+      let lightSnoozedAt = null;
+      const light = (item.pendingInteraction && typeof item.pendingInteraction === 'object')
+        ? item.pendingInteraction : null;
+      if (light && light.interactionId && (light.kind === 'permission' || light.kind === 'userInput')) {
+        lightId = String(light.interactionId);
+        lightKind = light.kind;
+        const auto = (light.autoResolution && typeof light.autoResolution === 'object')
+          ? light.autoResolution : null;
+        if (auto) {
+          lightDeadline = Number(auto.deadlineAt) || null;
+          lightVisibleAt = Number(auto.visibleAt) || null;
+          lightSnoozedAt = Number(auto.snoozedAt) || null;
+        }
+      }
+      // G40 残面（2026-11-25 与 iOS/Android 同步）：cron/off-peak/worktree/远端设备
+      // 四族字段宽容读（zcode-task-types.ts:56-64 + worktreeLabel.ts + 
+      // taskSourceAttribution.ts:19-24【实证·上游仓】；缺席 = null 不渲染）
       return {
         id: String(id),
         title: item.title || '未命名会话',
@@ -469,6 +858,15 @@ function mapTaskRows(value) {
         projectName: projectName,
         groupName: item.groupName || null,
         workflowActivity: item.workflowActivity || null,
+        pendingInteractionId: lightId,
+        pendingInteractionKind: lightKind,
+        pendingInteractionDeadline: lightDeadline,
+        pendingInteractionVisibleAt: lightVisibleAt,
+        pendingInteractionSnoozedAt: lightSnoozedAt,
+        isCron: !!(item.cronAutomationId || item.automationId),
+        isOffPeak: !!item.offPeakTaskId,
+        worktreeRoot: item.worktreeRoot || item.worktree_root || null,
+        serverDisplayName: item.serverDisplayName || null,
       };
     })
     .filter(function (row) { return row !== null; });
@@ -661,5 +1059,17 @@ module.exports = {
   mapTaskRows: mapTaskRows,
   subscribeConversation: subscribeConversation,
   resolveInteraction: resolveInteraction,
+  snoozeInteractionAutoResolution: snoozeInteractionAutoResolution,
+  commandCenterSearch: commandCenterSearch,
+  searchWorkspaceFiles: searchWorkspaceFiles,
+  readFileText: readFileText,
+  listSkills: listSkills,
+  readTaskGroups: readTaskGroups,
+  workflowRunsFor: workflowRunsFor,
+  savedWorkflowForRun: savedWorkflowForRun,
+  saveWorkflowRun: saveWorkflowRun,
+  rerunWorkflow: rerunWorkflow,
+  saveTaskGroupColor: saveTaskGroupColor,
+  pinTaskGroupToTop: pinTaskGroupToTop,
   disposeCommandFace: disposeCommandFace,
 };

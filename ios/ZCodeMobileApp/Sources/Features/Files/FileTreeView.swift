@@ -25,6 +25,10 @@ struct FileTreeView: View {
     /// 读面三态（2026-10-06 用户回归「点击后列表无提示清空」）：文件树拉取失败文案
     /// （nil=最近一次成功；存 old 树时仅挂横幅，首载失败呈错误空态），空态单独可辨
     @State private var loadError: String?
+    // G32 仅变更 toggle（web WorkspaceFileTree showChangedOnly → model.ts:341-360
+    // changedOnly 过滤——file 行 path ∈ git unstaged 变更集才显示）
+    @State private var showChangedOnly = false
+    @State private var changedPaths: Set<String> = []
 
     /// 拉取文件树并对账失败信号。Store 端 last-good 兜底：重拉失败返回旧树（不清空），
     /// 视图旧行保留（滚动位置不动），失败横幅如实声明「暂显示上次结果」。
@@ -50,7 +54,9 @@ struct FileTreeView: View {
         return String(localized: "未连接桌面端")
     }
 
-    /// 命中行：搜索回执优先（连接态），否则树内过滤（演示态 + 未命中时回退）
+    /// 命中行：搜索回执优先（连接态），否则树内过滤（演示态 + 未命中时回退）；
+    /// G32 仅变更开 → 叠加 changedOnly 过滤（file 行 path ∈ 变更集——web
+    /// workspace-file-tree/model.ts:341-360 同式，目录行不参与）
     private var visibleRows: [FileNode] {
         if let searchResults {
             return searchResults
@@ -58,7 +64,7 @@ struct FileTreeView: View {
         var rows: [FileNode] = []
         func walk(_ nodes: [FileNode]) {
             for node in nodes {
-                if matches(node) {
+                if matches(node), changedOnlyMatches(node) {
                     rows.append(node)
                 }
                 if node.isDirectory, expanded.contains(node.id) {
@@ -68,6 +74,11 @@ struct FileTreeView: View {
         }
         walk(tree)
         return rows
+    }
+
+    private func changedOnlyMatches(_ node: FileNode) -> Bool {
+        guard showChangedOnly else { return true }
+        return !node.isDirectory && changedPaths.contains(node.path)
     }
 
     private func matches(_ node: FileNode) -> Bool {
@@ -85,6 +96,34 @@ struct FileTreeView: View {
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 4, leading: T.sp4, bottom: 4, trailing: T.sp4))
                             .listRowSeparator(.hidden)
+                        // G32 仅变更 toggle（web WorkspaceFileTree showChangedOnly 同位）：
+                        // 开 = file 行按 git unstaged 变更集过滤；空变更集如实给空态不回落全树
+                        Button {
+                            showChangedOnly.toggle()
+                            if showChangedOnly, changedPaths.isEmpty {
+                                Task {
+                                    let files = await store.diffFiles()
+                                    changedPaths = Set(files.map(\.path))
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: showChangedOnly ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 11))
+                                Text(String(localized: "仅显示变更"))
+                                    .font(T.font(11.5, .semibold))
+                            }
+                            .foregroundColor(showChangedOnly ? T.accentText : T.text2)
+                            .padding(.horizontal, T.sp2)
+                            .padding(.vertical, 5)
+                            .background(showChangedOnly ? T.accentDim.opacity(0.55) : T.bgCard)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("09-chip-changed-only")
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 0, leading: T.sp4, bottom: 4, trailing: T.sp4))
+                        .listRowSeparator(.hidden)
                     }
                     if store.isRemote {
                         commitSection
@@ -406,6 +445,9 @@ struct FileTreeView: View {
 struct FilePreviewView: View {
     @Environment(\.fileStore) private var store
     let node: FileNode
+    /// G42 残面：代码预览偏好（字号/行号/换行——web codePreviewSettings 三键同语义；
+    /// 主题双键 TinySyntax 无 shiki 面不投影，登记差异）
+    @State private var previewSettings = CodePreviewSettings.read()
 
     enum Segment: String, CaseIterable {
         case preview, source
@@ -715,29 +757,34 @@ struct FilePreviewView: View {
         return "—"
     }
 
-    /// 源码视图：等宽 + 行号
+    /// 源码视图：等宽 + 行号（G42 三键生效——fontSizePx 12–20 / showLineNumbers /
+    /// wrapLongLines；web codePreviewSettings 同语义）
     private var sourceView: some View {
         let lines = content.components(separatedBy: "\n")
-        return ScrollView(.horizontal, showsIndicators: false) {
+        let px = previewSettings.fontSizePx
+        let wrap = previewSettings.wrapLongLines
+        return ScrollView(.horizontal, showsIndicators: !wrap) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                     HStack(alignment: .firstTextBaseline, spacing: T.sp3) {
-                        Text("\(index + 1)")
-                            .font(T.mono(10.5))
-                            .foregroundColor(T.text3)
-                            .frame(width: 32, alignment: .trailing)
+                        if previewSettings.showLineNumbers {
+                            Text("\(index + 1)")
+                                .font(T.mono(10.5))
+                                .foregroundColor(T.text3)
+                                .frame(width: 32, alignment: .trailing)
+                        }
                         Text(line.isEmpty ? " " : line)
-                            .font(T.mono(12))
+                            .font(T.mono(px))
                             .foregroundColor(T.text2)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
+                            .lineLimit(wrap ? nil : 1)
+                            .fixedSize(horizontal: !wrap, vertical: false)
                         Spacer(minLength: 0)
                     }
-                    .frame(height: 21)
+                    .frame(height: px * 1.75)
                 }
             }
             .padding(T.sp3)
-            .frame(minWidth: UIScreen.main.bounds.width - 64, alignment: .leading)
+            .frame(minWidth: wrap ? 0 : UIScreen.main.bounds.width - 64, alignment: .leading)
         }
         .background(T.bgCode)
         .clipShape(RoundedRectangle(cornerRadius: T.rM))

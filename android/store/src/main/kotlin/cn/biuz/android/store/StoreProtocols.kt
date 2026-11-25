@@ -21,6 +21,12 @@ import cn.biuz.android.protocol.FileNode
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.RemotePendingInteraction
 import cn.biuz.android.protocol.RemoteGoalSummary
+import cn.biuz.android.protocol.WorkspaceMcpAdmissionState
+import cn.biuz.android.protocol.BackgroundBashOutputInfo
+import cn.biuz.android.protocol.WorkflowRunSavedRef
+import cn.biuz.android.protocol.WorkflowRunSaveOutcome
+import cn.biuz.android.protocol.AutoArchiveSettings
+import cn.biuz.android.protocol.ArchivedTaskDeletionResult
 import cn.biuz.android.protocol.PlanPanelSummary
 import cn.biuz.android.protocol.BackgroundWorkSummary
 import cn.biuz.android.protocol.SubagentProjectionState
@@ -586,6 +592,42 @@ interface ConversationStore {
      */
     suspend fun subagentProjection(conversationId: String): SubagentProjectionState? = null
 
+    /** G24：工作区 MCP 待审核快照（state.workspaceMcpAdmission；null = 键缺席不渲染） */
+    suspend fun workspaceMcpAdmission(conversationId: String): WorkspaceMcpAdmissionState? = null
+
+    /** G27：后台 bash 输出快照（{sessionId, workId} 无 offset 全量有界；null = 失败） */
+    suspend fun backgroundBashOutput(conversationId: String, workId: String): BackgroundBashOutputInfo? = null
+
+    /** G43：自动归档设置读（setting 频道两键；null = 未连接/读取失败——UI 呈失败态） */
+    suspend fun autoArchiveSettings(): AutoArchiveSettings? = null
+
+    /** G41：桌面行为设置读（setting.get 全键宽容包裹；null = 失败——UI 呈失败态） */
+    suspend fun behaviorSettings(): Map<String, JSONValue>? = null
+
+    /** G43：批量删除已归档任务（taskIds 按行 workspace 分组一次 RPC；null = 未连接/失败——
+     * wire = zcode-task deleteArchivedTasks {workspacePath, workspaceIdentity?, taskIds[]}） */
+    suspend fun deleteArchivedTasks(taskIds: List<String>): ArchivedTaskDeletionResult? = null
+
+    /** G41：桌面行为设置写（setting.update 单键补丁；null = 成功，否则失败原文） */
+    suspend fun setBehaviorSetting(key: String, value: JSONValue): String? = null
+
+    /** G43：自动归档设置写（单键补丁 update({key:value})；写永不重试防双写——
+     * 返回 null = 成功，否则失败原文）。enabled/days 均可 null = 不写该键。 */
+    suspend fun setAutoArchiveSetting(enabled: Boolean?, olderThanDays: Int?): String? = null
+
+    /** G25：这次 run 对应的已保存工作流（null = 未保存/未连接/查询失败——失败不挡保存） */
+    suspend fun savedWorkflowForRun(conversationId: String, runId: String): WorkflowRunSavedRef? = null
+
+    /** G25：从 run 保存工作流（TargetExists 返回后由 UI 确认覆盖再重发 overwrite=true） */
+    suspend fun saveWorkflowRun(
+        conversationId: String,
+        runId: String,
+        name: String,
+        description: String,
+        scope: String,
+        overwrite: Boolean,
+    ): WorkflowRunSaveOutcome = WorkflowRunSaveOutcome.Failed("演示态不支持保存工作流")
+
     /**
      * 会话子代理历史目录（`session/subagents` 只读查询，可分页）。
      * 与 [subagentProjection] 分工：投影=本批（含 running）；本方法=完整历史清单。
@@ -701,11 +743,14 @@ interface ConversationStore {
 
     /**
      * 启动已保存工作流（conversationId 传 null = 无会话上下文，会话由桌面创建；
-     * 回执 result.sessionId 宽容提取交调用方跳转；args 为动态参数表单键值）
+     * 回执 result.sessionId 宽容提取交调用方跳转；args 为动态参数表单键值）。
+     * 签名对齐 wire schema {name, scope?, args?}（command.ts:236-240【实证·上游仓】
+     * ——旧 workflowId 形态是臆造键，2026-11-25 G25 随再次运行入口修正）
      */
     suspend fun startSavedWorkflow(
         conversationId: String?,
-        workflowId: String,
+        name: String,
+        scope: String? = null,
         args: Map<String, JSONValue>?,
     ): JSONValue? = null
 

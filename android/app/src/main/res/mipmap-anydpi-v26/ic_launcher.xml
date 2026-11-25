@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- adaptive 启动图标（API 26+）：纸底 #F2EADB（2026-11-24 用户裁决图标底默认浅色）
+<!-- adaptive 启动图标（API 26+）：纸底 #F7F3EC（2026-11-24 裁决图标底默认浅色；2026-11-25 纸值回退）
      + 朱批主印「批」矢量前景；monochrome 供 API 33+ 主题图标（只取 alpha 通道）。
      API 24/25 兜底见 mipmap-anydpi/ic_launcher.xml。 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">

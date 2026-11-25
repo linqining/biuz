@@ -216,3 +216,17 @@
   border-radius: 12rpx;
   font-size: 28rpx;
 }
+
+/* G34 置顶溢出「显示更多/收起」行 */
+.pinned-more {
+  padding: 16rpx 24rpx;
+  font-size: 26rpx;
+  color: #8a8f98;
+}
+
+/* G36 分组组头色点 */
+.group-head__dot {
+  width: 16rpx; height: 16rpx; border-radius: 50%;
+  margin-right: 12rpx; flex-shrink: 0;
+}
+.group-head__dot--gray { background: #d4d4d8; }

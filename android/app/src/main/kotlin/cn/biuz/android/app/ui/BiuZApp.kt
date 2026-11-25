@@ -8,7 +8,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import cn.biuz.android.app.settings.AppSettingsStore
@@ -142,7 +149,67 @@ fun BiuZApp(
         }
         // APP-DIFF[D002] platform: 系统返回由 NavController 默认 pop 承接（web 为
         // history.pushState + popstate，浏览器历史无原生对应，映射为系统返回语义）
-        NavHost(navController = navController, startDestination = Routes.CONNECT) {
+        // R1 底部导航壳（2026-11-25 与 iOS 三 tab 对位——会话/待批/设置；web ⌘K
+        // CommandCenter + sidebar 三主面的移动对位）。tab 路由集合内才显示底栏，
+        // CONNECT/LOGIN/CHAT 等内容页隐藏（单页沉浸 + 返回栈不叠底栏）。
+        val tabRoutes = setOf(Routes.SESSIONS, Routes.PENDING_APPROVALS, Routes.SETTINGS)
+        val currentRoute by navController.currentBackStackEntryAsState()
+        val currentRouteName = currentRoute?.destination?.route
+        androidx.compose.material3.Scaffold(
+            bottomBar = {
+                if (currentRouteName in tabRoutes) {
+                    androidx.compose.material3.NavigationBar {
+                        NavigationBarItem(
+                            selected = currentRouteName == Routes.SESSIONS,
+                            onClick = {
+                                navController.navigate(Routes.SESSIONS) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { androidx.compose.material3.Text("🗂", fontSize = 17.sp) },
+                            label = { androidx.compose.material3.Text("会话") },
+                            modifier = androidx.compose.ui.Modifier.testTag("14-tab-sessions"),
+                        )
+                        NavigationBarItem(
+                            selected = currentRouteName == Routes.PENDING_APPROVALS,
+                            onClick = {
+                                navController.navigate(Routes.PENDING_APPROVALS) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { androidx.compose.material3.Text("🖊", fontSize = 17.sp) },
+                            label = { androidx.compose.material3.Text("待批") },
+                            modifier = androidx.compose.ui.Modifier.testTag("14-tab-pending"),
+                        )
+                        NavigationBarItem(
+                            selected = currentRouteName == Routes.SETTINGS,
+                            onClick = {
+                                navController.navigate(Routes.SETTINGS) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { androidx.compose.material3.Text("⚙", fontSize = 17.sp) },
+                            label = { androidx.compose.material3.Text("设置") },
+                            modifier = androidx.compose.ui.Modifier.testTag("14-tab-settings"),
+                        )
+                    }
+                }
+            },
+        ) {
+            androidx.compose.foundation.layout.PaddingValues(
+                bottom = if (currentRouteName in tabRoutes) {
+                    80f.dp
+                } else {
+                    0f.dp
+                },
+            )
+            NavHost(navController = navController, startDestination = Routes.CONNECT) {
             composable(Routes.CONNECT) {
                 ConnectScreen(
                     session = session,
@@ -240,6 +307,8 @@ fun BiuZApp(
                     },
                     onOpenFiles = { navController.navigate(Routes.FILES) },
                     onOpenDevices = { navController.navigate(Routes.DEVICES) },
+                    onOpenPendingApprovals = { navController.navigate(Routes.PENDING_APPROVALS) },
+                    onOpenCommandCenter = { navController.navigate(Routes.COMMAND_CENTER) },
                 )
             }
             // 文件页（Diff 审查根 → 目录树 → 文件预览；iOS FileTreeView/
@@ -286,6 +355,26 @@ fun BiuZApp(
                     onOpenTaskOutput = { navController.navigate(Routes.taskOutput(sessionId)) },
                 )
             }
+            composable(Routes.COMMAND_CENTER) {
+                cn.biuz.android.app.ui.screen.CommandCenterScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                    onOpenChat = { sessionId -> navController.navigate(Routes.chat(sessionId)) },
+                )
+            }
+            composable(Routes.BEHAVIOR_SETTINGS) {
+                cn.biuz.android.app.ui.screen.BehaviorSettingsScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.PENDING_APPROVALS) {
+                cn.biuz.android.app.ui.screen.PendingApprovalsScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                    onOpenChat = { sessionId -> navController.navigate(Routes.chat(sessionId)) },
+                )
+            }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     session = session,
@@ -298,6 +387,7 @@ fun BiuZApp(
                     onOpenCapability = { kind -> navController.navigate(Routes.capability(kind)) },
                     onOpenAppearance = { navController.navigate(Routes.APPEARANCE) },
                     onOpenDesktopSettings = { navController.navigate(Routes.DESKTOP_SETTINGS) },
+                    onOpenBehavior = { navController.navigate(Routes.BEHAVIOR_SETTINGS) },
                     onOpenAutomations = { navController.navigate(Routes.AUTOMATIONS) },
                     onOpenPersonalization = { navController.navigate(Routes.PERSONALIZATION) },
                     onOpenSubagents = { navController.navigate(Routes.SUBAGENTS) },
@@ -357,5 +447,6 @@ fun BiuZApp(
                 )
             }
         }
+        } // R1 Scaffold 闭合
     }
 }

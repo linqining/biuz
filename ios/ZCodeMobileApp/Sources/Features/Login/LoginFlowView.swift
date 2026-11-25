@@ -16,8 +16,6 @@ struct LoginFlowView: View {
     @State private var stepTimings: [String] = []
     @State private var exchangeLogs: [ConnectLogLine] = []
     @State private var exchangeStep: ExchangeStep = .callback
-    /// G-026 协议页（ nil=关闭）
-    @State private var agreementPage: AgreementPage?
 
     enum LoginStep: Equatable {
         case home
@@ -40,17 +38,25 @@ struct LoginFlowView: View {
                 switch step {
                 case .home:
                     LoginHomeView(
-                        onStartOAuth: { startOAuth(.zai) },
-                        onConnectDesktop: { dismiss() },
-                        onBigModel: { startOAuth(.bigmodel) },
-                        onAgreement: { agreementPage = $0 })
+                        provider: provider,
+                        onLogin: { startOAuth(provider) },
+                        onPickProvider: { provider = $0 },
+                        onScanDesktop: {
+                            // 扫码是登录页并列的第二个入口：直接切到连接流程并起扫
+                            // （L2/L3 由 ConnectFlowView 承载；connect 成功即自动装配）
+                            session.requestConnectFlow(editTokenOnly: false, initialScan: true)
+                        },
+                        onClose: { dismiss() })
                 case .authorizing:
                     // O2-A：背景页压暗 + 缩放（2.7 Sheet 转场），授权 Sheet 升起
                     LoginHomeView(
-                        onStartOAuth: { startOAuth(.zai) },
-                        onConnectDesktop: { dismiss() },
-                        onBigModel: { startOAuth(.bigmodel) },
-                        onAgreement: { agreementPage = $0 },
+                        provider: provider,
+                        onLogin: { startOAuth(provider) },
+                        onPickProvider: { provider = $0 },
+                        onScanDesktop: {
+                            session.requestConnectFlow(editTokenOnly: false, initialScan: true)
+                        },
+                        onClose: { dismiss() },
                         dimmed: true)
                         .overlay(alignment: .bottom) {
                             OAuthSheetView(
@@ -87,9 +93,6 @@ struct LoginFlowView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { navigationBar }
-            .sheet(item: $agreementPage) { page in
-                AgreementWebViewSheet(page: page)
-            }
         }
     }
 
@@ -102,7 +105,11 @@ struct LoginFlowView: View {
                 .font(T.font(16.5, .bold))
                 .foregroundColor(T.text)
         }
-        // 显式关闭：不想登录/不想连接时随时可退出（全屏 cover 无下滑手势）
+        // 显式关闭：不想登录/不想连接时随时可退出（全屏 cover 无下滑手势）。
+        // 2026-11-25 UIUX 审查 E2：home 步已有「暂不登录」承担退出，顶栏 ✕ 不再重复
+        // 渲染（一个页面一个退出点）；授权中/交换/失败步保留（授权中 ✕=关 Sheet 回 O1，
+        // 2026-10-21 用户反馈口径）。
+        if step != .home {
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 // 授权 Sheet 打开时，右上角 ✕ 与 Sheet 的 ✕ 同语义：只关 Sheet，
@@ -121,6 +128,7 @@ struct LoginFlowView: View {
                     .frame(width: 44, height: 44)
             }
             .accessibilityIdentifier("o1-act-close")
+        }
         }
     }
 
@@ -315,33 +323,46 @@ struct LoginFlowView: View {
 
 // MARK: - O1 登录主页（双路径入口）
 
-struct LoginHomeView: View {
-    var onStartOAuth: () -> Void
-    var onConnectDesktop: () -> Void
-    var onBigModel: () -> Void
-    var onAgreement: (AgreementPage) -> Void = { _ in }
-    var dimmed = false
+// MARK: - O1 登录主页（Android LoginScreen 同构 + 扫码并列入口）
 
-    @State private var advancedExpanded = false
+/// 2026-11-25 用户两次裁决：①「登录页请看安卓端的实现」②「Android 登录页的基础上，
+/// 加上现在的扫码连接桌面端，两个登录选项」。对齐 Android `LoginScreen.kt`（11-24 重设计）：
+///   品牌区（主印 84 + 「朱批」朱磦 + 一句说明）
+///   → **朱磦主按钮**（主体=当前平台直接授权；右侧 44pt 独立热区箭头就地切换
+///      Z.ai/全球 ↔ BigModel/中国，当前项朱磦勾选）
+///   → **「扫码连接桌面端」次按钮**（第二个入口：关登录 cover → 连接流程直达取景器）
+///   → 「暂不登录」。
+/// 原「连接桌面端→仅关闭 cover」「高级选项折叠卡（BigModel）」「协议脚注」按裁决撤除：
+/// BigModel 收进平台菜单，协议文本在授权页内（AgreementWebViewSheet 暂无入口，
+/// 已登记 cleanup-list）。整页收敛到纸/墨/朱三色。
+struct LoginHomeView: View {
+    var provider: OAuthProviderID
+    /// 主体：用当前平台直接开始授权
+    var onLogin: () -> Void
+    /// 箭头菜单：切换登录平台（仅改选择，不发起）
+    var onPickProvider: (OAuthProviderID) -> Void
+    /// 扫码连接桌面端（第二个登录/进入选项）
+    var onScanDesktop: () -> Void
+    /// 暂不登录
+    var onClose: () -> Void
+    var dimmed = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
                 brand
-                PrimaryButton(title: "使用 Z.ai 账号登录", identifier: "o1-btn-oauth", action: onStartOAuth)
-                Button(action: onConnectDesktop) {
-                    Label(String(localized: "连接桌面端"), systemImage: "display")
-                        .font(T.font(15, .semibold))
-                        .foregroundColor(T.text)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                providerButton
+                scanButton
+                Spacer(minLength: 24)
+                Button(action: onClose) {
+                    Text(String(localized: "暂不登录"))
+                        .font(T.font(13))
+                        .foregroundColor(T.text3)
+                        .frame(minWidth: 140, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(PressableButtonStyle())
-                .accessibilityIdentifier("o1-btn-connect")
-
-                advancedCard
-                Spacer(minLength: 24)
-                footer
+                .accessibilityIdentifier("o1-login-close")
             }
             .padding(.horizontal, T.sp6)
             .padding(.top, T.sp3)
@@ -357,103 +378,102 @@ struct LoginHomeView: View {
             VStack(spacing: 4) {
                 Text("朱批")
                     .font(T.font(24, .heavy))
-                    .foregroundColor(T.text)
+                    .tracking(2)
+                    .foregroundColor(T.seal)
                     .accessibilityIdentifier("o1-brand-name")
-                Text(String(localized: "AI 编程智能体 · 移动工作台"))
+                Text(String(localized: "请选择与电脑端相同的登录平台，并使用同一账号。"))
                     .font(T.font(13))
-                    .foregroundColor(T.text2)
+                    .foregroundColor(T.text3)
+                    .multilineTextAlignment(.center)
             }
         }
-        .padding(.top, 28)
+        .padding(.top, 40)
         .padding(.bottom, 12)
     }
 
-    private var advancedCard: some View {
-        VStack(spacing: 0) {
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) { advancedExpanded.toggle() }
-            } label: {
-                HStack(spacing: T.sp2) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 13))
-                        .foregroundColor(T.text3)
-                    Text(String(localized: "高级选项"))
-                        .font(T.font(12.5, .semibold))
-                        .foregroundColor(T.text2)
-                    Spacer()
-                    Text(String(localized: "BigModel · 其他登录方式"))
-                        .font(T.font(10.5))
-                        .foregroundColor(T.text3)
-                    Image(systemName: advancedExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 12))
-                        .foregroundColor(T.text3)
+    /// 朱磦主按钮（48pt / rM）：主体=当前平台直接授权；右侧 44pt 独立热区展开平台菜单。
+    /// §5-14①：Menu 的 identifier 挂本体（挂 label 内视图会被运行时拼接成子元素 id）
+    private var providerButton: some View {
+        HStack(spacing: 0) {
+            Button(action: onLogin) {
+                HStack(spacing: T.sp3) {
+                    Text(provider.actionLabel)
+                        .font(T.font(15, .semibold))
+                        .foregroundColor(T.onSeal)
+                    Text(provider.regionLabel)
+                        .font(T.font(12))
+                        .foregroundColor(T.onSeal.opacity(0.7))
+                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 44)
+                .padding(.leading, T.sp4)
+                .frame(maxWidth: .infinity, minHeight: 48)
                 .contentShape(Rectangle())
             }
-            .accessibilityIdentifier("o1-adv-toggle")
+            .buttonStyle(PressableButtonStyle())
+            .accessibilityIdentifier("o1-btn-oauth")
 
-            if advancedExpanded {
-                Button(action: onBigModel) {
-                    HStack(spacing: T.sp2) {
-                        Image(systemName: "key")
-                            .font(.system(size: 12))
-                            .foregroundColor(T.text2)
-                            .frame(width: 26, height: 26)
-                            .background(T.bgElevated)
-                            .clipShape(RoundedRectangle(cornerRadius: T.rS))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(String(localized: "通过 BigModel 智能体平台登录"))
-                                .font(T.font(13, .semibold))
-                                .foregroundColor(T.text)
-                            Text(String(localized: "高级入口 · /login?appId=zcode · 默认无需改动"))
-                                .font(T.font(11.5))
-                                .foregroundColor(T.text3)
-                                .lineLimit(1)
+            // 分隔线（纸色字 30% 透明，Android LoginProviderButton 同款）
+            Rectangle()
+                .fill(T.onSeal.opacity(0.3))
+                .frame(width: 1, height: 24)
+
+            Menu {
+                ForEach(OAuthProviderID.allCases) { option in
+                    Button {
+                        onPickProvider(option)
+                    } label: {
+                        if option == provider {
+                            Label(option.menuLabel, systemImage: "checkmark")
+                        } else {
+                            Text(option.menuLabel)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12))
-                            .foregroundColor(T.text3)
                     }
-                    .padding(.horizontal, T.sp3)
-                    .padding(.bottom, T.sp2)
-                    .frame(minHeight: 44)
                 }
-                .accessibilityIdentifier("o1-row-bigmodel")
-                .transition(.opacity.combined(with: .move(edge: .top)))
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(T.onSeal)
+                    .frame(width: 44, height: 48)
+                    .contentShape(Rectangle())
             }
+            .accessibilityIdentifier("o1-btn-provider-switch")
+            .accessibilityLabel(String(localized: "切换登录平台"))
         }
-        .background(T.bgElevated)
+        .background(T.seal)
         .clipShape(RoundedRectangle(cornerRadius: T.rM))
-        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
-        .accessibilityIdentifier("o1-card-adv")
     }
 
-    private var footer: some View {
-        VStack(spacing: 2) {
-            Text(String(localized: "Z.ai 账号登录在应用内授权 Sheet 中完成，凭据仅存本机 Keychain"))
-            // G-026：协议名可点 → 内嵌 WebView Sheet（可滚动/可关闭/断网失败态）
-            HStack(spacing: 2) {
-                Text(String(localized: "也可跳过登录直接连接局域网桌面端 · 登录即同意"))
-                Button { onAgreement(.terms) } label: {
-                    Text(String(localized: "《用户协议》")).foregroundColor(T.accentText)
-                }
-                .accessibilityIdentifier("o1-act-agreement")
-                Text(String(localized: "与"))
-                Button { onAgreement(.privacy) } label: {
-                    Text(String(localized: "《隐私政策》")).foregroundColor(T.accentText)
-                }
-                .accessibilityIdentifier("o1-act-privacy")
-            }
+    /// 第二个入口：扫码连接桌面端（描边次按钮，同 L1 主路径同义）
+    private var scanButton: some View {
+        Button(action: onScanDesktop) {
+            Label(String(localized: "扫码连接桌面端"), systemImage: "qrcode.viewfinder")
+                .font(T.font(15, .semibold))
+                .foregroundColor(T.text)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
         }
-        .font(T.font(11))
-        .foregroundColor(T.text3)
-        .multilineTextAlignment(.center)
-        .lineSpacing(4)
-        .padding(.bottom, 12)
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityIdentifier("o1-btn-scan-desktop")
     }
+}
+
+extension OAuthProviderID {
+    /// 主按钮文案（Android login_action_zai/bigmodel 同文）
+    var actionLabel: String {
+        switch self {
+        case .zai: return String(localized: "连接 Z.ai 继续使用")
+        case .bigmodel: return String(localized: "连接 BigModel 继续使用")
+        }
+    }
+    /// 地域小字（Android login_region_global/cn 同文）
+    var regionLabel: String {
+        switch self {
+        case .zai: return String(localized: "全球")
+        case .bigmodel: return String(localized: "中国")
+        }
+    }
+    /// 菜单项文案（名称 · 地域）
+    var menuLabel: String { "\(actionLabel) · \(regionLabel)" }
 }
 
 // MARK: - 品牌标（84px/76px 品牌位共用；ZhupiSeal 资产切图，源 brand/seal/png/mark-pi-960.png，
@@ -468,7 +488,7 @@ struct ZCodeBrandMark: View {
             .resizable()
             .interpolation(.high)
             .frame(width: size, height: size)
-            .shadow(color: T.shadowFab, radius: 24, y: 8)
+            
             .accessibilityHidden(true)
     }
 }
@@ -902,6 +922,8 @@ struct OAuthProgressView: View {
 // MARK: - 协议内嵌页（G-026：可滚动 / 可关闭 / 断网失败态；URL 集中配置）
 
 /// 协议页身份（URL 集中配置点；运营侧更换仅需改 rawValue 指向）
+/// ⚠ 2026-11-25 起暂无入口（原 O1 协议脚注已随 Android 对齐撤除；cleanup-list 在案，
+/// 恢复条件=设置页法务行接入）
 enum AgreementPage: String, Identifiable {
     case terms
     case privacy

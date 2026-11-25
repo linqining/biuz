@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>朱批 · App 重设计原型（三 tab / 2026-11-25）</title>
+<style>
+  /* 令牌 = brand/seal 四色 + 语义色；字阶 8 档（10/11/12/13/14/15/17/22）；无渐变无阴影 */
+  :root{
+    --seal:#D2402E; --seal-press:#B03020; --ink:#17181A; --paper:#F7f3ec;
+    --paper-elev:#F7F1E4; --paper-input:#E8DFCB; --gray:#8A8F98;
+    --hairline:rgba(23,24,26,.12); --hairline-strong:rgba(23,24,26,.18);
+    --text2:rgba(23,24,26,.62); --text3:rgba(23,24,26,.40);
+    --green:#16A34A; --blue:#3B82F6; --orange:#B45309; --red:#DC2626;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{background:#4a4a48;font-family:"PingFang SC","Noto Sans SC",-apple-system,sans-serif;
+       display:flex;gap:36px;padding:40px;flex-wrap:wrap;justify-content:center}
+  .phone{width:390px;height:844px;background:var(--paper);border-radius:44px;overflow:hidden;
+         position:relative;display:flex;flex-direction:column;color:var(--ink);
+         outline:1px solid rgba(0,0,0,.4)}
+  .stage{display:flex;flex-direction:column;gap:14px;align-items:flex-start}
+  .stage h3{color:#ddd;font-size:13px;font-weight:600;letter-spacing:.05em}
+  /* 字阶（8 档） */
+  .t22{font-size:22px;font-weight:700}.t17{font-size:17px;font-weight:600}
+  .t15{font-size:15px}.t14{font-size:14px}.t13{font-size:13px}
+  .t12{font-size:12px}.t11{font-size:11px}.t10{font-size:10px}
+  .mono{font-family:"JetBrains Mono","SF Mono",Menlo,monospace}
+  /* 顶栏 */
+  .topbar{padding:18px 16px 8px;display:flex;align-items:center;gap:8px}
+  .topbar .dev{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:500}
+  .topbar .dev .dot{width:8px;height:8px;border-radius:50%;background:var(--gray)}
+  .topbar .dev .dot.on{background:var(--green)}
+  .iconbtn{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+           color:var(--ink);font-size:15px;cursor:pointer}
+  .iconbtn.new{border:1px solid var(--hairline-strong)}
+  /* 搜索 + 筛选 */
+  .search{margin:4px 16px;background:var(--paper-input);border-radius:999px;height:36px;
+          display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--text3);font-size:13px}
+  .viewrow{padding:6px 16px;display:flex;justify-content:space-between;color:var(--text3);font-size:12px}
+  /* 列表 */
+  .list{flex:1;overflow:hidden;padding:0 16px}
+  .sechead{font-size:12px;color:var(--text3);padding:12px 0 4px;display:flex;gap:6px;align-items:center}
+  .row{background:transparent;border-radius:12px;padding:10px 12px;display:flex;gap:10px;
+       border-bottom:1px solid var(--hairline);cursor:pointer}
+  .row.dim{opacity:.9}
+  .slot{width:16px;height:22px;display:flex;align-items:center;justify-content:center;flex:none}
+  .slot .pin{font-size:10px;color:var(--text3)}
+  .slot .spin{width:12px;height:12px;border:2px solid var(--hairline-strong);border-top-color:var(--ink);
+              border-radius:50%;animation:sp 1s linear infinite}
+  .slot .dotb{width:8px;height:8px;border-radius:50%;background:var(--blue)}
+  .slot .dots{width:8px;height:8px;border-radius:50%;background:var(--seal)}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .rowmain{flex:1;min-width:0}
+  .rowtitle{font-size:14px;font-weight:600;display:flex;gap:6px;align-items:center;min-width:0}
+  .rowtitle .tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .badge-approval{font-size:10px;color:var(--seal);background:rgba(210,64,46,.14);
+                  border-radius:999px;padding:1px 8px;font-weight:600;flex:none}
+  .badge-wait{color:var(--orange);background:rgba(180,83,9,.14);border-radius:999px;padding:1px 8px;font-size:10px}
+  .rowsub{font-size:12px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rowmeta{font-size:10px;color:var(--text3);margin-top:2px;display:flex;gap:8px}
+  .track{display:inline-flex;gap:3px;align-items:center}
+  .track i{width:6px;height:6px;border-radius:50%;background:var(--hairline-strong)}
+  .track i.ok{background:var(--green)}.track i.run{background:var(--orange)}
+  /* 待批 tab */
+  .approvalcard{background:var(--paper-elev);border:1px solid rgba(210,64,46,.55);border-radius:12px;
+                padding:12px;margin:8px 16px}
+  .apprhead{display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600}
+  .apprhead .ic{color:var(--orange)}
+  .apprhead .pill{margin-left:auto;font-size:10px;color:var(--orange);background:rgba(180,83,9,.14);
+                  border-radius:999px;padding:2px 8px}
+  .cmd{font-family:"JetBrains Mono",Menlo,monospace;font-size:12px;background:var(--paper-input);
+       border-radius:8px;padding:8px 10px;margin-top:8px;word-break:break-all}
+  .scope{display:flex;gap:8px;margin-top:10px}
+  .scope span{font-size:12px;padding:6px 14px;border-radius:999px;background:var(--paper-input);color:var(--text2)}
+  .scope span.sel{background:var(--ink);color:var(--paper)}
+  .scope span .warn{color:var(--red);font-size:10px;margin-left:4px}
+  .acts{display:flex;gap:10px;margin-top:10px}
+  .acts .rej{flex:1;height:44px;border-radius:12px;border:1px solid rgba(220,38,38,.65);
+             color:var(--red);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600}
+  .acts .ok{flex:1;height:44px;border-radius:12px;background:var(--ink);color:var(--paper);
+            display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600}
+  .later{text-align:center;color:var(--text3);font-size:12px;padding:10px 0 2px}
+  /* tab 栏 */
+  .tabbar{border-top:1px solid var(--hairline);background:rgba(242,234,219,.92);backdrop-filter:blur(8px);
+          display:flex;padding:7px 0 20px}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;
+       color:var(--text3);cursor:pointer;position:relative}
+  .tab .glyph{font-size:20px;line-height:24px;height:24px}
+  .tab.sel{color:var(--ink)}
+  .tab .bdg{position:absolute;top:-4px;left:calc(50% + 4px);min-width:16px;height:16px;border-radius:999px;
+            background:var(--orange);color:#fff;font-size:10px;display:flex;align-items:center;
+            justify-content:center;padding:0 4px}
+  .tab .bdg.seal{background:var(--seal)}
+  /* 会话页（第二台手机）*/
+  .chathead{padding:14px 16px 6px;display:flex;align-items:center;gap:8px}
+  .chathead .back{font-size:17px}
+  .chathead .proj{font-size:14px;font-weight:500;flex:1;min-width:0;overflow:hidden;
+                  text-overflow:ellipsis;white-space:nowrap}
+  .runpill{font-size:10px;color:var(--orange);background:rgba(180,83,9,.14);
+           border-radius:999px;padding:2px 8px;flex:none}
+  /* 状态胶囊行（v4.0.0 同位：composer 上方）*/
+  .caps{display:flex;gap:8px;padding:4px 16px 8px;overflow:hidden}
+  .cap{display:flex;align-items:center;gap:6px;border:1px solid var(--hairline);border-radius:999px;
+       padding:5px 12px;font-size:11px;color:var(--text2);white-space:nowrap}
+  .cap b{color:var(--ink);font-weight:600}
+  .cap .mono{font-size:11px}
+  /* 消息流 */
+  .msg{padding:4px 16px}
+  .bubble-user{background:var(--paper-input);border-radius:14px 14px 4px 14px;padding:9px 12px;
+               font-size:14px;max-width:78%}
+  .m-right{display:flex;justify-content:flex-end}
+  .turnsum{margin:6px 16px;border:1px solid var(--hairline);border-radius:12px;padding:8px 12px;
+           font-size:12px;color:var(--text2);display:flex;gap:8px;align-items:center}
+  .turnsum b{color:var(--ink);font-weight:600}
+  .toolcard{margin:4px 16px;border:1px solid var(--hairline);border-radius:12px;background:var(--paper-elev)}
+  .toolhead{display:flex;gap:8px;align-items:center;padding:8px 12px;font-size:12px}
+  .toolhead .verb{color:var(--text3)}
+  .toolhead .cmd1{font-family:"JetBrains Mono",Menlo,monospace;color:var(--text2);
+                  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .toolhead .ok{color:var(--text3)}
+  /* 待办卡 */
+  .todo{margin:4px 16px;border:1px solid var(--hairline);border-radius:12px;background:var(--paper-elev);padding:8px 12px}
+  .todohead{display:flex;gap:8px;align-items:center;font-size:12px;font-weight:600;color:var(--text2)}
+  .todohead .nm{font-family:"JetBrains Mono",Menlo,monospace;color:var(--blue)}
+  .todohead .bar{flex:1;height:4px;background:var(--paper-input);border-radius:999px;overflow:hidden}
+  .todohead .bar i{display:block;height:100%;width:40%;background:var(--blue)}
+  .todoitem{display:flex;gap:8px;font-size:13px;padding:5px 0;align-items:baseline}
+  .todoitem .g{width:14px;flex:none;text-align:center;color:var(--text3)}
+  .todoitem.done{color:var(--text3);text-decoration:line-through}
+  .todoitem.now{font-weight:600}
+  .todoitem.now .g{color:var(--seal)}
+  /* composer */
+  .composer{margin-top:auto;border-top:1px solid var(--hairline);background:rgba(242,234,219,.92)}
+  .chips{display:flex;gap:8px;padding:8px 16px 0}
+  .chip{font-size:11px;color:var(--text2);border:1px solid var(--hairline);border-radius:999px;
+        padding:5px 12px;display:flex;gap:5px;align-items:center}
+  .chip.sealtxt{color:var(--seal)}
+  .inputrow{display:flex;gap:10px;padding:8px 16px 20px;align-items:center}
+  .inputrow .field{flex:1;background:var(--paper-input);border-radius:999px;height:38px;
+                   display:flex;align-items:center;padding:0 14px;color:var(--text3);font-size:14px}
+  .send{width:38px;height:38px;border-radius:50%;background:var(--seal);color:var(--paper);
+        display:flex;align-items:center;justify-content:center;font-size:16px}
+  /* 模型选择器（第三台手机：sheet 形态） */
+  .sheet-demo{position:absolute;left:0;right:0;bottom:0;top:36%;background:var(--paper-elev);
+              border-radius:20px 20px 0 0;display:flex;flex-direction:column;padding-top:8px}
+  .grab{width:36px;height:4px;border-radius:999px;background:var(--hairline-strong);margin:0 auto 10px}
+  .mhead{display:flex;align-items:center;gap:8px;padding:0 16px 6px}
+  .mhead .t{font-size:17px;font-weight:700;flex:1}
+  .grp{margin:4px 16px;border:1px solid var(--hairline);border-radius:12px;background:var(--paper);
+       display:flex;gap:10px;padding:10px 12px;align-items:center}
+  .grp .ic{width:38px;height:38px;border-radius:50%;background:rgba(23,24,26,.10);
+           display:flex;align-items:center;justify-content:center}
+  .grp .nm{font-size:14px;font-weight:500}
+  .grp .ct{font-size:11px;color:var(--text3)}
+  .grp .chev{margin-left:auto;color:var(--text3)}
+  .l2row{margin:4px 16px;border:1px solid var(--hairline);border-radius:12px;background:var(--paper);
+         display:flex;gap:10px;padding:10px 12px;align-items:center;font-size:14px}
+  .l2row.sel{background:rgba(23,24,26,.05);border-color:rgba(23,24,26,.45)}
+  .l2row .ck{margin-left:auto;color:var(--ink);font-weight:600}
+  .thought{padding:10px 16px}
+  .thought .lab{font-size:11px;color:var(--text3);font-weight:600;margin-bottom:6px}
+  .seg{display:flex;gap:8px}
+  .seg span{font-size:12px;padding:6px 14px;border-radius:999px;background:var(--paper-input);color:var(--text2)}
+  .seg span.sel{background:var(--ink);color:var(--paper)}
+  .backline{display:flex;align-items:center;gap:8px;padding:0 16px 6px;font-size:17px;font-weight:700}
+  .backline .bk{font-size:14px;color:var(--ink)}
+  /* 深色档（第四台手机）*/
+  .phone.dark{--ink:#F7F3EC;--paper:#17181A;--paper-elev:#232428;--paper-input:#222326;
+    --hairline:rgba(247,243,236,.12);--hairline-strong:rgba(247,243,236,.18);
+    --text2:rgba(247,243,236,.62);--text3:rgba(247,243,236,.30);color:var(--ink)}
+  .note{color:#ccc;font-size:12px;max-width:390px;line-height:1.7}
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <h3>① 会话（主页）· 待批徽标行 / 单一新建入口 ✎</h3>
+  <div class="phone">
+    <div class="topbar">
+      <div class="dev"><span class="dot on"></span>MacBook-Pro-9 <span style="color:var(--text3);font-size:10px">▾</span></div>
+      <div style="flex:1"></div>
+      <div class="iconbtn">🔍</div>
+      <div class="iconbtn new">✎</div>
+    </div>
+    <div class="search">搜索会话</div>
+    <div class="viewrow"><span>已置顶</span><span style="font-size:11px">按项目 ▾</span></div>
+    <div class="list">
+      <div class="row">
+        <div class="slot"><span class="dots"></span></div>
+        <div class="rowmain">
+          <div class="rowtitle"><span class="tt">bpt-workflow 三端对比验收</span><span class="badge-approval">待批 1</span></div>
+          <div class="rowsub mono">已定位到网关 504，准备重试策略…</div>
+          <div class="rowmeta"><span class="track"><i class="ok"></i><i class="ok"></i><i class="run"></i><i></i><i></i></span><span>7 分</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="slot"><span class="pin">📌</span></div>
+        <div class="rowmain">
+          <div class="rowtitle"><span class="tt">改造 mtt-web-sync 为通用 Web 服务</span></div>
+          <div class="rowsub">已完成协议抽取与 async 化，等待确认调用方…</div>
+          <div class="rowmeta"><span class="track"><i class="ok"></i><i class="run"></i><i></i></span><span>16 时</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="slot"><span class="spin"></span></div>
+        <div class="rowmain">
+          <div class="rowtitle"><span class="tt">首页性能调优</span></div>
+          <div class="rowsub">长列表改懒加载，帧率 42 → 58fps。</div>
+          <div class="rowmeta"><span class="track"><i class="ok"></i><i></i></span><span>5:11</span></div>
+        </div>
+      </div>
+      <div class="row dim">
+        <div class="slot"></div>
+        <div class="rowmain">
+          <div class="rowtitle"><span class="tt">Web 与移动端 UI 还原度改进</span></div>
+          <div class="rowsub">已生成对比清单并同步到桌面端。</div>
+          <div class="rowmeta"><span>26 天</span></div>
+        </div>
+      </div>
+      <div class="sechead">▾ zcode-mobile</div>
+      <div class="row dim">
+        <div class="slot"></div>
+        <div class="rowmain">
+          <div class="rowtitle"><span class="tt">生成周报 · 第 40 周</span></div>
+          <div class="rowsub">已生成 WEEK-40.md 并同步桌面。</div>
+          <div class="rowmeta"><span>1 天</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="tab sel"><div class="glyph">💬</div>会话<div class="bdg">2</div></div>
+      <div class="tab"><div class="glyph">✓</div>待批<div class="bdg seal">1</div></div>
+      <div class="tab"><div class="glyph">⚙</div>设置</div>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <h3>② 待批 tab · 内联决议卡（落印待命）</h3>
+  <div class="phone">
+    <div class="topbar"><div class="t17" style="flex:1">待批 <span class="mono" style="background:var(--seal);color:var(--paper);border-radius:999px;padding:0 7px;font-size:12px">1</span></div></div>
+    <div class="list" style="padding:0">
+      <div class="sechead" style="padding:6px 16px 0">bpt-workflow 三端对比验收 · 7 分钟前 · <span style="color:var(--seal)">›</span></div>
+    </div>
+    <div class="approvalcard">
+      <div class="apprhead"><span class="ic">🛡</span>关键操作待批准<span class="pill">待审批</span></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">类型 Bash · 影响将执行 1 条 shell 命令（工作区 mtt_mobile）</div>
+      <div class="cmd">npm test -- --coverage（工作区 mtt_mobile）</div>
+      <div class="scope"><span class="sel">仅本次</span><span>始终允许<span class="warn">需谨慎</span></span></div>
+      <div class="acts"><div class="rej">拒绝</div><div class="ok">批准执行</div></div>
+      <div class="later">稍后处理</div>
+    </div>
+    <div class="note" style="padding:0 16px;color:var(--text3);font-size:11px">
+      卡与会话页同一组件；权威成功落朱印「照办」，拒绝落墨印「不准」，失败不落印。
+    </div>
+    <div class="tabbar">
+      <div class="tab"><div class="glyph">💬</div>会话<div class="bdg">2</div></div>
+      <div class="tab sel"><div class="glyph">✓</div>待批<div class="bdg seal">1</div></div>
+      <div class="tab"><div class="glyph">⚙</div>设置</div>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <h3>③ 会话页 · 状态胶囊行 + 待办卡 + composer</h3>
+  <div class="phone">
+    <div class="chathead">
+      <span class="back">‹</span>
+      <span class="proj">首页性能调优</span>
+      <span class="runpill">运行中</span>
+      <span class="iconbtn">🎨</span><span class="iconbtn">⋯</span>
+    </div>
+    <div class="msg m-right"><div class="bubble-user">长列表卡顿，帮我定位并优化到 55fps 以上</div></div>
+    <div class="turnsum"><b>已工作</b><span>探索 2 项 · 运行 8 条命令 · 思考 3 段</span><span style="margin-left:auto;color:var(--text3)">▾</span></div>
+    <div class="toolcard">
+      <div class="toolhead"><span class="verb">已执行</span><span class="cmd1">grep -rn "LazyVStack" Sources/Views</span><span class="ok">✓ ⌄</span></div>
+    </div>
+    <div class="todo">
+      <div class="todohead">☑ 待办 <span class="nm">2/5</span><div class="bar"><i></i></div><span style="color:var(--text3)">▾</span></div>
+      <div class="todoitem done"><span class="g">✓</span>定位卡顿主线程栈</div>
+      <div class="todoitem done"><span class="g">✓</span>采样滚动帧率基线</div>
+      <div class="todoitem now"><span class="g">▸</span>长列表改懒加载分页</div>
+      <div class="todoitem"><span class="g">○</span>图片解码下放后台队列</div>
+      <div class="todoitem"><span class="g">○</span>回归帧率并提交</div>
+    </div>
+    <div class="caps">
+      <div class="cap">◉ <b>迁移调用方</b> · 12 分</div>
+      <div class="cap">☑ <b>待办</b> <span class="mono">2/5</span></div>
+      <div class="cap">⑂ <b>运行 1</b></div>
+    </div>
+    <div class="composer">
+      <div class="chips">
+        <div class="chip">🛡 变更前确认</div>
+        <div class="chip sealtxt">GLM-5.3 <span style="color:var(--text3)">▾</span></div>
+        <div class="chip">思考·最高 ▾</div>
+      </div>
+      <div class="inputrow">
+        <div class="field">提出后续修改要求</div>
+        <div class="send">↑</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <h3>④ 二级模型选择器（一级下钻；点「体验套餐」→ 二级组内单选 + 思考分段）</h3>
+  <div class="phone">
+    <div class="chathead"><span class="back">‹</span><span class="proj">首页性能调优</span><span class="runpill">运行中</span><span class="iconbtn">🎨</span><span class="iconbtn">⋯</span></div>
+    <div style="flex:1"></div>
+    <div class="sheet-demo">
+      <div class="grab"></div>
+      <div class="mhead"><div class="t">模型</div><div class="iconbtn" style="border:none">✕</div></div>
+      <div class="search" style="margin:0 16px 8px">搜索模型</div>
+      <div style="padding:0 16px;color:var(--text3);font-size:11px;font-weight:600">最近使用</div>
+      <div class="l2row"><span class="mono" style="color:var(--text3)">↺</span>GLM-5.3<span class="ck">✓</span></div>
+      <div style="padding:6px 16px 2px;color:var(--text3);font-size:11px;font-weight:600">按套餐分组</div>
+      <div class="grp"><div class="ic">⚙</div><div><div class="nm">个人套餐</div><div class="ct">3 个模型</div></div><span class="chev">›</span></div>
+      <div class="grp"><div class="ic">⚙</div><div><div class="nm">体验套餐</div><div class="ct">2 个模型</div></div><span class="chev">›</span></div>
+      <div class="grp"><div class="ic">⚙</div><div><div class="nm">其他</div><div class="ct">1 个模型</div></div><span class="chev">›</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <h3>⑤ 二级（组内单选 + 思考分段）· 深色档</h3>
+  <div class="phone dark">
+    <div class="chathead"><span class="back">‹</span><span class="proj">首页性能调优</span></div>
+    <div style="flex:1"></div>
+    <div class="sheet-demo">
+      <div class="grab"></div>
+      <div class="backline"><span class="bk">‹</span>体验套餐</div>
+      <div class="l2row"><span>GLM-5.3</span><span class="ck">✓</span></div>
+      <div class="l2row"><span>GLM-5.3-Flash</span></div>
+      <div class="thought">
+        <div class="lab">思考强度</div>
+        <div class="seg"><span>off</span><span>low</span><span class="sel">medium</span><span>high</span><span>max</span></div>
+      </div>
+      <div style="padding:8px 16px 16px;color:var(--text3);font-size:11px;border-top:1px solid var(--hairline);margin-top:8px">⚙ 管理模型</div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  朱批 · App 重设计原型（2026-11-25，design/design-spec.md §1–§4 的可点对应物）。<br>
+  规则出处 brand/seal：四色到顶（朱磦只落在「待你落笔」处——待批徽标/角标/批准主钮/发送钮）；
+  字阶 8 档无半档；印是平的——无渐变、无投影；落印之外的场合恒 −2.5°（本页静态稿未入印面）。
+  深色档 = 墨底纸字（⑤）。交互要点：待批卡与会话页同一组件、同一决议链路；
+  发送钮朱磦是「一次操作的最终提交」；决议卡在场时发送钮降级墨描边（②卡在待批页故会话页发送保持朱磦）。
+</div>
+
+</body>
+</html>

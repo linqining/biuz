@@ -52,20 +52,18 @@ struct TabItemModel: Identifiable {
 }
 
 extension TabItemModel {
-    /// 图标 22px + 标签 10.5px；选择器沿用三段式 id 标注
+    /// 图标 22px + 标签 10.5px；选择器沿用三段式 id 标注。
+    /// 2026-11-25 重设计裁决 R2：会话 / 待批 / 设置 三 tab——「批」是产品的核心手势，
+    /// 待批独立成 tab（跨会话审批收件箱）；任务看板与全局文件页撤除。
     static let all: [TabItemModel] = [
         TabItemModel(tab: .chat, title: "会话",
                      icon: "bubble.left.and.text.bubble.right",
                      selectedIcon: "bubble.left.and.text.bubble.right.fill",
                      identifier: "04-tab-chat"),
-        TabItemModel(tab: .tasks, title: "任务",
-                     icon: "tray",
-                     selectedIcon: "tray.full.fill",
-                     identifier: "02-tab-tasks"),
-        TabItemModel(tab: .files, title: "文件",
-                     icon: "arrow.left.arrow.right",
-                     selectedIcon: "arrow.left.arrow.right",
-                     identifier: "08-tab-review"),
+        TabItemModel(tab: .approvals, title: "待批",
+                     icon: "checkmark.seal",
+                     selectedIcon: "checkmark.seal.fill",
+                     identifier: "09-tab-approvals"),
         TabItemModel(tab: .settings, title: "设置",
                      icon: "gearshape",
                      selectedIcon: "gearshape.fill",

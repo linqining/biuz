@@ -37,6 +37,10 @@ import cn.biuz.android.protocol.SubagentSessionSummary
 import cn.biuz.android.protocol.SubagentProjectionState
 import cn.biuz.android.protocol.ActivitySummaryDismissed
 import cn.biuz.android.protocol.WorkflowRunSummary
+import cn.biuz.android.protocol.WorkflowRunSavedRef
+import cn.biuz.android.protocol.WorkflowRunSaveOutcome
+import cn.biuz.android.protocol.BackgroundBashOutputInfo
+import cn.biuz.android.protocol.WorkspaceMcpAdmissionState
 import cn.biuz.android.store.AttachmentUploadService
 import cn.biuz.android.store.ConversationEvent
 import cn.biuz.android.store.ConversationQueueInfo
@@ -213,7 +217,15 @@ class ChatViewModel(
 
     /** composer 草稿（发送先清稿、失败回填 U-6）。 */
     private val _draft = MutableStateFlow("")
+    /** G18 prompt 历史单向循环指针（null = 未开始；0 = 走到头回空）。 */
+    var promptHistoryPointer: Int? = null
     val draft: StateFlow<String> get() = _draft
+
+    init {
+        // G50 草稿持久化恢复（web composerDraftStore 同构——进程死/切会话草稿不丢；
+        // NewSessionHandoff 注入在 attach 期后到，覆盖本初值属预期）
+        _draft.value = ComposerDraftStore.load(conversationId)
+    }
 
     /**
      * 会话前模型/思考选择（新建 sheet 交接而来；随本会话**首条** sendText 下发，
@@ -933,8 +945,21 @@ class ChatViewModel(
 
     // MARK: 草稿与发送（U-6 + v1.33④）
 
+    /** G18 历史循环 chip：返回上一条发送文本（走到最早后回空草稿重新循环）。 */
+    fun cyclePromptHistory(): String? {
+        val next = PromptHistoryStore.cycle(promptHistoryPointer)
+        promptHistoryPointer = when {
+            next == null -> null
+            next.isEmpty() -> 0
+            else -> (promptHistoryPointer ?: PromptHistoryStore.load().size) - 1
+        }
+        return next
+    }
+
     fun updateDraft(text: String) {
         _draft.value = text
+        // G50 草稿持久化（web composerDraftStore 同构；空白即删键）
+        ComposerDraftStore.persist(conversationId, text)
         // 清除时机：发送成功 / 用户手动编辑 draft / 离开会话——不随 3s 消失
         if (text.isNotEmpty()) {
             if (_sendFailureReason.value != null) {
@@ -1037,6 +1062,7 @@ class ChatViewModel(
     /** /plan 分支（iOS dispatchSlashIntent .plan :1176-1216 直译）：切换失败即阻断。 */
     private suspend fun sendPlanBranch(intent: SlashIntent.Plan, originalText: String): Boolean {
         _draft.value = ""
+        ComposerDraftStore.persist(conversationId, "")
         _sending.value = true
         val modeFailure = switchCollaborationMode("plan")
         _sending.value = false
@@ -1079,6 +1105,8 @@ class ChatViewModel(
      * 失败保留待发条（committed 引用可复用，重试只发文本+引用不重传）。
      */
     private suspend fun performSend(text: String): Boolean {
+        // G18：发送入账 prompt 历史（连续重复不入账——web 去重口径）
+        PromptHistoryStore.record(text)
         val store = attachedStore
         val uploads = uploadsService
         // 会话前模型选择（新建 sheet 交接）：**先 switchModelConfig 改写 Session Selection**，
@@ -1122,6 +1150,7 @@ class ChatViewModel(
         }
         val attachments = uploads?.committedAttachments() ?: emptyList()
         _draft.value = ""
+        ComposerDraftStore.persist(conversationId, "")
         _sending.value = true
         val delivered = try {
             store?.sendWithAttachments(
@@ -1426,6 +1455,13 @@ class ChatViewModel(
         return queueAction { it.reorderQueueItem(conversationId, queueItemId, before) }
     }
 
+    /**
+     * G13 队列拖排序（拖起项移到落点行之前；显式 beforeQueueItemId——CAS reorder，
+     * sendCASWithRetry 同门；iOS ChatViewModel.reorderQueueItem 同构）。
+     */
+    suspend fun reorderQueueItem(queueItemId: String, beforeQueueItemId: String): QueueActionFailure? =
+        queueAction { it.reorderQueueItem(conversationId, queueItemId, beforeQueueItemId) }
+
     /** 自动排空开关（CAS）。 */
     suspend fun setAutoDrain(enabled: Boolean): QueueActionFailure? =
         queueAction { it.setAutoDrain(conversationId, enabled) }
@@ -1513,6 +1549,47 @@ class ChatViewModel(
             _decidedInteractionIds.value = pruned
         }
     }
+
+    // MARK: G25/G24/G27 镜像包装（2026-11-25 与 iOS 同步；wire 取证见 StoreProtocols 同名注释）
+
+    /** G25：这次 run 对应的已保存工作流（null = 未保存/查询失败——失败不挡保存） */
+    suspend fun savedWorkflowForRun(runId: String): WorkflowRunSavedRef? =
+        attachedStore?.savedWorkflowForRun(conversationId, runId)
+
+    /** G25：从 run 保存工作流（TargetExists 由 UI 转覆盖确认） */
+    suspend fun saveWorkflowRun(
+        runId: String,
+        name: String,
+        description: String,
+        scope: String,
+        overwrite: Boolean,
+    ): WorkflowRunSaveOutcome =
+        attachedStore?.saveWorkflowRun(conversationId, runId, name, description, scope, overwrite)
+            ?: WorkflowRunSaveOutcome.Failed("命令未送达（连接中断或不在连接态）")
+
+    /** G25：再次运行（startSavedWorkflow 信封命令；null = 权威成功） */
+    suspend fun rerunSavedWorkflow(name: String, scope: String): InteractionFailure? {
+        val ack = attachedStore?.startSavedWorkflow(
+            conversationId = null,
+            name = name,
+            scope = scope,
+            args = null,
+        )
+        val commandAck = CommandAck(ack)
+        return when {
+            ack == null -> InteractionFailure.Undelivered
+            commandAck.isFailure -> InteractionFailure.Rejected(commandAck.failureText ?: "桌面端拒绝")
+            else -> null
+        }
+    }
+
+    /** G27：后台 bash 输出快照（works 面板「输出」下钻数据源；null = 失败） */
+    suspend fun backgroundBashOutput(workId: String): BackgroundBashOutputInfo? =
+        attachedStore?.backgroundBashOutput(conversationId, workId)
+
+    /** G24：工作区 MCP 待审核快照（null = 无准入面） */
+    suspend fun workspaceMcpAdmission(): WorkspaceMcpAdmissionState? =
+        attachedStore?.workspaceMcpAdmission(conversationId)
 
     /**
      * 交互应答（A-3：answer 恒为对象按交互族分形——权限 {optionId} / 计划 {action} /

@@ -10,7 +10,8 @@
     "pages/git/git",
     "pages/files/files",
     "pages/tasks/tasks",
-    "pages/capability/capability"
+    "pages/capability/capability",
+    "pages/command-center/command-center"
   ],
   "window": {
     "navigationStyle": "custom",

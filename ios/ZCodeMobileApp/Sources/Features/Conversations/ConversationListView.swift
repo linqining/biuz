@@ -17,6 +17,12 @@ struct ConversationListView: View {
     @State private var isLoading = true
     @State private var showNewSheet = false
     @State private var showArchived = false
+    /// G43 批量删除已归档：确认弹层呈现态 + 结果行（写面禁静默 §5-12）
+    @State private var showDeleteAllConfirm = false
+    @State private var deleteAllResult: String?
+    @State private var deletingAll = false
+    // G34 置顶 20 上限（web ProjectTaskRows.tsx:112 slice(0,20) + showMore/showLess 同语义）
+    @State private var showAllPinned = false
     /// 归档区拉取中（26 scope 并发也需要秒级往返——拉取中显示进度而非「暂无」，
     /// 用户报障 2026-10-07「归档的会话又丢了」感知成因：假空态）
     @State private var isLoadingArchived = false
@@ -92,7 +98,13 @@ struct ConversationListView: View {
         return filter
     }
 
-    private var pinned: [Conversation] { filtered.filter(\.isPinned) }
+    /// G34：置顶 20 上限（web ProjectTaskRows.tsx:112 slice(0,20)）；showAllPinned 翻页
+    private var pinned: [Conversation] {
+        let all = filtered.filter(\.isPinned)
+        return showAllPinned ? all : Array(all.prefix(20))
+    }
+    /// 置顶溢出数（>20 时「显示更多」行的数字）
+    private var pinnedOverflow: Int { filtered.filter(\.isPinned).count - pinned.count }
     private var timeline: [Conversation] { filtered.filter { !$0.isPinned } }
 
     /// 「最近更新」视图：非置顶按更新时间倒序单列（web `ProjectTaskRows kind=timeline`，不分桶）
@@ -115,6 +127,17 @@ struct ConversationListView: View {
     /// G-018 服务端全文命中（搜索防抖后拉取；命中含未加载进内存的历史会话）
     @State private var remoteHits: [Conversation] = []
     @State private var searchDebounce: Task<Void, Never>?
+
+    /// 来源多样性判据（A3）：仅当列表里真实存在 ≥2 种**非空**来源才渲染 chips。
+    /// 注意 source 是 Optional（nil=未知/演示态）——直接 Set 会把 nil 与 "mac"
+    /// 算作两类导致单源场景误显（Matrix test01 首跑实证），必须先 compactMap。
+    private var hasMultipleSources: Bool {
+        let kinds = Set(conversations.compactMap { conversation -> String? in
+            guard let kind = conversation.source, !kind.isEmpty else { return nil }
+            return kind
+        })
+        return kinds.count > 1
+    }
 
     private var filtered: [Conversation] {
         let bySource = conversations.filter { conversation in
@@ -203,24 +226,10 @@ struct ConversationListView: View {
         .background(T.bg)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // 2026-11-25 UIUX 审查（用户「会话排序为什么要和新建会话放一起，不是应该和
+        // 搜索功能更贴近么」）：工具栏只留**创建**（✎ 唯一主动作，单独成 pill）；
+        // 「排序/筛选视图」下移到搜索行右侧——组织动作与查找同区，不与创建混组。
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                // 「筛选视图」四档：与 web `ProjectSidebarListHeader.tsx:87-102` 逐字同名
-                Menu {
-                    Picker("筛选视图", selection: $viewMode) {
-                        ForEach(ListViewMode.allCases) { mode in
-                            Label(mode.label, systemImage: mode.icon)
-                                .tag(mode)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .font(.system(size: 15))
-                        .foregroundColor(T.text)
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityIdentifier("04-view-menu")
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showNewSheet = true
@@ -350,44 +359,27 @@ struct ConversationListView: View {
         }
     }
 
-    /// 新建任务行（web `task-new-button`：32pt 高、padding 0 10、gap 8、14pt）
-    private var newTaskRow: some View {
-        Button {
-            showNewSheet = true
-        } label: {
-            HStack(spacing: T.sp2) {
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 14))
-                    .foregroundColor(T.text)
-                Text(String(localized: "新建任务"))
-                    .font(T.font(14))
-                    .foregroundColor(T.text)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("04-act-new")
-    }
+    // 新建入口唯一化（2026-11-24 用户裁决 R1）：列表页右上角 ✎（04-act-new）是唯一
+    // 常驻入口；原「新建任务」行与任务 tab FAB 撤除（空态 CTA 保留——仅列表为空时出现，
+    // 同一 sheet）。会话内 Fork / 在新会话询问是消息动作，不算入口。
 
-    /// 列表头（web `sidebar-list-title`：14/500/α0.6，右侧视图菜单在工具栏）
-    private var listTitleRow: some View {
+    /// 身份行（2026-11-25 UIUX 审查合并）：设备切换 + 工作区胶囊**同一行**——
+    /// 原「设备行 / 任务列表 / 工作区胶囊」三层堆叠把同一个电脑名打印两遍（用户
+    /// 「没有内在逻辑」）；点设备名进「服务器与账户」（L4-B），点胶囊切工作区。
+    private var identityRow: some View {
         HStack(spacing: T.sp2) {
-            Text(String(localized: "任务列表"))
-                .font(T.font(14, .medium))
-                .foregroundColor(T.text2)
-            Spacer(minLength: 0)
+            deviceButton
+            Spacer(minLength: 8)
+            if case .connected = session.mode, !workspaceEntries.isEmpty {
+                switcherPill
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.horizontal, T.sp4)
+        .padding(.top, T.sp1)
+        .padding(.bottom, 2)
     }
 
-    /// 设备切换行 —— 对齐 web home 顶部 `aria-label=切换设备` 行（图标 + 设备名 + 展开箭头）。
-    /// 未配对时如实显示「未连接设备」；点击进入「服务器与账户」（L4-B）。
-    private var deviceRow: some View {
+    private var deviceButton: some View {
         let server = ServerRegistry.selectedServer ?? ServerRegistry.servers.first
         return Button {
             router.pushSettings(.serverAccount)
@@ -403,11 +395,7 @@ struct ConversationListView: View {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 10))
                     .foregroundColor(T.text3)
-                Spacer(minLength: 0)
             }
-            .padding(.horizontal, T.sp4)
-            .padding(.top, T.sp1)
-            .padding(.bottom, 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -420,23 +408,35 @@ struct ConversationListView: View {
         // 落空——门禁 Matrix test01 line202 确定性复现，连拍 frame 证实 filter 停留 cloud）。
         // 提为固定 VStack 头后元素帧稳定，identifier（04-search / 04-chip-source-*）全保留。
         VStack(spacing: 0) {
-            deviceRow
-            newTaskRow
-            listTitleRow
-            // 工作区切换器（P3-10）：连接态且桌面工作区清单非空时渲染在列表头部
-            //（未连接/清单空不渲染，演示态布局零变化）
-            workspaceSwitcher
+            identityRow
+            if let hint = switchHint {
+                Text(hint)
+                    .font(T.font(11))
+                    .foregroundColor(T.text3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, T.sp4)
+                    .accessibilityIdentifier("04-switcher-hint")
+            }
             // APP-DIFF[D008] platform: web 列表头只有搜索图标按钮（点开命令中心 ⌘K）；
-            // 移动端无键盘快捷键，保留常驻搜索输入框（10 处 E2E 断言依赖 04-search/04-search-input）
-            SearchField(text: $query, placeholder: String(localized: "搜索会话"), identifier: "04-search")
-                .padding(.horizontal, T.sp4)
-                .padding(.top, T.sp1)
-                .onChange(of: query) { _, newValue in
-                    scheduleSearch(newValue)
-                }
-            sourceChips
-                .padding(.horizontal, T.sp4)
-                .padding(.top, T.sp1)
+            // 移动端无键盘快捷键，保留常驻搜索输入框（10 处 E2E 断言依赖 04-search/04-search-input）。
+            // 2026-11-25：视图菜单（04-view-menu）移入本行右端——查找 + 组织同区。
+            HStack(spacing: T.sp2) {
+                SearchField(text: $query, placeholder: String(localized: "搜索会话"), identifier: "04-search")
+                    .onChange(of: query) { _, newValue in
+                        scheduleSearch(newValue)
+                    }
+                viewMenu
+            }
+            .padding(.horizontal, T.sp4)
+            .padding(.top, T.sp1)
+            // 2026-11-25 UIUX 审查 A3：数据只有一种来源时不渲染（cloud 档隐藏后
+            // 「全部 / 我的 Mac」内容恒等 = 纯噪）；≥2 种来源才呈现过滤语义。
+            // 过滤/持久化逻辑保留（list.sourceFilter.v1），cloud 源接入即恢复可见。
+            if hasMultipleSources {
+                sourceChips
+                    .padding(.horizontal, T.sp4)
+                    .padding(.top, T.sp1)
+            }
             if let groupHint {
                 // G-017 移入分组结果行（成功灰/失败红，3s 自动清除）
                 Text(groupHint)
@@ -470,6 +470,26 @@ struct ConversationListView: View {
             if viewMode != .unread, !pinned.isEmpty {
                 Section {
                     ForEach(pinned) { item in row(item) }
+                    // G34 显示更多/更少（web taskList.showMore/showLess 同语义；溢出才渲染）
+                    if pinnedOverflow > 0 {
+                        Button {
+                            showAllPinned.toggle()
+                        } label: {
+                            HStack(spacing: T.sp1) {
+                                Text(showAllPinned
+                                     ? String(localized: "收起置顶")
+                                     : String(localized: "显示更多置顶（\(pinnedOverflow)）"))
+                                    .font(T.font(12))
+                                    .foregroundColor(T.text3)
+                                Spacer()
+                            }
+                            .frame(minHeight: 36)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("04-act-pinned-more")
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
                 } header: {
                     sectionHeader(String(localized: "已置顶"))
                 }
@@ -533,13 +553,24 @@ struct ConversationListView: View {
                         }
                     } else {
                         ForEach(sections, id: \.title) { section in
-                            Section(header: sectionHeader(section.title)) {
+                            // G36 组色（web TaskGroupedView.tsx:244-245 updateColor →
+                            // organization.save({id,color}) 移动端同构；色点 = 组头前缀、
+                            // 点头弹 7 档色 Menu → updateTaskGroupColor → 重拉 read）
+                            let groupColor = tg.groups.first(where: { $0.title == section.title })?.color
+                            Section {
                                 ForEach(section.items, id: \.id) { item in
                                     // 复用 row() 渲染（需要 Conversation 对象——从 allConversations 找）
                                     if let conv = filtered.first(where: { $0.id == item.id }) {
                                         row(conv)
                                     }
                                 }
+                            } header: {
+                                groupedSectionHeader(
+                                    title: section.title,
+                                    color: groupColor,
+                                    groupId: tg.groups.first(where: { $0.title == section.title })?.id,
+                                    previousGroupKey: tg.order.groupPredecessorKey(
+                                        of: tg.groups.first(where: { $0.title == section.title })?.id ?? ""))
                             }
                         }
                     }
@@ -597,6 +628,35 @@ struct ConversationListView: View {
                                 .listRowSeparator(.hidden)
                         } else {
                             ForEach(archived) { item in archivedRow(item) }
+                            // G43 全部删除（web DeleteAllArchivedTasksButton 同位；
+                            // deleteArchivedTasks 按 workspace 分组一次 RPC——归档
+                            // guard 桌面逐项事务，一项失败不回滚其它）
+                            Button {
+                                showDeleteAllConfirm = true
+                            } label: {
+                                HStack(spacing: T.sp2) {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 11))
+                                    Text(deletingAll
+                                         ? String(localized: "删除中…")
+                                         : String(localized: "全部删除（\(archived.count)）"))
+                                        .font(T.font(12.5, .semibold))
+                                    Spacer()
+                                    if let result = deleteAllResult {
+                                        Text(result)
+                                            .font(T.font(10.5))
+                                            .foregroundColor(T.red)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                .foregroundColor(T.red)
+                                .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(deletingAll)
+                            .accessibilityIdentifier("04-act-archived-delete-all")
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                         }
                     }
                     Button {
@@ -632,6 +692,32 @@ struct ConversationListView: View {
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets())
+        }
+        // G43 全部删除确认（呈现期捕获计数；删除后刷新归档列表——写面失败结果行如实透出）
+        .confirmationDialog(
+            String(localized: "删除全部已归档会话？此操作不可恢复。"),
+            isPresented: $showDeleteAllConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "删除（\(archived.count) 项）"), role: .destructive) {
+                guard !deletingAll else { return }
+                deletingAll = true
+                deleteAllResult = nil
+                let snapshot = archived
+                Task {
+                    let result = await store.deleteArchivedTasks(snapshot)
+                    deletingAll = false
+                    deleteAllResult = result.failed > 0
+                        ? String(localized: "删除完成：成功 \(result.deleted)，失败 \(result.failed)，跳过 \(result.skipped)")
+                        : (result.deleted > 0
+                            ? String(localized: "已删除 \(result.deleted) 项")
+                            : String(localized: "无可删除项"))
+                    if result.deleted > 0 {
+                        archivedConversations = await store.archivedConversations()
+                    }
+                }
+            }
+            Button(String(localized: "取消"), role: .cancel) {}
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -693,24 +779,26 @@ struct ConversationListView: View {
         session.switcherWorkspaces
     }
 
-    @ViewBuilder
-    private var workspaceSwitcher: some View {
-        if case .connected = session.mode, !workspaceEntries.isEmpty {
-            HStack(spacing: T.sp2) {
-                switcherPill
-                Spacer(minLength: 0)
-                if let hint = switchHint {
-                    Text(hint)
-                        .font(T.font(11))
-                        .foregroundColor(T.text3)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.trailing)
-                        .accessibilityIdentifier("04-switcher-hint")
+    /// 「排序/筛选视图」菜单（web `ProjectSidebarListHeader.tsx:87-102` 四档逐字同名）：
+    /// 2026-11-25 从工具栏移入搜索行（用户裁决：组织动作贴近搜索，不与创建混组）
+    private var viewMenu: some View {
+        Menu {
+            Picker("筛选视图", selection: $viewMode) {
+                ForEach(ListViewMode.allCases) { mode in
+                    Label(mode.label, systemImage: mode.icon)
+                        .tag(mode)
                 }
             }
-            .padding(.horizontal, T.sp4)
-            .padding(.top, T.sp1)
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 15))
+                .foregroundColor(T.text2)
+                .frame(width: 44, height: 44)
+                .background(T.bgInput)
+                .clipShape(Circle())
         }
+        .accessibilityIdentifier("04-view-menu")
+        .accessibilityLabel(String(localized: "排序与筛选"))
     }
 
     /// 切换器胶囊：多工作区+中继 = 可点 Menu（上下 chevron）；单工作区/局域网 = 只读
@@ -877,6 +965,116 @@ struct ConversationListView: View {
         .accessibilityIdentifier("04-group-\(group.name)")
     }
 
+    /// G36 分组视图组头：色点 + 组名 + 7 档色变更 Menu（save {id,color}——
+    /// 词表 gray/red/orange/yellow/green/blue/purple【实证·上游仓 contract.ts:4】；
+    /// 写后置空 taskGroups 触发重拉）。置顶排序（组节点 move 到顶）上游 wire 的
+    /// group-node 形状未取证——写面禁裸发纪律下不实现，待取证轮。
+    private func groupedSectionHeader(
+        title: String, color: String?, groupId: String?, previousGroupKey: String? = nil
+    ) -> some View {
+        HStack(spacing: T.sp1) {
+            if let color, !color.isEmpty {
+                Circle()
+                    .fill(Self.groupColorValue(color))
+                    .frame(width: 8, height: 8)
+                    .accessibilityIdentifier("04-group-color-dot")
+            }
+            Text(title)
+                .font(T.font(14, .medium))
+                .foregroundColor(T.text3)
+            Spacer()
+            Menu {
+                ForEach(Self.groupPalette, id: \.self) { option in
+                    Button {
+                        guard let groupId, !groupId.isEmpty else { return }
+                        Task {
+                            let failure = await store.updateTaskGroupColor(
+                                groupId: groupId, color: option)
+                            if let failure {
+                                groupHint = failure
+                                groupHintIsError = true
+                            } else {
+                                groupHint = String(localized: "已更新组颜色")
+                                groupHintIsError = false
+                                taskGroups = nil // 触发重拉（.task(id:) 守卫按 viewMode，切视图来回即拉）
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Circle().fill(Self.groupColorValue(option)).frame(width: 10, height: 10)
+                            Text(option)
+                        }
+                    }
+                    .accessibilityIdentifier("04-group-color-\(option)")
+                }
+                Divider()
+                // G36 组置顶排序（move 组节点——无 anchor = 顶层 index 0，web
+                // groupedMoveCommand 置顶同形）
+                Button {
+                    guard let groupId, !groupId.isEmpty else { return }
+                    Task {
+                        let failure = await store.pinTaskGroupToTop(groupId: groupId)
+                        if let failure {
+                            groupHint = failure
+                            groupHintIsError = true
+                        } else {
+                            groupHint = String(localized: "已置顶")
+                            groupHintIsError = false
+                            taskGroups = nil
+                        }
+                    }
+                } label: {
+                    Label(String(localized: "置顶到顶部"), systemImage: "arrow.up.to.line")
+                }
+                .accessibilityIdentifier("04-group-pin-top")
+                // G36 组排序「上移一位」（anchor = order 数组中本组前一个组节点；
+                // 首组无语义不渲染——store.moveTaskGroupUp）
+                if let groupId, !groupId.isEmpty,
+                   let previousKey = previousGroupKey {
+                    Button {
+                        Task {
+                            let failure = await store.moveTaskGroupUp(
+                                groupId: groupId, beforeGroupKey: previousKey)
+                            if let failure {
+                                groupHint = failure
+                                groupHintIsError = true
+                            } else {
+                                groupHint = String(localized: "已上移")
+                                groupHintIsError = false
+                                taskGroups = nil
+                            }
+                        }
+                    } label: {
+                        Label(String(localized: "上移一位"), systemImage: "arrow.up")
+                    }
+                    .accessibilityIdentifier("04-group-move-up")
+                }
+            } label: {
+                Image(systemName: "paintpalette")
+                    .font(.system(size: 10))
+                    .foregroundColor(T.text3)
+                    .padding(6)
+            }
+            .accessibilityIdentifier("04-group-color-menu")
+        }
+        .frame(minHeight: 32)
+    }
+
+    /// G36 色词表（web TASK_GROUP_COLORS 逐字；渲染映射移动端简化为系统色近似）
+    static let groupPalette = ["gray", "red", "orange", "yellow", "green", "blue", "purple"]
+
+    static func groupColorValue(_ raw: String) -> Color {
+        switch raw {
+        case "red": return T.red
+        case "orange": return T.orange
+        case "yellow": return .yellow
+        case "green": return T.green
+        case "blue": return T.blue
+        case "purple": return .purple
+        default: return T.text3
+        }
+    }
+
     private func sectionHeader(_ title: String) -> some View {
         // List sticky 章节头：不透明底（同列表背景色）——透明头滚动时与行内容
         // 叠加互透（用户反馈「只有文字在那和其他 ui 叠加相互影响都看不到」）。
@@ -898,7 +1096,17 @@ struct ConversationListView: View {
         Button {
             router.openChat(conversationID: conversation.id)
         } label: {
-            ConversationRowView(conversation: conversation)
+            ConversationRowView(conversation: conversation) {
+                // G33 徽标点按 = 暂停本次自动决议（snoozeInteractionAutoResolution；
+                // 首次有效操作永久暂停，重复/迟到幂等 noop——web interactionAutoResolutionCommand
+                // 同口径）。行按钮嵌套按钮：内层 .buttonStyle(.plain) 独立命中
+                if let interactionId = conversation.pendingInteractionId {
+                    Task {
+                        _ = await store.snoozeInteractionAutoResolution(
+                            conversation.id, interactionId: interactionId)
+                    }
+                }
+            }
         }
         .buttonStyle(PressableButtonStyle())
         .listRowBackground(Color.clear)
@@ -1098,6 +1306,8 @@ struct ConversationListView: View {
 // 运行/待确认态改由无障碍锚点承载（test25 行级状态断言）
 struct ConversationRowView: View {
     let conversation: Conversation
+    /// G33 徽标点按回调（nil = 不可暂停——徽标退化为纯指示）
+    var onSnoozeCountdown: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: T.sp2) {
@@ -1111,6 +1321,40 @@ struct ConversationRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: T.sp2) {
                     titleText
+                    // G33 行内待批徽标（web TaskInteractionBadge 移动端同构；D007 行
+                    // 密度裁决不覆盖它——web 行本身就有该徽标，属对齐而非新增）
+                    if let kind = conversation.pendingInteractionKind,
+                       conversation.pendingApprovalCount > 0 {
+                        PendingInteractionBadge(
+                            kind: kind,
+                            toolName: conversation.pendingInteractionToolName,
+                            deadline: conversation.pendingInteractionDeadline,
+                            visibleAt: conversation.pendingInteractionVisibleAt,
+                            canSnooze: onSnoozeCountdown != nil,
+                            action: onSnoozeCountdown)
+                    }
+                    // G40 行元数据身份（web TaskListItem.tsx:759-779 同位——时间前、
+                    // 与元信息同列；cron Clock / off-peak Moon 两态互斥）
+                    if conversation.isCronTask || conversation.isOffPeakTask {
+                        Image(systemName: conversation.isCronTask ? "clock" : "moon")
+                            .font(.system(size: 10))
+                            .foregroundColor(T.text3)
+                    }
+                    // G40 残面：worktree `<仓> · <桶>` 标签 + 远端设备名（仅显
+                    // serverDisplayName，UUID 片段禁上屏——web taskSourceAttribution 同规）
+                    if let worktree = conversation.worktreeLabel {
+                        Text(worktree)
+                            .font(T.mono(9.5))
+                            .foregroundColor(T.text3)
+                            .lineLimit(1)
+                    }
+                    if let device = conversation.serverDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !device.isEmpty {
+                        Text(device)
+                            .font(T.font(9.5))
+                            .foregroundColor(T.text3)
+                            .lineLimit(1)
+                    }
                     Spacer(minLength: 0)
                     timeText
                 }
@@ -1225,7 +1469,7 @@ struct WorkflowRunRailRow: View {
         return HStack(spacing: 5) {
             Image(systemName: "flowchart.fill")
                 .font(.system(size: 10))
-                .foregroundColor(T.violet)
+                .foregroundColor(T.seal)
             // 站点灯（●●●○○：running 蓝 / done 绿 / failed 红 / pending 灰空心；并行双线段）
             HStack(spacing: 0) {
                 ForEach(Array(stations.enumerated()), id: \.offset) { index, station in
@@ -1318,5 +1562,86 @@ struct SessionWorkflowTrackView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("04-workflow-track")
+    }
+}
+
+// MARK: - G33 行内待批徽标（web TaskInteractionBadge.tsx 移动端同构，2026-11-25）
+//
+// kind 判定【实证·上游仓 TaskInteractionBadge.tsx:21-31】：userInput 且带
+// autoResolution（或 toolName=AskUserQuestion）→ 倒计时徽标可暂停；permission →
+// 静态「待批」徽标不可暂停。进度 = (deadlineAt-now)/(deadlineAt-visibleAt)（:44-58），
+// snoozed/静默期（now<visibleAt）不画环。点按 = snoozeInteractionAutoResolution。
+
+struct PendingInteractionBadge: View {
+    let kind: String
+    let toolName: String?
+    /// 倒计时三源（nil = 无倒计时：permission/snoozed 态不传）
+    let deadline: Date?
+    let visibleAt: Date?
+    let canSnooze: Bool
+    let action: (() -> Void)?
+
+    /// 进度 0…1（web TaskInteractionBadge.tsx:44-58 同式；静默期/snoozed = nil 不画环）
+    private func progress(at now: Date) -> Double? {
+        guard let deadline, let visibleAt else { return nil }
+        guard now >= visibleAt else { return nil }
+        let span = deadline.timeIntervalSince(visibleAt)
+        guard span > 0 else { return nil }
+        return min(1, max(0, deadline.timeIntervalSince(now) / span))
+    }
+
+    private var label: String {
+        switch kind {
+        case "permission": return String(localized: "待批")
+        case "userInput": return String(localized: "提问")
+        default: return kind
+        }
+    }
+
+    var body: some View {
+        Button {
+            if canSnooze { action?() }
+        } label: {
+            HStack(spacing: 3) {
+                if deadline != nil, visibleAt != nil {
+                    // 每秒重算（行本体不随秒重渲——进度环自持时钟）
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        if let progress = progress(at: context.date) {
+                            CountdownRing(progress: progress, size: 11)
+                        }
+                    }
+                    .frame(width: 11, height: 11)
+                }
+                Text(label)
+                    .font(T.font(9.5, .semibold))
+            }
+            .foregroundColor(kind == "permission" ? T.orange : T.seal)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background((kind == "permission" ? T.orange : T.seal).opacity(0.12))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSnooze)
+        .accessibilityIdentifier("04-badge-pending-\(kind)")
+        .accessibilityHint(canSnooze ? String(localized: "点按暂停自动决议") : "")
+    }
+}
+
+/// 倒计时进度环（11pt 小环；纯几何由 progress 驱动，TimelineView 外层负责每秒重算）
+struct CountdownRing: View {
+    let progress: Double
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(T.border, lineWidth: 1.5)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(T.seal, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: size, height: size)
     }
 }

@@ -14,6 +14,10 @@ package cn.biuz.android.app.ui.chat
 //
 // 纯展示层：回调面全部由宿主注入（零 VM/Store 依赖），JVM 单测不涉及。
 
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +33,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -84,28 +90,103 @@ fun ModelOptionSection(
     onPickModel: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 批4（2026-11-25 与 iOS ModelPickerSheet 同构）：搜索 + 最近使用（cap 3）+
+    // 分组（套餐原序 + 「其他」组——models 里不在任一套餐组的模型整组归入其他，
+    // web composerPlanGroups.ts:74-120 同语义；此前非套餐 provider（ccgithub 等）
+    // 整组消失，行键「其他|模型」经 providerForRowKey 复合表/裸名表兜底解析）
+    var query by remember { mutableStateOf("") }
+    val recents = remember(info) { ModelRecentsStore.load() }
+    val sections = remember(info) { buildModelSections(info) }
+    val trimmed = query.trim()
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
-        if (info.planGroups.isEmpty()) {
-            // 无分组（getView 未带 planGroups）：裸名行直出（iOS :425-432 同构）
-            info.models.forEach { model ->
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            singleLine = true,
+            placeholder = { Text(stringResource(R.string.composer_model_search), fontSize = 13.sp) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("05-model-search"),
+        )
+        if (trimmed.isEmpty() && recents.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.composer_model_recents),
+                style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                color = BiuZText3,
+                modifier = Modifier.padding(top = BiuZSpacing.xs),
+            )
+            recents.forEach { rowKey ->
+                val label = info.modelLabelForRowKey(rowKey)
                 OptionRow(
-                    title = model,
-                    checked = pickedRowKey == model ||
-                        (pickedRowKey == null && model == info.activeModel),
-                    onClick = { onPickModel(model) },
-                )
-            }
-        } else {
-            info.planGroups.forEach { group ->
-                ModelPlanRows(
-                    info = info,
-                    group = group,
-                    pickedRowKey = pickedRowKey,
-                    onPickModel = onPickModel,
+                    title = label,
+                    checked = pickedRowKey == rowKey ||
+                        (pickedRowKey == null && label == info.activeModel),
+                    onClick = { onPickModel(rowKey) },
+                    testTag = "05-model-row-recent|$rowKey",
                 )
             }
         }
+        sections.forEach { group ->
+            val matched = group.models.filter {
+                trimmed.isEmpty() || it.contains(trimmed, ignoreCase = true)
+            }
+            if (matched.isEmpty()) return@forEach
+            if (group.plan.isNotEmpty()) {
+                Text(
+                    text = group.plan,
+                    style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                    color = BiuZText3,
+                    modifier = Modifier.padding(top = BiuZSpacing.xs),
+                )
+            }
+            matched.forEach { model ->
+                // 空组（无分组退化）= 裸名行键（iOS :425-432 同构）
+                val rowKey = if (group.plan.isEmpty()) model else "${group.plan}|$model"
+                val checked = if (pickedRowKey != null) {
+                    pickedRowKey == rowKey
+                } else {
+                    val providerMatches = !info.activeProviderId.isNullOrEmpty() &&
+                        info.modelProvidersByPlan[rowKey] == info.activeProviderId
+                    model == info.activeModel &&
+                        (info.activeProviderId.isNullOrEmpty() || providerMatches)
+                }
+                OptionRow(
+                    title = model,
+                    checked = checked,
+                    onClick = { onPickModel(rowKey) },
+                    testTag = if (group.plan.isEmpty()) "05-model-row-$model" else "05-model-row-${group.plan}|$model",
+                )
+            }
+        }
+        if (trimmed.isNotEmpty() && sections.all { group ->
+                group.models.none { it.contains(trimmed, ignoreCase = true) }
+            }) {
+            Text(
+                text = stringResource(R.string.composer_model_no_match),
+                style = TextStyle(fontSize = 12.sp),
+                color = BiuZText3,
+            )
+        }
     }
+}
+
+/**
+ * 批4 分组装配（纯函数，可测；iOS groupedSectionModel 同构）：套餐组原序 +
+ * 「其他」组（models 里不在任一套餐组的裸名整组归入——组名「其他」，行键
+ * 「其他|模型」；claim 判定 = model ∈ 任一 planGroups[].models）。
+ */
+internal fun buildModelSections(info: ModelSelectionInfo): List<ModelPlanGroup> {
+    if (info.planGroups.isEmpty()) {
+        // 无分组（getView 未带 planGroups）：退化单组直出（iOS :425-432 同构）
+        return info.models.map { ModelPlanGroup(plan = "", models = listOf(it)) }
+    }
+    val claimed = info.planGroups.flatMap { it.models }.toSet()
+    val others = info.models.filter { it !in claimed }
+    val list = ArrayList<ModelPlanGroup>(info.planGroups)
+    if (others.isNotEmpty()) {
+        list.add(ModelPlanGroup(plan = "其他", models = others))
+    }
+    return list
 }
 
 /** 单套餐分节（节标题 = 套餐名；行键 =「套餐|模型」复合键）。 */
@@ -158,13 +239,19 @@ fun ThoughtOptionSection(
 
 /** 面板行（44pt 热区；选中 = 勾标 + accent 描边，iOS ComposerOptionItem 选中语言同构）。 */
 @Composable
-private fun OptionRow(title: String, checked: Boolean, onClick: () -> Unit) {
+private fun OptionRow(
+    title: String,
+    checked: Boolean,
+    onClick: () -> Unit,
+    testTag: String? = null,
+) {
     // 面板选项行 = 报告 §4.4 第 3 类（行）：按压实，无触觉
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 44.dp)
+            .then(testTag?.let { Modifier.testTag(it) } ?: Modifier)
             .pressableScale(interaction)
             .clip(BiuZRadius.medium)
             .background(BiuZBgInput)
@@ -234,10 +321,18 @@ fun QueueBar(
     onMoveUp: (String) -> Unit,
     onDelete: (String) -> Unit,
     onToggleAutoDrain: (Boolean) -> Unit,
+    /** G13 长按拖排序（桌面 hover-drag 触屏对位）：(draggedId, targetId)——拖起项移到落点行之前 */
+    onReorder: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     var editingItemId by remember { mutableStateOf<String?>(null) }
     var editingText by remember { mutableStateOf("") }
+    // G13 拖拽态：拖起项 / 落点行 / 行窗口坐标（onGloballyPositioned 采集）
+    var draggingItemId by remember { mutableStateOf<String?>(null) }
+    var dropTargetId by remember { mutableStateOf<String?>(null) }
+    val rowBounds = remember { mutableMapOf<String, androidx.compose.ui.geometry.Rect>() }
+    var dragStartCenterY by remember { mutableStateOf(0f) }
+    var dragOffsetY by remember { mutableStateOf(0f) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -283,9 +378,54 @@ fun QueueBar(
             verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
         ) {
             queue.items.forEach { item ->
+                // G13 长按拖：detectDragGesturesAfterLongPress 起拖（iOS onDrag 同触屏
+                // 语义），行中心累计位移定位落点行（window 坐标系一致）；落点行描边
+                // 朱磦反馈，松手 onReorder CAS——编辑态行不参与
+                val rowModifier = if (editingItemId != null) Modifier else Modifier
+                    .onGloballyPositioned { coords ->
+                        rowBounds[item.id] = coords.boundsInWindow()
+                    }
+                    .pointerInput(item.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                draggingItemId = item.id
+                                dropTargetId = null
+                                dragOffsetY = 0f
+                                dragStartCenterY =
+                                    (rowBounds[item.id]?.center?.y ?: 0f)
+                            },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                dragOffsetY += amount.y
+                                val centerY = dragStartCenterY + dragOffsetY
+                                dropTargetId = rowBounds.entries
+                                    .filter { it.key != draggingItemId }
+                                    .firstOrNull { (_, rect) -> centerY in rect.top..rect.bottom }
+                                    ?.key
+                            },
+                            onDragEnd = {
+                                val dragged = draggingItemId
+                                val target = dropTargetId
+                                if (dragged != null && target != null) {
+                                    onReorder(dragged, target)
+                                }
+                                draggingItemId = null
+                                dropTargetId = null
+                                dragOffsetY = 0f
+                            },
+                            onDragCancel = {
+                                draggingItemId = null
+                                dropTargetId = null
+                                dragOffsetY = 0f
+                            },
+                        )
+                    }
                 QueueRow(
                     item = item,
                     canMoveUp = queue.items.firstOrNull()?.id != item.id,
+                    rowModifier = rowModifier,
+                    isDragging = draggingItemId == item.id,
+                    isDropTarget = dropTargetId == item.id && draggingItemId != null,
                     editing = editingItemId == item.id,
                     editingText = editingText,
                     onEditingTextChange = { editingText = it },
@@ -342,6 +482,10 @@ private fun QueueRow(
     onSendNow: () -> Unit,
     onMoveUp: () -> Unit,
     onDelete: () -> Unit,
+    /** G13 拖拽宿主 modifier（手势 + 坐标采集；宿主层组装，编辑态传空） */
+    rowModifier: Modifier = Modifier,
+    isDragging: Boolean = false,
+    isDropTarget: Boolean = false,
 ) {
     if (editing) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -375,7 +519,25 @@ private fun QueueRow(
             )
         }
     } else {
-        Row(verticalAlignment = Alignment.Top) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            modifier = rowModifier
+                .fillMaxWidth()
+                .background(
+                    when {
+                        isDropTarget -> BiuZSeal.copy(alpha = BiuZAlpha.faint)
+                        isDragging -> BiuZBgInput
+                        else -> androidx.compose.ui.graphics.Color.Transparent
+                    },
+                    BiuZRadius.small,
+                )
+                .border(
+                    if (isDropTarget) 1.5.dp else 0.dp,
+                    if (isDropTarget) BiuZSeal else androidx.compose.ui.graphics.Color.Transparent,
+                    BiuZRadius.small,
+                )
+                .testTag("05-queue-row-${item.id}"),
+        ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.text,

@@ -170,9 +170,75 @@ test('提问族：questions 数组宽容（question/multiSelect/options.value）
   if (parsed.options[0].id !== '由你定夺') throw new Error('options 裸字符串应 id=label=该串');
 });
 
+test('G22 提问自由输入开关：payload.freeText 显式值优先 + 无选项题缺省开 + 纯自由输入强制开', function () {
+  // 显式 true（iOS RemoteConversationStore.swift:3358-3366 同构）
+  const explicit = chatModel.parsePendingInteraction({
+    id: 'f1', kind: 'userInput', freeText: true,
+    questions: [{ question: 'q', options: [{ value: 'a', label: 'A' }] }],
+  });
+  if (explicit.freeTextEnabled !== true) throw new Error('payload.freeText=true 应开');
+  // 缺省 = 存在无选项题
+  const derived = chatModel.parsePendingInteraction({
+    id: 'f2', kind: 'userInput',
+    questions: [{ question: 'q2' }],
+  });
+  if (derived.freeTextEnabled !== true) throw new Error('无选项题应缺省开');
+  // 有选项题 + freeText 缺席 = 关
+  const closed = chatModel.parsePendingInteraction({
+    id: 'f3', kind: 'userInput',
+    questions: [{ question: 'q3', options: [{ value: 'b', label: 'B' }] }],
+  });
+  if (closed.freeTextEnabled !== false) throw new Error('有选项题缺省应关');
+});
+
+test('G22 多题向导应答信封：answer_N 逐题 + answers 汇总 + 单题 answer 捷径（iOS submitQuestions 同构）', function () {
+  const qs = [
+    { question: '部署到哪？', options: [{ id: 'staging', label: '预发' }, { id: 'prod', label: '生产' }], multiSelect: false },
+    { question: '补充说明', options: [], multiSelect: true },
+  ];
+  const multi = chatModel.questionAnswersAnswer(qs, { 0: ['prod'] }, { 1: '  先灰度  ' });
+  if (multi.action !== 'accept') throw new Error('action 应为 accept');
+  if (multi.content.answer_0 !== 'prod') throw new Error('单选题 answer_N 应字符串');
+  if (JSON.stringify(multi.content.answer_1) !== JSON.stringify(['先灰度'])) throw new Error('multiSelect 题应数组且文本 trim');
+  if (multi.content.answers['部署到哪？'] !== 'prod') throw new Error('answers 汇总缺失');
+  if (multi.content.answers['补充说明'] !== '先灰度') throw new Error('answers 文本汇总缺失');
+  if (multi.content.answer !== undefined) throw new Error('多题不应有 answer 捷径键');
+
+  const single = chatModel.questionAnswersAnswer([qs[0]], { 0: ['staging'] }, {});
+  if (single.content.answer !== 'staging') throw new Error('单题应补 answer 捷径键');
+});
+
 test('坏形状跳过：非对象/null/缺 id 或 kind → null（不造假卡）', function () {
   if (chatModel.parsePendingInteraction(null) !== null) throw new Error('null 应跳过');
   if (chatModel.parsePendingInteraction({ id: 'i', kind: '' }) !== null) throw new Error('缺 kind 应跳过');
   const arr = chatModel.parsePendingInteractions([null, { id: 'ok', kind: 'permission' }, 'junk']);
   if (arr.length !== 1 || arr[0].id !== 'ok') throw new Error('数组级宽容失败');
+});
+
+// MARK: G21/G23 镜像（2026-11-25 与 iOS 同步）
+test('G21 permissionFreeText：payload.freeText=true 才开反馈框（permission 之外不读）', () => {
+  const on = chatModel.parsePendingInteraction({
+    id: 'i1', kind: 'permission', payload: { freeText: true, command: 'git push' },
+  });
+  assert.strictEqual(on.permissionFreeText, true);
+  const off = chatModel.parsePendingInteraction({ id: 'i2', kind: 'permission', payload: {} });
+  assert.strictEqual(off.permissionFreeText, false);
+  const other = chatModel.parsePendingInteraction({ id: 'i3', kind: 'userInput', payload: { freeText: true } });
+  assert.strictEqual(other.permissionFreeText, false);
+});
+
+test('G23 pluginInstall：字段族解析（displayName 优先 + action/scope 透传）', () => {
+  const p = chatModel.parsePendingInteraction({
+    id: 'i4', kind: 'pluginInstall',
+    payload: {
+      kind: 'pluginInstall', pluginId: 'ccgithub', name: 'ccgithub',
+      displayName: 'CC GitHub', description: 'GitHub 集成', reason: '模型请求安装',
+      action: 'install', scope: 'workspace', toolCallId: 't1',
+    },
+  });
+  assert.strictEqual(p.pluginName, 'CC GitHub');
+  assert.strictEqual(p.pluginDescription, 'GitHub 集成');
+  assert.strictEqual(p.pluginReason, '模型请求安装');
+  assert.strictEqual(p.pluginAction, 'install');
+  assert.strictEqual(p.pluginScope, 'workspace');
 });

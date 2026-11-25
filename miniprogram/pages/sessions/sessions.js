@@ -24,8 +24,31 @@ Page({
     accountName: '',
     accountInitial: '',
     collapsedKeys: [],
+    showAllPinned: false,
+    pinnedOverflow: 0,
+    groupColors: {},
     statusBarHeight: 0,
     versionNotice: '',
+  },
+
+  /** G33 徽标点按 = 暂停本次自动决议（snoozeInteractionAutoResolution；幂等 noop）。 */
+  onRowSnooze(event) {
+    const id = event.detail && event.detail.id;
+    if (!id) return;
+    const conn = require('../../utils/connection.js');
+    conn.snoozeInteractionAutoResolution(id, this._pendingInteractionId(id))
+      .then(function (res) {
+        if (!res.ok) {
+          wx.showToast({ title: (res.failure && res.failure.text) || '稍后失败', icon: 'none' });
+        }
+      });
+  },
+
+  /** snooze 定位键（行轻量投影 interactionId；缺席不发）。 */
+  _pendingInteractionId(sessionId) {
+    const state = store.getState();
+    const row = (state.rows || []).filter(function (r) { return String(r.id) === String(sessionId); })[0];
+    return row && row.pendingInteractionId;
   },
 
   onLoad(query) {
@@ -146,16 +169,80 @@ Page({
   },
 
   render(state) {
-    const sections = model.buildView(state.rows, this.data.view, this.data.collapsedKeys);
+    const sections = model.buildView(state.rows, this.data.view, this.data.collapsedKeys, this.data.showAllPinned);
+    const pinnedOverflow = model.pinnedOverflowCount
+      ? model.pinnedOverflowCount(state.rows || [], this.data.showAllPinned)
+      : 0;
+    if (this.data.view === 'grouped' && state.status === 'connected') {
+      this.refreshTaskGroups();
+    }
     this.setData({
       status: state.status,
       error: state.error || '',
       versionNotice: state.versionNotice || '',
       sections: model.decorateSections(sections),
+      pinnedOverflow: pinnedOverflow,
       deviceName: state.deviceName || '未连接设备',
       accountName: state.accountName || '',
       accountInitial: (state.accountName || '').slice(0, 1),
     });
+  },
+
+  /** G36 GROUPED 视图拉分组结构（色点数据源；未连接/失败静默空）。 */
+  refreshTaskGroups() {
+    if (this.data.view !== 'grouped') return;
+    const conn = require('../../utils/connection.js');
+    conn.readTaskGroups().then((structure) => {
+      if (!structure) return;
+      const groupColors = {};
+      structure.groups.forEach(function (g) { groupColors[g.title] = g.color; });
+      this._groupIds = {};
+      structure.groups.forEach(function (g) { this._groupIds[g.title] = g.id; }, this);
+      this.setData({ groupColors: groupColors });
+    });
+  },
+
+  /** G36 组色循环（点击组头 = 下一档色；save 后更新本地映射）。 */
+  onGroupHeaderTap(event) {
+    const title = event.currentTarget.dataset.title;
+    if (!title) return;
+    const palette = ['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
+    const current = this.data.groupColors[title] || 'gray';
+    const next = palette[(palette.indexOf(current) + 1) % palette.length];
+    const conn = require('../../utils/connection.js');
+    conn.saveTaskGroupColor(this._groupIds[title] || '', next).then((res) => {
+      if (res.ok) {
+        const groupColors = Object.assign({}, this.data.groupColors);
+        groupColors[title] = next;
+        this.setData({ groupColors: groupColors });
+      } else {
+        wx.showToast({ title: res.text || '保存失败', icon: 'none' });
+      }
+    });
+  },
+
+  /** G36 组置顶（长按组头 = move 组节点到顶层 index 0）。 */
+  onGroupHeaderLongPress(event) {
+    const title = event.currentTarget.dataset.title;
+    if (!title) return;
+    const groupId = (this._groupIds || {})[title];
+    if (!groupId) return;
+    const conn = require('../../utils/connection.js');
+    conn.pinTaskGroupToTop(groupId).then((res) => {
+      if (res.ok) {
+        wx.showToast({ title: '已置顶', icon: 'none' });
+        this.refreshTaskGroups();
+        this.render(store.getState());
+      } else {
+        wx.showToast({ title: res.text || '置顶失败', icon: 'none' });
+      }
+    });
+  },
+
+  /** G34 置顶翻页（web taskList.showMore/showLess 同语义）。 */
+  onTogglePinnedMore() {
+    this.setData({ showAllPinned: !this.data.showAllPinned });
+    this.render(store.getState());
   },
 
   onToggleSection(event) {
@@ -166,6 +253,11 @@ Page({
     else keys.push(key);
     this.setData({ collapsedKeys: keys });
     this.render(store.getState());
+  },
+
+  /** G38 统一搜索入口。 */
+  onOpenCommandCenter() {
+    wx.navigateTo({ url: '/pages/command-center/command-center' });
   },
 
   onOpenViewMenu() {

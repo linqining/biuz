@@ -7,7 +7,20 @@
   <view class="row__main">
     <view class="row__titleline">
       <text class="row__title">{{row.title}}</text>
+      <!-- G33 行内待批徽标（web TaskInteractionBadge 同构；可暂停=点按冒 snooze 事件） -->
+      <view class="row__badge" wx:if="{{badge}}" bind:tap="onBadgeTap" data-kind="{{badge.kind}}">
+        <text class="row__badge-text">{{badge.label}}</text>
+      </view>
+      <!-- G40 残面：cron/off-peak 图标（web TaskListItem.tsx:759-779 同位——时间前；
+           两态互斥，不能占左侧状态槽） -->
+      <text class="row__meta-icon" wx:if="{{row.isCron || row.isOffPeak}}">{{row.isCron ? '⏰' : '🌙'}}</text>
       <text class="row__time">{{row.timeText}}</text>
+    </view>
+    <!-- G40 残面：worktree `<仓> · <桶>` 标签 + 远端设备名（仅显 serverDisplayName，
+         UUID 禁上屏——taskSourceAttribution.ts:19-24 同规；行元数据同列） -->
+    <view class="row__meta" wx:if="{{worktreeLabel || row.serverDisplayName}}">
+      <text class="row__meta-text" wx:if="{{worktreeLabel}}">{{worktreeLabel}}</text>
+      <text class="row__meta-text" wx:if="{{row.serverDisplayName}}">{{row.serverDisplayName}}</text>
     </view>
     <workflow-track wx:if="{{row.track}}" track="{{row.track}}" />
   </view>

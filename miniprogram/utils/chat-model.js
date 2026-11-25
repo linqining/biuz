@@ -279,6 +279,30 @@ function parsePendingInteraction(json) {
   }).filter(function (r) { return !!r; });
   const plan = (payload.input && typeof payload.input === 'object' && payload.input.plan)
     || (schema && schema.plan) || '';
+  // G22 提问自由输入开关（iOS RemoteConversationStore.swift:3358-3366 同构）：
+  // payload.freeText 显式值优先；缺省 = 存在无选项题；纯自由输入强制 true
+  const freeTextEnabled = payload.freeText === true || json.freeText === true
+    || questions.some(function (q) { return !q.options.length; })
+    || (!questions.length && !options.length);
+  // G21 权限卡反馈文本框开关（snapshot.ts:277 permissionRequestPayloadSchema.freeText
+  // 【实证·上游仓】——true 且存在拒绝方向时 UI 显示可选输入行；permission 之外不读）
+  const permissionFreeText = kind === 'permission'
+    ? (payload.freeText === true || json.freeText === true)
+    : false;
+  // G23 插件安装卡字段族（kind=="pluginInstall"；schema=pluginInstall.ts
+  // pluginInstallRequestPayloadSchema【实证·上游仓】）
+  let pluginName = null;
+  let pluginDescription = null;
+  let pluginReason = null;
+  let pluginScope = null;
+  let pluginAction = null;
+  if (kind === 'pluginInstall') {
+    pluginName = payload.displayName || payload.name || json.displayName || json.name || title;
+    pluginDescription = payload.description || json.description || '';
+    pluginReason = payload.reason || json.reason || '';
+    pluginScope = payload.scope || json.scope || '';
+    pluginAction = payload.action || json.action || '';
+  }
   return {
     id: id,
     kind: kind,
@@ -289,7 +313,37 @@ function parsePendingInteraction(json) {
     questions: questions,
     reviewItems: reviewItems,
     plan: typeof plan === 'string' ? plan : JSON.stringify(plan),
+    permissionFreeText: permissionFreeText,
+    freeTextEnabled: freeTextEnabled,
+    pluginName: pluginName,
+    pluginDescription: pluginDescription,
+    pluginReason: pluginReason,
+    pluginScope: pluginScope,
+    pluginAction: pluginAction,
   };
+}
+
+/**
+ * G22 多题向导应答信封（iOS ChatView.submitQuestions 同构【实证·上游仓
+ * ElicitationDialog】：content.answer_N 逐题 + content.answers{题面→值} 汇总，
+ * 选项存 optionId、自由文本 trim 后并入；单题补 content.answer 捷径键）。
+ * selections/texts 以题序为键（移动端 question 无稳定 id——iOS 用 qid、此处题序同义）。
+ */
+function questionAnswersAnswer(questions, selections, texts) {
+  const answers = {};
+  const content = {};
+  (questions || []).forEach(function (q, index) {
+    const values = (selections && selections[index] ? selections[index].slice() : []);
+    const text = texts && texts[index] ? String(texts[index]).trim() : '';
+    if (text) values.push(text);
+    if (!values.length) return;
+    answers[q.question] = values.join(', ');
+    content['answer_' + index] = q.multiSelect === true ? values : values[0];
+  });
+  content.answers = answers;
+  const n = (questions || []).length;
+  if (n === 1 && content.answer_0 !== undefined) content.answer = content.answer_0;
+  return { action: 'accept', content: content };
 }
 
 /** 数组级宽容：非数组/坏元素跳过（§10 缺键不出卡，不造假卡）。 */
@@ -307,4 +361,5 @@ module.exports = {
   headerTitle: headerTitle,
   parsePendingInteraction: parsePendingInteraction,
   parsePendingInteractions: parsePendingInteractions,
+  questionAnswersAnswer: questionAnswersAnswer,
 };

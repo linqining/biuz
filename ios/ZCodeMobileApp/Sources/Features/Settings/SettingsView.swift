@@ -76,6 +76,24 @@ struct SettingsView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // 返回主界面（2026-11-25 用户报「设置页没有返回主界面的」）：tab 架构下设置是
+            // 根页，没有系统返回；补一个显式「‹ 会话」回到会话 tab（与 Android 设置页
+            // 左上返回同位置同语义）。
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    router.selectedTab = .chat
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("会话").font(T.font(15))
+                    }
+                    .foregroundColor(T.text)
+                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("12-act-back-home")
+            }
             ToolbarItem(placement: .principal) {
                 Text("设置").font(T.font(17, .bold)).foregroundColor(T.text)
             }
@@ -92,39 +110,64 @@ struct SettingsView: View {
         let server = session.savedServer
         VStack(alignment: .leading, spacing: T.sp2) {
             HStack(spacing: 8) {
-                Text("服务器与账户")
+                // 2026-11-25 UIUX 审查 H1：原「设备与配对 / 服务器 / 账户」三入口散落
+                // 两组且语义重叠 → 合并为「电脑与账户」一组：设备与配对=用户视角的
+                // 电脑入口（列表/切换/在线态），服务器行=技术诊断（dev-gate），
+                // 账户=登录态。一台电脑只经一行进入。
+                Text("电脑与账户")
                     .font(T.font(12, .semibold))
                     .foregroundColor(T.text3)
                     .padding(.leading, 2)
             }
             VStack(spacing: 0) {
-                if let server {
+                Button {
+                    router.pushSettings(.devices)
+                } label: {
+                    sessionRow(
+                        icon: "laptopcomputer.and.iphone",
+                        title: "设备与配对",
+                        subtitle: pairingSubtitle,
+                        online: nil,
+                        value: pairingValue)
+                }
+                .accessibilityIdentifier("12-row-pairing")
+                Divider().overlay(T.border)
+                // 服务器详情 = 地址/令牌/传输诊断页（R5 口径：技术面收开发者模式；
+                // 普通用户的电脑入口是上面的「设备与配对」）
+                if settings.effectiveDeveloperMode, let server {
                     Button {
                         router.pushSettings(.serverDetail)
                     } label: {
                         sessionRow(
                             icon: "laptopcomputer.and.iphone",
                             title: "服务器",
-                            subtitle: "\(server.name ?? "我的桌面端") · \(server.displayAddress)",
+                            // R5 去技术化：副行只留电脑名（地址/传输细节在开发者模式
+                            // 服务器详情页）；服务器详情入口随行保留（普通用户可进、
+                            // 页内技术字段本就偏诊断）
+                            subtitle: server.name ?? server.displayName,
                             online: true,
                             value: session.isConnected ? "已连接" : "已保存")
                     }
                     .accessibilityIdentifier("l4-row-server")
                     Divider().overlay(T.border)
-                    Button {
-                        session.requestConnectFlow(editTokenOnly: true)
-                    } label: {
-                        sessionRow(
-                            icon: "key",
-                            title: "访问令牌",
-                            subtitle: server.token.isEmpty
-                                ? "免鉴权（--no-token）· Keychain"
-                                : "Keychain · \(OAuthCredentialStore.mask(server.token))",
-                            online: nil,
-                            value: "更新")
+                    // R5（2026-11-25）：「访问令牌」行（掩码 token / --no-token /
+                    // Keychain 字样）收进开发者模式——令牌更新主路径 = 重新扫码
+                    if settings.effectiveDeveloperMode {
+                        Button {
+                            session.requestConnectFlow(editTokenOnly: true)
+                        } label: {
+                            sessionRow(
+                                icon: "key",
+                                title: "访问令牌",
+                                subtitle: server.token.isEmpty
+                                    ? "免鉴权（--no-token）· Keychain"
+                                    : "Keychain · \(OAuthCredentialStore.mask(server.token))",
+                                online: nil,
+                                value: "更新")
+                        }
+                        .accessibilityIdentifier("l4-row-token")
+                        Divider().overlay(T.border)
                     }
-                    .accessibilityIdentifier("l4-row-token")
-                    Divider().overlay(T.border)
                 }
                 Button {
                     router.pushSettings(.serverAccount)
@@ -187,7 +230,11 @@ struct SettingsView: View {
                 .foregroundColor(T.accentText)
                 .frame(width: 30)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title)
+                // G-007 同口径（2026-11-25 Language test02 实证）：Text(_ String) 不查
+                // 本地化表——H1 重构后「设备与配对」行 en 态直出中文。包装恢复 xcstrings
+                // 查表（zh 回退键原文不变；en 命中 "Devices & pairing"）。subtitle 为
+                // 动态值保持直出（包装会把动态值当键查，误命中风险）。
+                Text(LocalizedStringKey(title))
                     .font(T.font(14.5))
                     .foregroundColor(T.text)
                 HStack(spacing: 4) {
@@ -307,7 +354,7 @@ struct SettingsView: View {
             }
         }
         .card(padding: T.sp4)
-        .background(T.gradUserCard)
+        .background(T.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: T.rL))
         .overlay(RoundedRectangle(cornerRadius: T.rL).stroke(T.border, lineWidth: 1))
         .accessibilityIdentifier("12-usercard")
@@ -376,9 +423,9 @@ struct SettingsView: View {
 
     private var settingGroups: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
-            group("设备与远控") {
-                navRow(route: .devices, icon: "laptopcomputer.and.iphone", title: "设备与配对",
-                       subtitle: pairingSubtitle, value: pairingValue, identifier: "12-row-pairing")
+            // 2026-11-25 UIUX 审查 H1：原「设备与远控」组撤销——设备与配对上移进
+            // 「电脑与账户」；IM Bot 属扩展能力，独立成组
+            group("扩展") {
                 navRow(route: .bots, icon: "app.badge.filled", title: "IM Bot",
                        subtitle: "微信 / 飞书 / Telegram 通道 · 桌面端托管",
                        value: nil, identifier: "12-row-bot")
@@ -410,6 +457,15 @@ struct SettingsView: View {
                                 settings.update { $0.showThinkingProcess = newValue }
                             }),
                           identifier: "12-row-thinking")
+                // G7（2026-11-25）：消息流内待办卡开关（web messageStreamShowTodos
+                // default(false) 同值同义；本机偏好——桌面侧同名设置走「桌面设置」页同步）
+                toggleRow(icon: "list.checklist", title: "消息流显示待办卡", subtitle: "开启后 TodoWrite 工具卡在会话流内展开",
+                          isOn: Binding(
+                            get: { settings.value.showTodosInStream },
+                            set: { newValue in
+                                settings.update { $0.showTodosInStream = newValue }
+                            }),
+                          identifier: "12-row-stream-todos")
             }
             group("数据与统计") {
                 // H9（U-2）：假值三目（12.4M tokens/128 条等演示串）永久移除——
@@ -463,6 +519,16 @@ struct SettingsView: View {
                 navRow(route: .desktopSettings, icon: "desktopcomputer", title: "桌面设置",
                        subtitle: session.isConnected ? String(localized: "读取与修改桌面端设置") : String(localized: "连接桌面端后可读写"),
                        value: nil, identifier: "12-row-desktop-settings")
+                // G43（2026-11-25）：自动归档（web TaskAutoArchiveSettings 同位——
+                // 档位 3/7/14/30 天 + 开关；setting 频道写桌面侧同名键）
+                navRow(route: .autoArchive, icon: "archivebox", title: "自动归档",
+                       subtitle: String(localized: "旧任务按保留时长自动归档（桌面侧设置）"),
+                       value: nil, identifier: "12-row-auto-archive")
+                // G41（2026-11-25）：行为设置（web AgentBehaviorSectionContent 策展面——
+                // 审批响应方式/提问自动继续/模型IO/流内思考与待办五键原生分组）
+                navRow(route: .behaviorSettings, icon: "slider.horizontal.3", title: "行为设置",
+                       subtitle: String(localized: "审批响应 / 提问自动继续 / 消息流呈现（桌面侧）"),
+                       value: nil, identifier: "12-row-behavior")
             }
             // HIDDEN(开发者模式)：开发者分组仅在开发者模式开启时出现（总开关自持——
             // 关闭本开关分组即消失；品牌行 7 连击为隐藏开启入口）
@@ -532,6 +598,8 @@ struct SettingsView: View {
             }
         case .automation: AutomationsView() // G-016：真实列表+运行历史（zcode-agent listAutomations），替换硬编码占位
         case .desktopSettings: DesktopSettingsPage() // P3-11C：settingService get/update（修改带确认弹层）
+        case .autoArchive: AutoArchiveSettingsPage() // G43：自动归档（setting 频道两键）
+        case .behaviorSettings: BehaviorSettingsPage() // G41：行为设置（setting 频道五键）
         // 027/024/026/018 四页（上游取证 2026-11-10；RemoteSettingsExtrasViews.swift）
         case .personalization: PersonalizationGuidePage() // web LocalOnlyPersonalizationHint 同口径，零服务调用
         case .hooks: HooksPage() // hooks.loadHooks 只读清单（saveHooks 写面 gate 拦截）
@@ -962,6 +1030,60 @@ struct ModelSettingsView: View {
 
 // MARK: - 外观设置（即时生效 + 持久化）
 
+/// G42 残面 代码预览设置区（web settingsCodePreview.tsx:121-253 移动端同构——
+/// fontSizePx 12–20 档 slider + 行号/换行两 Switch；主题双键 TinySyntax 无 shiki
+/// 主题面不投影，登记差异。持久 = CodePreviewSettings（web 同词面键））。
+struct CodePreviewSettingsSection: View {
+    @State private var values = CodePreviewSettings.read()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            Text("代码预览")
+                .font(T.font(13, .semibold))
+                .foregroundColor(T.text)
+                .padding(.top, T.sp2)
+            HStack {
+                Text(String(localized: "预览字号"))
+                    .font(T.font(13))
+                    .foregroundColor(T.text)
+                Spacer()
+                Text("\(Int(values.fontSizePx)) px")
+                    .font(T.mono(12))
+                    .foregroundColor(T.text2)
+                    .accessibilityIdentifier("12-code-preview-px")
+            }
+            Slider(
+                value: Binding(
+                    get: { values.fontSizePx },
+                    set: { newValue in
+                        values.fontSizePx = newValue.rounded()
+                        CodePreviewSettings.write(values)
+                    }),
+                in: 12...20,
+                step: 1)
+                .accessibilityIdentifier("12-code-preview-size-slider")
+            Toggle(String(localized: "显示行号"), isOn: Binding(
+                get: { values.showLineNumbers },
+                set: { newValue in
+                    values.showLineNumbers = newValue
+                    CodePreviewSettings.write(values)
+                }))
+                .font(T.font(13))
+                .foregroundColor(T.text)
+                .accessibilityIdentifier("12-code-preview-line-numbers")
+            Toggle(String(localized: "长行换行"), isOn: Binding(
+                get: { values.wrapLongLines },
+                set: { newValue in
+                    values.wrapLongLines = newValue
+                    CodePreviewSettings.write(values)
+                }))
+                .font(T.font(13))
+                .foregroundColor(T.text)
+                .accessibilityIdentifier("12-code-preview-wrap")
+        }
+    }
+}
+
 struct AppearanceSettingsView: View {
     @Environment(AppSettingsModel.self) private var settings
 
@@ -998,6 +1120,9 @@ struct AppearanceSettingsView: View {
                 Text("默认使用浅色主题；选择「跟随系统」后随系统深浅变化即时换肤，选择固定档则始终保持该主题。")
                     .font(T.font(11.5))
                     .foregroundColor(T.text3)
+                // G42 残面：代码预览设置（web codePreviewSettings 三键——字号/行号/换行；
+                // 本地偏好同词面，主题双键 TinySyntax 无 shiki 面不投影）
+                CodePreviewSettingsSection()
             }
             .padding(T.sp4)
         }

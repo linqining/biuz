@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +65,8 @@ import cn.biuz.android.app.ui.chat.ModelRefetchRow
 import cn.biuz.android.app.ui.chat.SessionWorkflowTrackView
 import cn.biuz.android.app.ui.chat.ThoughtOptionSection
 import cn.biuz.android.app.ui.theme.BiuZAccent
+import cn.biuz.android.app.ui.theme.BiuZAlpha
+import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZBgCard
 import cn.biuz.android.app.ui.theme.BiuZBgElevated
 import cn.biuz.android.app.ui.theme.BiuZBgInput
@@ -87,6 +90,10 @@ import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
 import cn.biuz.android.connection.TaskGroupStructure
 import cn.biuz.android.connection.readTaskGroups
+import cn.biuz.android.connection.saveTaskGroup
+import cn.biuz.android.connection.pinTaskGroupToTop
+import cn.biuz.android.connection.moveTaskGroupUpOne
+import cn.biuz.android.connection.groupPredecessorKey
 import cn.biuz.android.protocol.Conversation
 import cn.biuz.android.protocol.ExecutorKind
 import cn.biuz.android.store.ConversationEvent
@@ -121,6 +128,8 @@ fun SessionsScreen(
     onBackToConnect: () -> Unit,
     onOpenFiles: () -> Unit = {},
     onOpenDevices: () -> Unit = {},
+    onOpenPendingApprovals: () -> Unit = {},
+    onOpenCommandCenter: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val surface by session.storeSurface.collectAsStateWithLifecycle()
@@ -208,10 +217,15 @@ fun SessionsScreen(
         }
     }
 
-    val sections = remember(rows, viewMode, pinnedTitle, ungroupedTitle, timelineTitle, unreadTitle, unreadEmpty, taskGroups) {
+    // G34 置顶翻页（web taskList.showMore/showLess 同语义）
+    var showAllPinned by rememberSaveable { mutableStateOf(false) }
+    val sections = remember(rows, viewMode, pinnedTitle, ungroupedTitle, timelineTitle, unreadTitle, unreadEmpty, taskGroups, showAllPinned) {
         when (viewMode) {
             ListViewMode.PROJECTS -> projectSections(rows, pinnedTitle, ungroupedTitle)
-            ListViewMode.TIMELINE -> timelineSections(rows, pinnedTitle, timelineTitle)
+            ListViewMode.TIMELINE -> timelineSections(
+                rows, pinnedTitle, timelineTitle,
+                pinnedLimit = if (showAllPinned) null else PINNED_PAGE_SIZE,
+            )
             ListViewMode.UNREAD -> unreadSections(rows, pinnedTitle, unreadTitle, unreadEmpty)
             ListViewMode.GROUPED -> {
                 val tg = taskGroups
@@ -273,6 +287,17 @@ fun SessionsScreen(
                 onOpen = { onOpenChat(conversation.id) },
                 onArchive = { onArchiveRow(conversation) },
                 onMarkUnread = { onMarkUnreadRow(conversation) },
+                onSnoozeCountdown = {
+                    conversation.pendingInteractionId?.let { interactionId ->
+                        scope.launch {
+                            runCatching {
+                                surface.conversation.snoozeInteractionAutoResolution(
+                                    conversation.id, interactionId,
+                                )
+                            }
+                        }
+                    }
+                },
             )
         }
     }
@@ -286,6 +311,16 @@ fun SessionsScreen(
                 .padding(horizontal = BiuZSpacing.lg),
         ) {
             Spacer(Modifier.height(BiuZSpacing.lg))
+            // G39 工作区切换（web main.tsx:1603-1613 switchWorkspace 桥重建移动对位；
+            // iOS P3-10 工作区切换器同构）：设备行下挂工作区胶囊行，点开枚举
+            // conversationStore.allWorkspaces 选切（AppSession.switchWorkspace 桥重建）
+            var workspaceSwitchOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+            var workspaceSwitching by remember { androidx.compose.runtime.mutableStateOf(false) }
+            var workspaceSwitchError by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+            val currentWorkspace = surface.workspace
+            val allWorkspaces = remember(surface.epoch) {
+                (surface.conversation as? cn.biuz.android.store.RemoteConversationStore)?.allWorkspaces.orEmpty()
+            }
             // 设备切换行（对齐 web home 顶部 `aria-label=切换设备`）：图标 + 设备名 + 展开箭头
             val serverName = when (val m = mode) {
                 is AppSession.Mode.Connected -> m.server.name ?: m.server.host
@@ -313,6 +348,128 @@ fun SessionsScreen(
                     modifier = Modifier.weight(1f),
                 )
                 Text(text = "⌃⌄", fontSize = 10.sp, color = BiuZText3)
+            }
+            // G39 工作区切换弹层（AlertDialog 枚举全工作区；当前项勾标；跨工作区
+            // 归属面不同——切换 = 桥重建 + Store 重装配，G52 已让缓存随迁）
+            if (workspaceSwitchOpen) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { workspaceSwitchOpen = false },
+                    title = { Text("切换工作区") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs)) {
+                            if (allWorkspaces.isEmpty()) {
+                                Text(
+                                    text = "桌面端未上报工作区清单（当前区即全部）",
+                                    fontSize = 12.sp,
+                                    color = BiuZText3,
+                                )
+                            }
+                            allWorkspaces.forEach { ws ->
+                                val isCurrent = ws.path == currentWorkspace?.path
+                                Text(
+                                    text = (if (isCurrent) "✓ " else "") + ws.path +
+                                        (if (ws.workspaceIdentity != null) "  ·identity" else ""),
+                                    fontSize = 13.sp,
+                                    color = if (isCurrent) BiuZAccent else BiuZText,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(BiuZRadius.small)
+                                        .clickable(enabled = !workspaceSwitching && !isCurrent) {
+                                            workspaceSwitching = true
+                                            workspaceSwitchError = null
+                                            scope.launch {
+                                                val failure = session.switchWorkspace(
+                                                    cn.biuz.android.connection.ServerWorkspaceInfo(
+                                                        path = ws.path,
+                                                        label = ws.label,
+                                                        workspaceIdentity = ws.workspaceIdentity,
+                                                    ),
+                                                )
+                                                workspaceSwitching = false
+                                                if (failure != null) {
+                                                    workspaceSwitchError = failure
+                                                } else {
+                                                    workspaceSwitchOpen = false
+                                                }
+                                            }
+                                        }
+                                        .padding(BiuZSpacing.xs)
+                                        .testTag("04-workspace-opt-${ws.path}"),
+                                )
+                            }
+                            workspaceSwitchError?.let {
+                                Text(text = it, fontSize = 11.sp, color = BiuZRed)
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(
+                            onClick = { workspaceSwitchOpen = false },
+                        ) { Text("关闭") }
+                    },
+                )
+            }
+            Spacer(Modifier.height(BiuZSpacing.xs))
+            // G39 工作区胶囊行（当前工作区 + 展开箭头；未连接不渲染）
+            if (mode is AppSession.Mode.Connected) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(BiuZRadius.medium)
+                        .clickable(enabled = !workspaceSwitching) { workspaceSwitchOpen = true }
+                        .padding(vertical = BiuZSpacing.xs)
+                        .testTag("04-workspace-chip"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = "📁", fontSize = 12.sp)
+                    Spacer(Modifier.size(BiuZSpacing.xs))
+                    Text(
+                        text = currentWorkspace?.path?.split("/")?.lastOrNull { it.isNotEmpty() }
+                            ?: currentWorkspace?.path
+                            ?: "",
+                        style = TextStyle(fontSize = 12.sp),
+                        color = BiuZText2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Text(
+                        text = if (workspaceSwitching) "切换中…" else "⌃⌄",
+                        fontSize = 10.sp,
+                        color = BiuZText3,
+                    )
+                }
+            }
+            // R1 待批入口行（pendingApprovalCount 合计 > 0 才渲染——跨会话审批收件箱）
+            val totalPending = remember(conversations) {
+                conversations.sumOf { it.pendingApprovalCount }
+            }
+            if (totalPending > 0) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(BiuZRadius.medium)
+                        .clickable(onClick = onOpenPendingApprovals)
+                        .padding(vertical = BiuZSpacing.xs)
+                        .testTag("04-act-pending-approvals"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = "🖊", fontSize = 12.sp, color = BiuZOrange)
+                    Spacer(Modifier.size(BiuZSpacing.xs))
+                    Text(
+                        text = "待批",
+                        style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                        color = BiuZText,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = "$totalPending 项待处理 ⌄",
+                        fontSize = 11.sp,
+                        color = BiuZOrange,
+                    )
+                }
             }
             Spacer(Modifier.height(BiuZSpacing.xs))
             // 新建任务行（web task-new-button：32dp 高 / padding 0 10 / gap 8 / 14sp）
@@ -528,7 +685,97 @@ fun SessionsScreen(
                             LazyColumn(modifier = Modifier.weight(1f)) {
                                 sections.forEach { section ->
                                     item(key = "header-${section.title}-${section.rows.firstOrNull()?.id ?: ""}") {
-                                        SessionSectionHeader(section.title)
+                                        // G36 组色（web TaskGroupedView.tsx:244-245 同构——
+                                        // 色点 + 点按循环 7 档 → save {id,color} → 重拉 read；
+                                        // 触屏简化交互：菜单式换色弹层成本高，循环即达意）
+                                        val groupEntry = taskGroups?.groups
+                                            ?.firstOrNull { it.title == section.title }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        // G36 组色循环（保留）
+                                                        val entry = groupEntry ?: return@combinedClickable
+                                                        scope.launch {
+                                                            runCatching {
+                                                                val wsTarget = session.storeSurface.value.workspace
+                                                                session.saveTaskGroup(
+                                                                    wsTarget?.path, wsTarget?.workspaceIdentity,
+                                                                    id = entry.id,
+                                                                    color = nextGroupColor(entry.color),
+                                                                )
+                                                            }
+                                                            taskGroups = null // 触发重拉
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        // G36 组置顶排序（move 组节点——无 anchor
+                                                        // = 顶层 index 0；wire 取证见 RemoteTaskGroups）
+                                                        val entry = groupEntry ?: return@combinedClickable
+                                                        scope.launch {
+                                                            runCatching {
+                                                                val wsTarget = session.storeSurface.value.workspace
+                                                                session.pinTaskGroupToTop(
+                                                                    wsTarget?.path, wsTarget?.workspaceIdentity,
+                                                                    groupId = entry.id,
+                                                                )
+                                                            }
+                                                            taskGroups = null
+                                                        }
+                                                    },
+                                                )
+                                                .testTag("04-group-color-header"),
+                                        ) {
+                                            groupEntry?.color?.takeIf { it.isNotEmpty() }?.let { color ->
+                                                androidx.compose.foundation.Canvas(
+                                                    modifier = Modifier.size(8.dp),
+                                                ) {
+                                                    drawCircle(
+                                                        color = taskGroupColorValue(color),
+                                                    )
+                                                }
+                                                Spacer(Modifier.size(BiuZSpacing.xs))
+                                            }
+                                            Text(
+                                                text = section.title,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = BiuZText2,
+                                            )
+                                            // G36 组排序「上移一位」（anchor = order 前驱组；
+                                            // 首组无语义不渲染——store.moveTaskGroupUpOne）
+                                            val entryId = groupEntry?.id
+                                            val structure = taskGroups
+                                            val predecessorKey = if (entryId != null && structure != null) {
+                                                structure.groupPredecessorKey(entryId)
+                                            } else null
+                                            if (predecessorKey != null) {
+                                                val anchorKey: String =
+                                                    requireNotNull(predecessorKey)
+                                                Text(
+                                                    text = "↑",
+                                                    fontSize = 12.sp,
+                                                    color = BiuZText3,
+                                                    modifier = Modifier
+                                                        .clickable {
+                                                            scope.launch {
+                                                                runCatching {
+                                                                    val wsTarget = session.storeSurface.value.workspace
+                                                                    session.moveTaskGroupUpOne(
+                                                                        wsTarget?.path, wsTarget?.workspaceIdentity,
+                                                                        groupId = requireNotNull(entryId),
+                                                                        beforeGroupKey = anchorKey,
+                                                                    )
+                                                                }
+                                                                taskGroups = null
+                                                            }
+                                                        }
+                                                        .padding(horizontal = BiuZSpacing.xs)
+                                                        .testTag("04-group-move-up"),
+                                                )
+                                            }
+                                        }
                                     }
                                     items(section.rows, key = { it.id }) { conversation ->
                                         SessionRow(
@@ -629,6 +876,22 @@ fun SessionsScreen(
                                     renderConversationRow(conversation, false)
                                 }
                             }
+                            // G34 置顶溢出「显示更多/收起」（web taskList.showMore/showLess 同语义）
+                            if (pinnedOverflowCount(rows) > 0 && viewMode != ListViewMode.PROJECTS) {
+                                item(key = "pinned-more") {
+                                    Text(
+                                        text = if (showAllPinned) "收起置顶"
+                                        else "显示更多置顶（${pinnedOverflowCount(rows)}）",
+                                        fontSize = 13.sp,
+                                        color = BiuZText3,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showAllPinned = !showAllPinned }
+                                            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.sm)
+                                            .testTag("04-act-pinned-more"),
+                                    )
+                                }
+                            }
                             item { Spacer(Modifier.height(BiuZSpacing.sm)) }
                         }
                     }
@@ -642,6 +905,12 @@ fun SessionsScreen(
             // 并把组间距离提到 xl（24dp）——与「置顶/项目」的分区间隔同档。
             Spacer(Modifier.height(BiuZSpacing.lg))
             SessionSectionHeader(stringResource(R.string.sessions_tools_group))
+            // G38 统一搜索入口（web ⌘K CommandCenter 移动对位；会话+文件跨区检索）
+            SessionsToolsRow(
+                label = "统一搜索",
+                tag = "04-act-command-center",
+                onClick = onOpenCommandCenter,
+            )
             SessionsToolsRow(
                 label = stringResource(R.string.sessions_open_files),
                 tag = "04-act-open-files",
@@ -970,6 +1239,8 @@ private fun SessionRow(
     onOpen: () -> Unit,
     onArchive: (() -> Unit)? = null,
     onMarkUnread: (() -> Unit)? = null,
+    /** G33 徽标点按回调（null = 不可暂停——徽标退化为纯指示） */
+    onSnoozeCountdown: (() -> Unit)? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     // 会话行 = 报告 §4.4 第 3 类（行）：按压实，无触觉
@@ -1021,6 +1292,59 @@ private fun SessionRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
+                // G33 行内待批徽标（web TaskInteractionBadge 移动端同构；D007 行密度
+                // 裁决不覆盖它——web 行本身就有该徽标，属对齐而非新增）
+                val badgeKind = conversation.pendingInteractionKind
+                if (badgeKind == "permission" || badgeKind == "userInput") {
+                    if (conversation.pendingApprovalCount > 0) {
+                        PendingInteractionBadge(
+                            kind = badgeKind,
+                            deadlineMs = conversation.pendingInteractionDeadline,
+                            visibleAtMs = conversation.pendingInteractionVisibleAt,
+                            canSnooze = onSnoozeCountdown != null && conversation.pendingInteractionSnoozedAt == null,
+                            onSnooze = onSnoozeCountdown,
+                        )
+                        Spacer(Modifier.size(BiuZSpacing.xs))
+                    }
+                }
+                // G40 行元数据身份（web TaskListItem.tsx:759-779 同位——时间前；
+                // cron ⏰ / off-peak 🌙 两态互斥，不能占左侧状态槽）
+                if (conversation.isCronTask || conversation.isOffPeakTask) {
+                    Text(
+                        text = if (conversation.isCronTask) "⏰" else "🌙",
+                        fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.size(BiuZSpacing.xs))
+                }
+                // G40 残面：worktree `<仓> · <桶>` 标签（web worktreeLabel.ts 同构——
+                // 切分隔符取末段/次末段；段数不足两段不显示）+ 远端设备名（仅显
+                // serverDisplayName，UUID 禁上屏——taskSourceAttribution.ts:19-24 同规）
+                conversation.worktreeRoot?.takeIf { it.isNotEmpty() }?.let { root ->
+                    val segments = root.split("/", "\\").filter { it.isNotEmpty() }
+                    if (segments.size >= 2) {
+                        Text(
+                            text = "${segments.last()} · ${segments[segments.size - 2]}",
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = BiuZText3,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("04-worktree-label"),
+                        )
+                        Spacer(Modifier.size(BiuZSpacing.xs))
+                    }
+                }
+                conversation.serverDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.let { device ->
+                    Text(
+                        text = device,
+                        fontSize = 10.sp,
+                        color = BiuZText3,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("04-device-label"),
+                    )
+                    Spacer(Modifier.size(BiuZSpacing.xs))
+                }
                 Spacer(Modifier.weight(1f))
                 if (timeLabel.isNotEmpty()) {
                     Text(
@@ -1276,4 +1600,84 @@ private fun ProjectNodeRow(
             color = BiuZText3,
         )
     }
+}
+
+// MARK: - G33 行内待批徽标（web TaskInteractionBadge.tsx 移动端同构，2026-11-25 与 iOS 同步）
+//
+// permission → 静态「待批」徽标不可暂停；userInput → 倒计时环 + 点按暂停
+// （snoozeInteractionAutoResolution；首次有效操作永久暂停，重复/迟到幂等 noop）。
+// 进度 = (deadline-now)/(deadline-visible)（web :44-58）；snoozed/静默期不画环。
+
+@Composable
+internal fun PendingInteractionBadge(
+    kind: String,
+    deadlineMs: Long?,
+    visibleAtMs: Long?,
+    canSnooze: Boolean,
+    onSnooze: (() -> Unit)?,
+) {
+    val tint = if (kind == "permission") BiuZOrange else BiuZSeal
+    val label = if (kind == "permission") "待批" else "提问"
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(tint.copy(alpha = BiuZAlpha.faint))
+            .clickable(enabled = canSnooze) { onSnooze?.invoke() }
+            .padding(horizontal = BiuZSpacing.xs, vertical = BiuZSpacing.xxs)
+            .testTag("04-badge-pending-$kind"),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            // 每秒重算（行本体不随秒重渲——进度环自持时钟）
+            if (deadlineMs != null && visibleAtMs != null && !canSnooze.not()) {
+                val nowState = remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        nowState.longValue = System.currentTimeMillis()
+                        kotlinx.coroutines.delay(1000)
+                    }
+                }
+                val span = deadlineMs - visibleAtMs
+                if (span > 0) {
+                    val nowMs = nowState.longValue
+                    if (nowMs >= visibleAtMs) {
+                        val progress = ((deadlineMs - nowMs).toDouble() / span).coerceIn(0.0, 1.0)
+                        androidx.compose.foundation.Canvas(modifier = Modifier.size(11.dp)) {
+                            drawCircle(color = BiuZBorder, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
+                            drawArc(
+                                color = tint,
+                                startAngle = -90f,
+                                sweepAngle = (360f * progress).toFloat(),
+                                useCenter = false,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round),
+                            )
+                        }
+                    }
+                }
+            }
+            Text(text = label, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = tint)
+        }
+    }
+}
+
+
+// MARK: - G36 分组组色（web TASK_GROUP_COLORS 逐字词表；2026-11-25 与 iOS 同步）
+
+/** 色词表顺序（web grouped/types.ts:12-20 TASK_GROUP_COLORS）。 */
+private val TASK_GROUP_COLOR_CYCLE = listOf("gray", "red", "orange", "yellow", "green", "blue", "purple")
+
+/** 点按循环下一色（当前色缺席 = 从 gray 起）。 */
+internal fun nextGroupColor(current: String?): String {
+    val index = TASK_GROUP_COLOR_CYCLE.indexOf(current)
+    return TASK_GROUP_COLOR_CYCLE[(index + 1).mod(TASK_GROUP_COLOR_CYCLE.size)]
+}
+
+/** 色词 → 渲染色（web TASK_GROUP_COLOR_CLASS 移动端近似映射）。 */
+internal fun taskGroupColorValue(raw: String): androidx.compose.ui.graphics.Color = when (raw) {
+    "red" -> androidx.compose.ui.graphics.Color(0xFFFDA4AF)
+    "orange" -> androidx.compose.ui.graphics.Color(0xFFFDBA74)
+    "yellow" -> androidx.compose.ui.graphics.Color(0xFFFCD34D)
+    "green" -> androidx.compose.ui.graphics.Color(0xFF6EE7B7)
+    "blue" -> androidx.compose.ui.graphics.Color(0xFF7DD3FC)
+    "purple" -> androidx.compose.ui.graphics.Color(0xFFC4B5FD)
+    else -> androidx.compose.ui.graphics.Color(0xFFD4D4D8)
 }

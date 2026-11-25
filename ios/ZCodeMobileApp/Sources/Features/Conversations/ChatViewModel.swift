@@ -6,16 +6,79 @@ enum QueueEditLockOwner {
     case other
 }
 
+/// 盖章停驻载荷（motion-spec：ACK 权威成功后卡面落印并停驻 700ms 再收卡）。
+/// 2026-11-25 从 ChatViewModel 嵌套提升为顶层：待批页（ApprovalSessionModel）与
+/// 会话页共用同一落印链路（design/design-spec.md §3.1）。
+struct StampHold {
+    let interaction: RemotePendingInteraction
+    let approved: Bool
+}
+
+/// 决议卡处理协议（2026-11-25 待批 tab 批2）：ChatView 四张决议卡与盖章 overlay
+/// 原先硬绑 ChatViewModel；抽本协议后会话页（ChatViewModel）与待批页
+/// （ApprovalSessionModel）共用同一套卡组件、决议命令与落印停驻，口径不分叉。
+/// 命令面与失败口径（U-5：未送达/拒绝如实回显、权威成功才落印）与 ChatViewModel
+/// 逐字同构，store 调用是唯一出口。
+@MainActor
+protocol InteractionDeciding: AnyObject {
+    /// 盖章停驻（id → 交互 + 印向；ApprovalStampOverlay 据此落印）
+    var stampHolds: [String: StampHold] { get }
+    /// 「稍后处理」反馈行（3s 自动清除）
+    var snoozeFeedback: String? { get }
+    /// 旧桌面端无 snooze 命令（回执宽容判定）→ 按钮降级纯关闭
+    var snoozeUnsupported: Bool { get }
+
+    /// G21：feedback = 拒绝时可选反馈原文（非空才携带 answer.freeText）
+    func decide(
+        _ interaction: RemotePendingInteraction, optionId: String, approved: Bool,
+        feedback: String?) async -> String?
+    func decidePlan(_ interaction: RemotePendingInteraction, action: String) async -> String?
+    func resolveUserInput(_ interaction: RemotePendingInteraction, answer: JSONValue) async -> String?
+    @discardableResult
+    func snoozeInteraction(_ interaction: RemotePendingInteraction) async -> String?
+    func dismissInteractionLocally(_ interaction: RemotePendingInteraction) async
+}
+
 @MainActor
 @Observable
-final class ChatViewModel {
+final class ChatViewModel: InteractionDeciding {
     let conversationID: String
     private let store: ConversationStore
 
     var conversation: Conversation?
     var messages: [ChatMessage] = []
-    var draft: String = ""
+    /// G50：草稿持久化（didSet 写 UserDefaults；web composerDraftStore 同构——
+    /// 正文空白即删键、附件不入草稿【上游裁决 composerDraftStore.ts:9-10】；
+    /// E2E reset 启动禁用防用例串扰）
+    var draft: String = "" {
+        didSet { Self.persistDraft(draft, conversationID: conversationID) }
+    }
     var isLoading = true
+
+    // MARK: G50 草稿持久化（键 zcode.composer.draft.v1.<conversationID>，值 = 草稿原文）
+
+    nonisolated static var draftPersistenceEnabled: Bool {
+        !ProcessInfo.processInfo.arguments.contains("-ZCodeE2EResetState")
+    }
+
+    nonisolated private static func draftKey(_ conversationID: String) -> String {
+        "zcode.composer.draft.v1.\(conversationID)"
+    }
+
+    nonisolated static func loadPersistedDraft(conversationID: String) -> String {
+        guard draftPersistenceEnabled else { return "" }
+        return UserDefaults.standard.string(forKey: draftKey(conversationID)) ?? ""
+    }
+
+    nonisolated static func persistDraft(_ text: String, conversationID: String) {
+        guard draftPersistenceEnabled else { return }
+        let key = draftKey(conversationID)
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(text, forKey: key)
+        }
+    }
 
     /// 3.17.2 输入预测 ghost hint（接在草稿后的续写灰字；nil = 无）。仅连接态 +
     /// Host 能力门 inputPrediction 开启时产生；点按采纳拼到 draft 尾部（不 trim）。
@@ -85,14 +148,16 @@ final class ChatViewModel {
     /// 盖章停驻（motion-spec：ACK 权威成功后卡面落印并停驻 700ms 再收卡）。
     /// id → 停驻中的交互 + 印向；refreshPendingInteractions 对「投影已撤、停驻
     /// 未满」的卡以本地副本顶住（snooze 遮罩同款口径），期满摘除 Task 收卡。
-    struct StampHold {
-        let interaction: RemotePendingInteraction
-        let approved: Bool
-    }
     var stampHolds: [String: StampHold] = [:]
 
     /// 运行时初始化态（3.16.2 snapshot.runtimeInitialization；nil = 旧桌面未投影）
     var runtimeInitialization: RuntimeInitializationInfo?
+
+    /// G24 工作区 MCP 待审核快照（state.workspaceMcpAdmission；nil/零 = 不渲染）
+    var workspaceMcpAdmission: WorkspaceMcpAdmissionState?
+    /// G24 「忽略」本地内存态（会话 id 集；web renderer reminderStates 同口径——
+    /// 不写 store 持久层、不改桌面态，进程内有效）
+    var mcpAdmissionDismissedIds: Set<String> = []
 
     /// 桌面 workflow 运行进度（要求 5 · 多 run：活 run 优先、stale 仲裁降级；
     /// 演示态运行中会话提供演示 run）
@@ -105,6 +170,8 @@ final class ChatViewModel {
     var planPanel: PlanPanelSummary?
     var backgroundWorks: [BackgroundWorkSummary] = []
     var subagentSessions: [SubagentSessionSummary] = []
+    /// G28 头像叠组数据源（v4 state.subagents 完整投影 running/ended）
+    var subagentProjection: SubagentProjectionState?
     /// 本轮 Hook 汇总（`hookInvocation` 行派生；行为与桌面同口径不进消息流，只给详情入口）
     var hookInvocations: [HookInvocationInfo] = []
 
@@ -124,8 +191,60 @@ final class ChatViewModel {
         planPanel = await store.planPanel(in: conversationID)
         backgroundWorks = await store.backgroundWorks(in: conversationID)
         subagentSessions = await store.subagentSessions(in: conversationID)
+        // G28：头像叠组数据源（subagentProjection running/ended——ended 的 status 词表
+        // success/failed/cancelled 是头像徽标判定的关键，SessionSummary 投影没有）
+        subagentProjection = await store.subagentProjection(in: conversationID)
         hookInvocations = await store.hookInvocations(in: conversationID)
         queueInfo = await store.queueInfo(in: conversationID)
+    }
+
+    /// G28 头像叠组（web ConversationStatusPanel.tsx:1312-1399 简化同构——Android
+    /// ActivitySummaryModel avatarAgents 同规则移植；最多 3 枚由 UI take(3)）：
+    /// ① 运行中的子代理全部入列（Running）；
+    /// ② 有运行项或整体完成 → 追加成功结束的子代理（Done）；
+    /// ③ 否则（全结束且失败/停止）→ 失败标 Failed、取消标 Done。
+    /// workflowChildren（工作流子代理）排除不在本函数做——iOS subagentProjection.ended
+    /// 已不含工作流 child（store 侧 subagentProjection 解析同 Android 口径）。
+    var avatarSubagents: [SubagentAvatarItem] {
+        var items: [SubagentAvatarItem] = []
+        let runningList = subagentProjection?.running ?? []
+        let endedList = subagentProjection?.ended ?? []
+        let runningWorks = backgroundWorks.filter(\.isRunning)
+        for sub in runningList {
+            items.append(SubagentAvatarItem(
+                childSessionId: sub.childSessionId,
+                name: sub.subagentType,
+                status: .running,
+                result: nil))
+        }
+        let overallFailed = subagentSessions.contains { $0.status == .failed }
+            || backgroundWorks.contains { $0.rawStatus == "failed" }
+        if !runningWorks.isEmpty || !overallFailed {
+            for sub in endedList where sub.status == "success" {
+                items.append(SubagentAvatarItem(
+                    childSessionId: sub.childSessionId,
+                    name: sub.subagentType,
+                    status: .done,
+                    result: .completed))
+            }
+        } else {
+            for sub in endedList {
+                if overallFailed, sub.status == "failed" {
+                    items.append(SubagentAvatarItem(
+                        childSessionId: sub.childSessionId,
+                        name: sub.subagentType,
+                        status: .failed,
+                        result: .failed))
+                } else if !overallFailed, sub.status == "cancelled" {
+                    items.append(SubagentAvatarItem(
+                        childSessionId: sub.childSessionId,
+                        name: sub.subagentType,
+                        status: .done,
+                        result: .stopped))
+                }
+            }
+        }
+        return items
     }
 
     /// 目标暂停/继续（下发后随 state.updated 回流刷新；回执转人类可读反馈，nil = 成功静默）
@@ -690,6 +809,14 @@ final class ChatViewModel {
         }
     }
 
+    /// G13 队列拖排序（拖起项移到落点行之前；beforeId nil = 移到队尾——上游
+    /// reorderQueueItem {queueItemId, beforeQueueItemId} CAS，sendCASWithRetry 同门）
+    func reorderQueueItem(_ queueItemId: String, beforeQueueItemId: String?) async -> String? {
+        await queueAction("reorder") {
+            await store.reorderQueueItem(conversationID, queueItemId: queueItemId, beforeQueueItemId: beforeQueueItemId)
+        }
+    }
+
     func setAutoDrain(_ enabled: Bool) async -> String? {
         await queueAction("autoDrain") { await store.setAutoDrain(conversationID, enabled: enabled) }
     }
@@ -707,6 +834,34 @@ final class ChatViewModel {
         recordControlDiag("resume", workId: workId, ack: ack)
         scheduleRunRefresh()
         return Self.controlFeedback(ack, verb: "resume")
+    }
+
+    // MARK: G25 工作流 run 保存（web 完成卡「保存/再次运行」移动端同构，2026-11-25）
+
+    /// 这次 run 是否已有对应已保存工作流（nil = 未保存/查询失败——失败不挡保存）
+    func savedWorkflowForRun(runId: String) async -> WorkflowRunSavedRef? {
+        await store.savedWorkflowForRun(in: conversationID, runId: runId)
+    }
+
+    /// 从 run 保存工作流；返回错误文案（nil = 成功，含 targetExists 由调用方转覆盖确认）
+    func saveWorkflowRun(
+        runId: String, name: String, description: String, scope: String, overwrite: Bool
+    ) async -> WorkflowRunSaveOutcome {
+        await store.saveWorkflowRun(
+            in: conversationID, runId: runId, name: name, description: description,
+            scope: scope, overwrite: overwrite)
+    }
+
+    /// 再次运行（复用既有 startSavedWorkflow 信封命令；返回错误文案，nil = 成功）
+    func rerunSavedWorkflow(name: String, scope: String) async -> String? {
+        let ack = await store.startSavedWorkflow(nil, name: name, scope: scope, args: nil)
+        recordControlDiag("rerun", workId: name, ack: ack)
+        return Self.controlFeedback(ack, verb: "rerun")
+    }
+
+    /// G27 后台 bash 输出快照（works 面板「输出」下钻数据源；nil = 失败）
+    func backgroundBashOutput(workId: String) async -> BackgroundBashOutputInfo? {
+        await store.backgroundBashOutput(in: conversationID, workId: workId)
     }
 
     /// 命令回执 → 人类可读反馈（nil = 成功）。经 CommandAck 统一解析（六态词表 +
@@ -762,6 +917,9 @@ final class ChatViewModel {
         self.store = store
         self.conversationID = conversationID
         self.uploads = AttachmentUploadService(store: store, sessionID: conversationID)
+        // G50 草稿持久化恢复（web composerDraftStore 同构——进程死/切会话草稿不丢；
+        // E2E reset 启动禁用防用例间串扰）
+        self.draft = Self.loadPersistedDraft(conversationID: conversationID)
         // P1-2 模式偏好恢复（per-conversation → 全局默认；协作模式无桌面读面，
         // 首屏即本机偏好，点按切换才真实下发）
         self.collaborationMode = ComposerModeStore.collaborationMode(for: conversationID)
@@ -1066,6 +1224,8 @@ final class ChatViewModel {
         }
         pendingInteractions = merged
         runtimeInitialization = await store.runtimeInitialization(in: conversationID)
+        // G24：MCP 准入快照随交互刷新同步（读取面在 store，快照/state.updated 双路到达）
+        workspaceMcpAdmission = await store.workspaceMcpAdmission(in: conversationID)
     }
 
     /// 盖章停驻窗口（E2E 验证钩子 -ZCodeE2EStampHold：拉长到 5s 供 XCUITest
@@ -1096,16 +1256,24 @@ final class ChatViewModel {
 
     /// 审批卡决议（A-3：权限族 answer={optionId}——四族 allowOnce/allowAlways/
     /// rejectOnce/rejectAlways 由 UI 按服务端 options 组合拼好传入）。
+    /// G21：feedback = 拒绝时可选反馈原文（非空才携带 answer.freeText——键名权威
+    /// command.ts:317【实证·上游仓】；web PermissionDialog.tsx:680-703 同映射）。
     /// 返回失败文案（nil = 成功/已受理；未送达与拒绝均如实透出，U-5 同口径）。
     /// 权威成功 → 盖章停驻（朱印「照办」/墨印「不准」，motion-spec R-5）
     @discardableResult
     func decide(
-        _ interaction: RemotePendingInteraction, optionId: String, approved: Bool
+        _ interaction: RemotePendingInteraction, optionId: String, approved: Bool,
+        feedback: String? = nil
     ) async -> String? {
+        var answer: [String: JSONValue] = ["optionId": .string(optionId)]
+        if let feedback = feedback?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !feedback.isEmpty {
+            answer["freeText"] = .string(feedback)
+        }
         let ack = await store.resolveInteractionRaw(
             conversationID,
             interactionId: interaction.id,
-            answer: .object(["optionId": .string(optionId)]))
+            answer: .object(answer))
         recordControlDiag("resolve optionId=\(optionId)", workId: interaction.id, ack: ack)
         beginStampIfAuthoritative(interaction, ack: ack, approved: approved)
         await refreshPendingInteractions()

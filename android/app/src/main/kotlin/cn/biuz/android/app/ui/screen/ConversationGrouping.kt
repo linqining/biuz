@@ -138,8 +138,24 @@ internal fun projectSections(
 }
 
 /** 最近更新：单列倒序，不做日期分桶（web `ProjectTaskRows kind=timeline`）。 */
-internal fun timelineSections(rows: List<Conversation>, pinnedTitle: String, title: String): List<ListSection> {
-    val pinned = rows.filter { it.isPinned }.sortedByDescending { it.updatedAt }
+/**
+ * G34 置顶 20 上限（web ProjectTaskRows.tsx:112 `kind === "pinned" ? (showAll ?
+ * ordered : ordered.slice(0, 20))` 同语义；2026-11-25）：pinnedLimit=null = 全量
+ * （「显示更多」翻页后）。
+ */
+internal const val PINNED_PAGE_SIZE = 20
+
+internal fun pinnedOverflowCount(rows: List<Conversation>, limit: Int = PINNED_PAGE_SIZE): Int =
+    rows.count { it.isPinned } - limit
+
+internal fun timelineSections(
+    rows: List<Conversation>,
+    pinnedTitle: String,
+    title: String,
+    pinnedLimit: Int? = PINNED_PAGE_SIZE,
+): List<ListSection> {
+    val allPinned = rows.filter { it.isPinned }.sortedByDescending { it.updatedAt }
+    val pinned = if (pinnedLimit != null) allPinned.take(pinnedLimit) else allPinned
     val rest = rows.filter { !it.isPinned }.sortedByDescending { it.updatedAt }
     val out = ArrayList<ListSection>()
     if (pinned.isNotEmpty()) out.add(ListSection(pinnedTitle, pinned))

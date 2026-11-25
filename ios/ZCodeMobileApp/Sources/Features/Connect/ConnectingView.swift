@@ -4,41 +4,69 @@ import SwiftUI
 
 struct ConnectingView: View {
     @Environment(AppSession.self) private var session
+    @Environment(AppSettingsModel.self) private var appSettings
     var onCancel: () -> Void
 
+    /// 2026-11-25 UIUX 审查（用户「这个根本没必要单独一个页面，过于复杂了」「取消链接
+    /// 有什么用…转圈还是绿色」）——L2 从「五步进度全屏页 + 取消按钮」收敛为**一张紧凑
+    /// 状态卡**：品牌色转圈 + 正在连接〈电脑名〉+ 一行人话状态 + 细进度条；五步卡与
+    /// connect.log 整体下沉开发者模式（排障工具不是界面）。撤底部「取消连接」大按钮
+    /// （与顶栏 ✕ 重复；连接失败有 L3 兜底），仅保留顶栏 ✕ 一个退出点。
     var body: some View {
         ZStack {
             T.bg.ignoresSafeArea()
             VStack(spacing: 0) {
                 header
-                ScrollView {
-                    VStack(spacing: 14) {
-                        targetHeader
-                        stepsCard
-                        logTerminal
+                Spacer(minLength: 24)
+                statusCard
+                Spacer(minLength: 12)
+                if appSettings.effectiveDeveloperMode {
+                    ScrollView {
+                        VStack(spacing: 14) {
+                            stepsCard
+                            logTerminal
+                        }
+                        .padding(.horizontal, T.sp4)
+                        .padding(.top, T.sp2)
+                        .padding(.bottom, 12)
                     }
-                    .padding(.horizontal, T.sp4)
-                    .padding(.top, T.sp2)
+                    .scrollIndicators(.hidden)
                 }
-                .scrollIndicators(.hidden)
-                Button(action: onCancel) {
-                    Label(String(localized: "取消连接"), systemImage: "xmark")
-                        .font(T.font(15, .semibold))
-                        .foregroundColor(T.text)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
-                }
-                .accessibilityIdentifier("l2-act-cancel")
-                .padding(.horizontal, T.sp4)
-                .padding(.bottom, 12)
             }
         }
+    }
+
+    /// 紧凑状态卡（普通用户唯一可见的 L2 内容）
+    private var statusCard: some View {
+        VStack(spacing: 14) {
+            SpinnerView(color: T.seal, size: 26)
+            VStack(spacing: 4) {
+                Text(String(localized: "正在连接 \(displayHost)"))
+                    .font(T.font(17, .heavy))
+                    .foregroundColor(T.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text(subtitle)
+                    .font(T.font(13))
+                    .foregroundColor(T.text3)
+                    .multilineTextAlignment(.center)
+            }
+            ThinProgressBar(progress: progress.fraction, height: 3, tint: T.seal)
+                .frame(maxWidth: 180)
+        }
+        .padding(.horizontal, T.sp6)
+        .padding(.vertical, 22)
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rL))
+        .overlay(RoundedRectangle(cornerRadius: T.rL).stroke(T.border, lineWidth: 1))
+        .padding(.horizontal, T.sp4)
+        .accessibilityIdentifier("l2-card-status")
     }
 
     private var header: some View {
         HStack {
             Text(String(localized: "连接中"))
-                .font(T.font(16.5, .bold))
+                .font(T.font(17, .bold))
                 .foregroundColor(T.text)
             Spacer()
             Button(action: onCancel) {
@@ -53,31 +81,6 @@ struct ConnectingView: View {
         .padding(.horizontal, T.sp3)
     }
 
-    private var targetHeader: some View {
-        HStack(spacing: 13) {
-            Image(systemName: "laptopcomputer.and.iphone")
-                .font(.system(size: 20))
-                .foregroundColor(T.accent)
-                .frame(width: 52, height: 52)
-                .background(T.accentDim)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-            VStack(alignment: .leading, spacing: 3) {
-                // 头部时序：首次连接以 host:port 占位，server-info 返回后升级为名称
-                Text(String(localized: "正在连接 \(displayHost)"))
-                    .font(T.font(15, .heavy))
-                    .foregroundColor(T.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Text(subtitle)
-                    .font(T.font(11))
-                    .foregroundColor(T.text3)
-            }
-            Spacer()
-            StatusPill(text: String(localized: "连接中"), kind: .run)
-        }
-        .padding(.vertical, 4)
-    }
-
     private var displayHost: String {
         if let server = session.savedServer {
             return server.displayName
@@ -86,13 +89,19 @@ struct ConnectingView: View {
     }
 
     private var subtitle: String {
-        if session.savedServer?.relay != nil {
-            return session.connection.serverInfo.map { _ in
-                String(localized: "云端中继 · auth 握手完成 · 桥与订阅建立中")
-            } ?? String(localized: "云中继直连 wss · auth 握手与桥建立中")
+        // R5 去技术化：普通态只说人话（连接中/已确认桌面端，正在建立通道）；
+        // 技术副语（auth 握手 / wss / server-info）收进开发者模式
+        if appSettings.effectiveDeveloperMode {
+            if session.savedServer?.relay != nil {
+                return session.connection.serverInfo.map { _ in
+                    String(localized: "云端中继 · auth 握手完成 · 桥与订阅建立中")
+                } ?? String(localized: "云中继直连 wss · auth 握手与桥建立中")
+            }
+            return session.connection.serverInfo.map { _ in String(localized: "server-info 已返回 · 正在建立会话") }
+                ?? String(localized: "首次连接 · 名称待 server-info 返回后显示")
         }
-        return session.connection.serverInfo.map { _ in String(localized: "server-info 已返回 · 正在建立会话") }
-            ?? String(localized: "首次连接 · 名称待 server-info 返回后显示")
+        return session.connection.serverInfo.map { _ in String(localized: "已找到桌面端 · 正在建立连接") }
+            ?? String(localized: "正在寻找桌面端…")
     }
 
     private var progress: ConnectProgress {
@@ -107,40 +116,49 @@ struct ConnectingView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 HStack(spacing: 8) {
-                    Circle().fill(T.blue).frame(width: 7, height: 7)
+                    Circle().fill(T.text3).frame(width: 7, height: 7)
                     Text(String(localized: "连接进度 · \(progress.completedCount + progress.runningCount)/5"))
                         .font(T.font(13, .bold))
                         .foregroundColor(T.text2)
                 }
                 Spacer()
-                ThinProgressBar(progress: progress.fraction, height: 4, tint: T.blue)
+                ThinProgressBar(progress: progress.fraction, height: 4, tint: T.text3)
                     .frame(width: 120)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
 
-            stepRow(id: "l2-step-discover", name: String(localized: "发现服务"),
-                    detail: "GET /api/server-info", state: progress.discover)
+            // R5 去技术化（2026-11-25）：步骤名恒人话（四段：找到电脑/验证身份/建立
+            // 通道/准备就绪）；技术 detail 行（RPC 名/URL/令牌参数）与运行 meta 仅
+            // 开发者模式显示（Android D018 已裁决同构，两端对齐）
+            stepRow(id: "l2-step-discover", name: String(localized: "找到电脑"),
+                    detail: devDetail("GET /api/server-info"), state: progress.discover)
             stepRow(id: authRequiredFree ? "l2-n-step-auth" : "l2-step-auth",
                     name: authRequiredFree ? String(localized: "免鉴权") : String(localized: "校验访问令牌"),
                     detail: authRequiredFree
-                        ? String(localized: "--no-token · authRequired=false · 不校验令牌")
-                        : "?token=*** · authRequired=true",
+                        ? devDetail(String(localized: "--no-token · authRequired=false · 不校验令牌"))
+                        : devDetail("?token=*** · authRequired=true"),
                     state: progress.auth)
-            stepRow(id: "l2-step-ws", name: String(localized: "建立 WebSocket"),
-                    detail: "\(session.savedServer?.wsBaseURL ?? "")/ws · web-remote-replayable",
+            stepRow(id: "l2-step-ws", name: String(localized: "建立连接通道"),
+                    detail: devDetail("\(session.savedServer?.wsBaseURL ?? "")/ws · web-remote-replayable"),
                     state: progress.websocket)
-            stepRow(id: "l2-step-handshake", name: String(localized: "协议握手 v4"),
-                    detail: "helloConversationV4 · clientKind=mobileApp",
+            stepRow(id: "l2-step-handshake", name: String(localized: "与桌面端握手"),
+                    detail: devDetail("helloConversationV4 · clientKind=mobileApp"),
                     state: progress.handshake)
-            stepRow(id: "l2-step-workspace", name: String(localized: "载入工作区"),
-                    detail: "workspaces[0] · \(session.connection.workspace?.path ?? "…")",
+            stepRow(id: "l2-step-workspace", name: String(localized: "准备就绪"),
+                    detail: devDetail("workspaces[0] · \(session.connection.workspace?.path ?? "…")"),
                     state: progress.workspace)
         }
         .background(T.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: T.rM))
         .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.border, lineWidth: 1))
         .accessibilityIdentifier("l2-card-steps")
+    }
+
+    /// 步骤 detail 行（R5）：开发者模式显原文，普通态返回空串（行渲染对空 detail
+    /// 只显步骤名——stepRow 的 Text(detail) 空串不占位）
+    private func devDetail(_ technical: String) -> String {
+        appSettings.effectiveDeveloperMode ? technical : ""
     }
 
     private func stepRow(id: String, name: String, detail: String, state: ConnectStepState) -> some View {
@@ -171,7 +189,7 @@ struct ConnectingView: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(name)
-                    .font(T.font(13.5, state.phase == .pending ? .medium : .semibold))
+                    .font(T.font(13, state.phase == .pending ? .medium : .semibold))
                     .foregroundColor(state.phase == .pending ? T.text3 : T.text)
                 Text(detail)
                     .font(T.mono(10.5))
@@ -180,7 +198,8 @@ struct ConnectingView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            if !state.meta.isEmpty {
+            // 运行 meta（R5）：技术细节仅开发者模式（普通态运行中只给省略号）
+            if !state.meta.isEmpty, appSettings.effectiveDeveloperMode {
                 Text(state.meta)
                     .font(T.mono(10.5))
                     .foregroundColor(T.text3)
@@ -278,7 +297,7 @@ struct ConnectFailureView: View {
                     }
                     Spacer()
                     Text(String(localized: "连接失败"))
-                        .font(T.font(16.5, .bold))
+                        .font(T.font(17, .bold))
                         .foregroundColor(T.text)
                     Spacer()
                     Color.clear.frame(width: 44, height: 44)
@@ -287,14 +306,19 @@ struct ConnectFailureView: View {
                     VStack(spacing: T.sp3) {
                         errorCard
                         recoveryActions
-                        comparisonList
-                        deleteButton
-                        Text(String(localized: "令牌随桌面进程存活 · 删除将同时清除 Keychain 中的令牌\n请仅在可信局域网使用 · wss:// 需自备反向代理"))
-                            .font(T.font(10.5))
-                            .foregroundColor(T.text3)
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(3)
-                            .padding(.bottom, 10)
+                        // R5 去技术化（2026-11-25，对齐 Android D018）：排查对照表 /
+                        // 删除记录 / Keychain·反向代理页脚全部收进开发者模式——
+                        // 普通失败页 = 一行结论 + 一句话说明 + 恢复按钮
+                        if settings.effectiveDeveloperMode {
+                            comparisonList
+                            deleteButton
+                            Text(String(localized: "令牌随桌面进程存活 · 删除将同时清除 Keychain 中的令牌\n请仅在可信局域网使用 · wss:// 需自备反向代理"))
+                                .font(T.font(10.5))
+                                .foregroundColor(T.text3)
+                                .multilineTextAlignment(.center)
+                                .lineSpacing(3)
+                                .padding(.bottom, 10)
+                        }
                     }
                     .padding(.horizontal, T.sp4)
                     .padding(.top, T.sp1)
@@ -345,19 +369,23 @@ struct ConnectFailureView: View {
                     Text(error.headline)
                         .font(T.font(15.5, .bold))
                         .foregroundColor(T.text)
-                    HStack(spacing: 8) {
-                        Text(error.codeLine)
-                            .font(T.mono(11))
-                            .foregroundColor(T.red)
-                            .padding(.horizontal, T.sp2)
-                            .padding(.vertical, 3)
-                            .background(T.redDim)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .accessibilityIdentifier("l3-err-code")
-                        if !server.token.isEmpty {
-                            Text("token=\(OAuthCredentialStore.mask(server.token))")
-                                .font(T.mono(10.5))
-                                .foregroundColor(T.text3)
+                    // R5 去技术化：codeLine / token= 掩码行仅开发者模式（普通态 =
+                    // headline + 说明文字，错误原文在诊断导出可查）
+                    if settings.effectiveDeveloperMode {
+                        HStack(spacing: 8) {
+                            Text(error.codeLine)
+                                .font(T.mono(11))
+                                .foregroundColor(T.red)
+                                .padding(.horizontal, T.sp2)
+                                .padding(.vertical, 3)
+                                .background(T.redDim)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .accessibilityIdentifier("l3-err-code")
+                            if !server.token.isEmpty {
+                                Text("token=\(OAuthCredentialStore.mask(server.token))")
+                                    .font(T.mono(10.5))
+                                    .foregroundColor(T.text3)
+                            }
                         }
                     }
                 }
@@ -476,7 +504,7 @@ struct ConnectFailureView: View {
                 row(id: "l3-row-timeout", icon: "wifi", tint: T.orange,
                     title: String(localized: "超时 · 无法连接"),
                     detail: String(localized: "同一局域网？zcode --web 运行中？本地网络权限已允许（被拒时请求静默失败）→ 重试"))
-                row(id: "l3-row-protocol", icon: "square.stack.3d.up", tint: T.violet,
+                row(id: "l3-row-protocol", icon: "square.stack.3d.up", tint: T.seal,
                     title: String(localized: "协议版本不匹配"),
                     detail: String(localized: "需 remote v1 / v4 wire v3 → 升级一端"))
                 row(id: "l3-row-empty-ws", icon: "folder", tint: T.text2,

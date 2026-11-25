@@ -10,9 +10,10 @@ import SwiftUI
 // 「云端沙盒 / E2E-Relay-Mac」、test12 以 label == 'low' 匹配思考档——目标/思考行
 // detail 必须为空、选中态用符号图不用文字。
 
-/// 面板档位（宿主各持 options 装配器，本枚举只承载标题/页脚/触发标签）
+/// 面板档位（宿主各持 options 装配器，本枚举只承载标题/页脚/触发标签）。
+/// 2026-11-25 批4：模型迁二级选择器 ModelPickerSheet，本枚举不再承载 .model。
 enum ComposerSheetKind: String, Identifiable {
-    case collaboration, delivery, target, model, thought
+    case collaboration, delivery, target, thought
     var id: String { rawValue }
 
     var title: String {
@@ -20,7 +21,6 @@ enum ComposerSheetKind: String, Identifiable {
         case .collaboration: return String(localized: "协作模式")
         case .delivery: return String(localized: "投递模式")
         case .target: return String(localized: "执行目标")
-        case .model: return String(localized: "模型")
         case .thought: return String(localized: "思考强度")
         }
     }
@@ -31,7 +31,7 @@ enum ComposerSheetKind: String, Identifiable {
         case .delivery: return String(localized: "引导模式桌面语义以实际执行行为为准")
         // G-012：如实标注——当前为发送偏好记录，无信封级目标路由
         case .target: return String(localized: "仅记录发送偏好 · 消息经当前连接的桌面端执行")
-        case .model, .thought: return nil
+        case .thought: return nil
         }
     }
 }

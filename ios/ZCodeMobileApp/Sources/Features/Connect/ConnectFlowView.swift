@@ -4,6 +4,9 @@ import SwiftUI
 
 struct ConnectFlowView: View {
     var initialEditTokenOnly = false
+    /// 登录页「扫码连接桌面端」直达扫码（2026-11-25 用户裁决：登录页两个入口并列，
+    /// 扫码不再绕 L1 点击——cover 起来即拉取景器，成功/失败落在本页 L2/L3）
+    var initialScan = false
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -90,6 +93,11 @@ struct ConnectFlowView: View {
             if initialEditTokenOnly, path.isEmpty {
                 path = [.manual(tokenFocusOnly: true)]
             }
+            // 登录页「扫码连接桌面端」直达：cover 起即拉取景器（无需再点 L1 主钮）
+            if initialScan, !showScanner {
+                scannerUpdateToken = false
+                showScanner = true
+            }
         }
     }
 }
@@ -117,7 +125,9 @@ struct ConnectHomeView: View {
                 if let link = clipboardLink { clipboardBanner(link) }
                 brand
                 if let server = session.savedServer { recentCard(server) }
-                PrimaryButton(title: "扫码连接桌面端", identifier: "l1-btn-scan", action: onScan)
+                // 2026-11-25 用户裁决：本页是唯一扫码入口（设置页重复入口已撤），
+                // 主 CTA 为品牌朱磦（seal/onSeal，与主印同色成对）
+                PrimaryButton(title: "扫码连接桌面端", identifier: "l1-btn-scan", sealStyle: true, action: onScan)
                 if developerMode {
                     Button(action: onManual) {
                         Label(String(localized: "手动输入地址连接"), systemImage: "server.rack")
@@ -169,41 +179,33 @@ struct ConnectHomeView: View {
         .padding(.vertical, 16)
     }
 
+    /// 剪贴板横幅（2026-11-25 UIUX 审查 B2：与最近卡/扫码主钮同权重的「第二张卡」
+    /// 降级为**一行 inline 提示**——无实底卡、无大按钮，链接摘要一行 + 「使用」文字键。
+    /// 层级：扫码主钮（唯一实底）> 最近卡（白卡）> 本条（纯文本）。
     private func clipboardBanner(_ link: ConnectURLParser.ParsedLink) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: T.sp2) {
             Image(systemName: link.isRelay ? "icloud" : "link")
-                .font(.system(size: 13))
-                .foregroundColor(T.accentText)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(link.isRelay ? String(localized: "检测到剪贴板中的云中继配对链接") : String(localized: "检测到剪贴板中的连接链接"))
-                    .font(T.font(12.5, .bold))
-                    .foregroundColor(T.text)
-                Text(link.isRelay ? link.relaySummary : String(localized: "\(link.directHost):\(link.directPort) · token 已就绪"))
-                    .font(T.mono(10.5))
-                    .foregroundColor(T.text3)
-                    .lineLimit(1)
-            }
-            Spacer()
+                .font(.system(size: 12))
+                .foregroundColor(T.text3)
+            Text(link.isRelay ? String(localized: "剪贴板里有云中继配对链接") : String(localized: "剪贴板里有连接链接"))
+                .font(T.font(12))
+                .foregroundColor(T.text2)
+                .lineLimit(1)
+            Spacer(minLength: 8)
             Button {
                 clipboardLink = nil
                 Task { await connectParsed(link) }
             } label: {
-                Text(String(localized: "一键填充"))
+                Text(String(localized: "使用"))
                     .font(T.font(13, .semibold))
-                    .foregroundColor(T.onAccent)
-                    .padding(.horizontal, T.sp4)
-                    .frame(minHeight: 44)
-                    .background(T.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .foregroundColor(T.seal)
+                    .frame(minWidth: 56, minHeight: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(PressableButtonStyle())
             .accessibilityIdentifier("l1-act-paste-fill")
         }
-        .padding(.leading, T.sp3)
-        .padding(.trailing, T.sp2)
-        .padding(.vertical, T.sp2)
-        .background(T.accentDim)
-        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.accent.opacity(0.35), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .padding(.horizontal, T.sp2)
         .accessibilityIdentifier("l1-banner-clipboard")
     }
 
@@ -394,7 +396,7 @@ struct ConnectHelpView: View {
                 .clipShape(RoundedRectangle(cornerRadius: T.rL))
                 .overlay(RoundedRectangle(cornerRadius: T.rL).stroke(T.border, lineWidth: 1))
 
-                noteCard(icon: "qrcode", tint: T.violet,
+                noteCard(icon: "qrcode", tint: T.seal,
                          attributed: String(localized: "桌面端出示二维码为后续版本能力（仓库暂无二维码渲染）；当前请复制终端打印的链接，回本页用「手动输入」粘贴或依赖剪贴板横幅。"))
                 noteCard(icon: "shield.lefthalf.filled", tint: T.orange,
                          attributed: String(localized: "首次连接系统将询问本地网络权限：「用于查找并连接同一局域网内的桌面端 Agent 服务（ZCode 社区版桌面端）」——拒绝后请求将静默失败，可随时在 设置 → 隐私与安全性 → 本地网络 中开启。"))

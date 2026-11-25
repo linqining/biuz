@@ -13,6 +13,10 @@ actor MockConversationStore: @preconcurrency ConversationStore {
 
     private var conversations: [Conversation] = []
     private var messages: [String: [ChatMessage]] = [:]
+    /// 待批演示投影（2026-11-25 三 tab 重构）：c2 携带 1 条 permission 交互，
+    /// 供「待批」tab 的收件箱/决议链路在演示态可验（决议 accepted 后随流撤卡）。
+    /// 仅 -ZCodeDemoData 装配（AGENTS §5-13：Mock 仅测试用途）。
+    private var pendingInteractions: [String: [RemotePendingInteraction]] = [:]
     private var continuations: [UUID: AsyncStream<ConversationEvent>.Continuation] = [:]
 
     init() {
@@ -36,6 +40,28 @@ actor MockConversationStore: @preconcurrency ConversationStore {
 
     func messages(in conversationID: String) async -> [ChatMessage] {
         messages[conversationID] ?? []
+    }
+
+    // MARK: 待批演示投影（R2 三 tab：收件箱/决议链路演示态载体）
+
+    func pendingInteractionList(in conversationID: String) async -> [RemotePendingInteraction] {
+        pendingInteractions[conversationID] ?? []
+    }
+
+    /// 决议（演示态）：accepted 语义——撤卡 + 行角标随流清零；optionId 不校验
+    /// （演示链路验的是「决议 → 撤卡 → 角标回落」，命令形状由远端实现与 E2E 替身承担）
+    func resolveInteractionRaw(_ conversationID: String, interactionId: String, answer: JSONValue) async -> JSONValue? {
+        guard var list = pendingInteractions[conversationID],
+              list.contains(where: { $0.id == interactionId }) else { return nil }
+        list.removeAll { $0.id == interactionId }
+        pendingInteractions[conversationID] = list
+        update(id: conversationID) { $0.pendingApprovalCount = list.count }
+        return .object(["status": .string("accepted")])
+    }
+
+    func snoozeInteractionAutoResolution(
+        _ conversationID: String, interactionId: String) async -> JSONValue? {
+        .object(["status": .string("accepted")])
     }
 
     /// G-021：演示态上下文用量随消息量动态增长（非硬编码常量），供会话流工具行展示
@@ -398,6 +424,19 @@ actor MockConversationStore: @preconcurrency ConversationStore {
         for index in conversations.indices {
             conversations[index].source = ["c3", "c4"].contains(conversations[index].id) ? "cloud" : "mac"
         }
+        // 待批演示投影（R2）：c2 一条 permission 交互 + 行角标 1——「待批」tab
+        // 收件箱/决议卡/落印链路在演示态的验收载体
+        conversations[1].pendingApprovalCount = 1
+        pendingInteractions["c2"] = [
+            RemotePendingInteraction(
+                id: "c2-perm-1", kind: "permission",
+                title: "Bash", command: "swift test --filter SessionStoreTests",
+                path: nil, impact: "将执行 1 条 shell 命令（工作区 ~/work/zcode-mobile）",
+                options: [
+                    RemoteInteractionOption(id: "allowOnce", label: "Allow once"),
+                    RemoteInteractionOption(id: "rejectOnce", label: "Reject"),
+                ])
+        ]
         // G-007 演示：运行中会话 c1/c5 携带 workflowActivity 演示值（行迷你轨道可验；
         // c3 无 workflowActivity → 不渲染占位）。c1 另带一条已完成 run 作 live-only
         // 过滤负向载体：行轨道只画运行中 run，已完成行不渲染（2026-10-08 用户口径）

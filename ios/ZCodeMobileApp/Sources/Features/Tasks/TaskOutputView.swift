@@ -140,7 +140,9 @@ struct TaskOutputView: View {
                 Divider().overlay(T.border)
             }
             if let usage = outputModel.tokenUsage {
-                let formatted = ByteCountFormatter.string(fromByteCount: Int64(usage.total), countStyle: .memory)
+                // token 是数量不是字节（清查 2026-11-25：ByteCountFormatter.memory 曾把
+                // 100k tokens 渲染成「97.7 KB」）；千分位分组与用量页同口径
+                let formatted = usage.total.formatted(.number.grouping(.automatic))
                 metaRow(icon: "number", label: String(localized: "Token 用量"),
                         value: String(localized: "输入 \(usage.input) · 输出 \(usage.output) · 合计 \(formatted)"),
                         identifier: "07-meta-usage")

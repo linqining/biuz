@@ -50,3 +50,23 @@
   background-color: var(--color-destructive);
   margin-top: 12rpx;
 }
+
+/* G33 行内待批徽标（web TaskInteractionBadge 同构；permission 橙 / userInput 朱磦） */
+.row__badge {
+  padding: 0 12rpx;
+  border-radius: 999rpx;
+  background: rgba(210, 64, 46, 0.14);
+}
+.row__badge-text {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #d2402e;
+}
+
+/* G40 残面：cron/off-peak 图标 + worktree/设备标签 */
+.row__meta-icon { font-size: 22rpx; }
+.row__meta { display: flex; gap: 12rpx; padding: 0 0 4rpx; }
+.row__meta-text {
+  font-size: 20rpx; color: #8a8f98;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

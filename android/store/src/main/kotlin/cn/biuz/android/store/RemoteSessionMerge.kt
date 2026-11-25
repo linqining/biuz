@@ -53,6 +53,19 @@ data class SessionSummary(
     val lastAssistantPreview: String? = null,
     val pendingPermissionCount: Int = 0,
     val pendingUserInputCount: Int = 0,
+    // G33 行内待批徽标（sessions-index pendingInteraction 轻量投影；null = 无）
+    val pendingInteractionId: String? = null,
+    val pendingInteractionKind: String? = null,
+    val pendingInteractionDeadline: Long? = null,
+    val pendingInteractionVisibleAt: Long? = null,
+    val pendingInteractionSnoozedAt: Long? = null,
+    // G40 行元数据身份（zcode-task-types.ts:56-64【实证·上游仓】：cronAutomationId‖
+    // automationId / offPeakTaskId；task-index 行权威源）
+    val isCron: Boolean = false,
+    val isOffPeak: Boolean = false,
+    // G40 残面：worktree 根 + 远端设备显示名（UUID 禁上屏）
+    val worktreeRoot: String? = null,
+    val serverDisplayName: String? = null,
     /** sessions-index 投影（setTaskPinned/archiveTask 写后的服务端回推；null = 未投影） */
     val pinned: Boolean? = null,
     /** 同上（宽容键 archived/isArchived） */
@@ -146,6 +159,26 @@ object SessionSummaryParser {
             ?.takeIf { it in TASK_STATUS_VOCABULARY }
         val pending = dict["pendingInteractionSummary"]?.objectValue
         val workspaceObj = dict["workspace"]?.objectValue
+        // G33 轻量投影（zcode-task-types-core.ts:262-268【实证·上游仓】；kind 词表外整组不采；
+        // 时间字段毫秒/ISO 双形态宽容）
+        var lightId: String? = null
+        var lightKind: String? = null
+        var lightDeadline: Long? = null
+        var lightVisibleAt: Long? = null
+        var lightSnoozedAt: Long? = null
+        dict["pendingInteraction"]?.objectValue?.let { light ->
+            val lid = light["interactionId"]?.stringValue
+            val lkind = light["kind"]?.stringValue
+            if (!lid.isNullOrEmpty() && (lkind == "permission" || lkind == "userInput")) {
+                lightId = lid
+                lightKind = lkind
+                light["autoResolution"]?.objectValue?.let { auto ->
+                    lightDeadline = SessionMergeTable.timestampMillis(auto, "deadlineAt")
+                    lightVisibleAt = SessionMergeTable.timestampMillis(auto, "visibleAt")
+                    lightSnoozedAt = SessionMergeTable.timestampMillis(auto, "snoozedAt")
+                }
+            }
+        }
         return SessionSummary(
             sessionId = sessionId,
             title = dict["title"]?.stringValue ?: "未命名会话",
@@ -154,6 +187,17 @@ object SessionSummaryParser {
             lastAssistantPreview = dict["lastAssistantPreview"]?.stringValue,
             pendingPermissionCount = pending?.get("permissionCount").longValue()?.toInt() ?: 0,
             pendingUserInputCount = pending?.get("userInputCount").longValue()?.toInt() ?: 0,
+            isCron = !dict["cronAutomationId"]?.stringValue.isNullOrEmpty() ||
+                !dict["automationId"]?.stringValue.isNullOrEmpty(),
+            isOffPeak = !dict["offPeakTaskId"]?.stringValue.isNullOrEmpty(),
+            worktreeRoot = dict["worktreeRoot"]?.stringValue
+                ?: dict["worktree_root"]?.stringValue,
+            serverDisplayName = dict["serverDisplayName"]?.stringValue,
+            pendingInteractionId = lightId,
+            pendingInteractionKind = lightKind,
+            pendingInteractionDeadline = lightDeadline,
+            pendingInteractionVisibleAt = lightVisibleAt,
+            pendingInteractionSnoozedAt = lightSnoozedAt,
             pinned = dict["pinned"]?.boolValue,
             archived = dict["archived"]?.boolValue ?: dict["isArchived"]?.boolValue,
             taskStatus = taskStatus,
@@ -186,6 +230,26 @@ class SessionMergeTable {
     var diagListener: ((key: String, value: String) -> Unit)? = null
 
     suspend fun snapshot(): Map<String, SessionSummary> = mutex.withLock { sessions.toMap() }
+
+    /**
+     * G52 重连缓存采纳：把旧连接表的行种子进新表（「更新者赢」——updatedAt 新者覆盖、
+     * 平手保旧表值；新表已有行且不更旧即不回退）。订阅簿记（subscriptionId/水位）
+     * 不在此面——属新连接重新订阅取得（iOS adoptCaches 同纪律）。
+     */
+    suspend fun adoptRows(previous: Map<String, SessionSummary>) {
+        mutex.withLock {
+            for ((id, old) in previous) {
+                val current = sessions[id]
+                if (current == null) {
+                    sessions[id] = old
+                    continue
+                }
+                val oldTs = old.lastActivityAt ?: Long.MIN_VALUE
+                val curTs = current.lastActivityAt ?: Long.MIN_VALUE
+                if (oldTs > curTs) sessions[id] = old
+            }
+        }
+    }
 
     suspend fun count(): Int = mutex.withLock { sessions.size }
 
@@ -624,6 +688,16 @@ class SessionMergeTable {
             conversation = conversation.copy(
                 // 服务端挂起审批数（行「等待确认」绿标数据源；桌面侧栏同口径）
                 pendingApprovalCount = pending,
+                // G33 行内待批徽标数据（轻量投影逐字段透传）
+                pendingInteractionId = summary.pendingInteractionId,
+                pendingInteractionKind = summary.pendingInteractionKind,
+                pendingInteractionDeadline = summary.pendingInteractionDeadline,
+                pendingInteractionVisibleAt = summary.pendingInteractionVisibleAt,
+                pendingInteractionSnoozedAt = summary.pendingInteractionSnoozedAt,
+                isCronTask = summary.isCron,
+                isOffPeakTask = summary.isOffPeak,
+                worktreeRoot = summary.worktreeRoot,
+                serverDisplayName = summary.serverDisplayName,
                 // 未读 = 待交互数；「标记未读」本地置位（服务端无未读投影时仍可呈现）
                 unreadCount = if (unreadFlags[id] == true) maxOf(pending, 1) else pending,
                 taskProgress = if (summary.pendingPermissionCount > 0) null else conversation.taskProgress,
@@ -639,6 +713,13 @@ class SessionMergeTable {
     }
 
     companion object {
+        /** G33：交互时间字段双形态宽容解析（毫秒数优先、ISO 兜底——workflowRunTimestamp 同口径）。 */
+        fun timestampMillis(dict: Map<String, JSONValue>, key: String): Long? {
+            dict[key]?.longValue()?.let { if (it > 0) return it }
+            val iso = dict[key]?.stringValue ?: return null
+            return SessionSummaryParser.parseIsoMillis(iso)
+        }
+
         /** 实携终态 phase 词表（iOS :636-638；上游 sessionPhaseSchema 终态族 + draft）。 */
         private val PHASE_TERMINAL_VOCABULARY = setOf(
             "completedSuccess",

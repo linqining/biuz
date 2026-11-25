@@ -24,6 +24,14 @@ class BiuzApplication : Application() {
         super.onCreate()
         // 仅 debug：允许 DevTools 协议连 WebView（联调/自动化读 DOM 与截图用；release 不开）
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
+        // G50 会话草稿持久化（web composerDraftStore 同构；VM 无 Context，应用级装配）
+        cn.biuz.android.app.ui.chat.ComposerDraftStore.init(this)
+        // 批4 模型选择器「最近使用」（iOS composer.modelRecents.v1 同词面）
+        cn.biuz.android.app.ui.chat.ModelRecentsStore.init(this)
+        // G42 界面字号缩放（web uiFontSize.ts 同词面；BiuZFont getter 读乘数）
+        cn.biuz.android.app.ui.theme.UiFontScale.init(this)
+        // G18 prompt 历史（iOS cyclePromptHistory 同构——全局发送史 cap 50）
+        cn.biuz.android.app.ui.chat.PromptHistoryStore.init(this)
     }
 
     val appSettings: AppSettingsStore by lazy {
@@ -52,6 +60,13 @@ internal class SharedPreferencesAppSettingsPersistence(context: Application) :
     AppSettingsPersistence {
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    override fun loadBoolean(key: String, default: Boolean): Boolean =
+        prefs.getBoolean(key, default)
+
+    override fun saveBoolean(key: String, value: Boolean) {
+        prefs.edit().putBoolean(key, value).apply()
+    }
 
     override fun loadDeveloperMode(): Boolean = prefs.getBoolean(KEY_DEVELOPER_MODE, false)
 

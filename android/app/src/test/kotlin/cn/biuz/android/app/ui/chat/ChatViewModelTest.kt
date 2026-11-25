@@ -7,6 +7,8 @@ package cn.biuz.android.app.ui.chat
 import cn.biuz.android.protocol.ChatMessage
 import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.MessageRole
+import cn.biuz.android.protocol.RemoteInteractionOption
+import cn.biuz.android.protocol.RemoteInteractionQuestion
 import cn.biuz.android.protocol.RemotePendingInteraction
 import cn.biuz.android.store.AttachmentUploadService
 import cn.biuz.android.store.ConversationEvent
@@ -654,6 +656,45 @@ class ChatViewModelTest {
             freeTextAnswer("回答文本"),
         )
         assertEquals(permissionAnswer("opt-1"), optionAnswer("opt-1"))
+    }
+
+    @Test
+    fun questionAnswersAnswerMirrorsIosSubmitEnvelope() {
+        // G22 多题（iOS submitQuestions 同构）：answer_N 逐题 + answers{题面→值}
+        // 汇总（选项存 optionId、文本 trim 并入；multiSelect 题落数组）
+        val questions = listOf(
+            RemoteInteractionQuestion(
+                question = "部署到哪个环境？",
+                options = listOf(
+                    RemoteInteractionOption("staging", "预发"),
+                    RemoteInteractionOption("prod", "生产"),
+                ),
+                multiSelect = false,
+            ),
+            RemoteInteractionQuestion(question = "补充说明（无选项题）", multiSelect = true),
+        )
+        val answer = questionAnswersAnswer(
+            questions,
+            selections = mapOf(0 to setOf("prod")),
+            texts = mapOf(1 to "  先灰度  "),
+        ) as JSONValue.Obj
+        assertEquals("accept", answer.fields["action"]?.stringValue)
+        val content = answer.fields["content"] as JSONValue.Obj
+        assertEquals(JSONValue.Str("prod"), content.fields["answer_0"])
+        assertEquals(JSONValue.Arr(listOf(JSONValue.Str("先灰度"))), content.fields["answer_1"])
+        val answers = content.fields["answers"] as JSONValue.Obj
+        assertEquals(JSONValue.Str("prod"), answers.fields["部署到哪个环境？"])
+        assertEquals(JSONValue.Str("先灰度"), answers.fields["补充说明（无选项题）"])
+        assertNull(content.fields["answer"]) // 多题无单题捷径键
+
+        // 单题：补 content.answer 捷径键
+        val single = questionAnswersAnswer(
+            listOf(questions[0]),
+            selections = mapOf(0 to setOf("staging")),
+            texts = emptyMap(),
+        ) as JSONValue.Obj
+        val singleContent = single.fields["content"] as JSONValue.Obj
+        assertEquals(JSONValue.Str("staging"), singleContent.fields["answer"])
     }
 
     // MARK: 新建会话提交门（iOS NewConversationSheet :263-282 直译；纯函数）

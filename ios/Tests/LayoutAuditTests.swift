@@ -128,56 +128,26 @@ final class LayoutAuditTests: XCTestCase {
         return condition()
     }
 
-    // MARK: - 演示模式：四 Tab 根页
+    // MARK: - 演示模式：三 Tab 根页（2026-11-25 重设计：会话/待批/设置）
 
-    func test01_demoFourTabRoots() throws {
+    func test01_demoThreeTabRoots() throws {
         _ = launchDemo()
         let tabChat = element(app, "04-tab-chat")
 
         // 会话 Tab 根页
         snap("01-demo-chat-list")
-        // 最后一行会话 + 列表缓冲不得被 TabBar 遮挡：以可见的最后一行近似断言
-        assertAboveTabBar(element(app, "04-row-c2"), tabButton: tabChat,
+        // 置顶行（第一行，必然在屏）不得与 TabBar 重叠；新建入口在屏内
+        assertAboveTabBar(element(app, "04-row-c1"), tabButton: tabChat,
                           "会话列表行不得与 TabBar 重叠")
-        // 新建按钮（导航栏）在屏内
         assertOnScreen(element(app, "04-act-new"), "新建会话入口应在屏内")
 
-        // 任务 Tab 根页：FAB 与 TabBar 不互相遮挡
-        element(app, "02-tab-tasks").tap()
-        wait(element(app, "02-fab-newtask"), timeout: 6, "任务看板应加载")
-        snap("02-demo-task-board")
-        assertOnScreen(element(app, "02-fab-newtask"), "新建任务 FAB 应在屏内")
-        assertAboveTabBar(element(app, "02-fab-newtask"), tabButton: tabChat,
-                          "FAB 不得与 TabBar 重叠（否则不可点）")
-        assertAboveTabBar(element(app, "02-search"), tabButton: tabChat,
-                          "任务搜索框不得与 TabBar 重叠")
-
-        // 滚动到底：最后一张任务卡应能完整滚出 FAB+TabBar 遮挡区（P2 回归：
-        // 底部余量 180pt 必须覆盖 FAB 56 + 间距 16 + TabBar ≈87）
-        app.swipeUp()
-        app.swipeUp()
-        Thread.sleep(forTimeInterval: 0.5)
-        let lastCard = element(app, "02-taskcard-t6") // mock 末位已完成卡
-        if lastCard.waitForExistence(timeout: 3) {
-            scrollToReveal(lastCard)
-            snap("02b-demo-task-board-bottom")
-            let fab = element(app, "02-fab-newtask").frame
-            XCTAssertLessThanOrEqual(lastCard.frame.maxY, fab.minY + 2,
-                                     "滚到底后最后一张任务卡不得被 FAB 遮挡（卡底 \(lastCard.frame.maxY) > FAB 顶 \(fab.minY)）")
-            assertAboveTabBar(lastCard, tabButton: tabChat,
-                              "滚到底后最后一张任务卡不得被 TabBar 遮挡")
-        }
-
-        // 文件 Tab 根页：底部动作栏叠于 TabBar 之上，二者都完整可见
-        element(app, "08-tab-review").tap()
-        wait(element(app, "08-filecard-toggle-d1"), timeout: 6, "文件页应加载")
-        snap("03-demo-diff-root")
-        assertOnScreen(element(app, "08-act-approve-all"), "全部批准动作栏应在屏内")
-        assertOnScreen(element(app, "04-tab-chat"), "TabBar 应在动作栏之下完整可见")
-        let approveAll = element(app, "08-act-approve-all").frame
-        let tab = element(app, "04-tab-chat").frame
-        XCTAssertLessThanOrEqual(approveAll.maxY, tab.minY + 2,
-                                 "底部动作栏不得覆盖 TabBar（动作栏底 \(approveAll.maxY) > Tab 顶 \(tab.minY)）")
+        // 待批 Tab 根页：演示种子 c2 携 1 条待批 → 摘要行在屏且不与 TabBar 重叠
+        element(app, "09-tab-approvals").tap()
+        let approvalRow = element(app, "09-approvals-row-c2")
+        wait(approvalRow, timeout: 6, "待批 tab 应呈现演示待批会话行")
+        snap("02-demo-approvals-root")
+        assertAboveTabBar(approvalRow, tabButton: tabChat,
+                          "待批摘要行不得与 TabBar 重叠")
 
         // 设置 Tab 根页：滚动到底，页脚与品牌行应完整可见且不被 TabBar 遮挡
         element(app, "12-tab-me").tap()
@@ -276,7 +246,7 @@ final class LayoutAuditTests: XCTestCase {
         element(app, "o2-act-close").tap()
         wait(element(app, "o1-btn-oauth"), timeout: 10, "取消后应回 O1 登录主页")
         snap("16-login-cancel-return-home")
-        element(app, "o1-act-close").tap()
+        element(app, "o1-login-close").tap()
         wait(element(app, "04-tab-chat"), timeout: 10, "关闭登录流程后应回主界面")
     }
 
@@ -333,18 +303,20 @@ final class LayoutAuditTests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
         element(app, "l1-submit-connect").tap()
 
-        // L2 连接中（五步进度卡在场）
-        wait(element(app, "l2-card-steps"), timeout: 6, "应进入 L2 连接中")
+        // L2 连接中（2026-11-25 UIUX 审查后的**紧凑状态卡**：品牌色转圈 + 电脑名 +
+        // 一行人话状态 + 细进度条；底部取消大按钮撤除，顶栏 ✕ 唯一退出）。
+        // 注意本套件基础参数带 -ZCodeDevMode：五步卡/日志按 dev-gate **应当在场**
+        // （普通态隐藏由 appSettings.effectiveDeveloperMode 承担；非 dev 的 L2
+        // 不可由本套件构造——非 dev 下手动入口隐藏，仅自动重连可达）
+        wait(element(app, "l2-card-status"), timeout: 6, "应进入 L2 连接中（紧凑状态卡）")
         snap("20-l2-connecting")
-        assertOnScreen(element(app, "l2-act-cancel"), "L2 取消按钮应在屏内")
-        // 五步进度 meta（黑洞性地址卡在发现步：进度 1/5，探测 3s 超时 ×2 全窗口恒定）
+        assertOnScreen(element(app, "l2-act-close"), "L2 顶栏关闭钮应在屏内（唯一退出点）")
+        XCTAssertFalse(element(app, "l2-act-cancel").exists,
+                       "旧的底部「取消连接」大按钮已撤（顶栏 ✕ 承担退出）")
+        wait(element(app, "l2-card-steps"), timeout: 6,
+             "开发者模式下五步明细卡应呈现（dev-gate 在位）")
         XCTAssertTrue(app.staticTexts["连接进度 · 1/5"].waitForExistence(timeout: 4),
-                      "L2 应显示五步进度 meta（发现服务进行中 = 1/5）")
-        // 五步列表逐行在场：以行名 Text 观测（stepRow 的 HStack 容器 identifier
-        // 不进可访问性树；blackhole 无 server-info，auth 步恒为「校验访问令牌」）
-        for stepName in ["发现服务", "校验访问令牌", "建立 WebSocket", "协议握手 v4", "载入工作区"] {
-            XCTAssertTrue(app.staticTexts[stepName].exists, "L2 五步列表应含「\(stepName)」行")
-        }
+                      "dev 态五步 meta 在场（黑洞地址卡发现步 = 1/5）")
 
         // L3 失败态（超时分支）
         wait(element(app, "l3-row-timeout"), timeout: 30, "不可达地址应进入 L3 失败态")

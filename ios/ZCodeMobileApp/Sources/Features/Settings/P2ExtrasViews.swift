@@ -787,16 +787,10 @@ struct DevicesPage: View {
                 // .clipShape(RoundedRectangle(cornerRadius: T.rM))
                 // .accessibilityIdentifier("12-devices-cloud")
 
-                Button {
-                    session.requestConnectFlow(editTokenOnly: false)
-                } label: {
-                    Label(String(localized: "扫码配对新设备"), systemImage: "qrcode")
-                        .font(T.font(13.5, .semibold))
-                        .foregroundColor(T.text)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
-                }
-                .accessibilityIdentifier("12-devices-act-add")
+                // 2026-11-25 用户裁决「应该只有一个扫码登录」：撤除本页重复的
+                // 「扫码配对新设备」入口（12-devices-act-add）——扫码连接只在
+                // 连接引导页 L1 出现一次；本页保留设备列表与切换语义，
+                // 服务器管理里的「添加服务器」仍可手动录入（开发者态）
             }
             .padding(T.sp4)
         }
@@ -915,13 +909,28 @@ struct DiagnosticsExportView: View {
         }
     }
 
+    /// 连接模式脱敏摘要（P0 凭据防御）：enum 关联值含 ServerConfig（token/passHash），
+    /// default description 会原样打印关联值——诊断文件只允许模式名 + 电脑显示名。
+    private static func modeSummary(_ mode: AppSession.Mode) -> String {
+        switch mode {
+        case .demo: return "demo"
+        case .connecting(let server): return "connecting(\(server.displayName))"
+        case .connected(let server): return "connected(\(server.displayName))"
+        case .connectFailed(let server, let error): return "connectFailed(\(server.displayName), \(error.headline))"
+        case .disconnected(let server, _): return "disconnected(\(server.displayName))"
+        }
+    }
+
     private func exportDiagnostics() {
         var lines: [String] = []
         lines.append("朱批 Diagnostics · \(Date())")
         let info = Bundle.main.infoDictionary
         lines.append("appVersion: \(info?["CFBundleShortVersionString"] ?? "?") (\(info?["CFBundleVersion"] ?? "?"))")
         lines.append("osVersion: \(ProcessInfo.processInfo.operatingSystemVersionString)")
-        lines.append("connectionMode: \(session.mode)")
+        // P0 凭据防御（2026-11-25 清理清单首项）：Mode 关联值携 ServerConfig（含
+        // token/passHash）且无自定义 description，直接插值会把令牌写进分享文件。
+        // 诊断只需模式名 + 服务器显示名，凭据字段一律不落盘。
+        lines.append("connectionMode: \(Self.modeSummary(session.mode))")
         lines.append("oauthLoggedIn: \(session.isOAuthLoggedIn)")
         lines.append("servers: \(ServerRegistry.servers.map { "\($0.displayName)(relay=\($0.relay != nil))" }.joined(separator: ", "))")
         lines.append("")
@@ -2865,5 +2874,322 @@ struct ResetConfirmSheet: View {
         .frame(minHeight: 34)
         .background(T.bgInput)
         .clipShape(RoundedRectangle(cornerRadius: T.rS))
+    }
+}
+
+// MARK: - G43 自动归档设置页（web TaskAutoArchiveSettings 移动端同构，2026-11-25）
+//
+// setting 键【实证·上游仓 validationAppSettings.ts:555-557】：taskAutoArchiveEnabled
+// bool 默认 false、taskAutoArchiveOlderThanDays int≤365 默认 30；档位枚举
+// TASK_AUTO_ARCHIVE_DAY_OPTIONS = [3,7,14,30]（settingsPageHelpers.ts:69）。
+// 写 = setting.update 单键补丁（web SettingsPage.tsx:1228/:1244 直接写不确认——
+// toggle 变更即发，busy 期禁改 + 失败错误行如实上屏，不自动重试防双写）。
+// 频道名 = "setting"（channels.ts:106，DesktopSettingsPage 同源已实证）。
+
+struct AutoArchiveSettingsPage: View {
+    @Environment(AppSession.self) private var session
+
+    private enum LoadPhase { case loading, loaded, failed }
+    @State private var phase: LoadPhase = .loading
+    @State private var enabled = false
+    @State private var days = 30
+    @State private var busyKey: String?
+    @State private var errorText: String?
+    @State private var loadRetried = false
+
+    /// web TASK_AUTO_ARCHIVE_DAY_OPTIONS（settingsPageHelpers.ts:69 逐字）
+    private static let dayOptions = [3, 7, 14, 30]
+    private static let dayKey = "taskAutoArchiveOlderThanDays"
+    private static let enabledKey = "taskAutoArchiveEnabled"
+
+    var body: some View {
+        Form {
+            switch phase {
+            case .loading:
+                HStack { Spacer(); SpinnerView(size: 14); Spacer() }
+            case .failed:
+                VStack(spacing: T.sp2) {
+                    Text(errorText ?? String(localized: "设置读取失败"))
+                        .font(T.font(12))
+                        .foregroundColor(T.red)
+                    Button(String(localized: "重试")) { Task { await load() } }
+                        .accessibilityIdentifier("12-auto-archive-retry")
+                }
+                .frame(maxWidth: .infinity)
+            case .loaded:
+                Section(String(localized: "自动归档")) {
+                    Toggle(String(localized: "自动归档旧任务"), isOn: Binding(
+                        get: { enabled },
+                        set: { newValue in
+                            enabled = newValue
+                            Task { await write(Self.enabledKey, .bool(newValue)) }
+                        }))
+                        .disabled(busyKey != nil)
+                        .accessibilityIdentifier("12-auto-archive-switch")
+                    if enabled {
+                        Picker(String(localized: "归档保留时长"), selection: Binding(
+                            get: { days },
+                            set: { newValue in
+                                days = newValue
+                                Task { await write(Self.dayKey, .int(newValue)) }
+                            })) {
+                            ForEach(Self.dayOptions, id: \.self) { option in
+                                Text(String(localized: "\(option) 天")).tag(option)
+                            }
+                        }
+                        .disabled(busyKey != nil)
+                        .accessibilityIdentifier("12-auto-archive-days")
+                    }
+                }
+                if let errorText {
+                    Section {
+                        Text(errorText).font(T.font(11.5)).foregroundColor(T.red)
+                    }
+                }
+                Section {
+                    Text(String(localized: "该设置写入桌面端，桌面侧「归档保留时长」同步生效。"))
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text3)
+                }
+            }
+        }
+        .navigationTitle(String(localized: "自动归档"))
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private var isConnected: Bool {
+        if case .connected = session.mode { return true }
+        return false
+    }
+
+    private func load() async {
+        guard isConnected else {
+            phase = .failed
+            errorText = String(localized: "连接桌面端后可读写")
+            return
+        }
+        do {
+            let result = try await settingCall("get", [:], allowRetry: !loadRetried)
+            loadRetried = true
+            let settingsDict = result.jsonValue?["settings"]?.objectValue
+                ?? result.jsonValue?["values"]?.objectValue
+                ?? result.jsonValue?.objectValue ?? [:]
+            enabled = settingsDict[Self.enabledKey]?.boolValue ?? false
+            days = settingsDict[Self.dayKey]?.intValue ?? 30
+            phase = .loaded
+            errorText = nil
+        } catch {
+            if !loadRetried {
+                loadRetried = true
+                await load() // settingCall 已带 1.2s 退避，此处不再叠加
+                return
+            }
+            phase = .failed
+            errorText = String(localized: "设置读取失败（连接中断或桌面端不支持）")
+        }
+    }
+
+    private func write(_ key: String, _ value: JSONValue) async {
+        guard isConnected, busyKey == nil else { return }
+        busyKey = key
+        errorText = nil
+        do {
+            _ = try await settingCall("update", [key: value], allowRetry: false)
+        } catch {
+            errorText = String(localized: "写入失败：\(error.localizedDescription)")
+        }
+        busyKey = nil
+    }
+
+    /// setting 频道 get/update（DesktopSettingsPage.settingCall 同构——单候选频道
+    /// "setting"；读失败 1.2s 退避整轮重试一次，写永不重试防双写）
+    private func settingCall(_ command: String, _ fields: [String: JSONValue],
+                             allowRetry: Bool) async throws -> RPCValue {
+        let connection = session.connection
+        func runOnce() async throws -> RPCValue {
+            try await connection.call("setting", command, .json(.object(fields)))
+        }
+        do {
+            return try await runOnce()
+        } catch {
+            guard allowRetry else { throw error }
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            return try await runOnce()
+        }
+    }
+}
+
+// MARK: - G41 行为设置页（web AgentBehaviorSectionContent 移动端同构，2026-11-25）
+//
+// 桌面行为设置的**原生分组呈现**（键值面此前已由 DesktopSettingsPage 等效承载，
+// 本页是高频五键的策展面——读 setting.get 写 setting.update 单键补丁，通道与
+// AutoArchiveSettingsPage 同源）。键权威【实证·上游仓 settingsPageHelpers.tsx:826-992
+// + validationAppSettings.ts】：
+// - zcodeInteractionBehavior: "queue"|"guide"（审批响应方式，默认 queue）
+// - askUserQuestionAutoResolutionEnabled: bool 默认 true（提问自动继续）
+// - modelIoFullRetentionEnabled: bool 默认 false（完整保留模型 IO）
+// - messageStreamShowTodos: bool 默认 false（流内待办卡——iOS 本地 G7 开关的桌面镜像）
+// - messageStreamShowReasoning: bool 默认 true（流内思考过程）
+// 写直接下发（web toggle 变更即发；busy 期禁改 + 失败错误行；不自动重试防双写）。
+
+struct BehaviorSettingsPage: View {
+    @Environment(AppSession.self) private var session
+
+    private enum LoadPhase { case loading, loaded, failed }
+    @State private var phase: LoadPhase = .loading
+    @State private var interactionBehavior = "queue"
+    @State private var askAutoResolution = true
+    @State private var modelIoRetention = false
+    @State private var showTodos = false
+    @State private var showReasoning = true
+    @State private var busyKey: String?
+    @State private var errorText: String?
+    @State private var loadRetried = false
+
+    var body: some View {
+        Form {
+            switch phase {
+            case .loading:
+                HStack { Spacer(); SpinnerView(size: 14); Spacer() }
+            case .failed:
+                VStack(spacing: T.sp2) {
+                    Text(errorText ?? String(localized: "设置读取失败"))
+                        .font(T.font(12))
+                        .foregroundColor(T.red)
+                    Button(String(localized: "重试")) { Task { await load() } }
+                        .accessibilityIdentifier("12-behavior-retry")
+                }
+                .frame(maxWidth: .infinity)
+            case .loaded:
+                Section(String(localized: "交互")) {
+                    // 审批响应方式（web zcodeInteractionBehavior 两枚举 Select）
+                    Picker(String(localized: "审批响应方式"), selection: Binding(
+                        get: { interactionBehavior },
+                        set: { newValue in
+                            interactionBehavior = newValue
+                            Task { await write("zcodeInteractionBehavior", .string(newValue)) }
+                        })) {
+                        Text(String(localized: "排队等待确认")).tag("queue")
+                        Text(String(localized: "逐条引导确认")).tag("guide")
+                    }
+                    .pickerStyle(.inline)
+                    .disabled(busyKey != nil)
+                    .accessibilityIdentifier("12-behavior-interaction")
+                    Toggle(String(localized: "提问自动继续"), isOn: Binding(
+                        get: { askAutoResolution },
+                        set: { newValue in
+                            askAutoResolution = newValue
+                            Task { await write("askUserQuestionAutoResolutionEnabled", .bool(newValue)) }
+                        }))
+                        .disabled(busyKey != nil)
+                        .accessibilityIdentifier("12-behavior-ask-auto")
+                }
+                Section(String(localized: "消息流")) {
+                    Toggle(String(localized: "显示思考过程"), isOn: Binding(
+                        get: { showReasoning },
+                        set: { newValue in
+                            showReasoning = newValue
+                            Task { await write("messageStreamShowReasoning", .bool(newValue)) }
+                        }))
+                        .disabled(busyKey != nil)
+                        .accessibilityIdentifier("12-behavior-reasoning")
+                    Toggle(String(localized: "显示待办列表"), isOn: Binding(
+                        get: { showTodos },
+                        set: { newValue in
+                            showTodos = newValue
+                            Task { await write("messageStreamShowTodos", .bool(newValue)) }
+                        }))
+                        .disabled(busyKey != nil)
+                        .accessibilityIdentifier("12-behavior-todos")
+                }
+                Section(String(localized: "数据")) {
+                    Toggle(String(localized: "完整保留模型输入输出"), isOn: Binding(
+                        get: { modelIoRetention },
+                        set: { newValue in
+                            modelIoRetention = newValue
+                            Task { await write("modelIoFullRetentionEnabled", .bool(newValue)) }
+                        }))
+                        .disabled(busyKey != nil)
+                        .accessibilityIdentifier("12-behavior-modelio")
+                }
+                if let errorText {
+                    Section {
+                        Text(errorText).font(T.font(11.5)).foregroundColor(T.red)
+                    }
+                }
+                Section {
+                    Text(String(localized: "这些设置写入桌面端并即时生效。"))
+                        .font(T.font(10.5))
+                        .foregroundColor(T.text3)
+                }
+            }
+        }
+        .navigationTitle(String(localized: "行为设置"))
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private var isConnected: Bool {
+        if case .connected = session.mode { return true }
+        return false
+    }
+
+    private func load() async {
+        guard isConnected else {
+            phase = .failed
+            errorText = String(localized: "连接桌面端后可读写")
+            return
+        }
+        do {
+            let result = try await settingCall("get", [:], allowRetry: !loadRetried)
+            loadRetried = true
+            let dict = result.jsonValue?["settings"]?.objectValue
+                ?? result.jsonValue?["values"]?.objectValue
+                ?? result.jsonValue?.objectValue ?? [:]
+            interactionBehavior = dict["zcodeInteractionBehavior"]?.stringValue ?? "queue"
+            askAutoResolution = dict["askUserQuestionAutoResolutionEnabled"]?.boolValue ?? true
+            modelIoRetention = dict["modelIoFullRetentionEnabled"]?.boolValue ?? false
+            showTodos = dict["messageStreamShowTodos"]?.boolValue ?? false
+            showReasoning = dict["messageStreamShowReasoning"]?.boolValue ?? true
+            phase = .loaded
+            errorText = nil
+        } catch {
+            if !loadRetried {
+                loadRetried = true
+                await load()
+                return
+            }
+            phase = .failed
+            errorText = String(localized: "设置读取失败（连接中断或桌面端不支持）")
+        }
+    }
+
+    private func write(_ key: String, _ value: JSONValue) async {
+        guard isConnected, busyKey == nil else { return }
+        busyKey = key
+        errorText = nil
+        do {
+            _ = try await settingCall("update", [key: value], allowRetry: false)
+        } catch {
+            errorText = String(localized: "写入失败：\(error.localizedDescription)")
+        }
+        busyKey = nil
+    }
+
+    /// setting 频道 get/update（单候选 "setting"；读失败 1.2s 退避整轮重试一次，写永不重试）
+    private func settingCall(_ command: String, _ fields: [String: JSONValue],
+                             allowRetry: Bool) async throws -> RPCValue {
+        let connection = session.connection
+        func runOnce() async throws -> RPCValue {
+            try await connection.call("setting", command, .json(.object(fields)))
+        }
+        do {
+            return try await runOnce()
+        } catch {
+            guard allowRetry else { throw error }
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            return try await runOnce()
+        }
     }
 }

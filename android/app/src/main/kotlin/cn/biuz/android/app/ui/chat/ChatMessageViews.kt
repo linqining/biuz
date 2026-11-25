@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -76,6 +77,8 @@ import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZBorderStrong
 import cn.biuz.android.app.ui.theme.BiuZGreen
 import cn.biuz.android.app.ui.theme.BiuZOnAccent
+import cn.biuz.android.app.ui.theme.BiuZOnSeal
+import cn.biuz.android.app.ui.theme.BiuZSeal
 import cn.biuz.android.app.ui.theme.BiuZOrange
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZSpacing
@@ -87,6 +90,7 @@ import cn.biuz.android.protocol.JSONValue
 import cn.biuz.android.protocol.MessageRole
 import cn.biuz.android.protocol.MessageStatus
 import cn.biuz.android.protocol.RemoteInteractionOption
+import cn.biuz.android.protocol.RemoteInteractionQuestion
 import cn.biuz.android.protocol.RemotePendingInteraction
 import cn.biuz.android.protocol.ThinkingState
 import cn.biuz.android.protocol.TodoState
@@ -1503,14 +1507,18 @@ private fun CardLabelText(text: String) {
 
 /** 交互卡回调面（决议经 VM 下发 store，失败/未知态由卡内错误行如实呈现）。 */
 data class InteractionActions(
-    /** 权限族：拼好的 optionId（allowOnce/allowAlways/rejectOnce/rejectAlways 或服务端自定义）。 */
-    val onPermissionOption: suspend (RemotePendingInteraction, String) -> ChatViewModel.InteractionFailure?,
+    /** 权限族：拼好的 optionId（allowOnce/allowAlways/rejectOnce/rejectAlways 或服务端自定义）；
+     * G21 feedback = 拒绝时可选反馈原文（非空才携带 answer.freeText——command.ts:317【实证·上游仓】）。 */
+    val onPermissionOption: suspend (RemotePendingInteraction, String, String?) -> ChatViewModel.InteractionFailure?,
     /** 计划族：{action:"accept"|"decline"}。 */
     val onPlanAction: suspend (RemotePendingInteraction, String) -> ChatViewModel.InteractionFailure?,
     /** 提问族自由文本：{freeText}。 */
     val onQuestionFreeText: suspend (RemotePendingInteraction, String) -> ChatViewModel.InteractionFailure?,
     /** 提问族选项：{optionId}。 */
     val onQuestionOption: suspend (RemotePendingInteraction, RemoteInteractionOption) -> ChatViewModel.InteractionFailure?,
+    /** G22 多题向导应答：{action:"accept",content:{answer_N,answers}}（iOS
+     * submitQuestions 同构）或跳过 {action:"cancel"}。 */
+    val onQuestionAnswer: suspend (RemotePendingInteraction, JSONValue) -> ChatViewModel.InteractionFailure?,
     /** hook 信任审核：reviewItemId 列表逐字回传。 */
     val onHookTrust: suspend (RemotePendingInteraction, List<String>) -> ChatViewModel.InteractionFailure?,
 )
@@ -1525,6 +1533,8 @@ fun InteractionCard(
         interaction.isPermission -> PermissionInteractionCard(interaction, actions, modifier)
         interaction.isPlanApproval -> PlanInteractionCard(interaction, actions, modifier)
         interaction.isWorkspaceHookReview -> HookReviewInteractionCard(interaction, actions, modifier)
+        // G23 插件安装卡（此前未知 kind 落提问卡误渲染——现在独立分派）
+        interaction.isPluginInstall -> PluginInstallInteractionCard(interaction, actions, modifier)
         // userInput / elicitation / question → 提问卡（蓝描边）
         else -> QuestionInteractionCard(interaction, actions, modifier)
     }
@@ -1602,8 +1612,97 @@ private fun SelectChip(
 private fun Modifier.combinedClickableSafe(enabled: Boolean, onClick: () -> Unit): Modifier =
     this.combinedClickable(enabled = enabled, onClick = onClick)
 
-// MARK: 权限族（默认两档 chips + 批准/拒绝；四族混合态方向钮禁用；全非四族单选即决）
+// MARK: G23 插件安装卡（web PluginInstallCard.tsx 移动端同构，2026-11-25 与 iOS 同步）
+/**
+ * 应答形状【实证·上游仓 V4InteractionDialogs.tsx:357-367】：answer 只带
+ * {optionId: "install"|"skip"}（choice 字面量直接作 optionId）；确认按钮文案按
+ * 应答形状【实证·上游仓 V4InteractionDialogs.tsx:357-367】：answer 只带
+ * {optionId: "install"|"skip"}（choice 字面量直接作 optionId）；确认按钮文案按
+ * action("install"|"enable") × scope("user"|"workspace") 分叉（PluginInstallCard.tsx:68-98）。
+ */
+@Composable
+private fun PluginInstallInteractionCard(
+    interaction: RemotePendingInteraction,
+    actions: InteractionActions,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    var deciding by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf<ChatViewModel.InteractionFailure?>(null) }
 
+    val confirmLabel = when {
+        interaction.pluginAction == "enable" && interaction.pluginScope == "workspace" ->
+            stringResource(R.string.chat_card_plugin_enable_ws)
+        interaction.pluginAction == "enable" ->
+            stringResource(R.string.chat_card_plugin_enable)
+        interaction.pluginScope == "workspace" ->
+            stringResource(R.string.chat_card_plugin_install_ws)
+        else -> stringResource(R.string.chat_card_plugin_install)
+    }
+
+    fun respond(optionId: String) {
+        if (deciding) return
+        deciding = true
+        scope.launch {
+            failure = actions.onPermissionOption(interaction, optionId, null)
+            deciding = false
+        }
+    }
+
+    InteractionCardFrame(
+        title = stringResource(R.string.chat_card_plugin_title),
+        accent = BiuZSeal,
+        modifier = modifier,
+    ) {
+        interaction.pluginName?.takeIf { it.isNotEmpty() }?.let { name ->
+            Text(
+                text = name,
+                style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+                color = BiuZText,
+                modifier = Modifier.testTag("05-plugin-name"),
+            )
+        }
+        interaction.pluginDescription?.takeIf { it.isNotEmpty() }?.let { desc ->
+            Text(
+                text = desc,
+                style = TextStyle(fontSize = 12.sp, lineHeight = 17.sp),
+                color = BiuZText2,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        interaction.pluginReason?.takeIf { it.isNotEmpty() }?.let { reason ->
+            Text(
+                text = reason,
+                style = TextStyle(fontSize = 12.sp, lineHeight = 17.sp),
+                color = BiuZText3,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+            DecisionButton(
+                label = stringResource(R.string.chat_card_plugin_skip),
+                container = BiuZBgInput,
+                content = BiuZText,
+                enabled = !deciding,
+                onClick = { respond("skip") },
+                modifier = Modifier.testTag("05-act-plugin-skip"),
+            )
+            DecisionButton(
+                label = confirmLabel,
+                container = BiuZSeal,
+                content = BiuZOnSeal,
+                enabled = !deciding,
+                onClick = { respond("install") },
+                modifier = Modifier.testTag("05-act-plugin-install"),
+            )
+        }
+        failure?.let { DecisionFailureRow(it) }
+    }
+}
+
+/** 权限族（默认两档 chips + 批准/拒绝；四族混合态方向钮禁用；全非四族单选即决）。 */
 @Composable
 private fun PermissionInteractionCard(
     interaction: RemotePendingInteraction,
@@ -1622,13 +1721,21 @@ private fun PermissionInteractionCard(
         mutableStateOf(if (hasOnce || optionIds.isEmpty()) "once" else "always")
     }
 
+    // G21：拒绝反馈原文（permissionFreeText=true 才显示输入行；仅拒绝时携带——
+    // web PermissionDialog.tsx:680-703 同映射）
+    var feedbackText by remember { mutableStateOf("") }
+
     fun decide(approved: Boolean) {
         if (deciding) return
         val optionId = (if (approved) "allow" else "reject") +
             (if (selectedScope == "always") "Always" else "Once")
         deciding = true
         scope.launch {
-            failure = actions.onPermissionOption(interaction, optionId)
+            failure = actions.onPermissionOption(
+                interaction,
+                optionId,
+                if (approved) null else feedbackText,
+            )
             deciding = false
         }
     }
@@ -1668,7 +1775,7 @@ private fun PermissionInteractionCard(
                         SelectChip(label = option.label, selected = false) {
                             deciding = true
                             scope.launch {
-                                failure = actions.onPermissionOption(interaction, option.id)
+                                failure = actions.onPermissionOption(interaction, option.id, null)
                                 deciding = false
                             }
                         }
@@ -1705,6 +1812,31 @@ private fun PermissionInteractionCard(
                         (if (selectedScope == "always") hasAlways && optionIds.contains("rejectAlways")
                          else hasOnce && optionIds.contains("rejectOnce"))
                     )
+                // G21：拒绝反馈输入行（web PermissionDialog.tsx:1193-1232 同构——
+                // 独立可选项行；trim 非空才携带）
+                if (interaction.permissionFreeText) {
+                    BasicTextField(
+                        value = feedbackText,
+                        onValueChange = { feedbackText = it },
+                        textStyle = TextStyle(fontSize = 12.sp, lineHeight = 17.sp, color = BiuZText),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(BiuZBgInput, BiuZRadius.small)
+                            .padding(BiuZSpacing.sm)
+                            .testTag("05-approval-feedback"),
+                        decorationBox = { inner ->
+                            if (feedbackText.isEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.chat_card_feedback_placeholder),
+                                    style = TextStyle(fontSize = 12.sp),
+                                    color = BiuZText3,
+                                )
+                            }
+                            inner()
+                        },
+                        maxLines = 3,
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
                     DecisionButton(
                         label = stringResource(R.string.chat_card_reject),
@@ -1797,11 +1929,148 @@ private fun QuestionInteractionCard(
     var failure by remember { mutableStateOf<ChatViewModel.InteractionFailure?>(null) }
     var reply by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
+    // G22 多题向导（questions.size>1 时逐题呈现；selections/texts 按题序键保留——
+    // 上游 ElicitationDialog「drafts 引用不重置，回退不清已答」同语义
+    // 【实证·上游仓 ElicitationDialog.tsx:353-373】；hasPrevious = index>0 :686）
+    val wizardQuestions = interaction.questions
+    val isWizard = wizardQuestions.size > 1
+    var wizardIndex by remember(interaction.id) { mutableStateOf(0) }
+    // 题序 → 已选 optionId 集合（multiSelect 多选；单选互斥——iOS toggle 同构）
+    val wizardSelections = remember(interaction.id) { mutableStateMapOf<Int, Set<String>>() }
+    // 题序 → 自由输入（回退不清已答）
+    val wizardTexts = remember(interaction.id) { mutableStateMapOf<Int, String>() }
     InteractionCardFrame(
         title = interaction.title ?: stringResource(R.string.chat_card_question_title),
         accent = BiuZBlue,
         modifier = modifier,
     ) {
+        if (isWizard) {
+            val index = wizardIndex.coerceIn(0, wizardQuestions.size - 1)
+            val current = wizardQuestions[index]
+            Text(
+                text = current.question,
+                style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
+                color = BiuZText,
+            )
+            Text(
+                text = "第 " + (index + 1) + "/" + wizardQuestions.size + " 题",
+                style = TextStyle(fontSize = 11.sp),
+                color = BiuZText3,
+                modifier = Modifier.testTag("05-userinput-progress"),
+            )
+            // 选项 chips：点选存草稿不即发（multiSelect 多选、单选互斥——iOS toggle
+            // 同构；最后一题统一提交 answers 信封）
+            if (current.options.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
+                    current.options.forEach { option ->
+                        val selected = wizardSelections[index]?.contains(option.id) == true
+                        SelectChip(
+                            label = (if (selected) "✓ " else "") + option.label,
+                            selected = selected,
+                            enabled = !sending,
+                        ) {
+                            val chosen = wizardSelections[index] ?: emptySet()
+                            wizardSelections[index] = if (current.multiSelect) {
+                                if (selected) chosen - option.id else chosen + option.id
+                            } else {
+                                if (selected) emptySet() else setOf(option.id)
+                            }
+                        }
+                    }
+                }
+            }
+            // 补充输入（无选项题恒显 + freeText 开关——iOS questionBlock 同条件；
+            // 回退不清已答：texts 按题序键保留）
+            if (current.options.isEmpty() || interaction.freeTextEnabled) {
+                BasicTextField(
+                    value = wizardTexts[index] ?: "",
+                    onValueChange = { wizardTexts[index] = it },
+                    singleLine = true,
+                    textStyle = TextStyle(fontSize = 13.sp, color = BiuZText),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(BiuZRadius.medium)
+                        .background(BiuZBgInput)
+                        .border(1.dp, BiuZBorderStrong, BiuZRadius.medium)
+                        .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm),
+                    decorationBox = { inner ->
+                        if ((wizardTexts[index] ?: "").isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.chat_wizard_supplement),
+                                style = TextStyle(fontSize = 13.sp),
+                                color = BiuZText3,
+                            )
+                        }
+                        inner()
+                    },
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+            ) {
+                // G22「上一题」（hasPrevious = index>0——上游 :686 同判；drafts 不重置）
+                if (index > 0) {
+                    Text(
+                        text = stringResource(R.string.chat_wizard_previous),
+                        style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                        color = BiuZText2,
+                        modifier = Modifier
+                            .clip(BiuZRadius.medium)
+                            .clickable(enabled = !sending) { wizardIndex = index - 1 }
+                            .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
+                            .testTag("05-userinput-previous"),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = stringResource(R.string.chat_card_question_skip),
+                    style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                    color = BiuZText3,
+                    modifier = Modifier
+                        .clip(BiuZRadius.medium)
+                        .clickable(enabled = !sending) {
+                            sending = true
+                            scope.launch {
+                                failure = actions.onQuestionAnswer(
+                                    interaction,
+                                    JSONValue.Obj(mapOf("action" to JSONValue.Str("cancel"))),
+                                )
+                                sending = false
+                            }
+                        }
+                        .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
+                        .testTag("05-userinput-skip"),
+                )
+                DecisionButton(
+                    label = if (index < wizardQuestions.size - 1) {
+                        stringResource(R.string.chat_wizard_next)
+                    } else {
+                        stringResource(R.string.chat_card_question_submit_all)
+                    },
+                    container = BiuZAccent,
+                    content = BiuZOnAccent,
+                    enabled = !sending,
+                    onClick = {
+                        if (index < wizardQuestions.size - 1) {
+                            wizardIndex = index + 1
+                        } else {
+                            sending = true
+                            scope.launch {
+                                failure = actions.onQuestionAnswer(
+                                    interaction,
+                                    questionAnswersAnswer(wizardQuestions, wizardSelections, wizardTexts),
+                                )
+                                sending = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.testTag(
+                        if (index < wizardQuestions.size - 1) "05-userinput-next" else "05-userinput-submit",
+                    ),
+                )
+            }
+        } else {
         interaction.command?.takeIf { it.isNotEmpty() }?.let { question ->
             Text(
                 text = question,
@@ -1864,6 +2133,7 @@ private fun QuestionInteractionCard(
                 },
             )
         }
+        }
         failure?.let { DecisionFailureRow(it) }
     }
 }
@@ -1924,12 +2194,14 @@ private fun DecisionButton(
     content: Color,
     enabled: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     // 决议 = 主 CTA：按压实 + 轻击触觉（motion-spec 的「印随批准权走」在触屏的
     // 手指反馈对应物——按下就有回应，落印在 ACK 之后）
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Box(
         modifier = Modifier
+            .then(modifier)
             .ctaPress(interaction)
             .clip(BiuZRadius.medium)
             .background(if (enabled) container else BiuZBgInput)
@@ -1952,6 +2224,15 @@ private fun DecisionButton(
 // MARK: - 决议答案构造（A-3 对象分形；纯函数单测直测）
 
 /** 权限应答：{optionId}。 */
+/** G21 权限应答 + 拒绝反馈：{optionId, freeText?}（feedback trim 非空才带——
+ * command.ts:317【实证·上游仓】；web PermissionDialog.tsx:680-703 同映射）。 */
+fun permissionAnswerWithFeedback(optionId: String, feedback: String?): JSONValue {
+    val fields = linkedMapOf<String, JSONValue>("optionId" to JSONValue.Str(optionId))
+    val trimmed = feedback?.trim()
+    if (!trimmed.isNullOrEmpty()) fields["freeText"] = JSONValue.Str(trimmed)
+    return JSONValue.Obj(fields)
+}
+
 fun permissionAnswer(optionId: String): JSONValue =
     JSONValue.Obj(mapOf("optionId" to JSONValue.Str(optionId)))
 
@@ -1965,6 +2246,42 @@ fun freeTextAnswer(text: String): JSONValue =
 
 /** 提问选项应答：{optionId}。 */
 fun optionAnswer(optionId: String): JSONValue = permissionAnswer(optionId)
+
+/**
+ * G22 多题向导应答（iOS ChatView.submitQuestions 同构【实证·上游仓
+ * ElicitationDialog】：content.answer_N 逐题 + content.answers{题面→值} 汇总，
+ * 选项存 optionId、自由文本 trim 后并入；单题补 content.answer 捷径键）。
+ */
+fun questionAnswersAnswer(
+    questions: List<RemoteInteractionQuestion>,
+    selections: Map<Int, Set<String>>,
+    texts: Map<Int, String>,
+): JSONValue {
+    val answers = LinkedHashMap<String, JSONValue>()
+    val content = LinkedHashMap<String, JSONValue>()
+    questions.forEachIndexed { index, question ->
+        val values = (selections[index] ?: emptySet()).sorted().toMutableList()
+        val text = (texts[index] ?: "").trim()
+        if (text.isNotEmpty()) values.add(text)
+        if (values.isEmpty()) return@forEachIndexed
+        answers[question.question] = JSONValue.Str(values.joinToString(", "))
+        content["answer_$index"] = if (question.multiSelect) {
+            JSONValue.Arr(values.map { JSONValue.Str(it) })
+        } else {
+            JSONValue.Str(values[0])
+        }
+    }
+    content["answers"] = JSONValue.Obj(answers)
+    if (questions.size == 1) {
+        content["answer_0"]?.let { content["answer"] = it }
+    }
+    return JSONValue.Obj(
+        linkedMapOf(
+            "action" to JSONValue.Str("accept"),
+            "content" to JSONValue.Obj(content),
+        ),
+    )
+}
 
 // MARK: - 工作流完成卡（桌面 WorkflowCompletionCard 同款；iOS MessageViews.swift:1885-2083 直译）
 //

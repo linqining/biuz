@@ -11,6 +11,10 @@ object Routes {
     const val DEVICES = "devices"
     const val SHARE = "share/{code}"
     const val SESSIONS = "sessions"
+    const val PENDING_APPROVALS = "pending_approvals" // R1 待批收件箱（跨会话摘要）
+    const val BEHAVIOR_SETTINGS = "settings/behavior" // G41 行为设置（setting 频道五键策展面）
+    const val COMMAND_CENTER = "command_center" // G38 命令中心统一搜索（三 scope + 历史）
+    const val MENTION_PICKER = "mention_picker" // G15 @ 文件提及候选面板（点选插草稿）
     const val SETTINGS = "settings"
     const val CHAT = "chat/{sessionId}"
     const val LANGUAGE = "settings/language"

@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.Color
 
 // 色板 —— **朱批印系**（2026-11-21 朱批品牌升级，原「ZCode web 对齐板」作废；出处 brand/seal/README.md，
 // 与 iOS Theme.swift 同构映射）：
-//   light: 纸底 #F2EADB · 卡=纸 · 输入 #E8DFCB · 正文墨 #17181A（次级 62% / 最弱 40%）
+//   light: 纸底 #F7F3EC · 卡=纸 · 输入 #EFE9DF · 正文墨 #17181A（次级 62% / 最弱 40%）
 //   dark : 墨底 #17181A · 卡 #1C1D20 · 面 #232428 · 正文纸 #F7F3EC（次级 62% / 最弱 30%）
 //   印色 : 朱磦 #D2402E（加深 #B03020）——盖章/审批/品牌位专用，destructive red 分工不变
 //   状态色族沿用 web 口径：running #46bf72 / attention #ff8a30 等。
@@ -83,22 +83,21 @@ val BiuZDarkPalette = BiuZPalette(
 )
 
 val BiuZLightPalette = BiuZPalette(
-    // 纸底加深（2026-11-24 用户第三次报「这个颜色不是纸色」）：
-    // 旧值 #F7F3EC 与用户自己的截图、我的 adb 截图**逐像素一致**（都是 247,243,236），
-    // 说明渲染没错——错在**值本身**：离纯白只差 8/12/19 阶（约 4% 暖调），手机屏上
-    // 读作浅灰/白。现加深到 #F2EADB（242,234,219，差 13/21/36），保持同一色相（R>G>B）。
-    // ⚠ 与 brand/seal/README.md:39 的「纸 #F7F3EC」出现偏差，已登记待用户裁决是否回写品牌档。
-    bg = Color(0xFFF2EADB),
+    // 纸值沿革（防横跳，与 iOS Theme.swift 同口径）：#F7F3EC（品牌原值）→ 2026-11-24
+    // 加深 #F2EADB（用户三报「不是纸色」）→ 2026-11-25 用户看 iOS 实机报「太深」裁定
+    // 回退 #F7F3EC，品牌档（brand/seal/README.md）同步回写、图标/启动资产同管线重导。
+    // 「读作白」若再报，处置方向=卡面描边/层次另案，不再单改纸基值。
+    bg = Color(0xFFF7F3EC),
     // 卡面/浮层必须**肉眼是纸**（2026-11-24 二次报障「实际看到的是白屏，和你截图的纸色不一样」）：
     // 上一版卡面取 #FBF8F2（离纯白只有 4/7/13 阶）、浮层 #FDFBF6（2/4/9 阶）——像素采样
     // 有差、眼睛看着就是白；而设置/用量/归档/新建会话这些页几乎整屏由卡面铺成，于是
     // 「页面是纸、满屏是白」。现按品牌文档原话执行：**同一张纸，层次靠描边不靠白度差**——
     // 卡面直接与页面底同色 #F7F3EC，浮层只比纸亮 3 阶（远低于白的感知阈值）。
-    bgCard = Color(0xFFF2EADB),
-    bgElevated = Color(0xFFF7F1E4),
-    bgInput = Color(0xFFE8DFCB), // 纸·暗两档（加深后仍要能看出下沉感）
-    bgCode = Color(0xFFEEE6D5),
-    bgTerm = Color(0xFFEFE8D8),
+    bgCard = Color(0xFFF7F3EC),
+    bgElevated = Color(0xFFFAF7F0),
+    bgInput = Color(0xFFEFE9DF), // 纸·暗一档（输入槽仍需可辨的下沉感）
+    bgCode = Color(0xFFF4F0E8),
+    bgTerm = Color(0xFFF5F1EA),
     border = Color(0x1F17181A), // 墨 12% alpha
     borderStrong = Color(0x2E17181A), // 墨 18% alpha
     text = Color(0xFF17181A),

@@ -6,7 +6,7 @@
   <!-- 前景层：印面 42dp，圆心 (54,54)；66dp 安全区内 -->
   <g id="foreground-layer" transform="translate(33,33) scale(0.42)">
     <path fill="#D2402E" d="M14 0 H86 Q100 0 100 14 V84 L91 86 L94 94 L85 96 L82 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z"/>
-    <path fill="#F2EADB" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
+    <path fill="#F7f3ec" d="M23.6 19 H83 V35.4 L42.9 67.6 H83 L78.6 83 H17 V67.6 L57.2 35.4 H17 Z"/>
   </g>
   <!-- 以下为交接标注（导出资源时删除 .spec 元素） -->
   <g class="spec" data-spec="true" opacity="0.9">

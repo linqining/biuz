@@ -5,7 +5,9 @@ enum MessageStatus: String, Codable { case done, streaming }
 enum ToolCallStatus: String, Codable { case running, done, failed }
 /// 工具族。`todo` 单独一类（2026-11-24 与 Android 同步）：`TodoList` 含 "list"、
 /// `TodoWrite` 含 "write"，族判定若按 read/write 先匹配，待办清单会被显示成「读取/编辑」。
-enum ToolKind: String, Codable { case bash, edit, read, ask, browser, todo }
+/// G1（2026-11-25 与上游 toolIdentity.ts 族判定对齐）：补 mcp/webfetch/search 三族
+/// （此前 MCP/WebFetch/Search 无专属面，落泛化卡）
+enum ToolKind: String, Codable { case bash, edit, read, ask, browser, todo, mcp, webfetch, search }
 
 /// 工具调用卡（会话流内嵌）
 struct ToolCall: Identifiable, Codable, Equatable {
@@ -224,9 +226,43 @@ struct WorkflowRunSummary: Identifiable, Equatable {
     var startedAt: Date?
     var updatedAt: Date?
 
+    // MARK: G25 run 详情深化（2026-11-25；字段权威 = 上游 workflowRunSchema
+    // workflow-runs.ts:419-583【实证·上游仓】）
+    /// 错误正文（:435；errored 终态区正文）
+    var error: String? = nil
+    /// 完成结果预览（:441；completed 终态区预览块）
+    var resultPreview: String? = nil
+    /// 血缘「改自」（:429-431，来自 run-started 载荷；恢复型 run 的父 runId）
+    var resumedFrom: String? = nil
+    /// 血缘「已被替代」（:432-434，只随 stopReason=superseded 的 run-settled；后继 runId）
+    var supersededBy: String? = nil
+    /// 用量节点数（usage.nodesUsed，:174-189；与 spentTokens 同源完成卡）
+    var usageNodesUsed: Int? = nil
+    /// 并发上限（concurrency.cap，:322-329 对象形态；v4.0.0 对象 {key?,cap,ceiling,limit?,cooldownMs?}）
+    var concurrencyCap: Int? = nil
+    /// 并发冷却时长 ms（concurrency.cooldownMs；>0 = 该 key 曾限流）
+    var concurrencyCooldownMs: Int? = nil
+    /// 冷却截止（解析时刻 + cooldownMs 的近似 receivedAt 口径——state 投影到达即解析，
+    /// 无独立节流事件时间源；过期即 nil 由 UI 不渲染承载）
+    var concurrencyCooldownUntil: Date? = nil
+    /// 枚举面失败归因（conversationWorkflowRunsV4 summary failureCode，transport.ts:731-759）
+    var failureCode: String? = nil
+
     /// 站点灯四态映射（stopped→pending，UI 另以文案区分「已停止」）
     var status: WorkflowStepStatus { WorkflowStepStatus.mapRunStatus(rawStatus) }
     var isLive: Bool { rawStatus == "pending" || rawStatus == "running" }
+
+    /// stopReason 文案表（web WorkflowRunSidePaneSections.tsx:432-440 同位；词表外返回 nil 用原词）
+    static func stopReasonText(_ raw: String?) -> String? {
+        switch raw {
+        case "user": return String(localized: "手动停止")
+        case "model": return String(localized: "模型停止")
+        case "provider": return String(localized: "供应商中断")
+        case "interrupted": return String(localized: "已中断")
+        case "superseded": return String(localized: "已被新运行替代")
+        default: return raw?.isEmpty == true ? nil : raw
+        }
+    }
 
     /// 进度点计数（done 节点 / 总节点）
     var doneCount: Int { nodes.filter { $0.status == .done }.count }
@@ -267,6 +303,53 @@ struct WorkflowRunSummary: Identifiable, Equatable {
         }
         return bound.isEmpty ? orphans : bound
     }
+}
+
+// MARK: - G25 工作流 run 保存（2026-11-25）
+//
+// web 完成卡「保存/再次运行」判定链【实证·上游仓 useWorkflowRunSave.ts:79-92】：
+// 已保存判定 = findSavedWorkflowForRun（回执 entry 缺席 = 未保存），保存 = saveSavedWorkflowFromRun。
+
+/// run ↔ 已保存工作流判定（workflows/forRun 回执 entry 子集；仅 name+scope 供「再次运行」）
+struct WorkflowRunSavedRef: Equatable {
+    var name: String
+    /// "project" | "global"
+    var scope: String
+}
+
+/// 保存结果（workflows/save 回执 union ok:true/false 的 UI 承载）
+enum WorkflowRunSaveOutcome: Equatable {
+    case saved(name: String, scope: String, overwritten: Bool)
+    /// target_exists：目标档已有同名（仅在用户已见过覆盖警告后带 overwrite:true 重发）
+    case targetExists
+    /// 其他拒因/异常原文（invalid_name/run_not_found/script_missing/compile_failed/write_error）
+    case failed(String)
+}
+
+/// G24 工作区 MCP 准入待审核快照（state.workspaceMcpAdmission；schema =
+/// workspaceMcpAdmissionStateSchema snapshot.ts:531-536【实证·上游仓】
+/// {pendingCount int≥0, bundleDigest 64hex, workspaceIdentity?}——无状态枚举字段，
+/// 非 null 且 pendingCount>0 即待审核）
+struct WorkspaceMcpAdmissionState: Equatable {
+    var pendingCount: Int
+    var bundleDigest: String?
+    var workspaceIdentity: String?
+}
+
+/// G27 后台 bash 输出快照（v4/conversation/backgroundBashOutput 回执；
+/// schema = background-bash-output.ts【实证·上游仓】：成功 kind="output"
+/// {workId, status: running|completed|failed|timed_out|cancelled|spawn_error,
+/// output string≤8192, truncated bool, outputPath}；失败 kind=
+/// "unavailable"|"unsupported"|"read_failed" {code?}——全量有界快照式，无 offset）
+struct BackgroundBashOutputInfo: Equatable {
+    /// "output" | "unavailable" | "unsupported" | "read_failed"
+    var kind: String
+    var status: String?
+    var output: String?
+    var truncated: Bool
+    var outputPath: String?
+    /// 失败分支的 code（read_failed 等；诊断透出用）
+    var code: String?
 }
 
 // MARK: - 会话面板投影（goal / plan / btw 后台工作 / side 子代理；桌面 state.* 同名宽容解析）
@@ -416,6 +499,27 @@ struct SubagentRuntimeSummary: Equatable {
     var isDone: Bool { status == "completed" || status == "stopped" || status == "errored" || status == "failed" }
 }
 
+/// G28 头像叠组条目（web ConversationStatusPanel activityAvatars 结构化投影——
+/// Android ActivityAvatarItem 同构移植，2026-11-25）。status = 生命周期，result =
+/// 结束果（nil = 运行中）；徽标点由 result 驱动，头像底/字保持中性（朱批纪律：
+/// 头像不用状态色铺底）
+struct SubagentAvatarItem: Equatable {
+    enum Status: Equatable { case running, done, failed }
+    enum Result: Equatable { case completed, failed, stopped }
+
+    var childSessionId: String
+    /// 首字母大写取字（渲染层取 name.first）
+    var name: String?
+    var status: Status
+    var result: Result?
+
+    /// 徽标点判定（停止/失败不能回退 Running——web :1218-1224 注释同规）
+    var badge: Status {
+        if result == .completed { return .done }
+        return status
+    }
+}
+
 /// `state.activitySummaryDismissed`：用户「忽略活动摘要」时被打掉的条目 id 集（v4.0.0）。
 struct ActivitySummaryDismissed: Equatable {
     var at: Int?
@@ -534,6 +638,27 @@ struct RemotePendingInteraction: Identifiable, Equatable {
     var planText: String?
     /// workspaceHookReview 审核项（payload 宽容解析；非该 kind 恒空）
     var hookReviewItems: [WorkspaceHookReviewItem] = []
+    /// 权限卡拒绝反馈文本框开关（G21：payload.freeText=true 且存在拒绝类选项时显示
+    /// 可选输入行；schema=snapshot.ts:277 permissionRequestPayloadSchema.freeText
+    /// 【实证·上游仓】，缺席 = 不显示）
+    var permissionFreeText: Bool = false
+    /// 插件安装卡字段族（G23：kind=="pluginInstall"；schema=pluginInstall.ts
+    /// pluginInstallRequestPayloadSchema【实证·上游仓】）
+    var pluginName: String?
+    var pluginDescription: String?
+    /// 请求原因（agent 为何要装/启用；缺席 = 只显示名称与描述）
+    var pluginReason: String?
+    /// "user" | "workspace"（安装落点档位）
+    var pluginScope: String?
+    /// "install" | "enable"（确认按钮文案分叉）
+    var pluginAction: String?
+    /// 行内自动决议倒计时（G33：sessions-index pendingInteraction 轻量投影同源字段；
+    /// schema=interactionAutoResolutionSchema snapshot.ts:329-341 两态——
+    /// hiddenGrace{startedAt,visibleAt,deadlineAt} / snoozed{startedAt,snoozedAt}）
+    var autoResolutionState: String?
+    var autoResolutionDeadline: Date?
+    var autoResolutionVisibleAt: Date?
+    var autoResolutionSnoozedAt: Date?
 
     /// 是否权限审批类（批准/拒绝下发 resolveInteraction）
     var isPermission: Bool { kind == "permission" }
@@ -542,9 +667,27 @@ struct RemotePendingInteraction: Identifiable, Equatable {
     /// 是否 workspace hook 信任审核类（web payload.kind='workspaceHookReview'；
     /// 应答走 respondWorkspaceHookReview，与 resolveInteraction 是姊妹 kind）
     var isWorkspaceHookReview: Bool { kind == "workspaceHookReview" }
+    /// 是否插件安装卡（G23；上游 pendingInteractionSchema.kind 第四枚举值 snapshot.ts:347）
+    var isPluginInstall: Bool { kind == "pluginInstall" }
     /// 是否提问类（AskUserQuestion / MCP elicitation / 旧 userInput）
     var isUserInput: Bool {
         kind == "userInput" || kind == "elicitation" || kind == "question" || kind == "mcp_elicitation"
+    }
+    /// G33：倒计时是否在场且可暂停（web TaskInteractionBadge.tsx:21-31——只有
+    /// userInput+autoResolution 才给进度与 snooze；permission 恒 false）
+    var canSnoozeCountdown: Bool {
+        kind == "userInput" && autoResolutionState != nil
+    }
+    /// G33：进度 0…1（deadlineAt 与 visibleAt 都在场才可算；snoozed/静默期 = nil 不画环）
+    var countdownProgress: Double? {
+        guard canSnoozeCountdown,
+              autoResolutionState != "snoozed",
+              let deadline = autoResolutionDeadline,
+              let visible = autoResolutionVisibleAt else { return nil }
+        let span = deadline.timeIntervalSince(visible)
+        guard span > 0 else { return nil }
+        let remaining = deadline.timeIntervalSinceNow
+        return min(1, max(0, remaining / span))
     }
 }
 
@@ -666,6 +809,54 @@ struct Conversation: Identifiable, Equatable {
     /// 通路 A：sessions-index 行自带 workflowActivity（G-007；随既有订阅到达零新增订阅）。
     /// 无 run 时 nil → 行不渲染占位。
     var workflowActivity: WorkflowActivitySummary?
+    // MARK: G33 行内待批徽标（2026-11-25；sessions-index 行 pendingInteraction 轻量投影
+    // ZCodeTaskPendingInteraction【实证·上游仓 zcode-task-types-core.ts:262-268】：
+    // {interactionId, kind: "permission"|"userInput", toolName?, autoResolution?}）
+    /// 挂起交互 id（snooze 定位键；缺席 = 行无轻量投影不渲染倒计时徽标）
+    var pendingInteractionId: String?
+    /// "permission" | "userInput"（徽标 kind 区分；词表外不渲染徽标）
+    var pendingInteractionKind: String?
+    /// 轻量工具身份（userInput+AskUserQuestion/autoResolution 才给倒计时——web
+    /// TaskInteractionBadge.tsx:21-31 判定）
+    var pendingInteractionToolName: String?
+    /// 自动决议倒计时截止（hiddenGrace/visibleCountdown 态的 deadlineAt；毫秒/ISO 宽容）
+    var pendingInteractionDeadline: Date?
+    /// 倒计时可见起点（进度分母 = deadlineAt - visibleAt，web :44-58 同式）
+    var pendingInteractionVisibleAt: Date?
+    /// snoozed 态时间戳（非 nil = 已暂停不画进度）
+    var pendingInteractionSnoozedAt: Date?
+    // MARK: G40 行元数据身份（task-index cronAutomationId/offPeakTaskId 透传；
+    // web TaskListItem.tsx:759-779 Clock/Moon 图标同源）
+    var isCronTask = false
+    var isOffPeakTask = false
+    /// G40 残面：worktree 根（受管布局 <根>/<bucket>/<仓库名>）+ 远端设备显示名
+    var worktreeRoot: String?
+    var serverDisplayName: String?
+
+    /// worktree 显示名 `<仓库名> · <bucket>`（web worktreeLabel.ts 同构——切两种
+    /// 分隔符取末段/次末段；段数不足两段 = null 不显示）
+    var worktreeLabel: String? {
+        guard let root = worktreeRoot, !root.isEmpty else { return nil }
+        let segments = root.split(whereSeparator: { $0 == "/" || $0 == "\\" }).filter { !$0.isEmpty }
+        guard let name = segments.last, segments.count >= 2 else { return nil }
+        let bucket = segments[segments.count - 2]
+        return "\(name) · \(bucket)"
+    }
+
+    /// G33：徽标倒计时进度 0…1（仅 userInput；snoozed/静默期 = nil）
+    var pendingCountdownProgress: Double? {
+        guard pendingInteractionKind == "userInput",
+              pendingInteractionSnoozedAt == nil,
+              let deadline = pendingInteractionDeadline,
+              let visible = pendingInteractionVisibleAt else { return nil }
+        // 静默期（hiddenGrace：now < visibleAt）不画环——web TaskInteractionBadge.tsx:44-58
+        // 「now < visibleAt → 静默期可 snooze」同口径
+        guard Date() >= visible else { return nil }
+        let span = deadline.timeIntervalSince(visible)
+        guard span > 0 else { return nil }
+        let remaining = deadline.timeIntervalSinceNow
+        return min(1, max(0, remaining / span))
+    }
 
     /// 项目名（列表分组键）：directory 末段；directory 为空视为未绑定项目（走日期分组）
     var projectName: String? {
@@ -791,6 +982,11 @@ struct AppSettings: Equatable, Codable {
     /// 显示思考过程（默认开；web isConversationReasoningRowVisible 同口径）：关闭时
     /// 会话页只保留每轮首条 reasoning，其余折叠隐藏
     var showThinkingProcess: Bool = true
+    /// G7 消息流内显示待办工具卡（默认关；web messageStreamShowTodos
+    /// validationAppSettings.ts:571 default(false)【实证·上游仓】同值同义——false 时
+    /// todo 族 toolCall 行不渲染（conversationAssistantWorkItems.ts:109-117 同过滤位），
+    /// 状态胶囊/待办面板不受影响）
+    var showTodosInStream: Bool = false
 
     init() {}
 
@@ -805,5 +1001,6 @@ struct AppSettings: Equatable, Codable {
         language = try container.decodeIfPresent(String.self, forKey: .language) ?? "跟随系统"
         developerMode = try container.decodeIfPresent(Bool.self, forKey: .developerMode) ?? false
         showThinkingProcess = try container.decodeIfPresent(Bool.self, forKey: .showThinkingProcess) ?? true
+        showTodosInStream = try container.decodeIfPresent(Bool.self, forKey: .showTodosInStream) ?? false
     }
 }

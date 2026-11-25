@@ -40,6 +40,12 @@ package cn.biuz.android.store
 
 import cn.biuz.android.protocol.AckActivationBarrier
 import cn.biuz.android.protocol.SubagentProjectionState
+import cn.biuz.android.protocol.WorkspaceMcpAdmissionState
+import cn.biuz.android.protocol.AutoArchiveSettings
+import cn.biuz.android.protocol.ArchivedTaskDeletionResult
+import cn.biuz.android.protocol.BackgroundBashOutputInfo
+import cn.biuz.android.protocol.WorkflowRunSavedRef
+import cn.biuz.android.protocol.WorkflowRunSaveOutcome
 import cn.biuz.android.protocol.SubagentRuntimeSummary
 import cn.biuz.android.protocol.ActivitySummaryDismissed
 import cn.biuz.android.protocol.BackgroundWorkSummary
@@ -64,6 +70,7 @@ import cn.biuz.android.protocol.PSchema
 import cn.biuz.android.protocol.PValidator
 import cn.biuz.android.protocol.RemoteInteractionOption
 import cn.biuz.android.protocol.RemotePendingInteraction
+import cn.biuz.android.protocol.RemoteInteractionQuestion
 import cn.biuz.android.protocol.RPCChannelTransport
 import cn.biuz.android.protocol.RPCError
 import cn.biuz.android.protocol.RPCValue
@@ -224,6 +231,36 @@ class RemoteConversationStore(
     // MARK: 状态容器（iOS :41-233 订阅面子集；rowId 键控行模型 + 派生消息）
 
     private val rows = HashMap<String, HashMap<Int, RowRecord>>()
+
+    /**
+     * G52 重连缓存导出/采纳（2026-11-25 与 iOS RemoteConversationStore.exportCaches/
+     * adoptCaches 同口径）：重连同工作区重建 Store 时行/消息/state 投影不丢——重连后
+     * 首开命中缓存即渲染，不等订阅与全量拉取。**有意不迁移**（iOS 同纪律）：订阅
+     * subscriptionId/水位/loadFailures——subscriptionId 属旧连接，重订阅拿新 id。
+     */
+    data class ConversationCaches(
+        val rows: Map<String, HashMap<Int, RowRecord>>,
+        val messages: Map<String, List<ChatMessage>>,
+        val snapshotState: Map<String, JSONValue>,
+        val stateRevisions: Map<String, Long>,
+    )
+
+    suspend fun exportCaches(): ConversationCaches = mutex.withLock {
+        ConversationCaches(
+            rows = rows.toMap(),
+            messages = messages.toMap(),
+            snapshotState = snapshotState.toMap(),
+            stateRevisions = conversationStateRevisions.toMap(),
+        )
+    }
+
+    suspend fun adoptCaches(caches: ConversationCaches) = mutex.withLock {
+        for ((key, value) in caches.rows) rows[key] = HashMap(value)
+        messages.putAll(caches.messages)
+        snapshotState.putAll(caches.snapshotState)
+        conversationStateRevisions.putAll(caches.stateRevisions)
+        Unit
+    }
     private val messages = HashMap<String, List<ChatMessage>>()
     /** state.updated patch 合并目标（合并视图 = 嵌套 state ∪ 快照顶层扁平键，iOS :1298-1309） */
     private val snapshotState = HashMap<String, JSONValue>()
@@ -2049,6 +2086,74 @@ class RemoteConversationStore(
         if (kind == "workspaceHookReview") {
             hookReviewItems = parseHookReviewItems(payload, dict)
         }
+        // G21 权限卡反馈文本框开关（snapshot.ts:277 permissionRequestPayloadSchema.freeText
+        // 【实证·上游仓】——permission 之外不读）
+        val permissionFreeText =
+            if (resolvedKind == "permission") {
+                payload["freeText"]?.boolValue ?: dict["freeText"]?.boolValue ?: false
+            } else {
+                false
+            }
+        // G23 插件安装卡字段族（pluginInstall.ts pluginInstallRequestPayloadSchema
+        // 【实证·上游仓】）
+        var pluginName: String? = null
+        var pluginDescription: String? = null
+        var pluginReason: String? = null
+        var pluginScope: String? = null
+        var pluginAction: String? = null
+        if (kind == "pluginInstall") {
+            pluginName = payload["displayName"]?.stringValue
+                ?: payload["name"]?.stringValue
+                ?: dict["displayName"]?.stringValue
+                ?: dict["name"]?.stringValue
+                ?: title
+            pluginDescription = payload["description"]?.stringValue
+                ?: dict["description"]?.stringValue
+            pluginReason = payload["reason"]?.stringValue ?: dict["reason"]?.stringValue
+            pluginScope = payload["scope"]?.stringValue ?: dict["scope"]?.stringValue
+            pluginAction = payload["action"]?.stringValue ?: dict["action"]?.stringValue
+        }
+        // G33 行内自动决议倒计时（interactionAutoResolutionSchema snapshot.ts:329-341
+        // 两态【实证·上游仓】；时间字段毫秒/ISO 双形态宽容）
+        // G22 多题向导 questions 解析（userInputRequestPayloadSchema.questions[]——
+        // {question, options[{value,label}], multiSelect?}【实证·上游仓 snapshot.ts】）
+        val questions = ((payload["questions"]?.arrayValue
+            ?: dict["questions"]?.arrayValue
+            ?: payload["input"]?.objectValue?.get("questions")?.arrayValue
+            ?: emptyList()).mapNotNull { q ->
+            val qd = q.objectValue ?: return@mapNotNull null
+            val text = qd["question"]?.stringValue ?: return@mapNotNull null
+            RemoteInteractionQuestion(
+                question = text,
+                options = (qd["options"]?.arrayValue ?: emptyList()).mapNotNull { o ->
+                    val od = o.objectValue ?: return@mapNotNull null
+                    val value = od["value"]?.stringValue ?: od["optionId"]?.stringValue
+                    ?: od["id"]?.stringValue ?: return@mapNotNull null
+                    RemoteInteractionOption(
+                        id = value,
+                        label = od["label"]?.stringValue ?: value,
+                    )
+                },
+                multiSelect = qd["multiSelect"]?.boolValue ?: false,
+            )
+        })
+        // G22 提问自由输入开关（iOS RemoteConversationStore.swift:3358-3366 同构）：
+        // payload.freeText 显式值优先；缺省 = 存在无选项题；纯自由输入强制 true
+        var freeTextEnabled = payload["freeText"]?.boolValue
+            ?: dict["freeText"]?.boolValue
+            ?: questions.any { it.options.isEmpty() }
+        if (questions.isEmpty() && options.isEmpty()) freeTextEnabled = true
+        var autoState: String? = null
+        var autoDeadline: Long? = null
+        var autoVisibleAt: Long? = null
+        var autoSnoozedAt: Long? = null
+        val autoObj = payload["autoResolution"]?.objectValue ?: dict["autoResolution"]?.objectValue
+        if (autoObj != null) {
+            autoState = autoObj["state"]?.stringValue
+            autoDeadline = interactionTimestamp(autoObj, "deadlineAt")
+            autoVisibleAt = interactionTimestamp(autoObj, "visibleAt")
+            autoSnoozedAt = interactionTimestamp(autoObj, "snoozedAt")
+        }
         return RemotePendingInteraction(
             id = id,
             kind = resolvedKind,
@@ -2059,7 +2164,26 @@ class RemoteConversationStore(
             options = options,
             planText = planText,
             hookReviewItems = hookReviewItems,
+            permissionFreeText = permissionFreeText,
+            questions = questions,
+            freeTextEnabled = freeTextEnabled,
+            pluginName = pluginName,
+            pluginDescription = pluginDescription,
+            pluginReason = pluginReason,
+            pluginScope = pluginScope,
+            pluginAction = pluginAction,
+            autoResolutionState = autoState,
+            autoResolutionDeadline = autoDeadline,
+            autoResolutionVisibleAt = autoVisibleAt,
+            autoResolutionSnoozedAt = autoSnoozedAt,
         )
+    }
+
+    /** G33：交互时间字段双形态宽容解析（毫秒数/ISO；workflowRunTimestamp 同口径） */
+    private fun interactionTimestamp(dict: Map<String, JSONValue>, key: String): Long? {
+        dict[key]?.longValue()?.let { if (it > 0) return it }
+        val iso = dict[key]?.stringValue ?: return null
+        return SessionSummaryParser.parseIsoMillis(iso)
     }
 
     /**
@@ -2255,6 +2379,243 @@ class RemoteConversationStore(
             endedTotal = dict["endedTotal"]?.longValue()?.toInt() ?: 0,
             ended = parseList("ended"),
         )
+    }
+
+    // MARK: G25/G24/G27（2026-11-25 与 iOS 同步；wire 取证见 StoreProtocols.kt 同名注释）
+
+    /** G24：`state.workspaceMcpAdmission` → 工作区 MCP 待审核快照（pendingCount>0 = 指示条在场） */
+    override suspend fun workspaceMcpAdmission(conversationId: String): WorkspaceMcpAdmissionState? {
+        val d = mutex.withLock {
+            snapshotState[conversationId]?.objectValue?.get("workspaceMcpAdmission")?.objectValue
+        } ?: return null
+        return WorkspaceMcpAdmissionState(
+            pendingCount = d["pendingCount"]?.intValue ?: 0,
+            bundleDigest = d["bundleDigest"]?.stringValue,
+            workspaceIdentity = d["workspaceIdentity"]?.stringValue,
+        )
+    }
+
+    /** G27：后台 bash 输出快照（{sessionId, workId} 无 offset 全量有界；null = 失败） */
+    override suspend fun backgroundBashOutput(
+        conversationId: String,
+        workId: String,
+    ): BackgroundBashOutputInfo? {
+        val fields = LinkedHashMap<String, JSONValue>()
+        applySessionTarget(fields, conversationId)
+        fields["workId"] = JSONValue.Str(workId)
+        val json: JSONValue = try {
+            transport.call(
+                "zcode-agent", "backgroundBashOutputV4",
+                RPCValue.json(JSONValue.Obj(fields)),
+            ).jsonValue
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        } ?: return null
+        val d = json.objectValue ?: return null
+        val kind = d["kind"]?.stringValue ?: return null
+        if (kind == "output") {
+            return BackgroundBashOutputInfo(
+                kind = kind,
+                status = d["status"]?.stringValue,
+                output = d["output"]?.stringValue,
+                truncated = d["truncated"]?.boolValue ?: false,
+                outputPath = d["outputPath"]?.stringValue,
+                code = null,
+            )
+        }
+        return BackgroundBashOutputInfo(
+            kind = kind, status = null, output = null, truncated = false,
+            outputPath = null, code = d["code"]?.stringValue,
+        )
+    }
+
+    /** G25：这次 run 对应的已保存工作流（null = 未保存/未连接/查询失败——失败不挡保存） */
+    override suspend fun savedWorkflowForRun(
+        conversationId: String,
+        runId: String,
+    ): WorkflowRunSavedRef? {
+        val fields = LinkedHashMap<String, JSONValue>()
+        applySessionTarget(fields, conversationId)
+        fields["runId"] = JSONValue.Str(runId)
+        val json: JSONValue = try {
+            transport.call(
+                "zcode-agent", "findSavedWorkflowForRun",
+                RPCValue.json(JSONValue.Obj(fields)),
+            ).jsonValue
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        } ?: return null
+        val entry = json.objectValue?.get("entry")?.objectValue ?: return null
+        val name = entry["name"]?.stringValue?.takeIf { it.isNotEmpty() } ?: return null
+        return WorkflowRunSavedRef(
+            name = name,
+            scope = entry["scope"]?.stringValue ?: "project",
+        )
+    }
+
+    /** G25：从 run 保存工作流（targetExists 返回后由 UI 确认覆盖再重发 overwrite=true） */
+    override suspend fun saveWorkflowRun(
+        conversationId: String,
+        runId: String,
+        name: String,
+        description: String,
+        scope: String,
+        overwrite: Boolean,
+    ): WorkflowRunSaveOutcome {
+        val fields = LinkedHashMap<String, JSONValue>()
+        applySessionTarget(fields, conversationId)
+        fields["runId"] = JSONValue.Str(runId)
+        fields["name"] = JSONValue.Str(name)
+        fields["meta"] = JSONValue.Obj(
+            linkedMapOf("description" to JSONValue.Str(description)),
+        )
+        fields["scope"] = JSONValue.Str(scope)
+        if (overwrite) fields["overwrite"] = JSONValue.Bool(true)
+        val json: JSONValue = try {
+            transport.call(
+                "zcode-agent", "saveSavedWorkflowFromRun",
+                RPCValue.json(JSONValue.Obj(fields)),
+            ).jsonValue
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return WorkflowRunSaveOutcome.Failed("连接中断或超时，请检查桌面端状态")
+        } ?: return WorkflowRunSaveOutcome.Failed("unknown")
+        val d = json.objectValue ?: return WorkflowRunSaveOutcome.Failed("unknown")
+        if (d["ok"]?.boolValue == true) {
+            return WorkflowRunSaveOutcome.Saved(
+                name = d["name"]?.stringValue ?: name,
+                scope = d["scope"]?.stringValue ?: scope,
+                overwritten = d["overwritten"]?.boolValue ?: false,
+            )
+        }
+        val reason = d["reason"]?.stringValue ?: "unknown"
+        if (reason == "target_exists") return WorkflowRunSaveOutcome.TargetExists
+        return WorkflowRunSaveOutcome.Failed(d["detail"]?.stringValue ?: reason)
+    }
+
+    // MARK: G43 自动归档设置（2026-11-25 与 iOS 同步）
+    //
+    // setting 频道两键【实证·上游仓 validationAppSettings.ts:555-557 + iOS
+    // AutoArchiveSettingsPage】：taskAutoArchiveEnabled bool 默认 false、
+    // taskAutoArchiveOlderThanDays int≤365 默认 30；档位 [3,7,14,30]。
+    // 读 = setting.get 宽容包裹键（settings/values/data/config 整对象兜底）；
+    // 写 = setting.update 单键补丁（web SettingsPage.tsx:1228/:1244 直接写不确认），
+    // 写永不重试防双写。频道名 "setting"（channels.ts:106 实证），settingService
+    // 候选兜底同 RemoteUsageStatsStore.SETTING_CHANNELS 序。
+
+    private val SETTING_CHANNEL_CANDIDATES = listOf("setting", "settingService")
+    private val SETTING_WRAPPER_KEYS = listOf("settings", "values", "data", "config", "items", "entries")
+
+    private suspend fun settingCallCandidates(command: String, fields: Map<String, JSONValue>): JSONValue {
+        var lastError: Exception? = null
+        for (channel in SETTING_CHANNEL_CANDIDATES) {
+            try {
+                return transport.call(channel, command, RPCValue.json(JSONValue.Obj(fields))).jsonValue
+                    ?: continue
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        throw lastError ?: IllegalStateException("setting channel unavailable")
+    }
+
+    override suspend fun autoArchiveSettings(): AutoArchiveSettings? {
+        val json: JSONValue = try {
+            settingCallCandidates("get", emptyMap())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        }
+        var d = json.objectValue ?: return null
+        for (key in SETTING_WRAPPER_KEYS) {
+            d = d[key]?.objectValue ?: d
+        }
+        return AutoArchiveSettings(
+            enabled = d["taskAutoArchiveEnabled"]?.boolValue ?: false,
+            olderThanDays = d["taskAutoArchiveOlderThanDays"]?.intValue ?: 30,
+        )
+    }
+
+    /** G43：批量删除已归档任务（web archivedTaskDeletion.ts:58-100 同构——同一 workspace
+     * 一次 RPC；归档行 directory 分块，identity 查 allWorkspaces；一项失败不回滚其它） */
+    override suspend fun deleteArchivedTasks(taskIds: List<String>): ArchivedTaskDeletionResult? {
+        // Android 归档清单页单 workspace 语境（listArchivedTasks 拉取同源 workspace）：
+        // 统一按连接 workspace 归块（web archivedTaskDeletion 按 workspace 分组的移动端简化）
+        val fields = LinkedHashMap<String, JSONValue>()
+        fields["workspacePath"] = JSONValue.Str(workspace.path)
+        workspace.workspaceIdentity?.let { fields["workspaceIdentity"] = JSONValue.Str(it) }
+        fields["taskIds"] = JSONValue.Arr(taskIds.map { JSONValue.Str(it) })
+        val json: JSONValue = try {
+            transport.call("zcode-task", "deleteArchivedTasks", RPCValue.json(JSONValue.Obj(fields))).jsonValue
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        } ?: return null
+        val d = json.objectValue ?: return null
+        return ArchivedTaskDeletionResult(
+            deletedTaskIds = d["deletedTaskIds"]?.arrayValue.orEmpty().mapNotNull { it.stringValue },
+            skippedTaskIds = d["skippedTaskIds"]?.arrayValue.orEmpty().mapNotNull { it.stringValue },
+            failedTaskIds = d["failedTaskIds"]?.arrayValue.orEmpty().mapNotNull { it.stringValue },
+        )
+    }
+
+    /** G41：桌面行为设置读（setting.get 全键；宽容包裹键——settings/values/data/config 兜底） */
+    override suspend fun behaviorSettings(): Map<String, JSONValue>? {
+        val json: JSONValue = try {
+            settingCallCandidates("get", emptyMap())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        }
+        var d = json.objectValue ?: return null
+        for (key in SETTING_WRAPPER_KEYS) {
+            d = d[key]?.objectValue ?: d
+        }
+        return d
+    }
+
+    /** G41：桌面行为设置写（setting.update 单键补丁直接写不确认；写永不重试防双写） */
+    override suspend fun setBehaviorSetting(key: String, value: JSONValue): String? {
+        return try {
+            settingCallCandidates("update", mapOf(key to value))
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.message ?: e::class.simpleName ?: "写入失败"
+        }
+    }
+
+    override suspend fun setAutoArchiveSetting(enabled: Boolean?, olderThanDays: Int?): String? {
+        return try {
+            if (enabled != null) {
+                settingCallCandidates(
+                    "update",
+                    mapOf("taskAutoArchiveEnabled" to JSONValue.Bool(enabled)),
+                )
+            }
+            if (olderThanDays != null) {
+                settingCallCandidates(
+                    "update",
+                    mapOf("taskAutoArchiveOlderThanDays" to JSONValue.Int(olderThanDays)),
+                )
+            }
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.message ?: e::class.simpleName ?: "写入失败"
+        }
     }
 
     /** `state.backgroundWorks` → 后台工作清单（含 v4.0.0 `resultSummary`）。 */
@@ -5274,6 +5635,9 @@ class RemoteConversationStore(
                     itemCount = d["itemCount"]?.intValue,
                 )
             }
+            // G25（2026-11-25 与 iOS 同步）：血缘/终态/用量/并发对象形态（上游
+            // workflowRunSchema workflow-runs.ts:419-583【实证·上游仓】）
+            val concurrencyObj = dict["concurrency"]?.objectValue
             return WorkflowRunSummary(
                 id = id,
                 name = name,
@@ -5289,9 +5653,9 @@ class RemoteConversationStore(
                 artifactBriefs = artifactBriefs,
                 pendingQuestionsCount = dict["pendingQuestions"]?.arrayValue?.size ?: 0,
                 concurrency = dict["concurrency"]?.intValue
-                    ?: dict["concurrency"]?.objectValue?.get("active")?.intValue,
+                    ?: concurrencyObj?.get("active")?.intValue,
                 concurrencyCeiling = dict["concurrencyCeiling"]?.intValue
-                    ?: dict["concurrency"]?.objectValue?.get("ceiling")?.intValue
+                    ?: concurrencyObj?.get("ceiling")?.intValue
                     ?: dict["maxConcurrency"]?.intValue,
                 subagentModel = subagentModel,
                 cancellable = dict["cancellable"]?.boolValue ?: true,
@@ -5299,6 +5663,16 @@ class RemoteConversationStore(
                 hasPhaseVocabulary = hasVocabulary,
                 startedAt = workflowRunTimestamp(dict, "startedAt"),
                 updatedAt = workflowRunTimestamp(dict, "updatedAt"),
+                error = dict["error"]?.stringValue,
+                resultPreview = dict["resultPreview"]?.stringValue,
+                resumedFrom = dict["resumedFrom"]?.stringValue,
+                supersededBy = dict["supersededBy"]?.stringValue,
+                usageNodesUsed = dict["usage"]?.objectValue?.get("nodesUsed")?.intValue,
+                concurrencyLimit = concurrencyObj?.get("limit")?.intValue
+                    ?: dict["maxConcurrency"]?.intValue,
+                concurrencyCap = concurrencyObj?.get("cap")?.intValue,
+                concurrencyCooldownMs = concurrencyObj?.get("cooldownMs")?.intValue?.toLong(),
+                failureCode = dict["failureCode"]?.stringValue,
             )
         }
 

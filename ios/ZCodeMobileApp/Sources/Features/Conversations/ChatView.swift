@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 struct ChatView: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.conversationStore) private var store
+    @Environment(\.fileStore) private var fileStore
     // 详情态连接横幅数据源（safeAreaInset 插入式承载——push 态 RootView 底部
     // overlay 横幅会盖住 composer 输入框，UI/UX 验收 P1 2026-10-07）
     @Environment(AppSession.self) private var session
@@ -30,6 +31,16 @@ struct ChatView: View {
     @State private var workflowArtifactSheet: WorkflowArtifactRequest?
     /// 036 白板浮层（web 侧栏面板同位；零 RPC 纯客户端，语义见 WhiteboardModel）
     @State private var whiteboardOpen = false
+    /// G6 待办清单展开 sheet（web StatusCapsule id="todo" 可点展开的移动对位）
+    @State private var todoSheetOpen = false
+    /// G49 滚动位置记忆：顶层可见消息 id（scrollPosition 双向绑定）+ 待恢复游标
+    @State private var scrollPositionId: String?
+    @State private var restorePendingScrollId: String?
+    // G9：行高缓存（messageId 键 LRU 4000，会话切换 clear）+ 活尾跟随判定
+    //（「冻结史/尾轮」分区移动端等效——用户滚离底部（back-to-bottom 在场）时
+    // 新行到达不抢滚底，回底部恢复跟随；web user-scroll-intent 同语义）
+    let rowHeightCache = TimelineRowHeightCache()
+    @State private var followingTail = true
     @State private var showBackToBottom = false
     /// fork 成功提示（新会话 id；用户从列表打开派生会话——原地切换属 UI 重构阶段）
     @State private var forkNotice: String?
@@ -39,8 +50,25 @@ struct ChatView: View {
     /// 划词「在新会话询问」待询问消息（呈现期捕获，§5-15）
     @State private var askInNewSessionMessage: ChatMessage?
     @State private var askQuestionDraft = ""
+    // ⋯ 菜单面（2026-11-25 三 tab 重构：更改/文件/执行输出原全局 tab 的会话化入口）
+    @State private var showTaskOutputSheet = false
+    @State private var showChangesSheet = false
+    /// G38 命令中心统一搜索 sheet（⋯菜单入口）
+    @State private var showCommandCenter = false
+    /// G15 @ 文件提及面板（composer 工具行入口；ReferenceFilePickerSheet 复用）
+    @State private var showMentionPicker = false
+    @State private var showFilesSheet = false
+    /// 重命名 alert 呈现载荷（§5-15 呈现期捕获：确认回调不回读宿主 @State）
+    @State private var renamePresentation: RenamePresentation?
+    @State private var renameText = ""
+    /// 归档/标记未读二段确认（归档是会话级组织态写面，确认后回列表）
+    @State private var archiveRequested = false
+    @State private var markUnreadRequested = false
+    /// 二级模型选择器（2026-11-25 批4：替换扁平模型长列表；思考胶囊仍走 ComposerOptionSheet）
+    @State private var showModelPicker = false
 
     var body: some View {
+        chatMenuOverlays(
         Group {
             if let viewModel {
                 content(viewModel)
@@ -112,6 +140,15 @@ struct ChatView: View {
             if let remote = store as? RemoteConversationStore {
                 remote.showThinkingProcess = appSettings.value.showThinkingProcess
             }
+            // G49：记忆位预读（首帧装载完成前置位——messages.count onChange 用它改道）
+            if let saved = ChatScrollMemory.shared.load(key: ChatScrollMemory.key(
+                workspace: session.connection.workspace, conversationID: conversationID)) {
+                restorePendingScrollId = saved
+            }
+            // G9：会话切换清行高缓存（上游 clear() 同口径——turnId/messageId 跨会话
+            // 不假设全局唯一）
+            rowHeightCache.clear()
+            followingTail = true
             await vm.load()
         }
         .onChange(of: appSettings.value.showThinkingProcess) { _, show in
@@ -181,7 +218,112 @@ struct ChatView: View {
             .presentationDetents([.medium])
             .accessibilityIdentifier("l6-ask-new-sheet")
         }
+        )
     }
+
+    /// ⋯ 菜单承载 sheets/alerts（批3：执行输出/更改/文件 + 重命名/归档/标记未读）。
+    /// 独立函数拆解 body 表达式复杂度（2026-11-25 编译实证：追加 sheet 簇后
+    /// body 单表达式超时 unable to type-check in reasonable time）。
+    @ViewBuilder
+    private func chatMenuOverlays(_ base: some View) -> some View {
+        base
+        // ⋯「执行输出」（原任务 tab 详情页的会话化承载；TaskRecord 由当前会话构建，
+        // 轨迹/元数据/停止全部以 sessionId 寻址，行为与原 push 页一致）
+        .sheet(isPresented: $showTaskOutputSheet) {
+            TaskOutputSheetHost(conversation: viewModel?.conversation)
+        }
+        // ⋯「更改」（原全局文件 tab 的会话化承载；sessionId 显式传入——
+        // 旧「本次会话」分段取最近活跃会话的作用域缺陷就此消除）
+        .sheet(isPresented: $showChangesSheet) {
+            SessionChangesSheet(
+                sessionId: conversationID,
+                sessionTitle: viewModel?.conversation?.title ?? String(localized: "任务会话"))
+        }
+        // G15 @ 文件提及面板（ReferenceFilePickerSheet 复用——G-024 组件；点选插 @path）
+        .sheet(isPresented: $showMentionPicker) {
+            ReferenceFilePickerSheet(store: fileStore) { node in
+                showMentionPicker = false
+                let reference = "@\"\(node.path)\" "
+                let current = viewModel?.draft ?? ""
+                viewModel?.draft = current.isEmpty ? reference : current + reference
+                composerFocused = true
+            }
+        }
+        // G38 命令中心统一搜索（store.searchSessions listTaskList search + searchFiles）
+        .sheet(isPresented: $showCommandCenter) {
+            CommandCenterSheet(
+                session: session,
+                store: store,
+                fileStore: fileStore,
+                onOpenConversation: { target in
+                    // 命中会话：入栈同会话（跨会话跳转——router.chatPath 追加 ChatRoute）
+                    router.chatPath.append(.chat(target))
+                })
+        }
+        // ⋯「文件」（工作区文件树 + 预览 + 提交图谱；浏览作用域 = 工作区，
+        // 与 web 抽屉 file-manager 同口径，标题即工作区路径）
+        .sheet(isPresented: $showFilesSheet) {
+            NavigationStack {
+                FileTreeView()
+                    .navigationDestination(for: FileRoute.self) { route in
+                        switch route {
+                        case .tree:
+                            FileTreeView()
+                        case .preview(let node):
+                            FilePreviewView(node: node)
+                        case .commitGraph:
+                            CommitGraphPage()
+                        }
+                    }
+            }
+        }
+        // ⋯「重命名」（呈现期捕获：确认闭包捕获快照，不回读 renamePresentation）
+        .alert("重命名会话", isPresented: Binding(
+            get: { renamePresentation != nil },
+            set: { if !$0 { renamePresentation = nil } })) {
+            TextField("新名称", text: $renameText)
+            Button("取消", role: .cancel) { renamePresentation = nil }
+            Button("保存") {
+                let newTitle = renameText
+                let target = conversationID
+                renamePresentation = nil
+                Task { await store.renameConversation(newTitle, conversationID: target) }
+            }
+        } message: {
+            Text("新名称会同步到桌面端任务列表")
+        }
+        // ⋯「归档」（组织态写面确认；成功回会话列表——归档行已不在主列表）
+        .confirmationDialog(
+            String(localized: "归档「\(viewModel?.conversation?.title ?? "")」？"),
+            isPresented: $archiveRequested, titleVisibility: .visible) {
+            Button(String(localized: "归档"), role: .destructive) {
+                let target = conversationID
+                Task {
+                    await store.setArchived(true, conversationID: target)
+                    router.chatPath = []
+                }
+            }
+            Button(String(localized: "取消"), role: .cancel) {}
+        } message: {
+            Text("归档后可在会话列表「已归档」区找回")
+        }
+        // ⋯「标记未读」（本地置位 + 服务端写面；成功回会话列表）
+        .confirmationDialog(
+            String(localized: "标记为未读？"),
+            isPresented: $markUnreadRequested, titleVisibility: .visible) {
+            Button(String(localized: "标记未读")) {
+                let target = conversationID
+                Task {
+                    await store.markUnread(conversationID: target)
+                    router.chatPath = []
+                }
+            }
+            Button(String(localized: "取消"), role: .cancel) {}
+        } message: {
+            Text("该会话会在列表中显示未读标")
+        }
+    }
+
 
     private func content(_ viewModel: ChatViewModel) -> some View {
         VStack(spacing: 0) {
@@ -223,6 +365,25 @@ struct ChatView: View {
                         .padding(.horizontal, T.sp4)
                         .padding(.top, T.sp2)
                 }
+                // G24 工作区 MCP 待审核指示条（web WorkspaceMcpPendingIndicator 同位——
+                // state.workspaceMcpAdmission 非 null 且 pendingCount>0 即显示；
+                // 「忽略」纯本地 renderer 内存态，不改桌面）
+                if let admission = viewModel.workspaceMcpAdmission,
+                   admission.pendingCount > 0,
+                   !viewModel.mcpAdmissionDismissedIds.contains(viewModel.conversationID) {
+                    WorkspaceMcpPendingBanner(
+                        count: admission.pendingCount,
+                        onReview: {
+                            // web 同款纯导航（WorkspaceHookPendingBanner.tsx:302-308
+                            // 不发 RPC）：切到设置 tab 的 MCP 区
+                            router.selectedTab = .settings
+                        },
+                        onDismiss: {
+                            viewModel.mcpAdmissionDismissedIds.insert(viewModel.conversationID)
+                        })
+                        .padding(.horizontal, T.sp4)
+                        .padding(.top, T.sp2)
+                }
                 // 待审批交互卡（常驻 composer 上方：不随消息滚动，新消息不再顶走；
                 // 连接态 permission/plan/workspaceHookReview/escalation 类挂起交互，按
                 // kind 分派应答命令——permission/plan 走 resolveInteraction，
@@ -245,6 +406,11 @@ struct ChatView: View {
                                 })
                         } else if interaction.isUserInput {
                             UserInputInteractionCard(viewModel: viewModel, interaction: interaction)
+                        } else if interaction.isPluginInstall {
+                            // G23 插件安装卡（web PluginInstallCard.tsx 移动端同构；
+                            // 此前未知 kind 落 EmptyView 静默丢弃）
+                            PluginInstallInteractionCard(
+                                viewModel: viewModel, interaction: interaction)
                         } else if interaction.isPermission
                                     || interaction.kind.lowercased().contains("escalation") {
                             ApprovalInteractionCard(viewModel: viewModel, interaction: interaction)
@@ -287,13 +453,19 @@ struct ChatView: View {
                             await viewModel.finishQueueItemEdit(queueItemId, newText: newText)
                         },
                         onMoveUp: { queueItemId in await viewModel.moveQueueItemUp(queueItemId) },
+                        onReorder: { queueItemId, beforeId in
+                            await viewModel.reorderQueueItem(queueItemId, beforeQueueItemId: beforeId)
+                        },
                         onToggleAutoDrain: { enabled in await viewModel.setAutoDrain(enabled) },
                         onBeginEdit: { queueItemId in await viewModel.beginQueueItemEdit(queueItemId) },
                         onCancelEdit: { queueItemId in await viewModel.cancelQueueItemEdit(queueItemId) },
                         onReleaseLock: { queueItemId in await viewModel.releaseExternalEditLock(queueItemId) },
                         lockOwner: { item in viewModel.editLockOwner(for: item) })
                 }
-                ComposerBar(viewModel: viewModel, inputFocused: $composerFocused)
+                ComposerBar(
+                    viewModel: viewModel,
+                    inputFocused: $composerFocused,
+                    onMention: { showMentionPicker = true })
             }
             // 审核卡/队列条/composer 空白区点按即收键盘（用户报障 2026-10-07：审核
             // 弹窗在场时键盘收不起——卡片区不在消息 ScrollView 内，需独立点按通道；
@@ -315,6 +487,13 @@ struct ChatView: View {
                     },
                     onClose: { whiteboardOpen = false })
             }
+            // G6 待办清单展开（web PlanStatusSection 同构：全量条目 + 完成删除线；
+            // 上游 focusCurrent 自动定位首个 inProgress——sheet 短清单直接全显，不仿滚动定位）
+            .sheet(isPresented: $todoSheetOpen) {
+                if let plan = viewModel.planPanel {
+                    TodoListSheet(plan: plan)
+                }
+            }
         }
     }
 
@@ -335,11 +514,42 @@ struct ChatView: View {
                 if viewModel.conversation?.isRunning == true {
                     StatusPill(text: String(localized: "运行中"), kind: .run, compact: true)
                 }
+                // G28 头像叠组（web activityAvatars 叠图同构，Android SessionPanels
+                // 同款）：最多 3 枚 agent 面孔、后一枚压前一枚、各带结果徽标点
+                if !viewModel.avatarSubagents.isEmpty {
+                    HStack(spacing: 0) {
+                        ForEach(Array(viewModel.avatarSubagents.prefix(3).enumerated()),
+                                id: \.element.childSessionId) { index, avatar in
+                            SubagentAvatarFace(avatar: avatar)
+                                .offset(x: -4 * CGFloat(index))
+                                .zIndex(Double(index))
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("05-subagent-avatars")
+                }
                 Spacer(minLength: 0)
                 if let summary = viewModel.conversation?.todoSummary {
-                    Text(summary)
-                        .font(T.mono(11))
-                        .foregroundColor(T.text3)
+                    // G6：待办摘要可点（有结构化条目时才升为按钮——纯文本摘要无展开面）
+                    if let plan = viewModel.planPanel, !plan.items.isEmpty {
+                        Button {
+                            todoSheetOpen = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(summary)
+                                    .font(T.mono(11))
+                                    .foregroundColor(T.text3)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(T.text3)
+                            }
+                        }
+                        .accessibilityIdentifier("05-todo-capsule")
+                    } else {
+                        Text(summary)
+                            .font(T.mono(11))
+                            .foregroundColor(T.text3)
+                    }
                 }
                 // 036 白板入口（web 侧栏面板 tab 的移动对位；零 RPC 纯客户端）
                 Button {
@@ -355,9 +565,61 @@ struct ChatView: View {
                 // 显式 a11y label 不受级联影响，E2E 按 label 查（test31）
                 .accessibilityLabel(String(localized: "白板"))
                 .accessibilityIdentifier("05-act-whiteboard")
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14))
-                    .foregroundColor(T.text3)
+                // ⋯ 菜单（2026-11-25 三 tab 重构：原静态 Image 是死控件——真身挂这里。
+                // 「更改/文件」原全局文件 tab 的会话化入口；「执行输出」原任务 tab 详情页）
+                Menu {
+                    Button {
+                        showChangesSheet = true
+                    } label: {
+                        Label(String(localized: "更改"), systemImage: "arrow.left.arrow.right")
+                    }
+                    .accessibilityIdentifier("05-menu-changes")
+                    Button {
+                        showFilesSheet = true
+                    } label: {
+                        Label(String(localized: "文件"), systemImage: "folder")
+                    }
+                    .accessibilityIdentifier("05-menu-files")
+                    // G38 统一搜索（会话+文件跨区检索；web ⌘K CommandCenter 移动对位）
+                    Button {
+                        showCommandCenter = true
+                    } label: {
+                        Label(String(localized: "统一搜索"), systemImage: "magnifyingglass")
+                    }
+                    .accessibilityIdentifier("05-menu-command-center")
+                    Button {
+                        showTaskOutputSheet = true
+                    } label: {
+                        Label(String(localized: "执行输出"), systemImage: "doc.text.magnifyingglass")
+                    }
+                    .accessibilityIdentifier("05-menu-task-output")
+                    Divider()
+                    Button {
+                        renamePresentation = RenamePresentation(
+                            initial: viewModel.conversation?.title ?? "")
+                    } label: {
+                        Label(String(localized: "重命名"), systemImage: "pencil")
+                    }
+                    .accessibilityIdentifier("05-menu-rename")
+                    Button {
+                        markUnreadRequested = true
+                    } label: {
+                        Label(String(localized: "标记未读"), systemImage: "envelope.badge")
+                    }
+                    .accessibilityIdentifier("05-menu-mark-unread")
+                    Button(role: .destructive) {
+                        archiveRequested = true
+                    } label: {
+                        Label(String(localized: "归档"), systemImage: "archivebox")
+                    }
+                    .accessibilityIdentifier("05-menu-archive")
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14))
+                        .foregroundColor(T.text3)
+                        .frame(width: 26, height: 26)
+                }
+                .accessibilityIdentifier("05-act-more")
             }
             // P-022 工作流运行摘要行（web「工作流运行中 工作流脚本 / N 个阶段 · M 个子代理工作中…」）
             // 明细仍在 SessionPanelsView 的 Workflow 面板；此行点按即展开
@@ -371,7 +633,7 @@ struct ChatView: View {
                     withAnimation(.easeOut(duration: 0.15)) { expandedPanel = .workflow }
                 } label: {
                     HStack(spacing: T.sp2) {
-                        Text("⑂").font(.system(size: 13)).foregroundColor(T.violet)
+                        Text("⑂").font(.system(size: 13)).foregroundColor(T.seal)
                         VStack(alignment: .leading, spacing: 1) {
                             Text("工作流运行中 · \(run.name)")
                                 .font(T.font(13, .medium))
@@ -534,6 +796,8 @@ struct ChatView: View {
                             message: message, sessionID: conversationID,
                             feedbackState: viewModel.assistantFeedback[message.id],
                             ordinal: index + 1,
+                            showTodosInStream: appSettings.value.showTodosInStream
+                                || ProcessInfo.processInfo.arguments.contains("-ZCodeShowStreamTodos"),
                             onQuickReply: { reply in
                                 Task { await viewModel.answerQuestion(reply) }
                             },
@@ -588,6 +852,20 @@ struct ChatView: View {
                                 }
                             })
                         .id(message.id)
+                        // G9：行测高写入（GeometryReader 单行回调，仅写缓存不触发
+                        // state——布局期副作用零重组；上游 set() 同仅记录）
+                        .background(
+                            GeometryReader { geo in
+                                // body 内直写缓存（流式行高度增长持续刷新——上游
+                                // ResizeObserver 同语义；仅写缓存零 state 零重组）
+                                Color.clear.onAppear {
+                                    rowHeightCache.set(key: message.id, heightPx: geo.size.height)
+                                }
+                                .onChange(of: geo.size.height) { _, newHeight in
+                                    rowHeightCache.set(key: message.id, heightPx: newHeight)
+                                }
+                            }
+                        )
                         .transition(.opacity.animation(.easeIn(duration: 0.12)))
                     }
                     Color.clear.frame(height: T.sp2).id("bottom-anchor")
@@ -597,6 +875,8 @@ struct ChatView: View {
             }
             .scrollIndicators(.visible)
             .defaultScrollAnchor(.bottom)
+            // G49：滚动位置双向绑定（iOS17+；读取 = 顶层可见消息 id，写入 = 滚到该行）
+            .scrollPosition(id: $scrollPositionId)
             // 滚动消息即收键盘（系统标准行为；面板展开失焦走 FocusState 通道）
             .scrollDismissesKeyboard(.immediately)
             // E2E 定位用：滚动测试对消息区元素本身 swipe（其 frame 被 safeAreaInset
@@ -618,6 +898,7 @@ struct ChatView: View {
             .overlay(alignment: .bottomTrailing) {
                 if showBackToBottom {
                     Button {
+                        followingTail = true
                         withAnimation(.easeOut(duration: 0.2)) { scrollToBottom(proxy) }
                     } label: {
                         Image(systemName: "arrow.down.circle.fill")
@@ -641,7 +922,37 @@ struct ChatView: View {
                 // 必变，恒不成立 → 翻页必先跳底再锚回（用户 2026-10-06 反馈），改为
                 // 「本变更来自在途 loadOlder」判定
                 if prependGuardFirstID != nil { return }
+                // G9：活尾跟随判定（冻结史/尾轮分区移动端等效）——用户滚离底部
+                // （back-to-bottom 在场 = 在史区阅读）时新行到达不抢滚底；回底部
+                // （followingTail 恢复 true）后恢复跟随。web user-scroll-intent 同语义。
+                if !followingTail || showBackToBottom {
+                    return
+                }
+                // G49：记忆恢复首帧——滚到记忆行而非底部（行已被翻页挤出不恢复，回底部）
+                if let pending = restorePendingScrollId {
+                    restorePendingScrollId = nil
+                    if viewModel.messages.contains(where: { $0.id == pending }) {
+                        scrollPositionId = pending
+                        return
+                    }
+                }
                 scrollToBottom(proxy)
+            }
+            .onChange(of: scrollPositionId) { _, newValue in
+                // G49：滚动即记忆（进程内 LRU，成本可忽略；离开页面再补一次终值）
+                guard let messageId = newValue else { return }
+                ChatScrollMemory.shared.save(
+                    key: ChatScrollMemory.key(
+                        workspace: session.connection.workspace, conversationID: conversationID),
+                    messageId: messageId)
+            }
+            .onDisappear {
+                if let messageId = scrollPositionId {
+                    ChatScrollMemory.shared.save(
+                        key: ChatScrollMemory.key(
+                            workspace: session.connection.workspace, conversationID: conversationID),
+                        messageId: messageId)
+                }
             }
             .onChange(of: viewModel.messages.last?.text) { _, _ in
                 scrollToBottom(proxy)
@@ -902,7 +1213,8 @@ struct PermissionOptionMatrix: Equatable {
 
 /// 交互卡限高包装：内容自适应、超限内部滚动（键盘在场时底部栈不再被顶到
 /// 键盘底下；构造背景见 safeAreaInset ForEach 注释）。提问卡题目较多，给更高上限。
-private struct ApprovalCardKeyboardBound: ViewModifier {
+/// 2026-11-25 待批 tab 批2 去私有：待批页（PendingApprovalsView）复用同一限高包装。
+struct ApprovalCardKeyboardBound: ViewModifier {
     var maxHeight: CGFloat = 240
 
     func body(content: Content) -> some View {
@@ -915,7 +1227,9 @@ private struct ApprovalCardKeyboardBound: ViewModifier {
 }
 
 struct ApprovalInteractionCard: View {
-    @Bindable var viewModel: ChatViewModel
+    // 2026-11-25 待批 tab 批2：协议化（InteractionDeciding）——会话页与待批页共用本卡；
+    // 观察依赖经 @Observable 属性读取照常生效（卡内无 binding，@Bindable 已不需要）
+    var viewModel: any InteractionDeciding
     let interaction: RemotePendingInteraction
 
     /// 授权范围两档（A-3：原 task 档在 wire 四族值域无对应，删除；
@@ -949,6 +1263,15 @@ struct ApprovalInteractionCard: View {
     @State private var snoozeUnsupported = false
     // A-3/U-5：决议失败如实回显（回执拒绝/未送达），按钮恢复可点、卡片不撤
     @State private var decisionError: String?
+    // G21（2026-11-25）：拒绝反馈原文（freeText=true 才显示输入行；仅拒绝时携带）
+    @State private var feedbackText = ""
+
+    /// G21：反馈行在场判定（web PermissionDialog.tsx:631 hasFeedbackInput 同构——
+    /// request.freeText === true 且存在拒绝方向选项；工作流 refine 选项桌面专属不在此）
+    private var showsFeedbackInput: Bool {
+        interaction.permissionFreeText && matrix.canDecide(approved: false, always: scope == .always)
+            || interaction.permissionFreeText && (!interaction.options.isEmpty)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: T.sp2) {
@@ -1013,6 +1336,20 @@ struct ApprovalInteractionCard: View {
                         directChip(option)
                     }
                     Spacer()
+                }
+                // G21：拒绝反馈输入行（web PermissionDialog.tsx:1193-1232 同构——独立
+                // 可选项行，placeholder「告诉模型接下来应该怎么做...」；trim 非空才携带）
+                if showsFeedbackInput {
+                    TextField(
+                        String(localized: "告诉模型接下来应该怎么做..."),
+                        text: $feedbackText,
+                        axis: .vertical)
+                        .font(T.font(12.5))
+                        .lineLimit(1...3)
+                        .padding(T.sp2)
+                        .background(T.bgInput)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rS))
+                        .accessibilityIdentifier("05-approval-feedback")
                 }
                 HStack(spacing: 10) {
                     Button {
@@ -1144,21 +1481,25 @@ struct ApprovalInteractionCard: View {
         }
     }
 
-    /// 两步矩阵决议：按 scope 拼/选 optionId（A-3：answer={optionId}）
+    /// 两步矩阵决议：按 scope 拼/选 optionId（A-3：answer={optionId}；
+    /// G21：拒绝方向携带反馈文本框原文）
     private func decide(approved: Bool) {
         guard let optionId = matrix.optionId(approved: approved, always: scope == .always) else {
             decisionError = String(localized: "该授权范围无对应选项，请切换范围")
             return
         }
-        decideWith(optionId: optionId, approved: approved)
+        decideWith(
+            optionId: optionId, approved: approved,
+            feedback: approved ? nil : feedbackText)
     }
 
     /// 决议下发 + 如实回执（U-5：失败不撤卡、错误行透出 reasonCode；权威成功 →
     /// VM 置盖章停驻，卡面落印 700ms 后随投影/停驻离场）
-    private func decideWith(optionId: String, approved: Bool) {
+    private func decideWith(optionId: String, approved: Bool, feedback: String? = nil) {
         deciding = true
         Task {
-            if let failure = await viewModel.decide(interaction, optionId: optionId, approved: approved) {
+            if let failure = await viewModel.decide(
+                interaction, optionId: optionId, approved: approved, feedback: feedback) {
                 decisionError = failure
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
             } else {
@@ -1183,11 +1524,131 @@ struct ApprovalInteractionCard: View {
     }
 }
 
+// MARK: - 插件安装卡（G23：kind="pluginInstall"；web PluginInstallCard.tsx 移动端同构）
+//
+// 应答形状【实证·上游仓 V4InteractionDialogs.tsx:357-367】：answer 只带
+// {optionId: "install"|"skip"}（choice 字面量直接作 optionId）；确认按钮文案按
+// request.action("install"|"enable") × request.scope("user"|"workspace") 分叉
+// （PluginInstallCard.tsx:68-98）。此卡此前因未知 kind 落 EmptyView 静默丢弃。
+
+struct PluginInstallInteractionCard: View {
+    var viewModel: any InteractionDeciding
+    let interaction: RemotePendingInteraction
+
+    @State private var deciding = false
+    @State private var decisionError: String?
+
+    /// 确认按钮文案四分叉（web PluginInstallCard.tsx:68-98 同表）
+    private var confirmLabel: String {
+        let enable = interaction.pluginAction == "enable"
+        let workspace = interaction.pluginScope == "workspace"
+        switch (enable, workspace) {
+        case (true, true): return String(localized: "在工作区启用")
+        case (true, false): return String(localized: "启用")
+        case (false, true): return String(localized: "安装并在工作区启用")
+        default: return String(localized: "安装并启用")
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.sp2) {
+            HStack(spacing: T.sp2) {
+                Image(systemName: "puzzlepiece.extension.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(T.seal)
+                Text("插件安装请求")
+                    .font(T.font(13.5, .semibold))
+                    .foregroundColor(T.text)
+                Spacer()
+                StatusPill(text: "待审批", kind: .wait, compact: true)
+            }
+            if let name = interaction.pluginName, !name.isEmpty {
+                Text(name)
+                    .font(T.font(12.5, .semibold))
+                    .foregroundColor(T.text)
+                    .accessibilityIdentifier("05-plugin-name")
+            }
+            if let desc = interaction.pluginDescription, !desc.isEmpty {
+                Text(desc)
+                    .font(T.font(11.5))
+                    .foregroundColor(T.text2)
+            }
+            if let reason = interaction.pluginReason, !reason.isEmpty {
+                HStack(alignment: .top, spacing: T.sp1) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 11))
+                        .foregroundColor(T.orange)
+                    Text(reason)
+                        .font(T.font(11.5))
+                        .foregroundColor(T.text2)
+                }
+            }
+            HStack(spacing: 10) {
+                Button {
+                    respond("skip")
+                } label: {
+                    Text("跳过")
+                        .font(T.font(14, .semibold))
+                        .foregroundColor(T.text2)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.borderStrong, lineWidth: 1))
+                }
+                .disabled(deciding)
+                .accessibilityIdentifier("05-act-plugin-skip")
+
+                Button {
+                    respond("install")
+                } label: {
+                    Text(confirmLabel)
+                        .font(T.font(14, .semibold))
+                        .foregroundColor(T.onSeal)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(T.seal)
+                        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                }
+                .disabled(deciding)
+                .accessibilityIdentifier("05-act-plugin-install")
+            }
+            if let decisionError {
+                Text(decisionError)
+                    .font(T.font(10.5))
+                    .foregroundColor(T.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("05-plugin-decision-error")
+            }
+        }
+        .padding(T.sp3)
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.seal.opacity(0.5), lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-plugin-card")
+    }
+
+    /// 应答下发（optionId 字面量；U-5 失败错误行同口径）
+    private func respond(_ optionId: String) {
+        deciding = true
+        Task {
+            if let failure = await viewModel.decide(
+                interaction, optionId: optionId, approved: optionId == "install",
+                feedback: nil) {
+                decisionError = failure
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            } else {
+                decisionError = nil
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+            deciding = false
+        }
+    }
+}
+
 // MARK: - 计划审批卡（G-017：plan_approval 结构化渲染——计划文本 + 放行/驳回；
 // 与普通命令审批卡互不影响；决议复用 resolveInteraction 桌面代执行）
 
 struct PlanApprovalCard: View {
-    @Bindable var viewModel: ChatViewModel
+    // 2026-11-25 待批 tab 批2：协议化（InteractionDeciding）——与 ApprovalInteractionCard 同口径
+    var viewModel: any InteractionDeciding
     let interaction: RemotePendingInteraction
     @State private var deciding = false
     // A-3/U-5：计划决议失败如实回显（回执拒绝/未送达），卡片不撤、按钮恢复
@@ -1600,6 +2061,9 @@ struct QueueBarView: View {
     var onDelete: (String) async -> String?
     var onEdit: (String, String) async -> String?
     var onMoveUp: (String) async -> String?
+    /// G13 长按拖排序（web ConversationQueuePanel 桌面 hover-drag 的触屏对位；
+    /// beforeId = 落点行 id——把拖起项插到它之前，nil = 拖到队尾）
+    var onReorder: ((String, String?) async -> String?)? = nil
     var onToggleAutoDrain: (Bool) async -> String?
     // 编辑锁族（web composer-edit-mode 同构）：begin=持锁进入编辑 / cancel=释放 /
     // releaseLock=解除其他端遗留锁 / lockOwner=归属三态判定
@@ -1612,6 +2076,9 @@ struct QueueBarView: View {
     @State private var editingText = ""
     @State private var feedback: String?
     @State private var feedbackClear: Task<Void, Never>?
+    // G13 拖拽态：拖起项 id + 当前悬停落点（高亮描边反馈）
+    @State private var draggingItemId: String?
+    @State private var dropTargetId: String?
 
     private func showFeedback(_ message: String?) {
         guard let message else { return }
@@ -1629,7 +2096,7 @@ struct QueueBarView: View {
             HStack(spacing: T.sp2) {
                 Image(systemName: "square.stack.3d.up.fill")
                     .font(.system(size: 11))
-                    .foregroundColor(T.violet)
+                    .foregroundColor(T.seal)
                 Text(String(localized: "排队中 \(queue.items.count)"))
                     .font(T.font(11.5, .semibold))
                     .foregroundColor(T.text)
@@ -1724,7 +2191,7 @@ struct QueueBarView: View {
                         if item.isGuide {
                             Text(String(localized: "引导模式"))
                                 .font(T.mono(9.5))
-                                .foregroundColor(T.violet)
+                                .foregroundColor(T.seal)
                         }
                     }
                     Spacer(minLength: 0)
@@ -1774,7 +2241,29 @@ struct QueueBarView: View {
                 .padding(.vertical, 6)
                 .background(T.bgCard)
                 .clipShape(RoundedRectangle(cornerRadius: T.rS))
-                .overlay(RoundedRectangle(cornerRadius: T.rS).stroke(T.border, lineWidth: 1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: T.rS).stroke(
+                        dropTargetId == item.id && draggingItemId != nil && draggingItemId != item.id
+                            ? T.seal : T.border,
+                        lineWidth: dropTargetId == item.id && draggingItemId != nil ? 1.5 : 1))
+                // G13 长按拖排序（onDrag 触屏长按即起；DropDelegate 管落点高亮与
+                // 松手 reorder——isTargeted Binding 形态给不了逐行回调，delegate 同规）
+                .onDrag {
+                    draggingItemId = item.id
+                    return NSItemProvider(object: item.id as NSString)
+                }
+                .onDrop(
+                    of: [UTType.text],
+                    delegate: QueueDropDelegate(
+                        item: item,
+                        draggingItemId: $draggingItemId,
+                        dropTargetId: $dropTargetId,
+                        onDrop: { draggedId, targetId in
+                            Task {
+                                let message = await onReorder?(draggedId, targetId)
+                                showFeedback(message)
+                            }
+                        }))
             }
         }
     }
@@ -1810,10 +2299,14 @@ struct QueueBarView: View {
 struct ComposerBar: View {
     @Environment(AppSettingsModel.self) private var settings
     @Environment(AppSession.self) private var session
+    /// 管理模型页跳转（2026-11-25 批4：模型选择器页脚「管理模型」→ 设置.模型）
+    @Environment(AppRouter.self) private var router
     @Bindable var viewModel: ChatViewModel
     /// 输入焦点（宿主 ChatView 所有：面板展开等场景需跨视图精确失焦——iOS 26
     /// sendAction(resignFirstResponder) 不可靠，FocusState 绑定是唯一稳定通道）
     var inputFocused: FocusState<Bool>.Binding
+    /// G15 @ 提及面板唤起（宿主持有 showMentionPicker 状态——面板 sheet 挂宿主根）
+    var onMention: () -> Void = {}
     /// U-6 发送失败持久错误行（非 3s 自动消失）：失败时置位 + 草稿已由 viewModel
     /// 回填；清除时机 = 发送成功 / 用户手动编辑 draft / 离开会话（数据安全提示
     /// 必须显式关闭）
@@ -1847,8 +2340,11 @@ struct ComposerBar: View {
     /// 「重新获取」重开标记：面板 onDismiss（关闭完成态）再呈现——面板在场时直接
     /// 置 composerSheet 会撞 present-while-dismissing（NewConversationSheet 同款先例）
     @State private var reopenModelPanelAfterDismiss = false
+    /// 二级模型选择器（2026-11-25 批4：替换扁平模型长列表）
+    @State private var showModelPicker = false
 
     var body: some View {
+        composerOverlays(
         VStack(spacing: T.sp2) {
             // HIDDEN(对齐修复): composer 执行目标菜单隐藏（sendText 信封无目标路由字段，
             // 「仅记录偏好」的本地菜单构成假选择——隐藏入口 H5）· 恢复条件：sendText 有
@@ -2023,6 +2519,15 @@ struct ComposerBar: View {
         // OS 版本渲染成锚定 popovers（用户报障 2026-10-07「弹窗都弹到什么地方去了」，
         // P2ExtrasViews.swift:65 同款先例改 .alert），拍照/图库/文件三通道改经
         // pendingAttachmentSource 于 onDismiss 接力呈现（避免 sheet 套 sheet 竞态）
+        )
+    }
+
+    /// composer 弹层簇（附件来源/选择器面板/模型二级/压缩确认/图库/文件/相机）。
+    /// 独立函数拆解 body 表达式复杂度（2026-11-25 批4 编译实证：追加模型选择器后
+    /// ComposerBar body 单表达式超时 unable to type-check in reasonable time）。
+    @ViewBuilder
+    private func composerOverlays(_ base: some View) -> some View {
+        base
         .sheet(isPresented: $showAttachmentSource, onDismiss: {
             switch pendingAttachmentSource {
             case .camera: showCamera = true
@@ -2039,16 +2544,11 @@ struct ComposerBar: View {
             .presentationDetents([.height(348)])
             .presentationDragIndicator(.hidden)
         }
-        // 五选择器自绘面板（协作/投递/执行目标/模型/思考）：行按钮 label=项名——
-        // test07 以 app.buttons label 精确匹配「云端沙盒 / E2E-Relay-Mac」、test12 以
-        // label == 'low' 匹配思考档，行内不得混入副文案（聚合 label 失配即门禁红）；
+        // 五选择器自绘面板（协作/投递/执行目标/思考；模型已迁二级选择器）：行按钮
+        // label=项名——test07 以 app.buttons label 精确匹配「云端沙盒 / E2E-Relay-Mac」、
+        // test12 以 label == 'low' 匹配思考档，行内不得混入副文案（聚合 label 失配即门禁红）；
         // identifier 保留 05-chip-mode / 05-chip-delivery / 05-act-target 于触发胶囊
-        .sheet(item: $composerSheet, onDismiss: {
-            if reopenModelPanelAfterDismiss {
-                reopenModelPanelAfterDismiss = false
-                composerSheet = .model
-            }
-        }) { kind in
+        .sheet(item: $composerSheet, onDismiss: nil) { kind in
             ComposerOptionSheet(
                 title: kind.title,
                 footer: kind.footer,
@@ -2059,6 +2559,36 @@ struct ComposerBar: View {
             .presentationDetents(composerSheetDetents(kind))
             .presentationDragIndicator(.hidden)
             .presentationBackground(T.bgElevated)
+        }
+        // 二级模型选择器（2026-11-25 批4）：一级搜索+最近+分组下钻，二级组内单选+
+        // 思考分段；「重新获取」重开经 onDismiss 链（present-while-dismissing 同旧先例）
+        .sheet(isPresented: $showModelPicker, onDismiss: {
+            if reopenModelPanelAfterDismiss {
+                reopenModelPanelAfterDismiss = false
+                presentModelPicker()
+            }
+        }) {
+            ModelPickerSheet(
+                selection: viewModel.modelSelection,
+                configuredThoughtLevels: viewModel.thoughtLevels,
+                onPick: { rowKey, _, thought in
+                    Task {
+                        if let message = await viewModel.switchModel(rowKey, thoughtLevel: thought) {
+                            showSwitchHint(message)
+                        }
+                    }
+                },
+                onReload: {
+                    reopenModelPanelAfterDismiss = true
+                    Task {
+                        if !(await viewModel.retryModelSelection()) {
+                            showSwitchHint(String(localized: "模型列表获取失败 · 桌面端未回执，点按重试"))
+                        }
+                    }
+                },
+                onManageModels: {
+                    router.pushSettings(.model)
+                })
         }
         // P2-7 压缩确认（主键普通按钮非 destructive——压缩不丢数据、
         // 回执失败即无副作用。.alert 承载——confirmationDialog 本 OS
@@ -2310,53 +2840,14 @@ struct ComposerBar: View {
                     selected: option.id == executionTarget.id,
                     a11yId: option.kind == .cloudSandbox ? "05-target-cloud" : "05-target-mac")
             }
-        case .model:
-            // 套餐分节（同一模型可同时在个人/体验两组——配额不同）；行 id 携套餐
-            // 前缀保 Identifiable 唯一，payload 存纯模型名供 switchModel
-            modelSheetOptions()
         case .thought:
             // 行 title 恒等于档位原文（test12 label == 'low' 精确匹配），detail 恒空
             thoughtSheetOptions()
         }
     }
 
-    /// 模型面板选项（呈现期取 viewModel.modelSelection；分节同 modelMenu 原状）。
-    /// 行 id/payload 携「套餐|模型」复合键——同名模型跨套餐按组解析 providerId
-    /// （payload 曾存裸模型名，modelProviders 后到覆盖先到：点个人套餐行发出体验
-    /// 套餐 providerId，2026-10-08 报障）；选中勾按行 provider == 当前绑定
-    /// provider 比对（activeProviderId 缺席退化为裸名比对）。
-    /// 清单缺席（getView 失败/空回执）：**不拒开面板**——「重新获取」行承载重试
-    /// （2026-10-09 真机报障死胡同：点按只闪 3s 提示、面板永不开）
-    private func modelSheetOptions() -> [ComposerOptionItem] {
-        let selection = viewModel.modelSelection ?? ModelSelectionInfo()
-        if !selection.hasSelectableModels {
-            return [ComposerOptionItem(
-                id: "reload-model", title: String(localized: "重新获取模型列表"),
-                detail: "", icon: "arrow.clockwise")]
-        }
-        if selection.planGroups.isEmpty {
-            return selection.models.map { model in
-                ComposerOptionItem(id: model, title: model, detail: "", icon: "cpu",
-                                   selected: model == selection.activeModel)
-            }
-        }
-        return selection.planGroups.flatMap { group in
-            group.models.map { model in
-                let rowKey = "\(group.plan)|\(model)"
-                let providerMatches = selection.activeProviderId?.isEmpty == false
-                    ? selection.modelProvidersByPlan[rowKey] == selection.activeProviderId
-                    : true
-                return ComposerOptionItem(
-                    id: rowKey,
-                    title: model,
-                    detail: "",
-                    icon: "cpu",
-                    selected: model == selection.activeModel && providerMatches,
-                    section: group.plan,
-                    payload: rowKey)
-            }
-        }
-    }
+    /// 模型面板选项已迁二级选择器（ModelPickerSheet，批4）——本函数撤除，
+    /// 保留思考档装配（thoughtSheetOptions）。
 
     /// 思考档面板选项：词表三级回退（workspace-config 词表 → getView 词表 → 静态梯）
     private func thoughtSheetOptions() -> [ComposerOptionItem] {
@@ -2385,24 +2876,6 @@ struct ComposerBar: View {
             if let match = ExecutionTargetStore.machines().first(where: { $0.id == option.id }) {
                 selectTarget(match)
             }
-        case .model:
-            // 「重新获取」行：置重开标记（onDismiss 关闭完成态后重开——面板在场直接
-            // 置 item 撞 present-while-dismissing），重拉 getView 成功即以新清单重开；
-            // 仍失败则面板以「重新获取」行重开（状态可见可再试，非死胡同）
-            if option.id == "reload-model" {
-                reopenModelPanelAfterDismiss = true
-                Task {
-                    if !(await viewModel.retryModelSelection()) {
-                        showSwitchHint(String(localized: "模型列表获取失败 · 桌面端未回执，点按重试"))
-                    }
-                }
-                return
-            }
-            Task {
-                if let message = await viewModel.switchModel(option.payload ?? option.id) {
-                    showSwitchHint(message)
-                }
-            }
         case .thought:
             Task {
                 if let message = await viewModel.switchThoughtLevel(option.payload ?? option.id) {
@@ -2413,11 +2886,10 @@ struct ComposerBar: View {
     }
 
     /// 面板档位：固定三选择器定高（AttachmentSourceSheet 3 行 348 基准反推：基底
-    /// 152 + 每行 68，页脚一行 +24）；模型/思考清单长度不定，medium/large 双档 +
-    /// 面板内滚动
+    /// 152 + 每行 68，页脚一行 +24）；思考清单长度不定，medium/large 双档 + 面板内滚动
     private func composerSheetDetents(_ kind: ComposerSheetKind) -> Set<PresentationDetent> {
         switch kind {
-        case .model, .thought:
+        case .thought:
             return [.medium, .large]
         case .collaboration, .delivery, .target:
             let rows: Int
@@ -2523,15 +2995,25 @@ struct ComposerBar: View {
         }
     }
 
+    /// 二级模型选择器呈现（与 openComposerPanel 同一撤焦+延迟纪律；模型已从
+    /// ComposerSheetKind 迁出——2026-11-25 批4）
+    private func presentModelPicker() {
+        inputFocused.wrappedValue = false
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            showModelPicker = true
+        }
+    }
+
     /// 模型胶囊触发（面板：套餐分节 + 选中勾；回执失败在 chips 行上方提示）。
     /// 恒开面板（2026-10-09 真机报障「模型不可选」死胡同收口）：清单缺席时面板
     /// 呈「重新获取」行承载重试——拒开+一次性重试+3s 提示的旧路在 getView 持续
     /// 失败时表现为「点了没反应」
     private func modelMenu(_ selection: ModelSelectionInfo) -> some View {
         Button {
-            openComposerPanel(.model)
+            presentModelPicker()
         } label: {
-            pill(icon: nil, text: selection.activeModel ?? "--", chevron: true)
+            pill(icon: nil, text: selection.activeModel ?? "…", chevron: true)
         }
         .accessibilityIdentifier("05-chip-model")
     }
@@ -2583,6 +3065,37 @@ struct ComposerBar: View {
                 pill(icon: "brain", text: String(localized: "思考·\(settings.value.thoughtLevel.label)"))
             }
             Spacer(minLength: 0)
+            // G15 @ 文件提及（web promptInputTriggers @ 触发的触屏对位——符号自动触发
+            // 需键盘游标监听，触屏以显式按钮 + 候选面板承载同一语义；点选插入 @path。
+            // 面板态由宿主持有——onMention 置位宿主 showMentionPicker）
+            Button {
+                onMention()
+            } label: {
+                Text("@")
+                    .font(T.mono(13, .semibold))
+                    .foregroundColor(T.text2)
+                    .frame(minWidth: 28, minHeight: 28)
+                    .background(T.bgInput)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("05-chip-mention")
+            .accessibilityLabel(Text(String(localized: "引用文件")))
+            // G16 粘贴附件（web useComposerAttachments paste 同通道：剪贴板图片/文件
+            // 直入待发队列；纯文本追加草稿；上限 8 件·20MB 由 uploads.add 同门）
+            Button {
+                pasteAttachment()
+            } label: {
+                Image(systemName: "doc.on.clipboard")
+                    .font(.system(size: 12))
+                    .foregroundColor(T.text2)
+                    .frame(minWidth: 28, minHeight: 28)
+                    .background(T.bgInput)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("05-chip-paste")
+            .accessibilityLabel(Text(String(localized: "粘贴附件")))
             // prompt 历史（web ConversationComposer ↑/↓ 历史的触屏适配：「历史」chip
             // 单向循环上一条发送文本，走到头回空草稿重新循环；仅连接态有发送历史）
             if viewModel.isReadOnly, viewModel.hasPromptHistory {
@@ -2613,9 +3126,54 @@ struct ComposerBar: View {
 
     /// 模型兜底 pill：重取 getView，成功开模型面板、失败提示（05-chip-* identifier
     /// 与 remoteChips 同名——两支互斥渲染，同屏不重复）
+    /// G16 粘贴附件：剪贴板图片 → jpeg 入待发；文件 URL → 按扩展名猜 mime 读字节；
+    /// 纯文本 → 追加草稿（web 粘贴文本即输入同语义）；无可粘内容如实提示不静默。
+    private func pasteAttachment() {
+        let board = UIPasteboard.general
+        if let image = board.image {
+            let data = image.jpegData(compressionQuality: 0.9)
+                ?? image.pngData()
+            guard let data else {
+                viewModel.uploads.setHint(String(localized: "剪贴板图片编码失败，已跳过"))
+                return
+            }
+            if viewModel.uploads.add(name: String(localized: "粘贴图片.jpg"), mediaType: "image/jpeg", data: data) {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+            return
+        }
+        if let url = board.url {
+            let name = url.lastPathComponent
+            let ext = url.pathExtension.lowercased()
+            let mime: String
+            switch ext {
+            case "png": mime = "image/png"
+            case "jpg", "jpeg": mime = "image/jpeg"
+            case "gif": mime = "image/gif"
+            case "webp": mime = "image/webp"
+            case "pdf": mime = "application/pdf"
+            case "mp4", "mov": mime = "video/mp4"
+            case "mp3", "m4a": mime = "audio/mpeg"
+            default: mime = "application/octet-stream"
+            }
+            if let data = try? Data(contentsOf: url) {
+                if viewModel.uploads.add(name: name, mediaType: mime, data: data) {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+                return
+            }
+        }
+        if let text = board.string, !text.isEmpty {
+            let current = viewModel.draft
+            viewModel.draft = current.isEmpty ? text : current + "\n" + text
+            return
+        }
+        viewModel.uploads.setHint(String(localized: "剪贴板无可粘贴的图片或文件"))
+    }
+
     private func retryThenOpenModelPanel() async {
         if await viewModel.retryModelSelection() {
-            openComposerPanel(.model)
+            presentModelPicker()
         } else {
             showSwitchHint(String(localized: "模型列表获取失败 · 桌面端未回执，点按重试"))
         }
@@ -2989,6 +3547,60 @@ struct AttachmentSourceSheet: View {
 // 底部 4px ThinProgressBar + mono 百分比；成功勾角标 / 失败橙角标（点按重试）；
 // 右上角 ✕ 移除（44pt 热区、T.bgCard 半透明圆底）。非图片 doc.icon 占位
 // （mediaType 判定同 AttachmentThumbView）。
+/// 待发图片全屏预览（点缩略图打开；纯本地数据，零 RPC）。
+/// 交互与会话流图片预览一致：点任意处关闭、右上 ✕ 同效、捏合双指缩放。
+struct PendingImagePreview: View {
+    let image: UIImage?
+    let name: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(scale)
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { scale = max(1, $0) }
+                            .onEnded { _ in if scale < 1 { scale = 1 } }
+                    )
+                    .onTapGesture { dismiss() }
+                    .accessibilityIdentifier("05-attach-preview-image")
+            } else {
+                Text("图片无法解码")
+                    .font(T.font(13))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            VStack {
+                HStack {
+                    Text(name)
+                        .font(T.mono(11))
+                        .foregroundColor(.white.opacity(0.8))
+                        .lineLimit(1)
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Color.black.opacity(0.45))
+                            .clipShape(Circle())
+                    }
+                    .accessibilityIdentifier("05-attach-preview-close")
+                }
+                .padding(.horizontal, T.sp4)
+                .padding(.top, T.sp2)
+                Spacer()
+            }
+        }
+        .statusBarHidden(true)
+    }
+}
+
 struct PendingAttachmentThumb: View {
     let item: PendingAttachment
     var onRemove: () -> Void
@@ -2998,6 +3610,8 @@ struct PendingAttachmentThumb: View {
     /// uploadedBytes 触发重渲染，20MB/54 块即 54 次全尺寸 UIImage 解码，大图
     /// 上传期间 CPU/内存尖峰）。视图本地 @State 缓存一次解码结果
     @State private var cachedPreview: UIImage?
+    /// 点图全屏预览（2026-11-25 用户报「图片没有预览——点击的时候可以预览」）
+    @State private var showPreview = false
 
     private var previewImage: UIImage? {
         if let cachedPreview { return cachedPreview }
@@ -3063,9 +3677,14 @@ struct PendingAttachmentThumb: View {
     private var base: some View {
         Group {
             if let image = previewImage {
+                // 缩略图必须**在外层 72×72 帧内**填满裁切（2026-11-25 用户报「图片没有
+                // 预览」：此前 scaledToFill 在 72 帧之外求值，图按自身尺寸溢出/被二次裁，
+                // 实际看到的是缩到很小的一团，认不出内容）
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
+                    .frame(width: 72, height: 72)
+                    .clipped()
             } else {
                 T.bgInput
                     .overlay(
@@ -3079,8 +3698,15 @@ struct PendingAttachmentThumb: View {
         .overlay(RoundedRectangle(cornerRadius: T.rS).stroke(T.border, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: T.rS))
         .onTapGesture {
-            // 失败点条目重试（失败角标「点条目重试」）
-            if item.state == .failed { onRetry() }
+            // 失败点条目重试（失败角标「点条目重试」）；其余态点图全屏预览
+            if item.state == .failed {
+                onRetry()
+            } else if previewImage != nil {
+                showPreview = true
+            }
+        }
+        .fullScreenCover(isPresented: $showPreview) {
+            PendingImagePreview(image: previewImage, name: item.name)
         }
     }
 
@@ -3142,13 +3768,54 @@ struct CameraPicker: UIViewControllerRepresentable {
     }
 }
 
+// MARK: - ⋯ 菜单承载（2026-11-25 三 tab 重构）
+
+/// 重命名 alert 呈现载荷（§5-15：确认回调只消费快照）
+struct RenamePresentation: Identifiable {
+    let id = UUID()
+    let initial: String
+}
+
+/// 「执行输出」sheet 宿主：TaskRecord 由当前会话构建（原任务 tab push 面以 TaskRecord
+/// 传参，三 tab 后任务看板撤除）。轨迹/元数据/停止以 sessionId 寻址，行为不变。
+struct TaskOutputSheetHost: View {
+    @Environment(\.dismiss) private var dismiss
+    let conversation: Conversation?
+
+    var body: some View {
+        NavigationStack {
+            TaskOutputView(task: TaskRecord(
+                id: conversation?.id ?? "",
+                title: conversation?.title ?? String(localized: "任务会话"),
+                summary: conversation?.summary ?? "",
+                directory: conversation?.directory ?? "",
+                status: (conversation?.isRunning ?? false) ? .running : .done,
+                todoDone: 0,
+                todoTotal: 0,
+                progress: conversation?.taskProgress ?? 0,
+                tools: [],
+                updatedAt: conversation?.updatedAt ?? Date(),
+                lastLog: nil,
+                pendingCommand: nil,
+                pendingImpact: nil))
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(String(localized: "完成")) { dismiss() }
+                        .accessibilityIdentifier("07-act-done")
+                }
+            }
+        }
+    }
+}
+
 // MARK: - 连接态提问卡（userInput / AskUserQuestion / MCP elicitation）
 
 /// 上游 v4 交互面：单题可选即决；多题（AskUserQuestion / elicitation form）逐题选择 +
 /// 自由输入，提交 `{action:"accept", content:{answers, answer_N, answer}}`。
 /// 移动端不落草稿（上游 answerDrafts 为 renderer 本地草稿，非协议事实）。
 struct UserInputInteractionCard: View {
-    @Bindable var viewModel: ChatViewModel
+    // 2026-11-25 待批 tab 批2：协议化（InteractionDeciding）——与 ApprovalInteractionCard 同口径
+    var viewModel: any InteractionDeciding
     let interaction: RemotePendingInteraction
 
     /// qid → 已选 option value（多选集合；单选只保留一个）
@@ -3160,6 +3827,10 @@ struct UserInputInteractionCard: View {
     @State private var simpleText = ""
     @State private var submitting = false
     @State private var errorText: String?
+    /// G22 多题向导索引（questions.count>1 时逐题呈现；selections/texts 按 qid 键
+    /// 天然保留——上游「drafts 引用不重置，回退不清已答」同语义，ElicitationDialog
+    /// .ts:353-373【实证·上游仓】；hasPrevious = index>0 :686）
+    @State private var questionIndex = 0
 
     private var prompt: String {
         interaction.title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
@@ -3181,7 +3852,56 @@ struct UserInputInteractionCard: View {
             }
             if interaction.questions.isEmpty {
                 simpleQuestion
+            } else if interaction.questions.count > 1 {
+                // G22 多题向导（web ElicitationDialog 逐题同构——一次一题 + 上一步/
+                // 下一步；已答 selections/texts 按 qid 键跨题保留）
+                let questions = interaction.questions
+                let index = min(questionIndex, questions.count - 1)
+                questionBlock(questions[index])
+                Text(String(localized: "第 \(index + 1)/\(questions.count) 题"))
+                    .font(T.font(10.5))
+                    .foregroundColor(T.text3)
+                    .accessibilityIdentifier("05-userinput-progress")
+                HStack(spacing: T.sp2) {
+                    // G22「上一题」按钮（hasPrevious = index>0——上游 :686 同判）
+                    if index > 0 {
+                        Button(String(localized: "上一题")) {
+                            questionIndex = index - 1
+                        }
+                        .font(T.font(13, .medium))
+                        .foregroundColor(T.text2)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("05-userinput-previous")
+                    }
+                    Spacer()
+                    Button(String(localized: "跳过")) { skip() }
+                        .font(T.font(13, .medium))
+                        .foregroundColor(T.text3)
+                        .frame(minHeight: 44)
+                        .disabled(submitting)
+                        .accessibilityIdentifier("05-userinput-skip")
+                    Button {
+                        if index < questions.count - 1 {
+                            questionIndex = index + 1
+                        } else {
+                            submitQuestions()
+                        }
+                    } label: {
+                        Text(index < questions.count - 1
+                             ? String(localized: "下一题")
+                             : String(localized: "提交回答"))
+                            .font(T.font(14, .semibold))
+                            .foregroundColor(T.onAccent)
+                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .background(T.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: T.rM))
+                    }
+                    .disabled(submitting)
+                    .accessibilityIdentifier(index < questions.count - 1
+                                             ? "05-userinput-next" : "05-userinput-submit")
+                }
             } else {
+                // 单题 questions：全量平铺（原形态）
                 ForEach(interaction.questions) { question in
                     questionBlock(question)
                 }
@@ -3401,5 +4121,539 @@ struct RuntimeInitializationBanner: View {
         .clipShape(RoundedRectangle(cornerRadius: T.rM))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("05-runtime-init-banner")
+    }
+}
+
+// MARK: - G24 工作区 MCP 待审核指示条（web WorkspaceMcpPendingIndicator 移动端同构）
+//
+// 触发 = state.workspaceMcpAdmission 非 null 且 pendingCount>0 且本地未忽略
+// （WorkspaceHookPendingBanner.tsx:235-240 同条件）；「去审核」纯导航不发 RPC
+// （web setPendingSettingsPluginIntent + openSettingsTab 同款，:302-308）；
+// 「忽略」纯本地 renderer 内存态（:289-293 reminderStates 同口径）。
+
+struct WorkspaceMcpPendingBanner: View {
+    let count: Int
+    let onReview: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: T.sp2) {
+            Image(systemName: "cable")
+                .font(.system(size: 12))
+                .foregroundColor(T.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "待信任的工作区 MCP"))
+                    .font(T.font(11.5, .semibold))
+                    .foregroundColor(T.text)
+                Text(count == 1
+                     ? String(localized: "1 个服务器等待信任审核")
+                     : String(localized: "\(count) 个服务器等待信任审核"))
+                    .font(T.font(10.5))
+                    .foregroundColor(T.text2)
+            }
+            Spacer(minLength: 0)
+            Button(action: onReview) {
+                Text("去审核")
+                    .font(T.font(11.5, .semibold))
+                    .foregroundColor(T.seal)
+            }
+            .accessibilityIdentifier("05-mcp-banner-review")
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10))
+                    .foregroundColor(T.text3)
+            }
+            .accessibilityIdentifier("05-mcp-banner-dismiss")
+        }
+        .padding(.horizontal, T.sp3)
+        .padding(.vertical, T.sp2)
+        .background(T.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: T.rM))
+        .overlay(RoundedRectangle(cornerRadius: T.rM).stroke(T.orange.opacity(0.4), lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("05-mcp-pending-banner")
+    }
+}
+
+// MARK: - G6 待办清单展开 sheet（web ConversationStatusPanel StatusCapsule id="todo"
+// 可点展开的移动对位，2026-11-25）
+//
+// 上游展开态 = PlanStatusSection 全量渲染 plan.items（:552-566——completed 删除线+
+// 最淡色、inProgress 箭头、pending 空心点）；v4.0.0 无「>6 条焦点窗」，全量直出。
+// 头部徽标三态（:1408-1412）由会话行/头部既有 todoSummary 承载，本 sheet 只负责展开清单。
+
+struct TodoListSheet: View {
+    let plan: PlanPanelSummary
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: T.sp1) {
+                    if let title = plan.title, !title.isEmpty {
+                        Text(title)
+                            .font(T.font(13, .semibold))
+                            .foregroundColor(T.text)
+                    }
+                    ForEach(plan.items) { item in
+                        HStack(alignment: .top, spacing: T.sp2) {
+                            Text(item.glyph)
+                                .font(T.font(12, .semibold))
+                                .foregroundColor(
+                                    item.isDone ? T.accentText : (item.isRunning ? T.seal : T.text3))
+                                .frame(width: 16)
+                            Text(item.title)
+                                .font(T.font(12.5))
+                                .foregroundColor(item.isDone ? T.text3 : T.text)
+                                .strikethrough(item.isDone, color: T.text3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("05-todo-item")
+                    }
+                    if plan.items.isEmpty {
+                        Text(String(localized: "暂无待办条目"))
+                            .font(T.font(12))
+                            .foregroundColor(T.text3)
+                    }
+                }
+                .padding(T.sp3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle(String(localized: "待办清单"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "关闭")) { dismiss() }
+                }
+            }
+        }
+        .accessibilityIdentifier("05-todo-sheet")
+    }
+}
+
+// MARK: - G28 子代理头像面孔（Android SessionPanels.kt 同构，2026-11-25）
+//
+// 中性底 + 墨字（朱批纪律：头像不用状态色铺底——「面孔 + 结果徽标点」两件事分开）；
+// 徽标点左下角（web AgentResultBadge 同位）：完成绿 / 失败红 / 停止灰。
+
+struct SubagentAvatarFace: View {
+    let avatar: SubagentAvatarItem
+
+    private var badgeColor: Color {
+        switch avatar.badge {
+        case .done: return T.green
+        case .failed: return T.red
+        case .running: return T.text3
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            Circle()
+                .fill(T.bgInput)
+                .overlay(Circle().stroke(T.bgCard, lineWidth: 1))
+            Text(String((avatar.name?.first.map(String.init) ?? "A")).uppercased())
+                .font(T.font(9.5, .semibold))
+                .foregroundColor(T.text2)
+            Circle()
+                .fill(badgeColor)
+                .frame(width: 5, height: 5)
+                .overlay(Circle().stroke(T.bgCard, lineWidth: 0.5))
+                .offset(x: -1, y: 1)
+        }
+        .frame(width: 16, height: 16)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(avatar.name ?? "agent")
+    }
+}
+
+// MARK: - G49 滚动位置记忆（web chatSessionScrollMemory.ts 同构，2026-11-25）
+//
+// 进程内 LRU 200（web MAX_ENTRIES 同值；web 键 = workspace::pane::session——
+// iOS 无多 pane，键 = workspace::session:{id}）；存顶层可见消息 id（web 存绝对
+// scrollTop 的移动端近似：行 id 锚定翻页挤出时自动回退底部）；读即 touch。
+
+@MainActor
+final class ChatScrollMemory {
+    static let shared = ChatScrollMemory()
+    /// LRU 容量（web chatSessionScrollMemory.ts:9 MAX_ENTRIES 同值）
+    static let capacity = 200
+
+    private struct Entry { var messageId: String }
+    private var entries: [String: Entry] = [:]
+    /// 最旧在前（驱动 LRU 驱逐）
+    private var order: [String] = []
+
+    /// 键格式：{workspaceIdentity||workspacePath||"none"}::session:{conversationID}
+    static func key(workspace: ServerWorkspaceInfo?, conversationID: String) -> String {
+        let identity = workspace?.workspaceIdentity ?? ""
+        let base: String
+        if !identity.isEmpty {
+            base = identity
+        } else {
+            let path = workspace?.path ?? ""
+            base = path.isEmpty ? "none" : path
+        }
+        return "\(base)::session:\(conversationID)"
+    }
+
+    func save(key: String, messageId: String) {
+        guard !messageId.isEmpty else { return }
+        if entries[key] != nil {
+            order.removeAll { $0 == key }
+        }
+        entries[key] = Entry(messageId: messageId)
+        order.append(key)
+        while order.count > Self.capacity {
+            let oldest = order.removeFirst()
+            entries.removeValue(forKey: oldest)
+        }
+    }
+
+    /// 读即 touch（web :116-125 同口径）
+    func load(key: String) -> String? {
+        guard let entry = entries[key] else { return nil }
+        order.removeAll { $0 == key }
+        order.append(key)
+        return entry.messageId
+    }
+}
+
+// MARK: - G13 队列拖排序 DropDelegate（触屏长按拖对位桌面 hover-drag，2026-11-25）
+
+/// 落点行委托：dropEntered/dropExited 驱动落点描边，performDrop 发 reorder CAS。
+struct QueueDropDelegate: DropDelegate {
+    let item: RemoteQueueItem
+    @Binding var draggingItemId: String?
+    @Binding var dropTargetId: String?
+    /// (draggedId, targetId)：把拖起项插到落点行之前
+    let onDrop: (String, String) -> Void
+
+    func dropEntered(info: DropInfo) {
+        if draggingItemId != nil, draggingItemId != item.id {
+            dropTargetId = item.id
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTargetId == item.id {
+            dropTargetId = nil
+        }
+    }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        draggingItemId != nil
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let draggedId = draggingItemId, draggedId != item.id else {
+            draggingItemId = nil
+            dropTargetId = nil
+            return false
+        }
+        draggingItemId = nil
+        dropTargetId = nil
+        onDrop(draggedId, item.id)
+        return true
+    }
+}
+
+// MARK: - G38 命令中心统一搜索（web CommandCenterDialog.tsx:754-1084 移动端同构，
+// 2026-11-25）
+//
+// 上游四 scope（all / commands">" / conversations":" / files"@" 前缀 + 手动 tabs，
+// :167-182）；检索面：会话 = zcode-task listTaskList `search`（store.searchSessions
+// 【实证·wire 已固化协议文档 §9.3】），文件 = 本地/服务端 searchFiles，命令 = 本地
+// slashCommands 过滤；历史 = localStorage `zcode-command-center-search-history:<wsKey>`
+// limit 20（commandCenterSearchHistory.ts:9-10 同词面落 UserDefaults）。移动端三 scope
+// （全部/会话/文件——命令 scope 由 composer 斜杠菜单承载，独立页不加）。
+
+/// G38 搜索历史存取（workspaceKey = identity||path||"none"；JSON
+/// [{scope,query,updatedAt}] 数组，最新在前，limit 20——web 同词面同上限）。
+enum CommandCenterHistory {
+    static let prefix = "zcode-command-center-search-history:"
+    static let limit = 20
+
+    struct Entry: Codable, Equatable {
+        let scope: String
+        let query: String
+        let updatedAt: Double
+    }
+
+    static func key(workspace: ServerWorkspaceInfo?) -> String {
+        let identity = workspace?.workspaceIdentity ?? ""
+        let base: String
+        if !identity.isEmpty {
+            base = identity
+        } else {
+            let path = workspace?.path ?? ""
+            base = path.isEmpty ? "none" : path
+        }
+        return prefix + base
+    }
+
+    static func read(workspace: ServerWorkspaceInfo?) -> [Entry] {
+        guard let data = UserDefaults.standard.data(forKey: key(workspace: workspace)) else {
+            return []
+        }
+        return (try? JSONDecoder().decode([Entry].self, from: data)) ?? []
+    }
+
+    static func record(_ entry: Entry, workspace: ServerWorkspaceInfo?) {
+        var entries = read(workspace: workspace).filter { $0.scope != entry.scope || $0.query != entry.query }
+        entries.insert(entry, at: 0)
+        if entries.count > limit {
+            entries = Array(entries.prefix(limit))
+        }
+        if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: key(workspace: workspace))
+        }
+    }
+}
+
+struct CommandCenterSheet: View {
+    let session: AppSession
+    let store: ConversationStore
+    /// 文件检索（FileStore.searchFiles——searchFiles 在 FileStore 协议不在 ConversationStore）
+    let fileStore: FileStore
+    /// 会话命中 → 宿主推入会话（关闭本 sheet 后由宿主导航）
+    var onOpenConversation: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    /// "all" | "conversations" | "files"（上游 scope 词表子集；commands 由 composer 承载）
+    @State private var scope = "all"
+    @State private var sessions: [Conversation] = []
+    @State private var files: [FileNode] = []
+    @State private var searching = false
+    @State private var searchTask: Task<Void, Never>?
+    @State private var history: [CommandCenterHistory.Entry] = []
+    @FocusState private var focused: Bool
+
+    private var workspace: ServerWorkspaceInfo? { session.connection.workspace }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: T.sp2) {
+                SearchField(text: $query, placeholder: String(localized: "统一搜索"), identifier: "05-cmd-search")
+                    .padding(.horizontal, T.sp4)
+                    .focused($focused)
+                scopeChips
+                historyChips
+                results
+            }
+            .navigationTitle(String(localized: "统一搜索"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "关闭")) { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .accessibilityIdentifier("05-command-center")
+        .onAppear {
+            history = CommandCenterHistory.read(workspace: workspace)
+            focused = true
+        }
+        .onChange(of: query) { _, newValue in
+            searchTask?.cancel()
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                sessions = []
+                files = []
+                searching = false
+                return
+            }
+            searching = true
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 400_000_000) // web 防抖同款窗
+                guard !Task.isCancelled else { return }
+                async let sessionHits = (scope == "all" || scope == "conversations")
+                    ? store.searchSessions(trimmed) : []
+                async let fileHits = (scope == "all" || scope == "files")
+                    ? fileStore.searchFiles(trimmed, limit: 20) : []
+                let (s, f) = await (sessionHits, fileHits)
+                guard !Task.isCancelled else { return }
+                sessions = s
+                files = f
+                searching = false
+            }
+        }
+    }
+
+    private var scopeChips: some View {
+        HStack(spacing: T.sp2) {
+            scopeChip("all", String(localized: "全部"))
+            scopeChip("conversations", String(localized: "会话"))
+            scopeChip("files", String(localized: "文件"))
+            Spacer()
+        }
+        .padding(.horizontal, T.sp4)
+    }
+
+    private func scopeChip(_ id: String, _ label: String) -> some View {
+        Button {
+            scope = id
+            Task { await refetchNow() }
+        } label: {
+            Text(label)
+                .font(T.font(11.5, .semibold))
+                .foregroundColor(scope == id ? T.onAccent : T.text2)
+                .padding(.horizontal, T.sp2)
+                .padding(.vertical, 5)
+                .background(scope == id ? T.accent : T.bgInput)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("05-cmd-scope-\(id)")
+    }
+
+    private var historyChips: some View {
+        Group {
+            if query.isEmpty, !history.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: T.sp1) {
+                        ForEach(history, id: \.updatedAt) { entry in
+                            Button {
+                                query = entry.query
+                                if entry.scope != "all" { scope = entry.scope }
+                            } label: {
+                                HStack(spacing: 2) {
+                                    if entry.scope != "all" {
+                                        Text(entry.scope == "files"
+                                             ? "@" : ":")
+                                            .font(T.mono(9.5))
+                                            .foregroundColor(T.seal)
+                                    }
+                                    Text(entry.query)
+                                        .font(T.font(10.5))
+                                }
+                                .foregroundColor(T.text2)
+                                .padding(.horizontal, T.sp2)
+                                .padding(.vertical, 3)
+                                .background(T.bgInput)
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("05-cmd-history")
+                        }
+                    }
+                    .padding(.horizontal, T.sp4)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var results: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: T.sp1) {
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    EmptyView()
+                } else if searching {
+                    HStack {
+                        Spacer()
+                        SpinnerView(size: 14)
+                        Spacer()
+                    }
+                    .padding(.top, T.sp4)
+                } else {
+                    if scope == "all" || scope == "conversations" {
+                        sectionHeader(String(localized: "会话"))
+                        if sessions.isEmpty {
+                            resultEmpty(String(localized: "无匹配会话"))
+                        } else {
+                            ForEach(sessions) { item in
+                                Button {
+                                    CommandCenterHistory.record(
+                                        .init(scope: scope, query: query.trimmingCharacters(in: .whitespacesAndNewlines),
+                                              updatedAt: Date().timeIntervalSince1970),
+                                        workspace: workspace)
+                                    dismiss()
+                                    onOpenConversation(item.id)
+                                } label: {
+                                    resultRow(icon: "bubble.left", title: item.title,
+                                              meta: item.projectName ?? "")
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("05-cmd-hit-session-\(item.id)")
+                            }
+                        }
+                    }
+                    if scope == "all" || scope == "files" {
+                        sectionHeader(String(localized: "文件"))
+                        if files.isEmpty {
+                            resultEmpty(String(localized: "无匹配文件"))
+                        } else {
+                            ForEach(files) { file in
+                                Button {
+                                    CommandCenterHistory.record(
+                                        .init(scope: scope, query: query.trimmingCharacters(in: .whitespacesAndNewlines),
+                                              updatedAt: Date().timeIntervalSince1970),
+                                        workspace: workspace)
+                                } label: {
+                                    resultRow(icon: "doc.text", title: file.name, meta: file.path)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("05-cmd-hit-file-\(file.id)")
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, T.sp4)
+            .padding(.top, T.sp1)
+        }
+    }
+
+    /// scope 切换即重查（有 query 时）
+    private func refetchNow() async {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        async let s = (scope == "all" || scope == "conversations")
+            ? store.searchSessions(trimmed) : []
+        async let f = (scope == "all" || scope == "files")
+            ? fileStore.searchFiles(trimmed, limit: 20) : []
+        let (sHits, fHits) = await (s, f)
+        sessions = sHits
+        files = fHits
+    }
+
+    private func sectionHeader(_ text: String) -> some View {
+        Text(text)
+            .font(T.font(11, .semibold))
+            .foregroundColor(T.text3)
+            .padding(.top, T.sp2)
+    }
+
+    private func resultEmpty(_ text: String) -> some View {
+        Text(text)
+            .font(T.font(12))
+            .foregroundColor(T.text3)
+            .padding(.leading, T.sp2)
+    }
+
+    private func resultRow(icon: String, title: String, meta: String) -> some View {
+        HStack(spacing: T.sp2) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundColor(T.text3)
+            Text(title)
+                .font(T.font(13))
+                .foregroundColor(T.text)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Text(meta)
+                .font(T.font(10.5))
+                .foregroundColor(T.text3)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, T.sp2)
+        .padding(.vertical, 6)
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rS))
     }
 }

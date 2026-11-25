@@ -12,6 +12,9 @@ struct MessageView: View {
     var feedbackState: Bool? = nil
     /// 消息在流内序号（第 N 条；编辑重发确认文案用，0 = 未知走通用文案）
     var ordinal: Int = 0
+    /// G7：消息流内 todo 工具卡开关（web messageStreamShowTodos 同义；默认关——
+    /// 宿主 ChatView 按 appSettings 注入，独立预览/其他调用点缺省沿用关闭口径）
+    var showTodosInStream: Bool = false
     var onQuickReply: (String) -> Void
     var onRetryToolCall: (ToolCall, Int) -> Void = { _, _ in }
     /// P1-3 助手反馈点按（value：true=赞 / false=踩 / nil=取消；返回失败文案）。
@@ -150,6 +153,15 @@ struct MessageView: View {
                     // 载荷形状门命中即整卡替换（官方 renderer 同为整块替换）
                     if let plan = PlanToolCallSupport.parse(call.target) {
                         PlanToolCallCardView(plan: plan)
+                    } else if call.kind == .todo, message.todos != nil {
+                        // 2026-11-25 批5（design-spec §3.4）：TodoWrite/TodoRead 行已解析出
+                        // 待办清单 → 结构化待办卡由下方 todos 分支渲染，不再叠裸 JSON 工具卡
+                        //（解析失败 todos=nil 时落此前的原始工具卡兜底）
+                    } else if call.kind == .todo, !showTodosInStream {
+                        // G7（2026-11-25）：消息流内 todo 工具卡默认隐藏（web
+                        // messageStreamShowTodos default(false) 同值同义；工具行仍在
+                        // 消息流占位结构里，只是不渲染卡面——与 web ToolPresentation
+                        // return null 同为「整块不渲染」口径）
                     } else {
                         ToolCallCardView(call: call) { action in
                             // G-015：失败工具卡重试 → retryTurn（rowId 来自行合成 id，
@@ -160,7 +172,7 @@ struct MessageView: View {
                         }
                     }
                 }
-                if let todos = message.todos {
+                if let todos = message.todos, showTodosInStream {
                     TodoCardView(todos: todos)
                 }
                 if let question = message.question {
@@ -467,7 +479,7 @@ struct UserBubble: View {
             }
             .padding(.horizontal, T.sp3)
             .padding(.vertical, 10)
-            .background(T.gradBubble)
+            .background(T.bgCard)
             .clipShape(RoundedRectangle(cornerRadius: T.rL))
             .overlay(RoundedRectangle(cornerRadius: T.rL).stroke(T.border, lineWidth: 1))
         }
@@ -972,6 +984,10 @@ struct ToolCallCardView: View {
         case .ask: return "questionmark.bubble"
         case .browser: return "safari"
         case .todo: return "checklist"
+        // G1 三族专属面（web resolveRenderer 同语义——MCP 插件/WebFetch 抓取/检索）
+        case .mcp: return "puzzlepiece.extension"
+        case .webfetch: return "globe"
+        case .search: return "magnifyingglass"
         }
     }
 
@@ -980,6 +996,10 @@ struct ToolCallCardView: View {
         switch kind {
         case .bash: return String(localized: "执行")
         case .read: return String(localized: "读取")
+        // G1 三族动词（web 工具行同构）
+        case .mcp: return String(localized: "调用")
+        case .webfetch: return String(localized: "抓取")
+        case .search: return String(localized: "检索")
         case .edit: return String(localized: "编辑")
         case .ask: return String(localized: "提问")
         case .browser: return String(localized: "浏览")
@@ -1102,7 +1122,7 @@ struct ToolCallCardView: View {
             HStack(spacing: T.sp1) {
                 Image(systemName: "flowchart.fill")
                     .font(.system(size: 10))
-                    .foregroundColor(T.violet)
+                    .foregroundColor(T.seal)
                 Text(String(localized: "工作流 run"))
                     .font(T.font(11, .medium))
                     .foregroundColor(T.text2)
@@ -1129,7 +1149,7 @@ struct ToolCallCardView: View {
                     .padding(10)
                     .accessibilityIdentifier("05-toolcard-todo-body")
             }
-        case .bash, .read:
+        case .bash, .read, .mcp, .webfetch, .search:
             VStack(spacing: 0) {
                 // 展开体首行：具体命令/文件路径（头部截断仅是摘要，展开后要能看到全量）
                 targetDetailBlock
@@ -1150,16 +1170,10 @@ struct ToolCallCardView: View {
             VStack(spacing: 0) {
                 targetDetailBlock
                 if let diff = call.diff {
+                    // 完整 Diff 入口 = 头部 ⋯「更改」（2026-11-25 三 tab 重构：
+                    // 原跳全局文件 tab 的按钮随 tab 撤除；远端路径本就 diff=nil 不渲染，
+                    // 演示态内联 diff 行照常展示）
                     DiffLineListView(lines: diff)
-                    Button {
-                        router.openDiffFromChat()
-                    } label: {
-                        Text("查看完整 Diff")
-                            .font(T.font(13, .medium))
-                            .foregroundColor(T.accentText)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .accessibilityIdentifier("05-act-view-full-diff")
                 }
             }
             .background(T.bgCode)
@@ -1289,7 +1303,9 @@ struct TodoCardView: View {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 14))
                         .foregroundColor(T.text3)
-                    Text("任务拆解")
+                    // 术语统一（2026-11-25 批5，design-spec §3.4）：原「任务拆解」与
+                    // 「计划」chip 混用，桌面 v4 同一数据源（state.plan.items）统一称「待办」
+                    Text("待办")
                         .font(T.font(12.5, .semibold))
                         .foregroundColor(T.text2)
                     Text("\(doneCount)/\(todos.count)")

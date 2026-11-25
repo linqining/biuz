@@ -204,6 +204,9 @@
         }
       }
     },
+    ":" : {
+
+    },
     "…" : {
       "localizations" : {
         "en" : {
@@ -254,6 +257,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "(no commit message)"
+          }
+        }
+      }
+    },
+    "（暂无输出）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(no output yet)"
           }
         }
       }
@@ -331,6 +344,7 @@
       }
     },
     "《用户协议》" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -341,6 +355,7 @@
       }
     },
     "《隐私政策》" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -369,6 +384,9 @@
           }
         }
       }
+    },
+    "@" : {
+
     },
     "@@ -4,6 +4,8 @@ # ZCode 设计规范" : {
       "extractionState" : "stale",
@@ -814,6 +832,7 @@
       }
     },
     "%@:%lld · token 已就绪" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -942,6 +961,7 @@
       }
     },
     "%@未送达（连接中断或不在连接态）" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -997,6 +1017,9 @@
         }
       }
     },
+    "%lld px" : {
+
+    },
     "%lld 个" : {
       "localizations" : {
         "en" : {
@@ -1018,6 +1041,7 @@
       }
     },
     "%lld 个任务进行中 · %lld 个待操作" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1054,11 +1078,42 @@
       }
     },
     "%lld 个文件" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld files"
+          }
+        }
+      }
+    },
+    "%lld 个文件待批准" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld files awaiting approval"
+          }
+        }
+      }
+    },
+    "%lld 个服务器等待信任审核" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld servers awaiting trust review"
+          }
+        }
+      }
+    },
+    "%lld 个模型" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld models"
           }
         }
       }
@@ -1267,6 +1322,9 @@
         }
       }
     },
+    "%lld 项待确认 · 点开处理" : {
+
+    },
     "%lld/%lld" : {
       "localizations" : {
         "en" : {
@@ -1310,6 +1368,7 @@
       }
     },
     "↑%lld ↓%lld" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1396,6 +1455,15 @@
     "⑂" : {
 
     },
+    "▴" : {
+
+    },
+    "▾" : {
+
+    },
+    "⚓" : {
+
+    },
     "✕ / 下拉 / 页内取消 → 未产生 code → 重新登录" : {
       "localizations" : {
         "en" : {
@@ -1432,6 +1500,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 agent working"
+          }
+        }
+      }
+    },
+    "1 个服务器等待信任审核" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 server awaiting trust review"
           }
         }
       }
@@ -1689,6 +1767,7 @@
       }
     },
     "AI 编程智能体 · 移动工作台" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1764,6 +1843,7 @@
       }
     },
     "BASH" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1785,6 +1865,7 @@
       }
     },
     "BigModel · 其他登录方式" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1944,6 +2025,12 @@
         }
       }
     },
+    "Fork" : {
+
+    },
+    "fork 失败 · %@" : {
+
+    },
     "GET /api/server-info · 1.5s 超时" : {
       "localizations" : {
         "en" : {
@@ -1974,6 +2061,9 @@
         }
       }
     },
+    "goal 队列项需保留 /goal 前缀（命令形态不可变更）" : {
+
+    },
     "hello 解析失败" : {
       "localizations" : {
         "en" : {
@@ -1983,6 +2073,9 @@
           }
         }
       }
+    },
+    "Hook" : {
+
     },
     "HTTP 代理" : {
       "localizations" : {
@@ -2237,6 +2330,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "redirect intercepted · verifying authorization result"
+          }
+        }
+      }
+    },
+    "RELAY AUTH · Z.ai 登录态缺失" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RELAY AUTH · missing Z.ai sign-in"
           }
         }
       }
@@ -2499,6 +2603,7 @@
       }
     },
     "todo %lld/%lld" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2713,6 +2818,7 @@
       }
     },
     "Z.ai 账号登录在应用内授权 Sheet 中完成，凭据仅存本机 Keychain" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2793,7 +2899,18 @@
         }
       }
     },
+    "一句话说明（可选）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One-line description (optional)"
+          }
+        }
+      }
+    },
     "一键填充" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2811,6 +2928,17 @@
             "state" : "translated",
             "value" : "Claim now"
           }
+        }
+      }
+    },
+    "上一条发送" : {
+
+    },
+    "上一题" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Previous question"
         }
       }
     },
@@ -2864,7 +2992,22 @@
         }
       }
     },
+    "上移一位" : {
+
+    },
+    "上移失败（%@）" : {
+
+    },
+    "下一题" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Next question"
+        }
+      }
+    },
     "下午好" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2976,6 +3119,7 @@
       }
     },
     "与" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2994,6 +3138,9 @@
           }
         }
       }
+    },
+    "与桌面端握手" : {
+
     },
     "与桌面端的连接已断开" : {
       "extractionState" : "stale",
@@ -3047,11 +3194,23 @@
       }
     },
     "中午好" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Good afternoon"
+          }
+        }
+      }
+    },
+    "中国" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "China"
           }
         }
       }
@@ -3249,6 +3408,7 @@
       }
     },
     "也可跳过登录直接连接局域网桌面端 · 登录即同意" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3299,6 +3459,16 @@
         }
       }
     },
+    "云中继 V2 链接需要手机端已登录 Z.ai 账号（JWT 换一次性 token）。换包/重装后登录态不随迁移，登录成功后会自动重连；也可改用桌面端局域网二维码直连（免登录）。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relay V2 links require the phone to be signed in with a Z.ai account (JWT exchanged for a one-time token). Sign-in does not migrate across reinstall/rebrand; after signing in the app reconnects automatically. You can also scan the desktop LAN QR to connect directly (no sign-in)."
+          }
+        }
+      }
+    },
     "云中继登录已失效，请重新登录 Z.ai 账号" : {
       "localizations" : {
         "en" : {
@@ -3315,6 +3485,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Relay direct wss · auth handshake and bridge setup"
+          }
+        }
+      }
+    },
+    "云中继需要登录 Z.ai 账号" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud relay requires signing in with a Z.ai account"
           }
         }
       }
@@ -3408,6 +3588,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cloud sandbox executor is not wired to conversations yet"
+          }
+        }
+      }
+    },
+    "交互" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interaction"
           }
         }
       }
@@ -3540,6 +3730,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Showing first 20 files; view the rest on the desktop"
+          }
+        }
+      }
+    },
+    "仅显示变更" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changed only"
           }
         }
       }
@@ -3691,6 +3891,7 @@
       }
     },
     "从新建任务开始，Agent 将在已连接的桌面端执行" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3732,6 +3933,9 @@
           }
         }
       }
+    },
+    "代码预览" : {
+
     },
     "令牌与安全" : {
       "localizations" : {
@@ -3786,10 +3990,8 @@
     "任务会话" : {
 
     },
-    "任务列表" : {
-
-    },
     "任务在等待你的批准" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3864,6 +4066,7 @@
       }
     },
     "任务拆解" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3887,7 +4090,6 @@
       }
     },
     "会话" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4047,6 +4249,9 @@
         }
       }
     },
+    "使用" : {
+
+    },
     "使用 5 小时卡" : {
       "localizations" : {
         "en" : {
@@ -4097,6 +4302,16 @@
         }
       }
     },
+    "供应商中断" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provider interrupted"
+          }
+        }
+      }
+    },
     "供应商连接状态" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4134,6 +4349,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Save"
+          }
+        }
+      }
+    },
+    "保存中…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saving…"
+          }
+        }
+      }
+    },
+    "保存为工作流" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save as workflow"
+          }
+        }
+      }
+    },
+    "保存位置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save to"
           }
         }
       }
@@ -4333,6 +4578,16 @@
         }
       }
     },
+    "停止原因：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopped: %@"
+          }
+        }
+      }
+    },
     "停止指令未送达 · 连接恢复后重试" : {
       "localizations" : {
         "en" : {
@@ -4456,12 +4711,33 @@
         }
       }
     },
+    "全局" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Global"
+          }
+        }
+      }
+    },
     "全文命中" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Full-text match"
+          }
+        }
+      }
+    },
+    "全球" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Global"
           }
         }
       }
@@ -4476,6 +4752,9 @@
         }
       }
     },
+    "全部删除（%lld）" : {
+
+    },
     "全部工具" : {
       "localizations" : {
         "en" : {
@@ -4487,11 +4766,22 @@
       }
     },
     "全部批准" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Approve all"
+          }
+        }
+      }
+    },
+    "全部批准（%lld）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approve all (%lld)"
           }
         }
       }
@@ -4603,6 +4893,19 @@
         }
       }
     },
+    "其他" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Others"
+          }
+        }
+      }
+    },
+    "其他端编辑中" : {
+
+    },
     "其提供的工具将从桌面端 Agent 移除；可重新安装恢复。" : {
       "localizations" : {
         "en" : {
@@ -4643,6 +4946,16 @@
         }
       }
     },
+    "再次运行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run again"
+          }
+        }
+      }
+    },
     "再点一次取消反馈" : {
       "localizations" : {
         "en" : {
@@ -4671,7 +4984,6 @@
       }
     },
     "最近使用" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4754,6 +5066,19 @@
           }
         }
       }
+    },
+    "写入失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Write failed: %@"
+          }
+        }
+      }
+    },
+    "准备就绪" : {
+
     },
     "凭据写入 Keychain" : {
       "localizations" : {
@@ -4870,6 +5195,7 @@
       }
     },
     "分支由桌面端管理" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4985,6 +5311,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Switching rebuilds the conversation/file/task panels"
+          }
+        }
+      }
+    },
+    "切换登录平台" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch sign-in platform"
           }
         }
       }
@@ -5150,6 +5487,9 @@
         }
       }
     },
+    "删除（%lld 项）" : {
+
+    },
     "删除「%@」？" : {
       "localizations" : {
         "en" : {
@@ -5170,6 +5510,9 @@
         }
       }
     },
+    "删除中…" : {
+
+    },
     "删除会从桌面端移除该 md 文件，此操作无法撤销。" : {
       "localizations" : {
         "en" : {
@@ -5179,6 +5522,9 @@
           }
         }
       }
+    },
+    "删除全部已归档会话？此操作不可恢复。" : {
+
     },
     "删除分组失败（%@）" : {
       "extractionState" : "stale",
@@ -5247,6 +5593,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Delete subagent “%@”?"
+          }
+        }
+      }
+    },
+    "删除完成：成功 %lld，失败 %lld，跳过 %lld" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "删除完成：成功 %1$lld，失败 %2$lld，跳过 %3$lld"
           }
         }
       }
@@ -5342,6 +5698,12 @@
         }
       }
     },
+    "剪贴板图片编码失败，已跳过" : {
+
+    },
+    "剪贴板无可粘贴的图片或文件" : {
+
+    },
     "剪贴板配对链接" : {
       "localizations" : {
         "en" : {
@@ -5351,6 +5713,12 @@
           }
         }
       }
+    },
+    "剪贴板里有云中继配对链接" : {
+
+    },
+    "剪贴板里有连接链接" : {
+
     },
     "剩 %@" : {
       "localizations" : {
@@ -5486,6 +5854,7 @@
       }
     },
     "协议握手 v4" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5687,6 +6056,17 @@
       }
     },
     "去审批" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review"
+          }
+        }
+      }
+    },
+    "去审核" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5757,6 +6137,7 @@
       }
     },
     "发现服务" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5767,6 +6148,7 @@
       }
     },
     "发送" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5896,6 +6278,7 @@
       }
     },
     "取消连接" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6045,6 +6428,16 @@
         }
       }
     },
+    "同名工作流已存在，覆盖保存？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A workflow with this name exists. Overwrite?"
+          }
+        }
+      }
+    },
     "同步 IO 改 async/await" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6120,6 +6513,16 @@
         }
       }
     },
+    "后台输出" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background output"
+          }
+        }
+      }
+    },
     "后续请求携带 Authorization: Bearer {accessToken}（conversationSharePreviewClient.ts:145，转引）" : {
       "localizations" : {
         "en" : {
@@ -6170,6 +6573,9 @@
         }
       }
     },
+    "告诉模型接下来应该怎么做..." : {
+
+    },
     "周卡" : {
       "localizations" : {
         "en" : {
@@ -6213,6 +6619,7 @@
       }
     },
     "命令详情以桌面端交互卡为准（待审批对象：%@）" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6333,6 +6740,9 @@
         }
       }
     },
+    "图片无法解码" : {
+
+    },
     "图片预览 · %@" : {
       "localizations" : {
         "en" : {
@@ -6352,6 +6762,19 @@
           }
         }
       }
+    },
+    "在工作区启用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable in workspace"
+          }
+        }
+      }
+    },
+    "在新会话询问" : {
+
     },
     "在有风险时询问" : {
       "localizations" : {
@@ -6800,6 +7223,26 @@
         }
       }
     },
+    "安装并启用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install and enable"
+          }
+        }
+      }
+    },
+    "安装并在工作区启用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install and enable in workspace"
+          }
+        }
+      }
+    },
     "安装插件" : {
       "localizations" : {
         "en" : {
@@ -6826,6 +7269,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Full access"
+          }
+        }
+      }
+    },
+    "完成" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
           }
         }
       }
@@ -6894,7 +7347,28 @@
         }
       }
     },
+    "审批响应 / 提问自动继续 / 消息流呈现（桌面侧）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approval response / ask auto-continue / stream rendering (desktop-side)"
+          }
+        }
+      }
+    },
+    "审批响应方式" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approval response"
+          }
+        }
+      }
+    },
     "审批未送达 · 连接恢复后再试" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7400,6 +7874,16 @@
         }
       }
     },
+    "工作流名称" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workflow name"
+          }
+        }
+      }
+    },
     "工作流已完成" : {
       "localizations" : {
         "en" : {
@@ -7495,12 +7979,28 @@
         }
       }
     },
+    "已上移" : {
+
+    },
     "已下发 · 桌面端将切换运行设置" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sent · desktop will switch run settings"
+          }
+        }
+      }
+    },
+    "已与桌面端断开" : {
+
+    },
+    "已中断" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interrupted"
           }
         }
       }
@@ -7536,7 +8036,6 @@
       }
     },
     "已保存" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7587,6 +8086,7 @@
       }
     },
     "已信任所选 hook 项" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7667,6 +8167,9 @@
         }
       }
     },
+    "已创建 fork 会话 · %@" : {
+
+    },
     "已删除 · %@" : {
       "localizations" : {
         "en" : {
@@ -7696,6 +8199,9 @@
           }
         }
       }
+    },
+    "已删除 %lld 项" : {
+
     },
     "已加入排队" : {
       "localizations" : {
@@ -7964,6 +8470,7 @@
       }
     },
     "已批准执行 · %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7984,7 +8491,11 @@
         }
       }
     },
+    "已找到桌面端 · 正在建立连接" : {
+
+    },
     "已把追问发送给 Agent，任务保留在待操作" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8006,6 +8517,7 @@
       }
     },
     "已拒绝 · %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8036,6 +8548,9 @@
           }
         }
       }
+    },
+    "已拦截" : {
+
     },
     "已拦截授权回调" : {
       "localizations" : {
@@ -8088,6 +8603,7 @@
       }
     },
     "已撤销信任" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8146,6 +8662,9 @@
           }
         }
       }
+    },
+    "已更新组颜色" : {
+
     },
     "已有工作区切换在进行中" : {
       "localizations" : {
@@ -8343,6 +8862,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Filled"
+          }
+        }
+      }
+    },
+    "已被新运行替代" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Superseded by a newer run"
+          }
+        }
+      }
+    },
+    "已被替代，后继" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Superseded by"
+          }
+        }
+      }
+    },
+    "已覆盖保存" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved (overwritten)"
           }
         }
       }
@@ -8571,6 +9120,16 @@
         }
       }
     },
+    "并发限流冷却 %llds" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Concurrency cooldown %llds"
+          }
+        }
+      }
+    },
     "并发默认" : {
       "localizations" : {
         "en" : {
@@ -8582,6 +9141,7 @@
       }
     },
     "建立 WebSocket" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8590,6 +9150,9 @@
           }
         }
       }
+    },
+    "建立连接通道" : {
+
     },
     "建组回执缺 id" : {
       "localizations" : {
@@ -8663,6 +9226,17 @@
         }
       }
     },
+    "开启后 TodoWrite 工具卡在会话流内展开" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand TodoWrite tool cards in the conversation stream"
+          }
+        }
+      }
+    },
     "开始任务" : {
       "localizations" : {
         "en" : {
@@ -8723,6 +9297,9 @@
         }
       }
     },
+    "引用到输入框" : {
+
+    },
     "引用文件" : {
       "localizations" : {
         "en" : {
@@ -8763,12 +9340,42 @@
         }
       }
     },
+    "归档「%@」？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archive “%@”?"
+          }
+        }
+      }
+    },
+    "归档保留时长" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retention"
+          }
+        }
+      }
+    },
     "归档保留时长（天）" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Archive retention (days)"
+          }
+        }
+      }
+    },
+    "归档后可在会话列表「已归档」区找回" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can find it later under “Archived” in the session list"
           }
         }
       }
@@ -8943,6 +9550,36 @@
         }
       }
     },
+    "待信任的工作区 MCP" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace MCP pending trust"
+          }
+        }
+      }
+    },
+    "待办" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todos"
+          }
+        }
+      }
+    },
+    "待办清单" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todos"
+          }
+        }
+      }
+    },
     "待回答" : {
       "localizations" : {
         "en" : {
@@ -8970,6 +9607,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pending"
+          }
+        }
+      }
+    },
+    "待批" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Approvals"
           }
         }
       }
@@ -9186,6 +9833,7 @@
       }
     },
     "想追问什么…" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9232,6 +9880,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "My desktop"
+          }
+        }
+      }
+    },
+    "手动停止" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopped manually"
           }
         }
       }
@@ -9400,6 +10058,7 @@
       }
     },
     "扫码配对新设备" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9460,6 +10119,9 @@
         }
       }
     },
+    "找到电脑" : {
+
+    },
     "技能" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -9491,6 +10153,9 @@
           }
         }
       }
+    },
+    "抓取" : {
+
     },
     "投递模式" : {
       "localizations" : {
@@ -9599,6 +10264,16 @@
     "按分组加载失败 · %@" : {
 
     },
+    "按套餐分组" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "By plan"
+          }
+        }
+      }
+    },
     "换个关键词试试（匹配文件名或路径）" : {
       "localizations" : {
         "en" : {
@@ -9680,6 +10355,7 @@
       }
     },
     "授权范围" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9698,6 +10374,9 @@
           }
         }
       }
+    },
+    "排序与筛选" : {
+
     },
     "排队" : {
       "localizations" : {
@@ -9728,6 +10407,9 @@
           }
         }
       }
+    },
+    "排队项已不在队列中" : {
+
     },
     "接收回调" : {
       "localizations" : {
@@ -9920,6 +10602,16 @@
         }
       }
     },
+    "插件安装请求" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plugin install request"
+          }
+        }
+      }
+    },
     "插件市场" : {
       "localizations" : {
         "en" : {
@@ -9951,6 +10643,7 @@
       }
     },
     "搜索任务" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9986,6 +10679,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Search files"
+          }
+        }
+      }
+    },
+    "搜索模型" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search models"
           }
         }
       }
@@ -10063,6 +10766,12 @@
         }
       }
     },
+    "收起明细" : {
+
+    },
+    "收起置顶" : {
+
+    },
     "收起键盘" : {
       "localizations" : {
         "en" : {
@@ -10083,6 +10792,16 @@
         }
       }
     },
+    "改用局域网直连 · 扫码" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to LAN direct · scan"
+          }
+        }
+      }
+    },
     "改用手动输入连接" : {
       "localizations" : {
         "en" : {
@@ -10093,12 +10812,32 @@
         }
       }
     },
+    "改自" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resumed from"
+          }
+        }
+      }
+    },
     "放行计划" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Approve plan"
+          }
+        }
+      }
+    },
+    "数据" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data"
           }
         }
       }
@@ -10296,6 +11035,7 @@
       }
     },
     "新建任务" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10338,6 +11078,25 @@
           }
         }
       }
+    },
+    "无匹配会话" : {
+
+    },
+    "无匹配文件" : {
+
+    },
+    "无匹配模型" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No matching models"
+          }
+        }
+      }
+    },
+    "无可删除项" : {
+
     },
     "无效响应" : {
       "localizations" : {
@@ -10442,6 +11201,16 @@
         }
       }
     },
+    "旧任务按保留时长自动归档（桌面侧设置）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-archive old tasks after retention (desktop-side setting)"
+          }
+        }
+      }
+    },
     "旧版" : {
       "localizations" : {
         "en" : {
@@ -10453,6 +11222,7 @@
       }
     },
     "早上好" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10524,12 +11294,30 @@
         }
       }
     },
+    "显示更多置顶（%lld）" : {
+
+    },
+    "显示行号" : {
+
+    },
     "晚上好" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Good evening"
+          }
+        }
+      }
+    },
+    "暂不登录" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not now"
           }
         }
       }
@@ -10629,6 +11417,16 @@
         }
       }
     },
+    "暂无待办条目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No todo items"
+          }
+        }
+      }
+    },
     "暂无提交图谱" : {
       "localizations" : {
         "en" : {
@@ -10698,6 +11496,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No paired desktop found yet"
+          }
+        }
+      }
+    },
+    "更改" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes"
           }
         }
       }
@@ -10971,6 +11779,7 @@
       }
     },
     "未找到待审批交互 · 可能已在桌面端处理" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11299,6 +12108,9 @@
         }
       }
     },
+    "本端暂不支持渲染该行" : {
+
+    },
     "朱批" : {
       "localizations" : {
         "en" : {
@@ -11402,6 +12214,7 @@
       }
     },
     "查看全部 %lld 个任务" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11412,6 +12225,7 @@
       }
     },
     "查看全部 %lld 个已完成" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11432,6 +12246,7 @@
       }
     },
     "查看完整 Diff" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11451,7 +12266,30 @@
         }
       }
     },
+    "查看离线缓存" : {
+
+    },
     "标记为未读" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mark as unread"
+          }
+        }
+      }
+    },
+    "标记为未读？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mark as unread?"
+          }
+        }
+      }
+    },
+    "标记未读" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11507,6 +12345,7 @@
       }
     },
     "桌面分组不可用 · 已按状态分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11638,6 +12477,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Desktop ack missing sessionId (creation rejected; check the model selection and retry)"
+          }
+        }
+      }
+    },
+    "桌面端在执行中需要你确认的命令或问题，会出现在这里" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Commands or questions that need your confirmation while the desktop agent works will appear here"
           }
         }
       }
@@ -12100,6 +12950,7 @@
       }
     },
     "检测到剪贴板中的云中继配对链接" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12110,6 +12961,7 @@
       }
     },
     "检测到剪贴板中的连接链接" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12118,6 +12970,9 @@
           }
         }
       }
+    },
+    "检索" : {
+
     },
     "模型" : {
       "localizations" : {
@@ -12136,6 +12991,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Model & thinking level"
+          }
+        }
+      }
+    },
+    "模型停止" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopped by model"
           }
         }
       }
@@ -12245,6 +13110,7 @@
       }
     },
     "正在同步任务…" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12260,6 +13126,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Syncing chats…"
+          }
+        }
+      }
+    },
+    "正在同步待批操作…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Syncing pending approvals…"
           }
         }
       }
@@ -12283,6 +13159,9 @@
           }
         }
       }
+    },
+    "正在寻找桌面端…" : {
+
     },
     "正在获取分享内容…" : {
       "localizations" : {
@@ -12480,6 +13359,16 @@
         }
       }
     },
+    "正在载入待批详情…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading approval details…"
+          }
+        }
+      }
+    },
     "正在载入文件…" : {
       "localizations" : {
         "en" : {
@@ -12633,6 +13522,17 @@
         }
       }
     },
+    "没有待你批准的操作" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing awaiting your approval"
+          }
+        }
+      }
+    },
     "没有待审查的变更，或已全部处理完毕" : {
       "localizations" : {
         "en" : {
@@ -12662,6 +13562,9 @@
           }
         }
       }
+    },
+    "派生会话创建失败（桌面端版本或连接状态）" : {
+
     },
     "测试中…" : {
       "localizations" : {
@@ -12745,6 +13648,7 @@
       }
     },
     "浏览工作区文件" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12755,6 +13659,7 @@
       }
     },
     "浏览文件" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12807,6 +13712,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Message not delivered · disconnected, draft kept"
+          }
+        }
+      }
+    },
+    "消息流" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message stream"
+          }
+        }
+      }
+    },
+    "消息流显示待办卡" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show todo cards in stream"
           }
         }
       }
@@ -12984,6 +13910,16 @@
         }
       }
     },
+    "演示态不支持保存工作流" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saving workflows is unavailable in demo mode"
+          }
+        }
+      }
+    },
     "演示态无附件上传面" : {
       "localizations" : {
         "en" : {
@@ -13000,6 +13936,19 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tap to unarchive and restore to the list"
+          }
+        }
+      }
+    },
+    "点开处理" : {
+
+    },
+    "点按暂停自动决议" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap to pause auto-resolution"
           }
         }
       }
@@ -13116,6 +14065,9 @@
         }
       }
     },
+    "用户" : {
+
+    },
     "用户 ID" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -13224,6 +14176,9 @@
         }
       }
     },
+    "电脑与账户" : {
+
+    },
     "界面硬件加速" : {
       "localizations" : {
         "en" : {
@@ -13290,6 +14245,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leave empty (--no-token deployments)"
+          }
+        }
+      }
+    },
+    "登录 Z.ai 账号" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in with Z.ai"
           }
         }
       }
@@ -13894,6 +14859,17 @@
         }
       }
     },
+    "立即重连" : {
+
+    },
+    "第 %lld/%lld 题" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Question %lld of %lld"
+        }
+      }
+    },
     "等共 %lld 个文件" : {
       "localizations" : {
         "en" : {
@@ -13956,6 +14932,16 @@
         }
       }
     },
+    "等待确认 · 在会话中处理" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting confirmation · handle it in the session"
+          }
+        }
+      }
+    },
     "等待补全" : {
       "localizations" : {
         "en" : {
@@ -13975,6 +14961,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Simplified Chinese"
+          }
+        }
+      }
+    },
+    "管理模型" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage models"
           }
         }
       }
@@ -14000,12 +14996,25 @@
         }
       }
     },
+    "粘贴图片.jpg" : {
+
+    },
     "粘贴链接连接" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Paste link to connect"
+          }
+        }
+      }
+    },
+    "粘贴附件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste attachment"
           }
         }
       }
@@ -14145,6 +15154,9 @@
           }
         }
       }
+    },
+    "统一搜索" : {
+
     },
     "继承模型默认档" : {
 
@@ -14294,6 +15306,12 @@
         }
       }
     },
+    "置顶到顶部" : {
+
+    },
+    "置顶失败（%@）" : {
+
+    },
     "自主模式" : {
       "localizations" : {
         "en" : {
@@ -14351,6 +15369,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Failed to load automations · %@"
+          }
+        }
+      }
+    },
+    "自动归档" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-archive"
           }
         }
       }
@@ -14435,6 +15463,16 @@
         }
       }
     },
+    "范围" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scope"
+          }
+        }
+      }
+    },
     "获取中…" : {
       "localizations" : {
         "en" : {
@@ -14451,6 +15489,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Failed to get the desktop group structure (%@)"
+          }
+        }
+      }
+    },
+    "行为设置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Behavior"
           }
         }
       }
@@ -14539,7 +15587,20 @@
         }
       }
     },
+    "要询问的问题" : {
+
+    },
     "覆盖" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overwrite"
+          }
+        }
+      }
+    },
+    "覆盖保存" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -14612,6 +15673,9 @@
           }
         }
       }
+    },
+    "解除" : {
+
     },
     "计划" : {
       "localizations" : {
@@ -14739,6 +15803,26 @@
     "设置失败 · %@" : {
 
     },
+    "设置读取失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to load settings"
+          }
+        }
+      }
+    },
+    "设置读取失败（连接中断或桌面端不支持）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to load settings (connection lost or desktop unsupported)"
+          }
+        }
+      }
+    },
     "设置项由桌面端 settingService 提供；修改即时生效，未知形态的值不在此展示。" : {
       "localizations" : {
         "en" : {
@@ -14820,12 +15904,25 @@
         }
       }
     },
+    "询问" : {
+
+    },
     "该产物类型暂不支持手机端预览 · 请在桌面端查看" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "This artifact type can't be previewed on mobile · view it on desktop"
+          }
+        }
+      }
+    },
+    "该会话会在列表中显示未读标" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The session will show an unread badge in the list"
           }
         }
       }
@@ -14900,6 +15997,16 @@
         }
       }
     },
+    "该设置写入桌面端，桌面侧「归档保留时长」同步生效。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Written to the desktop; the desktop-side retention setting updates together."
+          }
+        }
+      }
+    },
     "语言" : {
       "localizations" : {
         "en" : {
@@ -14962,6 +16069,7 @@
       }
     },
     "请求审核" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -15021,6 +16129,17 @@
         }
       }
     },
+    "请选择与电脑端相同的登录平台，并使用同一账号。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose the same login platform as your computer and use the same account."
+          }
+        }
+      }
+    },
     "读取" : {
       "localizations" : {
         "en" : {
@@ -15051,6 +16170,9 @@
         }
       }
     },
+    "调用" : {
+
+    },
     "调用方迁移决策待用户确认，已发起提问" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -15071,6 +16193,9 @@
           }
         }
       }
+    },
+    "超时" : {
+
     },
     "超时 · 无法连接" : {
       "localizations" : {
@@ -15099,56 +16224,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Follow main model"
-          }
-        }
-      }
-    },
-    "云中继需要登录 Z.ai 账号" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud relay requires signing in with a Z.ai account"
-          }
-        }
-      }
-    },
-    "RELAY AUTH · Z.ai 登录态缺失" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RELAY AUTH · missing Z.ai sign-in"
-          }
-        }
-      }
-    },
-    "云中继 V2 链接需要手机端已登录 Z.ai 账号（JWT 换一次性 token）。换包/重装后登录态不随迁移，登录成功后会自动重连；也可改用桌面端局域网二维码直连（免登录）。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Relay V2 links require the phone to be signed in with a Z.ai account (JWT exchanged for a one-time token). Sign-in does not migrate across reinstall/rebrand; after signing in the app reconnects automatically. You can also scan the desktop LAN QR to connect directly (no sign-in)."
-          }
-        }
-      }
-    },
-    "登录 Z.ai 账号" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign in with Z.ai"
-          }
-        }
-      }
-    },
-    "改用局域网直连 · 扫码" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Switch to LAN direct · scan"
           }
         }
       }
@@ -15226,6 +16301,7 @@
       }
     },
     "载入工作区" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -15275,6 +16351,36 @@
         }
       }
     },
+    "输出" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Output"
+          }
+        }
+      }
+    },
+    "输出读取失败（连接中断或桌面端不支持）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to read output (connection lost or desktop unsupported)"
+          }
+        }
+      }
+    },
+    "输出过长，仅显示末尾部分" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Output truncated; showing the tail"
+          }
+        }
+      }
+    },
     "迁移 2 处单例调用方" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -15306,6 +16412,9 @@
           }
         }
       }
+    },
+    "运行 %lld" : {
+
     },
     "运行中" : {
       "localizations" : {
@@ -15410,6 +16519,7 @@
       }
     },
     "还没有任务" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -15450,6 +16560,16 @@
         }
       }
     },
+    "这些设置写入桌面端并即时生效。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These settings are written to the desktop and take effect immediately."
+          }
+        }
+      }
+    },
     "这台电脑上有 %lld 个 ZCode 在线，选择要连接的一个" : {
 
     },
@@ -15464,6 +16584,7 @@
       }
     },
     "进行中" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -15493,6 +16614,9 @@
         }
       }
     },
+    "连不上桌面端" : {
+
+    },
     "连接" : {
       "localizations" : {
         "en" : {
@@ -15509,6 +16633,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Failed to connect to %@"
+          }
+        }
+      }
+    },
+    "连接 BigModel 继续使用" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue with BigModel"
+          }
+        }
+      }
+    },
+    "连接 Z.ai 继续使用" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue with Z.ai"
           }
         }
       }
@@ -15540,6 +16686,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Connection lost; message not delivered"
+          }
+        }
+      }
+    },
+    "连接中断或超时，请检查桌面端状态" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connection interrupted or timed out. Check the desktop status"
           }
         }
       }
@@ -15643,6 +16799,9 @@
           }
         }
       }
+    },
+    "连接已断开 · 正在重连…" : {
+
     },
     "连接帮助" : {
       "localizations" : {
@@ -15790,6 +16949,7 @@
       }
     },
     "追问 Agent" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -15800,6 +16960,7 @@
       }
     },
     "追问 Agent，再决定" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -15810,6 +16971,7 @@
       }
     },
     "追问发送失败 · 请确认桌面端连接后再试" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -15820,6 +16982,7 @@
       }
     },
     "追问将发送到该任务的会话流；批准/拒绝仍待你决定。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -15901,6 +17064,7 @@
       }
     },
     "通过 BigModel 智能体平台登录" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -16009,6 +17173,9 @@
           }
         }
       }
+    },
+    "重新扫码" : {
+
     },
     "重新扫码更新令牌" : {
       "localizations" : {
@@ -16269,6 +17436,9 @@
         }
       }
     },
+    "长行换行" : {
+
+    },
     "阅读 TaskRunner.swift 并解释执行模型" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -16467,6 +17637,9 @@
         }
       }
     },
+    "预览字号" : {
+
+    },
     "领取中…" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -16591,6 +17764,7 @@
       }
     },
     "高级入口 · /login?appId=zcode · 默认无需改动" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -16601,6 +17775,7 @@
       }
     },
     "高级选项" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -16620,22 +17795,22 @@
         }
       }
     },
-    "默认取 server-info workspaces[0]" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Defaults to server-info workspaces[0]"
-          }
-        }
-      }
-    },
     "默认使用浅色主题；选择「跟随系统」后随系统深浅变化即时换肤，选择固定档则始终保持该主题。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Light theme by default. Choose Follow System to switch with the system setting, or a fixed option to keep that theme."
+          }
+        }
+      }
+    },
+    "默认取 server-info workspaces[0]" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Defaults to server-info workspaces[0]"
           }
         }
       }

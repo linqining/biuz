@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Surface
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +72,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextDecoration
+import cn.biuz.android.protocol.PlanPanelSummary
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,11 +102,14 @@ import cn.biuz.android.app.ui.chat.ThoughtOptionSection
 import cn.biuz.android.app.ui.chat.freeTextAnswer
 import cn.biuz.android.app.ui.chat.optionAnswer
 import cn.biuz.android.app.ui.chat.permissionAnswer
+import cn.biuz.android.app.ui.chat.permissionAnswerWithFeedback
 import cn.biuz.android.app.ui.chat.planAnswer
 import cn.biuz.android.store.ModelSelectionInfo
 import cn.biuz.android.protocol.ChatMessage
+import cn.biuz.android.protocol.WorkspaceMcpAdmissionState
 import cn.biuz.android.protocol.ToolCall
 import cn.biuz.android.app.ui.theme.BiuZOnSeal
+import cn.biuz.android.app.ui.theme.BiuZAlpha
 import cn.biuz.android.app.ui.theme.ctaPress
 import cn.biuz.android.app.ui.theme.pressableScale
 import cn.biuz.android.app.ui.theme.BiuZAccent
@@ -138,6 +145,8 @@ fun ChatScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenTaskOutput: () -> Unit = {},
+    /** G24「去审核」：切设置 tab 的 MCP 区（web 纯导航同款——不发 RPC）。 */
+    onOpenMcpReview: () -> Unit = {},
 ) {
     val session = LocalAppSession.current
     val surface by session.storeSurface.collectAsStateWithLifecycle()
@@ -152,6 +161,14 @@ fun ChatScreen(
     var overflowOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
     // 036 白板浮层（web 侧栏面板的移动对位；零 RPC 纯客户端——语义见 WhiteboardModel 头注）
     var whiteboardOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+    // G24 MCP 待审核快照 + 本地忽略态（renderer 内存态，web reminderStates 同口径）
+    var mcpAdmissionState by remember { androidx.compose.runtime.mutableStateOf<WorkspaceMcpAdmissionState?>(null) }
+    var mcpAdmissionDismissed by remember { androidx.compose.runtime.mutableStateOf(false) }
+    // G6 待办清单展开 sheet
+    var todoSheetOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+    // G15 @ 文件提及面板（Box 内整页覆盖，点选插 @path 回草稿）
+    var mentionPickerOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val planPanel by viewModel.planPanel.collectAsStateWithLifecycle()
     DisposableEffect(sessionId) {
         onDispose { viewModel.detach() } // 离开会话：撤面板/提示行（真退订交 store 租约池）
     }
@@ -162,6 +179,34 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val loadFailure by viewModel.loadFailure.collectAsStateWithLifecycle()
     val pendingInteractions by viewModel.pendingInteractions.collectAsStateWithLifecycle()
+    // G24：快照随挂载与交互刷新重读（pendingInteractions 尺寸作失效键——审批流与
+    // MCP 准入同属会话面，近似 web 的投影刷新时机）
+    LaunchedEffect(pendingInteractions.size) {
+        mcpAdmissionState = viewModel.workspaceMcpAdmission()
+    }
+    // G15 @ 提及面板（全屏 Dialog 承载——点选回调经 updateDraft 插 @"path" 并关面板）
+    if (mentionPickerOpen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { mentionPickerOpen = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = cn.biuz.android.app.ui.theme.BiuZBg,
+            ) {
+                MentionPickerScreen(
+                    session = session,
+                    onBack = { mentionPickerOpen = false },
+                    onPick = { node ->
+                        mentionPickerOpen = false
+                        val reference = "@\"${node.path}\" "
+                        val current = viewModel.draft.value
+                        viewModel.updateDraft(if (current.isEmpty()) reference else current + reference)
+                    },
+                )
+            }
+        }
+    }
     val decidedIds by viewModel.decidedInteractionIds.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     // 3.17.2 输入预测 ghost hint（灰字续写，点按采纳；iOS ComposerBar 05-input-hint 同构）
@@ -226,16 +271,86 @@ fun ChatScreen(
     // 运行中回合保持展开；散行（回显/会话级卡）独立尾单元
     val turnUnits = remember(messages) { cn.biuz.android.app.ui.chat.TurnGrouping.group(messages) }
     var expandedTurns by remember { androidx.compose.runtime.mutableStateOf(emptySet<String>()) }
-    // 新行到达滚底（乐观回显 + 服务端行都走同一投影）
+    // G49 滚动位置记忆：装载完成后首帧恢复记忆位（web chatSessionScrollMemory 同构——
+    // 进程内 LRU 200，键 workspace::session:{id}；恢复的是「顶层可见条目下标」）
+    var scrollRestorePending by remember(sessionId) {
+        androidx.compose.runtime.mutableStateOf(
+            ChatScrollMemory.load(listKey = ChatScrollMemory.key(sessionId)),
+        )
+    }
+    // G9：行高缓存（messageId 键 LRU 4000，会话切换 clear）+ 活尾跟随判定
+    //（「冻结史/尾轮」分区移动端等效——用户滚离底部时新行到达不抢滚底；回底钮恢复跟随。
+    // 上游 user-scroll-intent 同语义）
+    val rowHeightCache = remember(sessionId) { cn.biuz.android.store.TimelineRowHeightCache() }
+    var followingTail by remember(sessionId) { androidx.compose.runtime.mutableStateOf(true) }
+    // 距底判定：最后可见条目临近末尾 = 跟随中
+    val atTail = turnUnits.isEmpty() ||
+        listState.firstVisibleItemIndex >= turnUnits.size - 1 ||
+        (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= turnUnits.size - 1
+
+    LaunchedEffect(atTail) {
+        if (atTail && !followingTail) followingTail = true
+        if (!atTail && followingTail) followingTail = false
+    }
+
+    // 新行到达滚底（乐观回显 + 服务端行都走同一投影）；恢复首帧改道记忆位；
+    // 用户在史区（非跟随）不抢滚底（G9 活尾判定）
     LaunchedEffect(turnUnits.size) {
-        if (turnUnits.isNotEmpty()) listState.animateScrollToItem(turnUnits.size - 1)
+        if (turnUnits.isEmpty()) return@LaunchedEffect
+        val pending = scrollRestorePending
+        if (pending != null) {
+            scrollRestorePending = null
+            if (pending < turnUnits.size) {
+                listState.scrollToItem(pending)
+                return@LaunchedEffect
+            }
+        }
+        if (!followingTail) return@LaunchedEffect
+        listState.animateScrollToItem(turnUnits.size - 1)
+    }
+    // G49：滚动即记忆（读即 touch；离开页面 DisposableEffect 再补终值）
+    LaunchedEffect(turnUnits.size, listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress && turnUnits.isNotEmpty()) {
+            ChatScrollMemory.save(
+                key = ChatScrollMemory.key(sessionId),
+                itemIndex = listState.firstVisibleItemIndex,
+            )
+        }
+    }
+    DisposableEffect(sessionId) {
+        onDispose {
+            if (turnUnits.isNotEmpty()) {
+                ChatScrollMemory.save(
+                    key = ChatScrollMemory.key(sessionId),
+                    itemIndex = listState.firstVisibleItemIndex,
+                )
+            }
+        }
+    }
+    // G6 待办清单展开 sheet（web PlanStatusSection 全量渲染同构）
+    if (todoSheetOpen) {
+        val plan = planPanel
+        if (plan != null) {
+            ModalBottomSheet(
+                onDismissRequest = { todoSheetOpen = false },
+                containerColor = BiuZBgElevated,
+            ) {
+                TodoListSheetContent(
+                    plan = plan,
+                    onDismiss = { todoSheetOpen = false },
+                )
+            }
+        }
     }
 
     // 交互卡应答（A-3 对象分形；失败/未知态由卡内错误行如实呈现不撤卡）
     val actions = remember(viewModel) {
         InteractionActions(
-            onPermissionOption = { interaction, optionId ->
-                viewModel.resolveInteraction(interaction, permissionAnswer(optionId))
+            onPermissionOption = { interaction, optionId, feedback ->
+                viewModel.resolveInteraction(
+                    interaction,
+                    permissionAnswerWithFeedback(optionId, feedback),
+                )
             },
             onPlanAction = { interaction, action ->
                 viewModel.resolveInteraction(interaction, planAnswer(action))
@@ -245,6 +360,9 @@ fun ChatScreen(
             },
             onQuestionOption = { interaction, option ->
                 viewModel.resolveInteraction(interaction, optionAnswer(option.id))
+            },
+            onQuestionAnswer = { interaction, answer ->
+                viewModel.resolveInteraction(interaction, answer)
             },
             onHookTrust = { interaction, itemIds ->
                 viewModel.respondHookReview(interaction, itemIds)
@@ -344,6 +462,22 @@ fun ChatScreen(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // G6 待办摘要可点（web StatusCapsule id="todo" 移动对位；有结构化
+                // 条目才升为按钮——纯文本摘要无展开面）
+                val plan = planPanel
+                if (plan != null && plan.items.isNotEmpty()) {
+                    Text(
+                        text = "${plan.completedCount}/${plan.totalCount} 待办 ⌃⌄",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = BiuZText3,
+                        modifier = Modifier
+                            .clip(BiuZRadius.small)
+                            .clickable { todoSheetOpen = true }
+                            .padding(horizontal = BiuZSpacing.xs, vertical = BiuZSpacing.xxs)
+                            .testTag("05-todo-capsule"),
+                    )
+                }
             }
             androidx.compose.material3.HorizontalDivider(color = BiuZBorder)
         }
@@ -359,6 +493,63 @@ fun ChatScreen(
                     .padding(horizontal = BiuZSpacing.lg)
                     .padding(bottom = BiuZSpacing.xs),
             )
+        }
+
+        // G24 工作区 MCP 待审核指示条（web WorkspaceMcpPendingIndicator 同位——
+        // state.workspaceMcpAdmission 非 null 且 pendingCount>0 即显示；「忽略」纯本地
+        // 内存态；随交互刷新同步重读）
+        val mcpAdmission = mcpAdmissionState
+        if (mcpAdmission != null && mcpAdmission.pendingCount > 0 && !mcpAdmissionDismissed) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = BiuZSpacing.lg)
+                    .padding(bottom = BiuZSpacing.xs)
+                    .clip(BiuZRadius.medium)
+                    .background(BiuZBgElevated)
+                    .border(1.dp, BiuZOrange.copy(alpha = BiuZAlpha.subtle), BiuZRadius.medium)
+                    .padding(horizontal = BiuZSpacing.md, vertical = BiuZSpacing.sm)
+                    .testTag("05-mcp-pending-banner"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+            ) {
+                Text(text = "~-~-", fontSize = 12.sp, color = BiuZOrange)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.chat_mcp_banner_title),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BiuZText,
+                    )
+                    Text(
+                        text = if (mcpAdmission.pendingCount == 1) "1 个服务器等待信任审核"
+                        else "${mcpAdmission.pendingCount} 个服务器等待信任审核",
+                        fontSize = 11.sp,
+                        color = BiuZText3,
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.chat_mcp_banner_review),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = BiuZSeal,
+                    modifier = Modifier
+                        .clip(BiuZRadius.small)
+                        .clickable { onOpenMcpReview() }
+                        .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
+                        .testTag("05-mcp-banner-review"),
+                )
+                Text(
+                    text = "✕",
+                    fontSize = 11.sp,
+                    color = BiuZText3,
+                    modifier = Modifier
+                        .clip(BiuZRadius.small)
+                        .clickable { mcpAdmissionDismissed = true }
+                        .padding(horizontal = BiuZSpacing.xs, vertical = BiuZSpacing.xs)
+                        .testTag("05-mcp-banner-dismiss"),
+                )
+            }
         }
 
         // MARK: 工作流运行摘要行（web「工作流运行中 工作流脚本 / N 个阶段 · M 个子代理工作中…」）
@@ -479,12 +670,12 @@ fun ChatScreen(
             )
         }
 
-        // MARK: 消息流
+        // MARK: 消息流（Box 承载列表 + G9 回底浮动钮 overlay）
+        androidx.compose.foundation.layout.Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 horizontal = BiuZSpacing.lg,
                 vertical = BiuZSpacing.sm,
@@ -555,6 +746,27 @@ fun ChatScreen(
             }
         }
 
+        // G9 回底浮动钮（非跟随态显示——活尾跟随判定的恢复入口；iOS back-to-bottom 同位）
+        if (!followingTail && turnUnits.isNotEmpty()) {
+            androidx.compose.material3.ExtendedFloatingActionButton(
+                onClick = {
+                    followingTail = true
+                    scope.launch {
+                        listState.animateScrollToItem(turnUnits.size - 1)
+                    }
+                },
+                containerColor = cn.biuz.android.app.ui.theme.BiuZBgCard,
+                contentColor = cn.biuz.android.app.ui.theme.BiuZText,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(BiuZSpacing.md)
+                    .testTag("05-act-back-to-bottom"),
+            ) {
+                Text("↓ 回到底部", fontSize = 13.sp)
+            }
+        }
+        } // G9 Box 闭合（消息流 + 回底钮 overlay）
+
         // MARK: 常驻交互卡区（composer 上方固定 · 限高 240dp + 内部滚动，三卡统一）
         if (visibleInteractions.isNotEmpty()) {
             Column(
@@ -595,6 +807,9 @@ fun ChatScreen(
                 },
                 onSendNow = { id -> scope.launch { viewModel.sendQueuedNow(id) } },
                 onEditSave = { id, text -> scope.launch { viewModel.editQueueItem(id, text) } },
+                onReorder = { dragged, target ->
+                    scope.launch { viewModel.reorderQueueItem(dragged, target) }
+                },
                 onMoveUp = { id -> scope.launch { viewModel.moveQueueItemUp(id) } },
                 onDelete = { id -> scope.launch { viewModel.deleteQueueItem(id) } },
                 onToggleAutoDrain = { enabled -> scope.launch { viewModel.setAutoDrain(enabled) } },
@@ -781,8 +996,59 @@ fun ChatScreen(
                     )
                 }
             }
-            // 输入行（附件钮 + 输入框 + 发送钮；iOS ComposerBar inputRow 同构）
+            // 输入行（@ 提及钮 + 粘贴钮 + 附件钮 + 输入框 + 发送钮；iOS ComposerBar inputRow 同构）
             Row(verticalAlignment = Alignment.Bottom) {
+                // G15 @ 文件提及（web promptInputTriggers @ 触发的触屏对位——显式入口
+                // + 候选面板，点选插 @"path" 进草稿）
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clickable { mentionPickerOpen = true }
+                        .testTag("05-chip-mention"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "@",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.Monospace,
+                        color = BiuZText2,
+                    )
+                }
+                // G18 prompt 历史 chip（iOS 05-chip-history 同位——单向循环上一条
+                // 发送文本，走到头回空草稿重新循环）
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clickable {
+                            viewModel.cyclePromptHistory()?.let { text ->
+                                viewModel.updateDraft(text)
+                            }
+                        }
+                        .testTag("05-chip-history"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "🕘",
+                        fontSize = 16.sp,
+                        color = BiuZText2,
+                    )
+                }
+                // G16 粘贴附件（web useComposerAttachments paste 同通道；iOS
+                // ChatView.pasteAttachment 同构：剪贴板图片入待发/纯文本追加草稿）
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clickable { pasteClipboardInto(context, viewModel) }
+                        .testTag("05-chip-paste"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "📋",
+                        fontSize = 16.sp,
+                        color = BiuZText2,
+                    )
+                }
                 // 附件钮（＋；系统 photo picker 承载——ImageAndVideo 过滤含视频）
                 Box(
                     modifier = Modifier
@@ -1152,6 +1418,60 @@ private fun fallbackAttachmentName(mime: String): String {
     return "${if (isVideo) "VID" else "IMG"}_${System.currentTimeMillis()}.$ext"
 }
 
+/**
+ * G16 粘贴附件（2026-11-25 与 iOS ChatView.pasteAttachment 同构）：剪贴板图片 →
+ * 读字节入待发（mime 取 ClipDescription 类型）；纯文本 → 追加草稿；无可粘内容
+ * 如实 toast 不静默。上限 8 件·20MB 由 enqueueAttachment→uploads.add 同门。
+ */
+/** G16：mime → 扩展名（粘贴命名用；词表外回退 null 由调用方兜底 jpg）。 */
+private fun attachmentExtensionForMime(mime: String): String? = when (mime.lowercase()) {
+    "image/png" -> "png"
+    "image/jpeg" -> "jpg"
+    "image/gif" -> "gif"
+    "image/webp" -> "webp"
+    "application/pdf" -> "pdf"
+    else -> null
+}
+
+fun pasteClipboardInto(context: android.content.Context, viewModel: ChatViewModel) {
+    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+        as? android.content.ClipboardManager
+    val clip = clipboard?.primaryClip
+    if (clip != null && clip.itemCount > 0) {
+        val description = clip.getDescription()
+        val item = clip.getItemAt(0)
+        val hasImage = description.filterMimeTypes("image/*").isNotEmpty() ||
+            (item.uri != null && runCatching {
+                context.contentResolver.getType(item.uri!!)?.startsWith("image/") == true
+            }.getOrDefault(false))
+        if (hasImage) {
+            val uri = item.uri
+            if (uri != null) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        val data = input.readBytes()
+                        if (data.isNotEmpty()) {
+                            val mime = description.getMimeType(0).takeIf { it != null && it != "*/*" }
+                                ?: "image/jpeg"
+                            val name = "IMG_paste_${System.currentTimeMillis()}." +
+                                (attachmentExtensionForMime(mime) ?: "jpg")
+                            viewModel.enqueueAttachment(name, mime, data)
+                            return
+                        }
+                    }
+                }
+            }
+        }
+    }
+    val text = clip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+    if (text.isNotBlank()) {
+        val current = viewModel.draft.value
+        viewModel.updateDraft(if (current.isEmpty()) text else current + "\n" + text)
+        return
+    }
+    android.widget.Toast.makeText(context, "剪贴板无可粘贴的图片或文件", android.widget.Toast.LENGTH_SHORT).show()
+}
+
 /** 协作模式面板（原面板体抽出；选中成功由宿主单路径关闭）。 */
 @Composable
 private fun CollaborationPanel(
@@ -1258,7 +1578,11 @@ private fun ModelPanel(
                 onPickModel = { rowKey ->
                     scope.launch {
                         val switchFailure = viewModel.switchModel(rowKey)
-                        if (switchFailure == null) viewModel.closeComposerPanel()
+                        if (switchFailure == null) {
+                            // 批4：最近使用记账（成功才记；rowKey 复合键原样）
+                            cn.biuz.android.app.ui.chat.ModelRecentsStore.record(rowKey)
+                            viewModel.closeComposerPanel()
+                        }
                     }
                 },
             )
@@ -1526,4 +1850,89 @@ private fun turnWorkSummaryText(
     }
     val head = stringResource(R.string.chat_turn_worked)
     return if (parts.isEmpty()) head else "$head · ${parts.joinToString(" · ")}"
+}
+
+// MARK: - G49 滚动位置记忆（web chatSessionScrollMemory.ts 同构，2026-11-25 与 iOS 同步）
+//
+// 进程内 LRU 200（web MAX_ENTRIES 同值；web 存绝对 scrollTop、键 workspace::pane::session
+// ——Android 单 pane，键 workspace::session:{id}；恢复面 = 顶层可见条目下标的移动端近似）。
+// 只在内存：进程死即清，与 web 行为一致。
+
+object ChatScrollMemory {
+    private const val capacity = 200
+    private val entries = LinkedHashMap<String, Int>() // 键 → 顶层可见条目下标；迭代序 = 访问序
+
+    /** 键格式：workspace::session:{conversationId}（当前连接单工作区，workspace 恒同——
+     * 键内含 sessionId 已足够隔离；前缀保留 workspace 语义与 web 对齐）。 */
+    fun key(conversationId: String): String = "ws::session:$conversationId"
+
+    fun save(key: String, itemIndex: Int) {
+        entries.remove(key)
+        entries[key] = itemIndex
+        while (entries.size > capacity) {
+            val oldest = entries.keys.firstOrNull() ?: break
+            entries.remove(oldest)
+        }
+    }
+
+    /** 读即 touch（web :116-125 同口径）。 */
+    fun load(listKey: String): Int? {
+        val value = entries.remove(listKey) ?: return null
+        entries[listKey] = value
+        return value
+    }
+}
+
+// MARK: - G6 待办清单展开 sheet 内容（web ConversationStatusPanel PlanStatusSection 同构）
+//
+// 上游展开态 = 全量渲染 plan.items（completed 删除线+最淡色、inProgress 箭头、pending
+// 空心点）；v4.0.0 无「>6 条焦点窗」，全量直出。
+
+@Composable
+internal fun TodoListSheetContent(
+    plan: PlanPanelSummary,
+    onDismiss: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = BiuZSpacing.lg)
+            .padding(bottom = BiuZSpacing.lg)
+            .testTag("05-todo-sheet"),
+        verticalArrangement = Arrangement.spacedBy(BiuZSpacing.xs),
+    ) {
+        plan.title?.takeIf { it.isNotBlank() }?.let { title ->
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = BiuZText,
+            )
+        }
+        plan.items.forEach { item ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("05-todo-item"),
+            ) {
+                Text(
+                    text = item.glyph,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (item.isDone) BiuZAccent else (if (item.isRunning) BiuZSeal else BiuZText3),
+                )
+                Text(
+                    text = item.title,
+                    fontSize = 13.sp,
+                    color = if (item.isDone) BiuZText3 else BiuZText,
+                    textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
+                )
+            }
+        }
+        if (plan.items.isEmpty()) {
+            Text(text = "暂无待办条目", fontSize = 12.sp, color = BiuZText3)
+        }
+    }
 }

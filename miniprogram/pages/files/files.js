@@ -17,6 +17,8 @@ Page({
     expanded: {},
     preview: null,
     previewContent: '',
+    previewSettings: { fontSizePx: 12, showLineNumbers: true, wrapLongLines: false },
+    previewLines: [],
   },
 
   onLoad(query) {
@@ -71,11 +73,76 @@ Page({
     const path = event.currentTarget.dataset.path;
     const row = (this.data.rows || []).filter(function (item) { return item.node.path === path; })[0];
     if (!row || row.node.isDirectory) return;
-    // 预览内容未接入连接层：如实提示，不伪造文件内容
+    // G42 前置（2026-11-25）：预览内容接线 file.readTextFile（有界 256KB 首页，
+    // totalBytes 判截断如实提示；未连接/失败如实空态——AGENTS §5-13 禁假数据）
     this.setData({
-      preview: { path: path, name: model.baseName(path), language: model.languageOf(path) },
+      preview: {
+        path: path,
+        name: model.baseName(path),
+        language: model.languageOf(path),
+        loading: true,
+        truncated: false,
+      },
       previewContent: '',
+      previewSettings: this.readPreviewSettings(),
     });
+    const conn = require('../../utils/connection.js');
+    conn.readFileText(path, 0, 262144).then((page) => {
+      if (!page) {
+        this.setData({ preview: Object.assign({}, this.data.preview, { loading: false }) });
+        return;
+      }
+      const truncated = page.totalBytes > page.content.length;
+      this.setData({
+        previewContent: page.content,
+        previewLines: page.content.split('\n'),
+        preview: Object.assign({}, this.data.preview, {
+          loading: false,
+          truncated: truncated,
+        }),
+      });
+    });
+  },
+
+  /** G42 残面：代码预览三键行内控制（字号循环 12→20→12 / 行号 / 换行；持久
+   * zcode-code-preview-settings 同词面）。 */
+  /** G42 残面：预览偏好读（zcode-code-preview-settings 同词面；默认 12/on/off）。 */
+  readPreviewSettings() {
+    try {
+      const parsed = wx.getStorageSync('zcode-code-preview-settings') || {};
+      return {
+        fontSizePx: typeof parsed.fontSizePx === 'number'
+          ? Math.min(20, Math.max(12, parsed.fontSizePx)) : 12,
+        showLineNumbers: parsed.showLineNumbers !== false,
+        wrapLongLines: parsed.wrapLongLines === true,
+      };
+    } catch (err) {
+      return { fontSizePx: 12, showLineNumbers: true, wrapLongLines: false };
+    }
+  },
+
+  onPreviewFontSize() {
+    const s = this.data.previewSettings;
+    const next = s.fontSizePx >= 20 ? 12 : s.fontSizePx + 1;
+    const settings = Object.assign({}, s, { fontSizePx: next });
+    this.setData({ previewSettings: settings });
+    wx.setStorageSync('zcode-code-preview-settings', settings);
+  },
+
+  onPreviewToggleLineNumbers() {
+    const settings = Object.assign({}, this.data.previewSettings, {
+      showLineNumbers: !this.data.previewSettings.showLineNumbers,
+    });
+    this.setData({ previewSettings: settings });
+    wx.setStorageSync('zcode-code-preview-settings', settings);
+  },
+
+  onPreviewToggleWrap() {
+    const settings = Object.assign({}, this.data.previewSettings, {
+      wrapLongLines: !this.data.previewSettings.wrapLongLines,
+    });
+    this.setData({ previewSettings: settings });
+    wx.setStorageSync('zcode-code-preview-settings', settings);
   },
 
   onClosePreview() {

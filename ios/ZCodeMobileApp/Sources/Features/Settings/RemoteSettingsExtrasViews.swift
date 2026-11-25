@@ -1639,6 +1639,33 @@ struct RelayTaskGroupMember: Equatable {
 struct RelayTaskGroupStructure: Equatable {
     let groups: [RelayTaskGroup]
     let members: [RelayTaskGroupMember]
+    /// G36 组排序（task-groups.read order 数组——{type:"group"|"task", key, sortOrder}；
+    /// key = 组时为 groupId）
+    var order: [RelayTaskOrderEntry] = []
+}
+
+struct RelayTaskOrderEntry: Equatable {
+    let type: String
+    let key: String
+}
+
+extension RelayTaskGroupStructure {
+    /// G36：order 数组中目标组的前一个**组节点** key（跨过 task 条目找前一个 group；
+    /// 目标是首组 = nil 无上移语义）。
+    func orderGroupPredecessorKey(of groupId: String) -> String? {
+        let groupKeys = order.filter { $0.type == "group" }.map(\.key)
+        guard let index = groupKeys.firstIndex(of: groupId), index > 0 else { return nil }
+        return groupKeys[index - 1]
+    }
+}
+
+extension Array where Element == RelayTaskOrderEntry {
+    /// 组头调用侧便捷（tg.order.groupPredecessorKey(of:) 同义）。
+    func groupPredecessorKey(of groupId: String) -> String? {
+        let groupKeys = filter { $0.type == "group" }.map(\.key)
+        guard let index = groupKeys.firstIndex(of: groupId), index > 0 else { return nil }
+        return groupKeys[index - 1]
+    }
 }
 
 extension ZCodeServerConnection {
@@ -1666,7 +1693,15 @@ extension ZCodeServerConnection {
                   let taskId = d?["taskId"]?.stringValue else { return nil }
             return RelayTaskGroupMember(groupId: groupId, taskId: taskId)
         }
-        return RelayTaskGroupStructure(groups: groups, members: members)
+        // G36 组排序条目（order 数组：{type:"group"|"task", key, sortOrder}——组置顶/
+        // 上移定位的前驱来源）
+        let order = (result.jsonValue?["order"]?.arrayValue ?? []).compactMap { node -> RelayTaskOrderEntry? in
+            let d = node.objectValue
+            guard let type = d?["type"]?.stringValue,
+                  let key = d?["key"]?.stringValue else { return nil }
+            return RelayTaskOrderEntry(type: type, key: key)
+        }
+        return RelayTaskGroupStructure(groups: groups, members: members, order: order)
     }
 }
 

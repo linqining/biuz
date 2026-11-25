@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 朱批印系纸底 #F2EADB（2026-11-24 用户第三次报「不是纸色」后加深；原 #F7F3EC 离纯白仅 4%，读作白）；
+    <!-- 朱批印系纸底 #F7F3EC（品牌原值；2026-11-24 曾加深 #F2EADB，2026-11-25 用户看 iOS 实机报「太深」裁定回退）；
          墨底 #17181A 保留在 Color.kt 深色档）：窗口底色（= 冷启/Splash 底，与默认浅色档
          BiuZBg 一致避免启动闪色）+ adaptive 启动图标背景层。 -->
-    <color name="biuz_bg">#F2EADB</color>
-    <color name="ic_launcher_background">#F2EADB</color>
+    <color name="biuz_bg">#F7F3EC</color>
+    <color name="ic_launcher_background">#F7F3EC</color>
 </resources>
