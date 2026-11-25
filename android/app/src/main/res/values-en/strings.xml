@@ -751,4 +751,9 @@
     <string name="sessions_view_grouped_error">Failed to load groups · %1$s</string>
     <string name="sessions_view_grouped_empty">No groups</string>
     <string name="sessions_section_projects">Projects</string>
+    <string name="gate_connecting">Connecting to desktop…</string>
+    <string name="gate_failed">Cannot reach the desktop</string>
+    <string name="gate_disconnected">Disconnected from desktop</string>
+    <string name="gate_reconnect">Reconnect now</string>
+    <string name="gate_offline">View offline cache</string>
 </resources>

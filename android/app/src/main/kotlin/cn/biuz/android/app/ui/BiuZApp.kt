@@ -4,7 +4,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -90,6 +92,21 @@ fun BiuZApp(
             session.bootstrap()
         }
         val mode by session.mode.collectAsStateWithLifecycle()
+        // 连接闸门（2026-11-25 与 iOS RootView 同裁决）：已配对但没连上时整屏接管，
+        // 不再给「三 tab 空列表」；唯一出口是「查看离线缓存」，连上即复位。
+        var allowOfflineBrowsing by androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+        androidx.compose.runtime.LaunchedEffect(mode) {
+            if (mode is AppSession.Mode.Connected) allowOfflineBrowsing = false
+        }
+        // 连接引导页（Routes.CONNECT）自带上手流程，闸门不接管它
+        val onConnectRoute = navController.currentDestination?.route == Routes.CONNECT
+        val gateActive = !allowOfflineBrowsing && !onConnectRoute && when (mode) {
+            is AppSession.Mode.Disconnected, is AppSession.Mode.ConnectFailed -> true
+            is AppSession.Mode.Connecting -> true
+            else -> false
+        }
         LaunchedEffect(mode) {
             val current = navController.currentDestination?.route
             when (mode) {
@@ -155,6 +172,15 @@ fun BiuZApp(
         val tabRoutes = setOf(Routes.SESSIONS, Routes.PENDING_APPROVALS, Routes.SETTINGS)
         val currentRoute by navController.currentBackStackEntryAsState()
         val currentRouteName = currentRoute?.destination?.route
+        if (gateActive) {
+            // 闸门优先于整个 tab 壳（含底栏）——连不上时功能面一律不可达
+            cn.biuz.android.app.ui.screen.ReconnectGateScreen(
+                session = session,
+                mode = mode,
+                onBrowseOffline = { allowOfflineBrowsing = true },
+            )
+            return@CompositionLocalProvider
+        }
         androidx.compose.material3.Scaffold(
             bottomBar = {
                 if (currentRouteName in tabRoutes) {

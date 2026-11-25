@@ -183,10 +183,33 @@ internal fun buildModelSections(info: ModelSelectionInfo): List<ModelPlanGroup> 
     val claimed = info.planGroups.flatMap { it.models }.toSet()
     val others = info.models.filter { it !in claimed }
     val list = ArrayList<ModelPlanGroup>(info.planGroups)
+    // 未归属套餐的模型**按 provider 平铺**（2026-11-25 与 iOS ModelPickerSheet 同裁决：
+    // 用户报「只有我的和其他；其他的应该平铺，和我的同级」）：此前全塞进一个「其他」组，
+    // 自定义 provider（ccgithub 等）整组没有身份。现按 modelProviders 的 providerId 分桶，
+    // 每 provider 自成一档、与套餐组同级；providerId 缺席才落「其他」。
     if (others.isNotEmpty()) {
-        list.add(ModelPlanGroup(plan = "其他", models = others))
+        val order = ArrayList<String>()
+        val buckets = LinkedHashMap<String, MutableList<String>>()
+        for (model in others) {
+            val key = providerGroupName(info.modelProviders?.get(model))
+            if (buckets[key] == null) order.add(key)
+            buckets.getOrPut(key) { ArrayList() }.add(model)
+        }
+        for (key in order) list.add(ModelPlanGroup(plan = key, models = buckets[key] ?: emptyList()))
     }
     return list
+}
+
+/**
+ * providerId → 一级分组名（与 iOS `ModelPickerSheet.providerGroupName` 同表）：
+ * 去掉 `provider:` 前缀与 `-plan` 尾；空/未知 → 「其他」。
+ */
+internal fun providerGroupName(providerId: String?): String {
+    val raw = providerId?.trim().orEmpty()
+    if (raw.isEmpty()) return "其他"
+    var name = raw.substringAfterLast(':')
+    if (name.endsWith("-plan")) name = name.removeSuffix("-plan")
+    return name.ifEmpty { "其他" }
 }
 
 /** 单套餐分节（节标题 = 套餐名；行键 =「套餐|模型」复合键）。 */

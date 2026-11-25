@@ -74,11 +74,7 @@ function connectDesktop(params) {
       deviceName: result.serverInfo.name || '桌面端',
       accountName: result.hello.authUserId || '',
     });
-    store.setSource(function () {
-      return result.client
-        .call('zcode-task', 'listTaskList', [{ scope: 'all' }])
-        .then(function (value) { return mapTaskRows(value); });
-    });
+    store.setSource(function () { return fetchTaskRows(result.client); });
     // 片四：chat/files/diff/trajectory 各页数据源同构接线（全部走 client 唯一出口）
     wireChatSource(result);
     wireFilesSource(result);
@@ -716,11 +712,7 @@ function wireSources(result) {
   commandFace.client = client;
   commandFace.workspacePath = workspacePath || '';
   commandFace.clientId = result.clientId || '';
-  store.setSource(function () {
-    return client
-      .call('zcode-task', 'listTaskList', [{ scope: 'all' }])
-      .then(function (value) { return mapTaskRows(value); });
-  });
+  store.setSource(function () { return fetchTaskRows(client); });
   chatStore.setSource(function (sessionId) {
     return client
       .call('zcode-agent', 'readSessionMessages', [{ sessionId: sessionId, limit: 200 }])
@@ -1043,6 +1035,28 @@ function wireTrajectorySource(result) {
         return { entries: mapped.messages, taskTitle: sessionId };
       });
   });
+}
+
+/**
+ * 会话/任务全量拉取（2026-11-25 与 iOS/Android 同裁决「会话项目不全」根修）：
+ * 优先 host-scope（`workspaceScopes:"host"` 由存储 owner 决定全部范围，行自带
+ * workspacePath 作分组键）——此前用 `{scope:'all'}`，桌面只回当前窗口 tabs，
+ * 没开着的项目整块缺席。老桌面不认 host 形态 → 回落 `{scope:'all'}`。
+ */
+function fetchTaskRows(client) {
+  const legacy = function () {
+    return client
+      .call('zcode-task', 'listTaskList', [{ scope: 'all' }])
+      .then(function (value) { return mapTaskRows(value); });
+  };
+  return client
+    .call('zcode-task', 'listTaskList', [{ kind: 'timeline', workspaceScopes: 'host', sortBy: 'updated' }])
+    .then(function (value) {
+      var items = (value && value.items) || [];
+      if (!items.length) return legacy();
+      return mapTaskRows(value);
+    })
+    .catch(function () { return legacy(); });
 }
 
 module.exports = {

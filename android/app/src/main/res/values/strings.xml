@@ -821,4 +821,10 @@
     <string name="projects_purge_title">删除「%1$s」的数据？</string>
     <string name="projects_purge_message">将永久删除该项目在桌面端磁盘上的会话与数据，此操作无法撤销（项目本身保持已移除状态）。</string>
     <string name="projects_purge_confirm">删除 %1$s</string>
+    <!-- 连不上时的整屏页（2026-11-25 与 iOS ReconnectLoadingPage 同裁决） -->
+    <string name="gate_connecting">正在连接桌面端…</string>
+    <string name="gate_failed">连不上桌面端</string>
+    <string name="gate_disconnected">已与桌面端断开</string>
+    <string name="gate_reconnect">立即重连</string>
+    <string name="gate_offline">查看离线缓存</string>
 </resources>

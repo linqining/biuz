@@ -19,6 +19,7 @@ package cn.biuz.android.app.ui.chat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -377,6 +378,9 @@ fun PendingAttachmentThumb(
     val context = LocalContext.current
     var previewImage by remember(item.id) { mutableStateOf<ImageBitmap?>(null) }
     var poster by remember(item.id) { mutableStateOf<ImageBitmap?>(null) }
+    // 点图全屏预览（2026-11-25 与 iOS PendingImagePreview 同裁决：用户报「图片没有预览
+    // ——点击的时候可以预览」）。纯本地字节解码，零 RPC；失败态点按仍是重试。
+    var showPreview by remember(item.id) { mutableStateOf(false) }
     LaunchedEffect(item.id) {
         if (item.isImage && previewImage == null) {
             previewImage = withContext(Dispatchers.IO) { decodeSampledBitmap(item.data, maxDim = 512) }?.asImageBitmap()
@@ -401,8 +405,12 @@ fun PendingAttachmentThumb(
                 modifier = Modifier
                     .fillMaxSize()
                     .combinedClickableSafe(
-                        enabled = item.state == PendingAttachment.State.failed,
-                    ) { onRetry() },
+                        enabled = item.state == PendingAttachment.State.failed ||
+                            previewImage != null,
+                    ) {
+                        if (item.state == PendingAttachment.State.failed) onRetry()
+                        else showPreview = true
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 val image = previewImage
@@ -428,6 +436,46 @@ fun PendingAttachmentThumb(
                         },
                         fontSize = 20.sp,
                     )
+                }
+            }
+            // 点图全屏预览（黑底 scaledToFit + 任意处/✕ 关闭；与消息流全屏同视觉）
+            if (showPreview) {
+                val bitmap = previewImage
+                if (bitmap != null) {
+                    Dialog(
+                        onDismissRequest = { showPreview = false },
+                        properties = DialogProperties(
+                            usePlatformDefaultWidth = false,
+                            decorFitsSystemWindows = false,
+                        ),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black)
+                                .clickable(
+                                    interactionSource = remember {
+                                        androidx.compose.foundation.interaction.MutableInteractionSource()
+                                    },
+                                    indication = null,
+                                ) { showPreview = false }
+                                .testTag("05-attach-preview-image"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = item.name,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            FullscreenCloseButton(
+                                onClose = { showPreview = false },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(BiuZSpacing.md),
+                            )
+                        }
+                    }
                 }
             }
             // 上传态层：进度条 + 百分比 / pending 转圈（iOS 底部叠层同构）
