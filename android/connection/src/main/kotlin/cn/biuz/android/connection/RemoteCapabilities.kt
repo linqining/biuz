@@ -22,7 +22,7 @@ import java.util.Locale
  *
  * 写面（启停/卸载/安装）一律不接：移动端只读，越界即失守（ReadOnlyGate 口径）。
  */
-enum class CapabilityKind { memory, skills, mcp, plugins }
+enum class CapabilityKind { memory, skills, mcp, plugins, offPeak }
 
 /** 能力清单行（`badge` 为右缀状态词，nil = 不显示）。 */
 data class CapabilityRow(
@@ -48,6 +48,7 @@ suspend fun AppSession.loadCapability(kind: CapabilityKind): List<CapabilityRow>
             CapabilityKind.skills -> readSkills(workspace)
             CapabilityKind.mcp -> readMcp(workspace?.path)
             CapabilityKind.plugins -> readPlugins(workspace)
+            CapabilityKind.offPeak -> readOffPeakTasks()
         }
     } catch (e: CapabilityError) {
         throw e
@@ -55,6 +56,55 @@ suspend fun AppSession.loadCapability(kind: CapabilityKind): List<CapabilityRow>
         throw e
     } catch (e: Throwable) {
         throw CapabilityError.Failed(e.message ?: e::class.simpleName ?: "读取失败")
+    }
+}
+
+/**
+ * G-024 错峰任务清单（只读）。数据源 = **独立频道 `off-peak-task`** 的 `list()`：
+ * - wire 名【实证·上游仓 channels.ts:217 `OffPeakTask: "off-peak-task"`】；
+ * - `list(): Promise<ZCodeOffPeakTask[]>` 无参（offPeakTask.ts:24-46 IOffPeakTaskService）；
+ * - 手机可达【实证·上游仓 windowHostAttachmentRpcPolicy.ts WEB_REMOTE_REPLAYABLE_
+ *   ALLOWED_CHANNELS 含 ServiceChannels.OffPeakTask】；web 的 off-peak 卡同样经
+ *   offPeakTaskService 取数（AutomationsSection.tsx），即 web 有数据支持。
+ *
+ * 注意不要走 `zcode-agent` 的 `offPeak/list`：那是「会话内创建」协议族，handler 按
+ * 网关会话 workspace 过滤，设置页裸调无会话上下文，结果不可靠。
+ * 回执是裸数组（offPeakTaskId/title/status/queuePosition/createdAt）。
+ */
+private suspend fun AppSession.readOffPeakTasks(): List<CapabilityRow> {
+    val result = connection.call("off-peak-task", "list", RPCValue.Undefined)
+    val json = result.jsonValue
+    val items = json?.arrayValue
+        ?: json?.get("tasks")?.arrayValue
+        ?: json?.get("items")?.arrayValue
+        ?: emptyList()
+    return items.mapNotNull { item ->
+        val d = item.objectValue ?: return@mapNotNull null
+        val id = d["offPeakTaskId"]?.stringValue ?: d["id"]?.stringValue ?: return@mapNotNull null
+        val title = d["title"]?.stringValue
+            ?: d["name"]?.stringValue
+            ?: d["prompt"]?.stringValue
+            ?: id
+        val created = d["createdAt"]?.intValue?.toLong()?.let { ms ->
+            SimpleDateFormat("M/d HH:mm", Locale.getDefault()).format(Date(ms))
+        }
+        val status = d["status"]?.stringValue.orEmpty()
+        val badge = when (status) {
+            "queued" -> d["queuePosition"]?.intValue?.let { "排队第 $it 位" } ?: "排队中"
+            "paused" -> "已暂停"
+            "running" -> "运行中"
+            "completed" -> "已完成"
+            "failed" -> "失败"
+            "cancelled" -> "已取消"
+            "" -> null
+            else -> status
+        }
+        CapabilityRow(
+            id = id,
+            title = title,
+            subtitle = created?.let { "创建于 $it" } ?: "",
+            badge = badge,
+        )
     }
 }
 

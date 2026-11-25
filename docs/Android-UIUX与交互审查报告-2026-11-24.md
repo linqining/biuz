@@ -601,3 +601,33 @@ $ 已执行  cd /Users/mac/projects/mtt_mobile &&…   ✓⌄   ×7
 **验证**：模拟器（sRGB 忠 실）安装实测背景 = **(242, 234, 219)**，肉眼为米黄纸；登录页朱磦主钮同屏确认。iOS 同步后 215 例全绿。
 **未验证（如实）**：真机 seeker 本轮 adb 掉线（`adb devices` 只剩模拟器），**没有在用户手上那台设备采样**。
 **待用户裁决**：纸色已偏离 `brand/seal/README.md:39` 的 #F7F3EC——是否回写品牌档（含图标/启动图资产）。
+
+### T 批次·桌面设置中文化 + 设置子页风格统一 + 错峰任务读面改道（2026-11-25 用户三报）
+
+**用户原话**：「桌面设置还有些英文没有对应的中文，自动归档，行为设置页面设计风格不符；错峰任务查看 web 是否有数据支持，没有的话就移除」+「设置页点击返回会话很丑…检查一下那个页面跳进设置页的没有下面的底部栏，解决这个就可以不用左上角的返回了」。
+
+**① 桌面设置英文残留（根因：把整份 AppSettings 当设置列表渲染）**
+`setting.get` 回的是整份 `AppSettings`（上游 `validationAppSettings.ts:533+ appSettingsObjectSchema`），除用户可调项还含大量 renderer 内部状态（`recentProjects`/`lastWorkspaceSession`/`sourceServers`/`connectionProfiles`/各类 `*MigrationInitialized`/`*Version`/`*UpdatedAt`）。旧实现「未收录键回退原键名」，于是页面上成群出现英文 camelCase 行，且行标题下还有一行 mono 英文键副行。
+改法（双端同构）：
+- **白名单制**：只渲染有中文名、移动端改得动的键（41 项）；未知键（含桌面后续新增项）不展示——不再是「英文兜底」。
+- **展示顺序钉死**：通用（语言/更新/推送/托盘/唤醒/缩放/加速/数据路径）→ 终端与网络 → 浏览器 → Agent 行为 → 工具分组 → 归档与套餐。Dictionary 无序，靠显式序表（iOS `keyOrder` / Android `keyNameRes` 插入序）。
+- **撤原始键名副行**；编辑/确认弹层与成功提示也改用中文名（原来直接上屏 `entry.key`）。键名只留 `testID`（`12-desktop-setting-row-<key>`）供排障与 E2E。
+- **枚举值补译**：`toolSearchMode` auto/local/off、`dynamicWorkflowMode` disabled/onDemand/alwaysOn（另有既有 zh-CN/en-US/system/queue/guide/zai/bigmodel/auto）；字体名/语言名/路径等真实数据保持原样。
+
+**② 自动归档 / 行为设置「设计风格不符」（根因：用了 SwiftUI `Form` + 自绘卡两套异物）**
+- iOS 两页原用 `Form`：系统分组列表自带 `systemGroupedBackground`（近白）、系统字号/缩进、系统蓝勾——在纸底 App 里读作「另一个 App」。改为与设置主页同一语言：`ScrollView + 纸底 + 12pt 组标题 + bgCard 圆角卡 + 48/56dp 行 + 印色勾`（新增文件级件 `settingsCard/settingsRowDivider/settingsLabelRow/settingsToggleRow/settingsCheckRow`，后续设置子页复用）。审批响应方式由 `Picker(.inline)` 改两行勾选（系统蓝勾与品牌印色冲突）。
+- Android 两页原为自绘 `SectionCard` + 12sp 胶囊 chips（13sp 标题、999dp 圆角），与 `SettingsUi` 族不一致。改为 `SettingsPageScaffold + SettingsGroup + SettingsToggleRow + SettingsCheckRow`；**自动归档从归档列表页迁出为独立设置子页**（`Routes.AUTO_ARCHIVE` + 设置行 `12-row-auto-archive`，iOS 早已是独立页）。
+- **卡面可见性**：iOS 浅档 `bg == bgCard`（#F7F3EC，品牌裁决不动基值），卡面此前无边界——新件与设置主页 `group()`/桌面设置卡统一加 0.5pt `T.border`（12% 墨）描边，与 Android `SettingsGroup` 的 1dp `BiuZBorder` 同规。
+
+**③ 错峰任务：web 有数据支持 → 保留并改数据源**
+- 结论**不是删**：wire 面 `off-peak-task`（channels.ts:217）在手机 allowlist 内（windowHostAttachmentRpcPolicy.ts:40-80），`list()` 无参返回 `ZCodeOffPeakTask[]`；web bundle 里的 `createUnsupportedHomeOnlyService` 只是未连 bridge 时的桩，连上后走 `remoteServiceAccess.ts:319-320` 的 ProxyChannel，`AutomationsSection` 的 off-peak 卡就是它（→ web 有支持）。
+- 旧实现打 `zcode-agent.offPeak/list`——那是「会话内创建」协议族，按网关会话 workspace 过滤，设置页裸调无上下文。改回服务频道 `off-peak-task.list`，双端同源，状态中文化（含「排队第 N 位」）。
+- 实测（relay V2 + 调试 JWT，iPhone 17）：调用成功、无 feature_disabled；桌面 `off_peak_tasks` 表 0 行 → 空态正确。**空/失败两分**：失败上屏 RPC 原文，空说「暂无错峰任务」（旧文案「移动端读面尚未接入」会在只是空列表时误报未实现）。
+- 顺带修 `RemoteCapabilityListPage` 的 `.background(T.bg)` 挂在 `Group` 上——Group 不是布局容器，背景逐子视图自身 bounds 绘制，空/失败态只有中间一条纸色、其余露系统白；改 `ZStack { T.bg.ignoresSafeArea(); switch … }`。
+
+**④ 设置页左上角返回与底栏缺失（用户裁决：修好缺底栏即可，不需要左上角返回）**
+- 根因是 `AppRouter.isPushing` 按**任一栈非空**判定：会话栈里 push 着聊天页时切到设置 tab 仍判「在 push」→ 设置 tab 根页的底栏被藏掉。改为**只按选中 tab 的栈深**判定（chat/approvals/settings 各自）：push 详情仍隐藏底栏（2026-10-07 语义保持），切 tab 即恢复。
+- iOS 撤 `12-act-back-home`「‹ 会话」；`SettingsView` 增 `onClose`（仅未配对根页的齿轮 sheet 传入）——模态无底栏也无系统返回，左上角给 ✕，标识 `12-act-close-settings`。
+- Android `SettingsPageScaffold` 增 `showBack`（默认 true），设置主页传 false（底栏三 tab 即出入口）；二级页保持返回。
+
+**门禁**：iOS `MTT_BUILD_FORCE=1` 实构建 SUCCEEDED（日志无「构建合流」）+ 单测 243/243 + `LayoutAuditTests` 8/8（含 test03 设置分区、test08 替身连接设置页）+ 真桌面链路实拍（自动归档/行为设置/桌面设置/错峰任务/设置主页五屏）；Android 5 模块单测 + `:app:assembleDebug` 绿（APK 18:54）+ seeker 安装成功；小程序无改动（无对应设置面）。**未验证（如实）**：Android 端五屏未做连接态实拍（seeker/模拟器均处未配对态且无调试 JWT 注入通道），仅 iOS 侧同构页面实拍 + Android 单测/编译门禁。

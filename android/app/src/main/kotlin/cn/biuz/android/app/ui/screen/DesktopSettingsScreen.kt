@@ -99,7 +99,14 @@ fun DesktopSettingsScreen(
         failure = null
         notConnected = false
         try {
+            // 白名单过滤：只留有中文名、移动端可调的设置（其余是桌面内部状态，
+            // 原样上屏是一列英文 camelCase 键——见 keyNameRes 注释）
+            // 展示顺序 = keyNameRes 声明顺序（mapOf 保插入序）：通用 → 终端网络 → 浏览器
+            // → Agent → 工具分组 → 归档套餐。表外键排最后（理论上不会出现——上面已过滤）
+            val order = keyNameRes.keys.withIndex().associate { (i, k) -> k to i }
             rows = session.loadDesktopSettings()
+                .filter { it.key in keyNameRes }
+                .sortedWith(compareBy({ order[it.key] ?: Int.MAX_VALUE }, { it.key }))
         } catch (e: DesktopSettingsError.NotConnected) {
             notConnected = true
             rows = emptyList()
@@ -124,6 +131,9 @@ fun DesktopSettingsScreen(
         }
     }
 
+    // 键 → 中文名（一次性解析；对话框/提示/行标题统一用它——键名只留 testTag 供排障）。
+    // mapValues 是 inline，可在其 lambda 里取 stringResource。
+    val keyDisplayNames = keyNameRes.mapValues { (_, res) -> stringResource(res) }
     val updatedTemplate = stringResource(R.string.desktop_notice_updated)
     fun dispatch(change: PendingChange) {
         if (busyKey != null) return
@@ -133,7 +143,7 @@ fun DesktopSettingsScreen(
             val error = session.updateDesktopSetting(change.key, change.newValue)
             busyKey = null
             if (error == null) {
-                notice = updatedTemplate.format(change.key)
+                notice = updatedTemplate.format(keyDisplayNames[change.key] ?: change.key)
                 noticeIsError = false
                 load()
             } else {
@@ -254,13 +264,13 @@ fun DesktopSettingsScreen(
     editing?.let { entry ->
         AlertDialog(
             onDismissRequest = { editing = null },
-            title = { Text(stringResource(R.string.desktop_edit_title, entry.key)) },
+            title = { Text(stringResource(R.string.desktop_edit_title, keyDisplayNames[entry.key] ?: entry.key)) },
             text = {
                 Column {
                     Text(
                         text = stringResource(
                             R.string.desktop_edit_message,
-                            entry.key,
+                            keyDisplayNames[entry.key] ?: entry.key,
                             displayValueText(entry.value),
                         ),
                         fontSize = 12.sp,
@@ -293,7 +303,7 @@ fun DesktopSettingsScreen(
                         if (commit != null) {
                             pendingChange = commit
                         } else {
-                            notice = commitInvalidMessage(entry, trimmed)
+                            notice = commitInvalidMessage(keyDisplayNames[entry.key] ?: entry.key, entry, trimmed)
                             noticeIsError = true
                         }
                     },
@@ -312,7 +322,7 @@ fun DesktopSettingsScreen(
     pendingChange?.let { pc ->
         AlertDialog(
             onDismissRequest = { pendingChange = null },
-            title = { Text(stringResource(R.string.desktop_confirm_title, pc.key)) },
+            title = { Text(stringResource(R.string.desktop_confirm_title, keyDisplayNames[pc.key] ?: pc.key)) },
             text = { Text(stringResource(R.string.desktop_confirm_message)) },
             confirmButton = {
                 TextButton(
@@ -336,44 +346,62 @@ fun DesktopSettingsScreen(
 private data class PendingChange(val key: String, val newValue: JSONValue)
 
 /**
- * 设置键 → 中文名映射资源（iOS DesktopSettingsPage.keyNames 同表，
- * 【实证·上游仓 packages/ui/src/i18n/locales/zh-CN.ts + validationAppSettings.ts:420-475
- * appSettingsObjectSchema】）。未收录键回退显示原始键名。
+ * 设置键 → 中文名映射资源（iOS DesktopSettingsPage.keyNames 同表同序，
+ * 【实证·上游仓 packages/ui/src/i18n/locales/zh-CN.ts +
+ * validationAppSettings.ts:533+ appSettingsObjectSchema】）。
+ *
+ * **白名单制**：上游 `setting.get` 回整份 `AppSettings`，含大量 renderer 内部状态
+ * （recentProjects / lastWorkspaceSession / sourceServers / connectionProfiles /
+ * *MigrationInitialized / *Version / *UpdatedAt）。这些既不是可调设置也没有中文名，
+ * 原样上屏就是一列英文 camelCase 键（2026-11-25 用户报「桌面设置还有些英文没有对应的
+ * 中文」）。只有本表收录的键才渲染；未知键（含桌面后续新增项）不展示，收录后再开。
  */
 private val keyNameRes: Map<String, Int> = mapOf(
+    // 通用
     "locale" to R.string.desktop_key_locale,
     "localePreference" to R.string.desktop_key_localePreference,
+    "receivePreviewUpdates" to R.string.desktop_key_receivePreviewUpdates,
+    "autoDownloadAndInstallUpdates" to R.string.desktop_key_autoDownloadAndInstallUpdates,
+    "mobilePushEnabled" to R.string.desktop_key_mobilePushEnabled,
+    "closeToTrayOnWindows" to R.string.desktop_key_closeToTrayOnWindows,
+    "keepAwakeWhileRunning" to R.string.desktop_key_keepAwakeWhileRunning,
+    "desktopZoomLevel" to R.string.desktop_key_desktopZoomLevel,
+    "desktopChromiumHardwareAccelerationEnabled" to R.string.desktop_key_desktopChromiumHardwareAccelerationEnabled,
+    "dataBaseDir" to R.string.desktop_key_dataBaseDir,
+    // 终端与网络
     "terminalInheritSystemProfile" to R.string.desktop_key_terminalInheritSystemProfile,
     "terminalFontFamily" to R.string.desktop_key_terminalFontFamily,
     "integratedTerminalShell" to R.string.desktop_key_integratedTerminalShell,
     "httpProxy" to R.string.desktop_key_httpProxy,
     "httpProxyNoProxy" to R.string.desktop_key_httpProxyNoProxy,
     "httpProxyCaCertPath" to R.string.desktop_key_httpProxyCaCertPath,
+    // 浏览器
     "embeddedBrowserAllowInsecureCertificates" to R.string.desktop_key_embeddedBrowserAllowInsecureCertificates,
     "embeddedBrowserViewportPreference" to R.string.desktop_key_embeddedBrowserViewportPreference,
+    "fileTreeHtmlClickOpensBrowser" to R.string.desktop_key_fileTreeHtmlClickOpensBrowser,
     "computerUseComposerEntryHidden" to R.string.desktop_key_computerUseComposerEntryHidden,
-    "taskAutoArchiveEnabled" to R.string.desktop_key_taskAutoArchiveEnabled,
-    "taskAutoArchiveOlderThanDays" to R.string.desktop_key_taskAutoArchiveOlderThanDays,
-    "closeToTrayOnWindows" to R.string.desktop_key_closeToTrayOnWindows,
-    "keepAwakeWhileRunning" to R.string.desktop_key_keepAwakeWhileRunning,
-    "desktopZoomLevel" to R.string.desktop_key_desktopZoomLevel,
-    "desktopWindowSize" to R.string.desktop_key_desktopWindowSize,
-    "desktopChromiumHardwareAccelerationEnabled" to R.string.desktop_key_desktopChromiumHardwareAccelerationEnabled,
+    // Agent 行为
+    "zcodeInteractionBehavior" to R.string.desktop_key_zcodeInteractionBehavior,
+    "askUserQuestionAutoResolutionEnabled" to R.string.desktop_key_askUserQuestionAutoResolutionEnabled,
+    "pluginAutoRecommendationEnabled" to R.string.desktop_key_pluginAutoRecommendationEnabled,
+    "modelIoFullRetentionEnabled" to R.string.desktop_key_modelIoFullRetentionEnabled,
     "messageStreamShowReasoning" to R.string.desktop_key_messageStreamShowReasoning,
     "messageStreamShowTodos" to R.string.desktop_key_messageStreamShowTodos,
+    "nativeSearchEnhancementsEnabled" to R.string.desktop_key_nativeSearchEnhancementsEnabled,
+    "toolSearchMode" to R.string.desktop_key_toolSearchMode,
+    "agentAlwaysBackgroundEnabled" to R.string.desktop_key_agentAlwaysBackgroundEnabled,
+    "totalTokensReminderEnabled" to R.string.desktop_key_totalTokensReminderEnabled,
+    "replyLanguage" to R.string.desktop_key_replyLanguage,
+    "memoryEnabled" to R.string.desktop_key_memoryEnabled,
+    "proactiveSuggestionsEnabled" to R.string.desktop_key_proactiveSuggestionsEnabled,
+    "dynamicWorkflowMode" to R.string.desktop_key_dynamicWorkflowMode,
+    // 工具分组
     "toolGroupingExploreEnabled" to R.string.desktop_key_toolGroupingExploreEnabled,
     "toolGroupingTerminalEnabled" to R.string.desktop_key_toolGroupingTerminalEnabled,
     "toolGroupingChangesEnabled" to R.string.desktop_key_toolGroupingChangesEnabled,
-    "zcodeInteractionBehavior" to R.string.desktop_key_zcodeInteractionBehavior,
-    "askUserQuestionAutoResolutionEnabled" to R.string.desktop_key_askUserQuestionAutoResolutionEnabled,
-    "modelIoFullRetentionEnabled" to R.string.desktop_key_modelIoFullRetentionEnabled,
-    "nativeSearchEnhancementsEnabled" to R.string.desktop_key_nativeSearchEnhancementsEnabled,
-    "memoryEnabled" to R.string.desktop_key_memoryEnabled,
-    "proactiveSuggestionsEnabled" to R.string.desktop_key_proactiveSuggestionsEnabled,
-    "receivePreviewUpdates" to R.string.desktop_key_receivePreviewUpdates,
-    "autoDownloadAndInstallUpdates" to R.string.desktop_key_autoDownloadAndInstallUpdates,
-    "dataBaseDir" to R.string.desktop_key_dataBaseDir,
-    "shortcutBindings" to R.string.desktop_key_shortcutBindings,
+    // 归档与套餐
+    "taskAutoArchiveEnabled" to R.string.desktop_key_taskAutoArchiveEnabled,
+    "taskAutoArchiveOlderThanDays" to R.string.desktop_key_taskAutoArchiveOlderThanDays,
     "providerFamilyDomain" to R.string.desktop_key_providerFamilyDomain,
     "providerFamilyConnectionSelections" to R.string.desktop_key_providerFamilyConnectionSelections,
 )
@@ -396,6 +424,8 @@ private fun SettingRowView(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            // 只显示中文名：原始键名副行已撤（2026-11-25 用户报英文残留）。
+            // 键名仍留在 testTag（12-desktop-setting-row-<key>）供排障与 E2E 定位。
             Text(
                 text = mapped?.let { stringResource(it) } ?: entry.key,
                 fontSize = 15.sp,
@@ -403,16 +433,6 @@ private fun SettingRowView(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            // 原始键名副行（中文名映射在场时保留原键可辨识——排障与桌面侧对齐）
-            if (mapped != null) {
-                Text(
-                    text = entry.key,
-                    fontSize = 10.sp,
-                    color = BiuZText3,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
         if (busy) {
             CircularProgressIndicator(
@@ -485,7 +505,12 @@ private fun displayValueText(value: JSONValue): String = when (value) {
     else -> "-"
 }
 
-/** 常见枚举档位中文化（未命中回退原词，不猜测）。 */
+/**
+ * 常见枚举档位中文化（未命中回退原词，不猜测——真实的自由文本如字体名/语言名/路径
+ * 保持原样）。档位值来源【实证·上游仓】：zcodeInteractionBehavior queue/guide
+ * （validationAppSettings.ts:52）；toolSearchMode 三档（settings.toolSearch.*）；
+ * dynamicWorkflowMode disabled/onDemand/alwaysOn（dynamic-workflow-feature.ts:9）。
+ */
 @Composable
 private fun localizedEnumText(s: String): String = when (s) {
     "zh-CN" -> stringResource(R.string.desktop_value_zh_cn)
@@ -496,6 +521,11 @@ private fun localizedEnumText(s: String): String = when (s) {
     "zai" -> stringResource(R.string.desktop_value_zai)
     "bigmodel" -> stringResource(R.string.desktop_value_bigmodel)
     "auto" -> stringResource(R.string.desktop_value_auto)
+    "local" -> stringResource(R.string.desktop_value_local)
+    "off" -> stringResource(R.string.desktop_value_off_choice)
+    "disabled" -> stringResource(R.string.desktop_value_off_choice)
+    "onDemand" -> stringResource(R.string.desktop_value_on_demand)
+    "alwaysOn" -> stringResource(R.string.desktop_value_always_on)
     "shell" -> stringResource(R.string.desktop_value_shell)
     "cmd" -> "CMD"
     "git-bash" -> "Git Bash"
@@ -522,9 +552,9 @@ private fun commitEdit(entry: DesktopSettingsRow, text: String): PendingChange? 
     else -> null // 复合形态不进编辑链（防御；入口已 gate）
 }
 
-/** int/double 校验失败的错误文案（commitEdit 返回 null 且非空输入时）。 */
-private fun commitInvalidMessage(entry: DesktopSettingsRow, text: String): String = when (entry.value) {
-    is JSONValue.Int -> "「${entry.key}」需要整数（输入：$text）"
-    is JSONValue.Double -> "「${entry.key}」需要数字（输入：$text）"
+/** int/double 校验失败的错误文案（commitEdit 返回 null 且非空输入时；名字传中文名）。 */
+private fun commitInvalidMessage(displayName: String, entry: DesktopSettingsRow, text: String): String = when (entry.value) {
+    is JSONValue.Int -> "「$displayName」需要整数（输入：$text）"
+    is JSONValue.Double -> "「$displayName」需要数字（输入：$text）"
     else -> "修改失败 · 无法解析输入"
 }

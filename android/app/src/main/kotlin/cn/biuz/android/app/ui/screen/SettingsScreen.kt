@@ -84,6 +84,7 @@ fun SettingsScreen(
     onOpenCapability: (String) -> Unit = {},
     onOpenAppearance: () -> Unit = {},
     onOpenBehavior: () -> Unit = {},
+    onOpenAutoArchive: () -> Unit = {},
     onOpenDesktopSettings: () -> Unit = {},
     onOpenAutomations: () -> Unit = {},
     onOpenPersonalization: () -> Unit = {},
@@ -113,6 +114,8 @@ fun SettingsScreen(
         title = stringResource(R.string.settings_title),
         onBack = onBack,
         modifier = modifier,
+        // tab 根页：底栏三 tab 即出入口，左上角返回钮撤除（与 iOS 同批）
+        showBack = false,
     ) {
         Column(
             modifier = Modifier
@@ -352,6 +355,15 @@ fun SettingsScreen(
                     testTagId = "12-row-automation",
                     onClick = onOpenAutomations,
                 )
+                // G-024 错峰任务（iOS 12-row-offpeak 同位；off-peak-task 频道 list 只读）
+                SettingsNavRow(
+                    title = "错峰任务",
+                    icon = "🌙",
+                    subtitle = "低峰期排队的后台任务",
+                    value = null,
+                    testTagId = "12-row-offpeak",
+                    onClick = { onOpenCapability("offPeak") },
+                )
                 // 024 钩子（web Agent 能力组同位；hooks.loadHooks 只读清单）
                 SettingsNavRow(
                     title = stringResource(R.string.hooks_title),
@@ -359,6 +371,15 @@ fun SettingsScreen(
                     subtitle = stringResource(R.string.settings_row_hooks_sub),
                     testTagId = "13-row-hooks",
                     onClick = onOpenHooks,
+                )
+                // G43 自动归档（iOS 12-row-auto-archive 同位；two keys 写入桌面侧）
+                SettingsNavRow(
+                    title = "自动归档",
+                    icon = "🗂",
+                    subtitle = "旧任务按保留时长自动归档（桌面侧设置）",
+                    value = null,
+                    testTagId = "12-row-auto-archive",
+                    onClick = onOpenAutoArchive,
                 )
                 // 028 桌面设置同步（iOS 12-row-desktop-settings 同位；连接态二分副标题）
                 val connectedForDesktopSettings =

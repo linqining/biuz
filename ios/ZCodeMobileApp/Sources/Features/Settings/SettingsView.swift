@@ -6,6 +6,10 @@ struct SettingsView: View {
     @Environment(AppSettingsModel.self) private var settings
     @Environment(AppSession.self) private var session
 
+    /// 模态呈现时的关闭回调（未配对连接根页的齿轮 sheet）。tab 根页传 nil——
+    /// 底栏在场时不需要左上角返回（2026-11-25 用户报「点击返回会话很丑」）。
+    var onClose: (() -> Void)? = nil
+
     /// 关于区 · 桌面宿主信息（system.info 只读投影：platform + homedir；连接态拉取，
     /// 断开/未连接不渲染；读取失败如实呈「未获取」——联调排障省口头确认）
     @State private var desktopHostLine: String?
@@ -76,23 +80,22 @@ struct SettingsView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // 返回主界面（2026-11-25 用户报「设置页没有返回主界面的」）：tab 架构下设置是
-            // 根页，没有系统返回；补一个显式「‹ 会话」回到会话 tab（与 Android 设置页
-            // 左上返回同位置同语义）。
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    router.selectedTab = .chat
-                } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "chevron.left")
+            // 左上角只在**模态呈现**（未配对根页的齿轮 sheet）时给关闭钮：sheet 里没有
+            // 底栏也没有系统返回，必须有出口。tab 根页不给任何左上角返回——底栏三 tab
+            // 本身就是出入口（2026-11-25 用户裁决「不需要左上角的返回会话」，连带修
+            // AppRouter.isPushing 按选中 tab 判定栈深：从会话 push 页跳设置 tab 时底栏
+            // 不再被会话栈藏掉）。
+            if let onClose {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
                             .font(.system(size: 15, weight: .semibold))
-                        Text("会话").font(T.font(15))
+                            .foregroundColor(T.text)
+                            .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                     }
-                    .foregroundColor(T.text)
-                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("12-act-close-settings")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("12-act-back-home")
             }
             ToolbarItem(placement: .principal) {
                 Text("设置").font(T.font(17, .bold)).foregroundColor(T.text)
@@ -619,6 +622,11 @@ struct SettingsView: View {
             }
             .background(T.bgCard)
             .clipShape(RoundedRectangle(cornerRadius: T.rL))
+            // 卡面与纸底同值（T.bg == T.bgCard），层次靠 12% 墨描边（Android SettingsGroup 同规）
+            .overlay(
+                RoundedRectangle(cornerRadius: T.rL)
+                    .stroke(T.border, lineWidth: 0.5)
+            )
         }
     }
 

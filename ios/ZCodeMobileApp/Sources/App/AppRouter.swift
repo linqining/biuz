@@ -53,9 +53,19 @@ final class AppRouter {
     var approvalsPath: [ApprovalChatRoute] = []
     var settingsPath: [SettingsRoute] = []
 
-    /// Push 深度 > 0 时隐藏底部 Tab 栏
+    /// Push 深度 > 0 时隐藏底部 Tab 栏。
+    ///
+    /// **只按当前选中 tab 的栈深判定**（2026-11-25 用户报「从会话页跳进设置没有底部栏」）：
+    /// 会话栈里 push 着聊天页时切到设置 tab，若按「任一栈非空」判定，设置 tab 根页的
+    /// 底栏也会被藏掉——settings 是 tab 根页却没有 tab 栏（用户因此要求左上角返回钮，
+    /// 那条返回钮本身是这个 bug 的补丁）。按选中 tab 判定后：push 详情仍隐藏底栏
+    /// （2026-10-07 语义保持），切 tab 即恢复底栏。
     var isPushing: Bool {
-        !chatPath.isEmpty || !approvalsPath.isEmpty || !settingsPath.isEmpty
+        switch selectedTab {
+        case .chat: return !chatPath.isEmpty
+        case .approvals: return !approvalsPath.isEmpty
+        case .settings: return !settingsPath.isEmpty
+        }
     }
 
     func openChat(conversationID: String) {

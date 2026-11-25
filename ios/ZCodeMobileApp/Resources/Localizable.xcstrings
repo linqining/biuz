@@ -18862,6 +18862,246 @@
           }
         }
       }
+    },
+    "Token 预算提醒" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token budget reminder"
+          }
+        }
+      }
+    },
+    "仅列出可在移动端调整的常用设置；修改即时作用于桌面端。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only common settings adjustable from mobile are listed; changes apply to the desktop immediately."
+          }
+        }
+      }
+    },
+    "创建于 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Created %@"
+          }
+        }
+      }
+    },
+    "动态工作流" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dynamic workflows"
+          }
+        }
+      }
+    },
+    "回复语言" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reply language"
+          }
+        }
+      }
+    },
+    "始终开启" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always on"
+          }
+        }
+      }
+    },
+    "子智能体总在后台运行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sub-agents always run in background"
+          }
+        }
+      }
+    },
+    "工具搜索" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tool search"
+          }
+        }
+      }
+    },
+    "手机推送通知" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Phone push notifications"
+          }
+        }
+      }
+    },
+    "按需" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On demand"
+          }
+        }
+      }
+    },
+    "排队中" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Queued"
+          }
+        }
+      }
+    },
+    "排队第 %lld 位" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Queue position %lld"
+          }
+        }
+      }
+    },
+    "插件自动推荐" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plugin recommendations"
+          }
+        }
+      }
+    },
+    "本地" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local"
+          }
+        }
+      }
+    },
+    "桌面端未提供设置读面或回执形态未被识别" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The desktop provides no settings read face, or the response shape was not recognized"
+          }
+        }
+      }
+    },
+    "桌面设置读写自桌面端；连接后可在此查看并修改" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop settings are read from and written to the desktop; connect to view and modify them"
+          }
+        }
+      }
+    },
+    "点击 HTML 文件用浏览器打开" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open HTML files in browser"
+          }
+        }
+      }
+    },
+    "该设置写入桌面端，桌面侧同步生效。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This setting is written to the desktop and takes effect there."
+          }
+        }
+      }
+    },
+    "超过保留时长的旧任务自动移入归档" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tasks older than the retention period are archived automatically"
+          }
+        }
+      }
+    },
+    "新审批排队，处理完一条再来下一条" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Queue new approvals; handle them one after another"
+          }
+        }
+      }
+    },
+    "每条审批立即弹出，逐条确认" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show every approval immediately, one by one"
+          }
+        }
+      }
+    },
+    "Agent 提问后按默认答案自动继续" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue automatically with the default answer when the agent asks"
+          }
+        }
+      }
+    },
+    "关闭时只保留近期轮次，节省磁盘" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep only recent turns to save disk when off"
+          }
+        }
+      }
+    },
+    "读取中…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading…"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

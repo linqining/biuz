@@ -1,21 +1,16 @@
 package cn.biuz.android.app.ui.screen
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Switch
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,25 +19,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.biuz.android.app.ui.theme.BiuZAccent
-import cn.biuz.android.app.ui.theme.BiuZAlpha
-import cn.biuz.android.app.ui.theme.BiuZBg
-import cn.biuz.android.app.ui.theme.BiuZBgCard
-import cn.biuz.android.app.ui.theme.BiuZBgInput
+import cn.biuz.android.app.ui.theme.BiuZBorder
 import cn.biuz.android.app.ui.theme.BiuZRadius
 import cn.biuz.android.app.ui.theme.BiuZRed
 import cn.biuz.android.app.ui.theme.BiuZSpacing
-import cn.biuz.android.app.ui.theme.BiuZText
-import cn.biuz.android.app.ui.theme.BiuZText2
 import cn.biuz.android.app.ui.theme.BiuZText3
 import cn.biuz.android.connection.AppSession
 import cn.biuz.android.protocol.JSONValue
@@ -122,44 +109,15 @@ fun BehaviorSettingsScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BiuZBg)
-            .statusBarsPadding(),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .padding(horizontal = BiuZSpacing.xs),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "‹",
-                fontSize = 26.sp,
-                color = BiuZText,
-                modifier = Modifier
-                    .clickable { onBack() }
-                    .padding(horizontal = BiuZSpacing.md)
-                    .testTag("12-behavior-back"),
-            )
-            Text(
-                text = "行为设置",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = BiuZText,
-                modifier = Modifier.weight(1f),
-            )
-        }
-
+    SettingsPageScaffold(title = "行为设置", onBack = onBack) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = BiuZSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
+                .padding(horizontal = BiuZSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(BiuZSpacing.lg),
         ) {
+            Spacer(Modifier.height(BiuZSpacing.sm))
             when (val current = phase) {
                 is BehaviorPhase.Loading -> Text(
                     text = "读取中…",
@@ -169,7 +127,7 @@ fun BehaviorSettingsScreen(
                         .padding(vertical = BiuZSpacing.offsetLg)
                         .testTag("12-behavior-loading"),
                 )
-                is BehaviorPhase.Failed -> Column {
+                is BehaviorPhase.Failed -> Column(verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm)) {
                     Text(
                         text = current.message,
                         fontSize = 13.sp,
@@ -202,70 +160,94 @@ fun BehaviorSettingsScreen(
                     )
                 }
                 BehaviorPhase.Loaded -> {
-                    SectionCard(title = "交互") {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "审批响应方式",
-                                fontSize = 13.sp,
-                                color = BiuZText,
-                                modifier = Modifier.weight(1f),
-                            )
-                            enumChip("排队", interactionBehavior == "queue", busyKey == null, "12-behavior-interaction-queue") {
+                    // 与设置主页同一设计语言：分组标题 + 纸底卡 + 48/56dp 行（原为
+                    // 自绘 SectionCard + 12sp 胶囊 chips——2026-11-25 用户报「设计风格不符」）
+                    SettingsGroup(title = "交互") {
+                        Text(
+                            text = "审批响应方式",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = BiuZText3,
+                            modifier = Modifier.padding(
+                                start = BiuZSpacing.md,
+                                top = BiuZSpacing.sm,
+                                bottom = BiuZSpacing.xxs,
+                            ),
+                        )
+                        SettingsCheckRow(
+                            title = "排队等待确认",
+                            selected = interactionBehavior == "queue",
+                            testTagId = "12-behavior-interaction-queue",
+                            onClick = {
                                 write("zcodeInteractionBehavior", JSONValue.Str("queue")) {
                                     interactionBehavior = "queue"
                                 }
-                            }
-                            Spacer(Modifier.size(BiuZSpacing.xs))
-                            enumChip("引导", interactionBehavior == "guide", busyKey == null, "12-behavior-interaction-guide") {
+                            },
+                        )
+                        HorizontalDivider(color = BiuZBorder)
+                        SettingsCheckRow(
+                            title = "逐条引导确认",
+                            selected = interactionBehavior == "guide",
+                            testTagId = "12-behavior-interaction-guide",
+                            onClick = {
                                 write("zcodeInteractionBehavior", JSONValue.Str("guide")) {
                                     interactionBehavior = "guide"
                                 }
-                            }
-                        }
-                        SwitchRow(
+                            },
+                        )
+                        HorizontalDivider(color = BiuZBorder)
+                        SettingsToggleRow(
                             title = "提问自动继续",
-                            checked = askAutoResolution,
+                            subtitle = "Agent 提问后按默认答案自动继续",
+                            isOn = askAutoResolution,
+                            onToggle = { newValue ->
+                                write("askUserQuestionAutoResolutionEnabled", JSONValue.Bool(newValue)) {
+                                    askAutoResolution = newValue
+                                }
+                            },
+                            testTagId = "12-behavior-ask-auto",
                             enabled = busyKey == null,
-                            testTag = "12-behavior-ask-auto",
-                        ) { newValue ->
-                            write("askUserQuestionAutoResolutionEnabled", JSONValue.Bool(newValue)) {
-                                askAutoResolution = newValue
-                            }
-                        }
+                        )
                     }
-                    SectionCard(title = "消息流") {
-                        SwitchRow(
+                    SettingsGroup(title = "消息流") {
+                        SettingsToggleRow(
                             title = "显示思考过程",
-                            checked = showReasoning,
+                            subtitle = null,
+                            isOn = showReasoning,
+                            onToggle = { newValue ->
+                                write("messageStreamShowReasoning", JSONValue.Bool(newValue)) {
+                                    showReasoning = newValue
+                                }
+                            },
+                            testTagId = "12-behavior-reasoning",
                             enabled = busyKey == null,
-                            testTag = "12-behavior-reasoning",
-                        ) { newValue ->
-                            write("messageStreamShowReasoning", JSONValue.Bool(newValue)) {
-                                showReasoning = newValue
-                            }
-                        }
-                        SwitchRow(
+                        )
+                        HorizontalDivider(color = BiuZBorder)
+                        SettingsToggleRow(
                             title = "显示待办列表",
-                            checked = showTodos,
+                            subtitle = null,
+                            isOn = showTodos,
+                            onToggle = { newValue ->
+                                write("messageStreamShowTodos", JSONValue.Bool(newValue)) {
+                                    showTodos = newValue
+                                }
+                            },
+                            testTagId = "12-behavior-todos",
                             enabled = busyKey == null,
-                            testTag = "12-behavior-todos",
-                        ) { newValue ->
-                            write("messageStreamShowTodos", JSONValue.Bool(newValue)) {
-                                showTodos = newValue
-                            }
-                        }
+                        )
                     }
-                    SectionCard(title = "数据") {
-                        SwitchRow(
+                    SettingsGroup(title = "数据") {
+                        SettingsToggleRow(
                             title = "完整保留模型输入输出",
-                            checked = modelIoRetention,
+                            subtitle = "关闭时只保留近期轮次，节省磁盘",
+                            isOn = modelIoRetention,
+                            onToggle = { newValue ->
+                                write("modelIoFullRetentionEnabled", JSONValue.Bool(newValue)) {
+                                    modelIoRetention = newValue
+                                }
+                            },
+                            testTagId = "12-behavior-modelio",
                             enabled = busyKey == null,
-                            testTag = "12-behavior-modelio",
-                        ) { newValue ->
-                            write("modelIoFullRetentionEnabled", JSONValue.Bool(newValue)) {
-                                modelIoRetention = newValue
-                            }
-                        }
+                        )
                     }
                     errorText?.let {
                         Text(text = it, fontSize = 12.sp, color = BiuZRed)
@@ -275,75 +257,9 @@ fun BehaviorSettingsScreen(
                         fontSize = 11.sp,
                         color = BiuZText3,
                     )
+                    Spacer(Modifier.height(BiuZSpacing.xl))
                 }
             }
         }
-    }
-}
-
-/** G41 分节卡（bgCard 圆角 + 标题行）。 */
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(BiuZRadius.medium)
-            .background(BiuZBgCard)
-            .padding(BiuZSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(BiuZSpacing.sm),
-    ) {
-        Text(
-            text = title,
-            style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-            color = BiuZText3,
-        )
-        content()
-    }
-}
-
-/** G41 枚举 chip（排队/引导两档单选）。 */
-@Composable
-private fun enumChip(
-    label: String,
-    selected: Boolean,
-    enabled: Boolean,
-    testTag: String,
-    onClick: () -> Unit,
-) {
-    Text(
-        text = label,
-        fontSize = 12.sp,
-        color = if (selected) BiuZAccent else BiuZText2,
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(if (selected) BiuZAccent.copy(alpha = BiuZAlpha.faint) else BiuZBgInput)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = BiuZSpacing.sm, vertical = BiuZSpacing.xs)
-            .testTag(testTag),
-    )
-}
-
-/** G41 开关行（13sp 标题 + Switch；busy 期禁改）。 */
-@Composable
-private fun SwitchRow(
-    title: String,
-    checked: Boolean,
-    enabled: Boolean,
-    testTag: String,
-    onToggle: (Boolean) -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = title,
-            fontSize = 13.sp,
-            color = BiuZText,
-            modifier = Modifier.weight(1f),
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = onToggle,
-            enabled = enabled,
-            modifier = Modifier.testTag(testTag),
-        )
     }
 }

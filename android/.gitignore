@@ -1,6 +1,7 @@
 # Gradle 产物与本地配置
 build/
 .gradle/
+.kotlin/
 local.properties
 
 # IDE

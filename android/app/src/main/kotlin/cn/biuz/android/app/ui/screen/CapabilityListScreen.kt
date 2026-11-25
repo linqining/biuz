@@ -94,12 +94,14 @@ fun CapabilityListScreen(
         CapabilityKind.skills -> stringResource(R.string.cap_skills_title)
         CapabilityKind.mcp -> stringResource(R.string.cap_mcp_title)
         CapabilityKind.plugins -> stringResource(R.string.cap_plugins_title)
+        CapabilityKind.offPeak -> "错峰任务"
     }
     val tagPrefix = when (kind) {
         CapabilityKind.memory -> "20"
         CapabilityKind.skills -> "21"
         CapabilityKind.mcp -> "22"
         CapabilityKind.plugins -> "23"
+        CapabilityKind.offPeak -> "24"
     }
 
     Column(modifier = Modifier.fillMaxSize().background(BiuZBg).statusBarsPadding()) {
@@ -158,12 +160,14 @@ fun CapabilityListScreen(
                         CapabilityKind.skills -> stringResource(R.string.cap_skills_empty)
                         CapabilityKind.mcp -> stringResource(R.string.cap_mcp_empty)
                         CapabilityKind.plugins -> stringResource(R.string.cap_plugins_empty)
+                        CapabilityKind.offPeak -> "暂无错峰任务"
                     },
                     hint = when (kind) {
                         CapabilityKind.memory -> stringResource(R.string.cap_memory_empty_hint)
                         CapabilityKind.skills -> stringResource(R.string.cap_empty_hint)
                         CapabilityKind.mcp -> stringResource(R.string.cap_mcp_empty_hint)
                         CapabilityKind.plugins -> stringResource(R.string.cap_plugins_empty_hint)
+                        CapabilityKind.offPeak -> "桌面端在低峰期排队的后台任务会出现在这里"
                     },
                     modifier = Modifier.testTag("$tagPrefix-empty"),
                 )

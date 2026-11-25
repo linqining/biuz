@@ -42,6 +42,9 @@ object Routes {
     /** 028 桌面设置同步（setting.get 读 / setting.update 单键补丁写） */
     const val DESKTOP_SETTINGS = "settings/desktop"
 
+    /** G43 自动归档（setting 频道 taskAutoArchiveEnabled/OlderThanDays 两键；iOS .autoArchive 同位） */
+    const val AUTO_ARCHIVE = "settings/auto_archive"
+
     /** 023 自动化（定时任务 + 运行历史；zcode-agent.listAutomations 只读） */
     const val AUTOMATIONS = "settings/automations"
 

@@ -53,6 +53,9 @@ internal fun SettingsPageScaffold(
     title: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /// tab 根页（设置主页）传 false：底栏三 tab 就是出入口，左上角返回多余
+    /// （2026-11-25 用户裁决，与 iOS 撤「‹ 会话」同批）。二级页保持 true。
+    showBack: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     Box(
@@ -73,17 +76,19 @@ internal fun SettingsPageScaffold(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.align(Alignment.Center),
                 )
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = BiuZSpacing.sm),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_arrow_back),
-                        contentDescription = stringResource(R.string.action_back),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
+                if (showBack) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = BiuZSpacing.sm),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_arrow_back),
+                            contentDescription = stringResource(R.string.action_back),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
             }
             content()
@@ -186,15 +191,16 @@ internal fun SettingsNavRow(
     }
 }
 
-/** 开关行（iOS toggleRow 同构：标题/副标题 + 右侧 Switch）。 */
+/** 开关行（iOS toggleRow 同构：标题/副标题 + 右侧 Switch；副标题可为空）。 */
 @Composable
 internal fun SettingsToggleRow(
     title: String,
-    subtitle: String,
+    subtitle: String?,
     isOn: Boolean,
     onToggle: (Boolean) -> Unit,
     testTagId: String,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -210,16 +216,19 @@ internal fun SettingsToggleRow(
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelMedium,
-                color = BiuZText3,
-                maxLines = 1,
-            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = BiuZText3,
+                    maxLines = 1,
+                )
+            }
         }
         Switch(
             checked = isOn,
             onCheckedChange = onToggle,
+            enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedTrackColor = MaterialTheme.colorScheme.primary,
                 checkedThumbColor = Color(0xFF04120A), // BiuZOnAccent：开关选中圆钮深色

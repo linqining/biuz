@@ -290,6 +290,7 @@ fun BiuZApp(
                     "skills" -> cn.biuz.android.connection.CapabilityKind.skills
                     "mcp" -> cn.biuz.android.connection.CapabilityKind.mcp
                     "plugins" -> cn.biuz.android.connection.CapabilityKind.plugins
+                    "offPeak" -> cn.biuz.android.connection.CapabilityKind.offPeak
                     else -> cn.biuz.android.connection.CapabilityKind.memory
                 }
                 CapabilityListScreen(
@@ -394,6 +395,13 @@ fun BiuZApp(
                     onBack = { navController.popBackStack() },
                 )
             }
+            // G43 自动归档（setting 频道两键；从归档列表内联块迁出的独立设置子页）
+            composable(Routes.AUTO_ARCHIVE) {
+                cn.biuz.android.app.ui.screen.AutoArchiveSettingsScreen(
+                    session = session,
+                    onBack = { navController.popBackStack() },
+                )
+            }
             composable(Routes.PENDING_APPROVALS) {
                 cn.biuz.android.app.ui.screen.PendingApprovalsScreen(
                     session = session,
@@ -414,6 +422,7 @@ fun BiuZApp(
                     onOpenAppearance = { navController.navigate(Routes.APPEARANCE) },
                     onOpenDesktopSettings = { navController.navigate(Routes.DESKTOP_SETTINGS) },
                     onOpenBehavior = { navController.navigate(Routes.BEHAVIOR_SETTINGS) },
+                    onOpenAutoArchive = { navController.navigate(Routes.AUTO_ARCHIVE) },
                     onOpenAutomations = { navController.navigate(Routes.AUTOMATIONS) },
                     onOpenPersonalization = { navController.navigate(Routes.PERSONALIZATION) },
                     onOpenSubagents = { navController.navigate(Routes.SUBAGENTS) },

@@ -141,7 +141,8 @@ struct RootView: View {
             }
             .sheet(isPresented: $showConnectSettings) {
                 NavigationStack {
-                    SettingsView()
+                    // 模态呈现：底栏不在场，左上角给关闭钮（tab 根页不再有返回钮）
+                    SettingsView(onClose: { showConnectSettings = false })
                 }
             }
         }

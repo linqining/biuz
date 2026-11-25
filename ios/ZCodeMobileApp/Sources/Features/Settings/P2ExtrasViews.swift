@@ -965,19 +965,24 @@ struct DiagnosticsExportView: View {
 struct RemoteCapabilityPlaceholderPage: View {
     let title: String
     let icon: String
+    /// 读面失败原文（可选；空 = 清单确实为空，不是失败）
+    var failureDetail: String? = nil
     @Environment(AppSession.self) private var session
     @State private var reloadToken = 0
 
     var body: some View {
         EmptyStateView(
             icon: icon,
-            title: String(localized: "桌面端未提供该数据"),
-            detail: String(localized: "\(title)的移动端读面尚未接入；为避免误导，连接态不再展示示例数据。请在桌面端查看，或稍后版本更新后同步。"),
+            // 失败与「确实是空清单」分开叙事：失败给 RPC 原文（含 feature_disabled /
+            // method not found 这类版本不支持的原因），空清单说「暂无」，不说「未提供」
+            title: failureDetail == nil
+                ? String(localized: "暂无\(title)")
+                : String(localized: "读取失败"),
+            detail: failureDetail ?? String(localized: "桌面端没有\(title)相关数据；可稍后重新检查。"),
             cta: String(localized: "重新检查"),
             ctaAction: { reloadToken += 1 },
             ctaIdentifier: "12-capability-act-reload")
             .id(reloadToken)
-            .background(T.bg)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
     }
@@ -1034,6 +1039,9 @@ struct RemoteCapabilityListPage: View {
         var installed: Bool
     }
 
+    /// 读面失败原文（failed 态在占位页展示；区分「未接入/版本不支持」与真失败）
+    @State private var loadFailureText: String?
+
     enum LoadPhase: Equatable {
         case loading, loaded, failed
         /// U-7（审查报告 §六 / 隐藏入口 H11）：未连接与「已连接但读取失败」两相区分——
@@ -1070,7 +1078,11 @@ struct RemoteCapabilityListPage: View {
     @State private var startedWorkflowIDs: Set<String> = []
 
     var body: some View {
-        Group {
+        // ZStack 铺满纸底：原来 `.background(T.bg)` 挂在 Group 上——SwiftUI 的 Group
+        // 不是布局容器，背景会分别画在每个子视图的**自身 bounds** 上，于是空态/失败态
+        // 只有中间一条是纸色、其余露出系统白（2026-11-25 错峰任务页实拍实证）。
+        ZStack {
+            T.bg.ignoresSafeArea()
             switch phase {
             case .loading:
                 CenterLoadingView(text: "正在读取桌面端数据…")
@@ -1108,11 +1120,13 @@ struct RemoteCapabilityListPage: View {
                     ctaAction: { session.requestConnectFlow(editTokenOnly: false) },
                     ctaIdentifier: "12-capability-act-connect")
             case .loaded, .failed:
-                // 空清单/读取失败（已连接态）：诚实占位（不给假数据）
-                RemoteCapabilityPlaceholderPage(title: title, icon: icon)
+                // 空清单/读取失败（已连接态）：诚实占位（不给假数据）。
+                // 失败把服务端/RPC 原文带上屏——「尚未接入」是旧文案，不能当失败原因
+                // 的唯一解释（AGENTS §5-12 禁静默吞错）
+                RemoteCapabilityPlaceholderPage(title: title, icon: icon,
+                                               failureDetail: loadFailureText)
             }
         }
-        .background(T.bg)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: reloadToken) { await load() }
@@ -1817,14 +1831,27 @@ struct RemoteCapabilityListPage: View {
                 }
                 rows = loaded
             case .offPeak:
-                // G-024：错峰任务 list/get 只读（ZCodeOffPeakTask；创建/取消/暂停写面维持拦截）
-                // 上游方法名是 `zcode-agent` 频道的 `offPeak/list`（zcodeProtocolMethods，
-                // 参数 {}），不是独立 off-peak 频道。
-                let result = try await connection.call(
-                    "zcode-agent", "offPeak/list", .json(.object([:])))
+                // G-024：错峰任务 list 只读（创建/取消/暂停写面维持 ReadOnlyGate 拦截）。
+                //
+                // **数据源修正（2026-11-25 取证）**：原先打的是 `zcode-agent` 频道的
+                // `offPeak/list`——那是「会话内创建」的协议族，handler 按网关会话 workspace
+                // 过滤（zcodeAgentService.ts:3710-3740），从设置页裸调没有会话上下文，
+                // 结果不可靠。错峰任务的真实服务面是**独立频道 `off-peak-task`**：
+                // - wire 名【实证·上游仓 channels.ts:217 `OffPeakTask: "off-peak-task"`】；
+                // - `list(): Promise<ZCodeOffPeakTask[]>` 无参（offPeakTask.ts:24-46
+                //   IOffPeakTaskService）；
+                // - 手机可达【实证·上游仓 windowHostAttachmentRpcPolicy.ts:40-80
+                //   WEB_REMOTE_REPLAYABLE_ALLOWED_CHANNELS 含 ServiceChannels.OffPeakTask】；
+                // - web 侧同样经 offPeakTaskService 渲染（AutomationsSection.tsx 的
+                //   off-peak 卡；web bundle 里那句 home-only unsupported 只是**未连接
+                //   bridge 时的占位桩**，连上桌面后走 remoteServiceAccess 的 ProxyChannel
+                //   ——remoteServiceAccess.ts:319-320），即「web 有数据支持」，不删入口。
+                // 回执是裸数组 ZCodeOffPeakTask[]（off-peak-types.ts:101+：offPeakTaskId /
+                // title / status / queuePosition / sessionId / createdAt）。
+                let result = try await connection.call("off-peak-task", "list", .undefined)
                 let payload = result.jsonValue
-                let items: [JSONValue] = payload?["tasks"]?.arrayValue
-                    ?? payload?.arrayValue
+                let items: [JSONValue] = payload?.arrayValue
+                    ?? payload?["tasks"]?.arrayValue
                     ?? payload?["items"]?.arrayValue
                     ?? []
                 rows = items.compactMap { item in
@@ -1837,12 +1864,30 @@ struct RemoteCapabilityListPage: View {
                     let created = (d["createdAt"]?.intValue).map {
                         Self.shortFormatter.string(from: Date(timeIntervalSince1970: Double($0) / 1000))
                     } ?? ""
+                    // 状态中文化 + 排队位次（web 「#N in queue」同位）
+                    let rawStatus = d["status"]?.stringValue ?? ""
+                    let statusText: String? = {
+                        switch rawStatus {
+                        case "queued":
+                            if let pos = d["queuePosition"]?.intValue {
+                                return String(format: String(localized: "排队第 %lld 位"), pos)
+                            }
+                            return String(localized: "排队中")
+                        case "paused": return String(localized: "已暂停")
+                        case "running": return String(localized: "运行中")
+                        case "completed": return String(localized: "已完成")
+                        case "failed": return String(localized: "失败")
+                        case "cancelled": return String(localized: "已取消")
+                        case "": return nil
+                        default: return rawStatus
+                        }
+                    }()
                     return Row(
                         id: id,
                         icon: "moon.stars",
-                        title: String(localized: "错峰任务"),
-                        subtitle: created.isEmpty ? title : String(format: String(localized: "%@ · 创建于 %@"), title, created),
-                        badge: d["status"]?.stringValue)
+                        title: title,
+                        subtitle: created.isEmpty ? "" : String(format: String(localized: "创建于 %@"), created),
+                        badge: statusText)
                 }
             case .feedback:
                 // G-025：反馈工单列表只读（feedback.list；创建/附件上传写面维持拦截）
@@ -1869,7 +1914,10 @@ struct RemoteCapabilityListPage: View {
             }
             phase = .loaded
         } catch {
-            // 读面失败：诚实占位（不展示假数据；不臆造回执结构）
+            // 读面失败：诚实占位（不展示假数据；不臆造回执结构），但把服务端原文留下——
+            // 占位页的「尚未接入」是旧文案，真实原因（feature_disabled / method not found
+            // / 版本不支持）必须可见（AGENTS §5-12 禁静默吞错）
+            loadFailureText = String(describing: error)
             phase = .failed
         }
     }
@@ -2337,6 +2385,14 @@ struct DesktopSettingsPage: View {
     private static let keyNames: [String: String] = [
         "locale": String(localized: "界面语言"),
         "localePreference": String(localized: "界面语言偏好"),
+        "receivePreviewUpdates": String(localized: "接收预览版更新"),
+        "autoDownloadAndInstallUpdates": String(localized: "自动下载并安装更新"),
+        "mobilePushEnabled": String(localized: "手机推送通知"),
+        "closeToTrayOnWindows": String(localized: "关闭时隐藏到托盘"),
+        "keepAwakeWhileRunning": String(localized: "任务运行时保持电脑唤醒"),
+        "desktopZoomLevel": String(localized: "界面缩放"),
+        "desktopChromiumHardwareAccelerationEnabled": String(localized: "界面硬件加速"),
+        "dataBaseDir": String(localized: "数据存储路径"),
         "terminalInheritSystemProfile": String(localized: "终端继承系统配置"),
         "terminalFontFamily": String(localized: "终端字体"),
         "integratedTerminalShell": String(localized: "本机终端 Shell"),
@@ -2345,32 +2401,69 @@ struct DesktopSettingsPage: View {
         "httpProxyCaCertPath": String(localized: "自定义代理证书"),
         "embeddedBrowserAllowInsecureCertificates": String(localized: "忽略证书校验"),
         "embeddedBrowserViewportPreference": String(localized: "浏览器视口偏好"),
+        "fileTreeHtmlClickOpensBrowser": String(localized: "点击 HTML 文件用浏览器打开"),
         "computerUseComposerEntryHidden": String(localized: "输入框显示电脑操作按钮"),
-        "taskAutoArchiveEnabled": String(localized: "自动归档旧任务"),
-        "taskAutoArchiveOlderThanDays": String(localized: "归档保留时长（天）"),
-        "closeToTrayOnWindows": String(localized: "关闭时隐藏到托盘"),
-        "keepAwakeWhileRunning": String(localized: "任务运行时保持电脑唤醒"),
-        "desktopZoomLevel": String(localized: "界面缩放"),
-        "desktopWindowSize": String(localized: "窗口尺寸"),
-        "desktopChromiumHardwareAccelerationEnabled": String(localized: "界面硬件加速"),
+        "zcodeInteractionBehavior": String(localized: "审批响应方式"),
+        "askUserQuestionAutoResolutionEnabled": String(localized: "提问自动继续"),
+        "pluginAutoRecommendationEnabled": String(localized: "插件自动推荐"),
+        "modelIoFullRetentionEnabled": String(localized: "完整保留模型输入输出"),
         "messageStreamShowReasoning": String(localized: "显示思考过程"),
         "messageStreamShowTodos": String(localized: "显示待办列表"),
+        "nativeSearchEnhancementsEnabled": String(localized: "增强文件搜索（Find/Grep）"),
+        "toolSearchMode": String(localized: "工具搜索"),
+        "agentAlwaysBackgroundEnabled": String(localized: "子智能体总在后台运行"),
+        "totalTokensReminderEnabled": String(localized: "Token 预算提醒"),
+        "replyLanguage": String(localized: "回复语言"),
+        "memoryEnabled": String(localized: "工作区记忆"),
+        "proactiveSuggestionsEnabled": String(localized: "主动任务推荐"),
+        "dynamicWorkflowMode": String(localized: "动态工作流"),
         "toolGroupingExploreEnabled": String(localized: "分组显示探索工具"),
         "toolGroupingTerminalEnabled": String(localized: "分组显示终端命令"),
         "toolGroupingChangesEnabled": String(localized: "分组显示文件更改"),
-        "zcodeInteractionBehavior": String(localized: "交互行为（审批响应方式）"),
-        "askUserQuestionAutoResolutionEnabled": String(localized: "提问自动继续"),
-        "modelIoFullRetentionEnabled": String(localized: "完整保留模型输入输出"),
-        "nativeSearchEnhancementsEnabled": String(localized: "增强文件搜索（Find/Grep）"),
-        "memoryEnabled": String(localized: "工作区记忆"),
-        "proactiveSuggestionsEnabled": String(localized: "主动任务推荐"),
-        "receivePreviewUpdates": String(localized: "接收预览版更新"),
-        "autoDownloadAndInstallUpdates": String(localized: "自动下载并安装更新"),
-        "dataBaseDir": String(localized: "数据存储路径"),
-        "shortcutBindings": String(localized: "键盘快捷键"),
+        "taskAutoArchiveEnabled": String(localized: "自动归档旧任务"),
+        "taskAutoArchiveOlderThanDays": String(localized: "归档保留时长（天）"),
         "providerFamilyDomain": String(localized: "套餐区域"),
         "providerFamilyConnectionSelections": String(localized: "套餐连接选择"),
     ]
+
+    /// 展示顺序（与 keyNames 声明顺序一致：通用 → 终端网络 → 浏览器 → Agent →
+    /// 工具分组 → 归档套餐）。Dictionary 无序，靠这张表把行序钉成「像人排过的」；
+    /// 表外的键（理论上不会出现）排到最后按字母序。
+    private static let keyOrder: [String] = [
+        "locale", "localePreference",
+        "receivePreviewUpdates", "autoDownloadAndInstallUpdates", "mobilePushEnabled",
+        "closeToTrayOnWindows", "keepAwakeWhileRunning",
+        "desktopZoomLevel", "desktopChromiumHardwareAccelerationEnabled", "dataBaseDir",
+        "terminalInheritSystemProfile", "terminalFontFamily", "integratedTerminalShell",
+        "httpProxy", "httpProxyNoProxy", "httpProxyCaCertPath",
+        "embeddedBrowserAllowInsecureCertificates", "embeddedBrowserViewportPreference",
+        "fileTreeHtmlClickOpensBrowser", "computerUseComposerEntryHidden",
+        "zcodeInteractionBehavior", "askUserQuestionAutoResolutionEnabled",
+        "pluginAutoRecommendationEnabled", "modelIoFullRetentionEnabled",
+        "messageStreamShowReasoning", "messageStreamShowTodos",
+        "nativeSearchEnhancementsEnabled", "toolSearchMode", "agentAlwaysBackgroundEnabled",
+        "totalTokensReminderEnabled", "replyLanguage", "memoryEnabled",
+        "proactiveSuggestionsEnabled", "dynamicWorkflowMode",
+        "toolGroupingExploreEnabled", "toolGroupingTerminalEnabled", "toolGroupingChangesEnabled",
+        "taskAutoArchiveEnabled", "taskAutoArchiveOlderThanDays",
+        "providerFamilyDomain", "providerFamilyConnectionSelections",
+    ]
+
+    private static let keyOrderIndex: [String: Int] = Dictionary(
+        uniqueKeysWithValues: keyOrder.enumerated().map { ($0.element, $0.offset) })
+
+    /// 是否展示该设置项：**白名单制**。
+    ///
+    /// 上游 `setting.get` 回的是整份 `AppSettings`（validationAppSettings.ts:533+
+    /// appSettingsObjectSchema），含大量 renderer 内部状态（`recentProjects`、
+    /// `lastWorkspaceSession`、`sourceServers`、`connectionProfiles`、各类
+    /// `*MigrationInitialized` 迁移标记与 `*Version`/`*UpdatedAt` 时间戳）。这些既不是
+    /// 可调设置，也没有中文名——原样上屏就是一列英文 camelCase 键（2026-11-25 用户报
+    /// 「桌面设置还有些英文没有对应的中文」的根因）。改成白名单：只展示有中文名、
+    /// 移动端改得动的设置；未知键（含桌面后续新增项）不展示，等收录后再开。
+    private static func isDisplayable(_ key: String) -> Bool {
+        keyNames[key] != nil
+    }
 
     /// 显示值枚举对照（常见枚举的本地化渲染；未命中回退原值——上游枚举值词表之外
     /// 的内部态如实显示原词，不猜测）
@@ -2388,7 +2481,14 @@ struct DesktopSettingsPage: View {
         case "guide": return String(localized: "逐条引导确认")
         case "zai": return String(localized: "Z.ai（全球）")
         case "bigmodel": return String(localized: "BigModel（中国）")
+        // toolSearchMode（validationAppSettings.ts toolSearchMode 三档）
         case "auto": return String(localized: "自动")
+        case "local": return String(localized: "本地")
+        case "off": return String(localized: "关闭")
+        // dynamicWorkflowMode（dynamic-workflow-feature.ts:9 DYNAMIC_WORKFLOW_MODES）
+        case "disabled": return String(localized: "关闭")
+        case "onDemand": return String(localized: "按需")
+        case "alwaysOn": return String(localized: "始终开启")
         case "shell": return String(localized: "指定 Shell")
         case "cmd": return "CMD"
         case "git-bash": return "Git Bash"
@@ -2397,7 +2497,7 @@ struct DesktopSettingsPage: View {
         }
     }
 
-    /// 行标题：中文映射优先，未收录回退原键名（内部态键如 recentProjects 原样）
+    /// 行标题：中文名（白名单内必命中；回退原键名只是防御）
     private static func displayName(for key: String) -> String {
         keyNames[key] ?? key
     }
@@ -2426,7 +2526,7 @@ struct DesktopSettingsPage: View {
                 EmptyStateView(
                     icon: "desktopcomputer",
                     title: String(localized: "未连接桌面端"),
-                    detail: String(localized: "桌面设置读写自桌面端（settingService）；连接后可在此查看并修改"),
+                    detail: String(localized: "桌面设置读写自桌面端；连接后可在此查看并修改"),
                     cta: String(localized: "连接桌面端"),
                     ctaAction: { session.requestConnectFlow(editTokenOnly: false) },
                     ctaIdentifier: "12-desktop-act-connect")
@@ -2442,7 +2542,7 @@ struct DesktopSettingsPage: View {
                     EmptyStateView(
                         icon: "desktopcomputer",
                         title: String(localized: "桌面端未返回设置数据"),
-                        detail: errorText ?? String(localized: "桌面端未提供 settingService 读面或回执形态未被识别"),
+                        detail: errorText ?? String(localized: "桌面端未提供设置读面或回执形态未被识别"),
                         cta: String(localized: "重新加载"),
                         ctaAction: { Task { await load() } },
                         ctaIdentifier: "12-desktop-act-reload")
@@ -2455,9 +2555,11 @@ struct DesktopSettingsPage: View {
         .accessibilityIdentifier("12-desktop-settings-page")
         .task { await load() }
         .refreshable { await load() }
-        // 字符串/数字项编辑（带 TextField 先例 ApprovalSheetView 追问弹层）
+        // 字符串/数字项编辑（带 TextField 先例 ApprovalSheetView 追问弹层）。
+        // 标题/正文一律用中文名（原用 entry.key 上屏 = 英文 camelCase，2026-11-25 报障）；
+        // 键名只留在 Button 的 a11y identifier 里。
         .alert(
-            String(localized: "修改 \(editingEntry?.key ?? "")"),
+            String(localized: "修改 \(editingEntry.map { Self.displayName(for: $0.key) } ?? "")"),
             isPresented: Binding(
                 get: { editingEntry != nil },
                 set: { if !$0 { editingEntry = nil } }),
@@ -2468,12 +2570,12 @@ struct DesktopSettingsPage: View {
             Button(String(localized: "取消"), role: .cancel) { editingEntry = nil }
             Button(String(localized: "修改")) { commitEdit(entry) }
                 .accessibilityIdentifier("12-desktop-act-save")
-        } message: { _ in
-            Text(String(localized: "将把「\(editingEntry?.key ?? "")」改为输入的新值（当前：\(displayValue(editingEntry?.value))）。"))
+        } message: { entry in
+            Text(String(localized: "将把「\(Self.displayName(for: entry.key))」改为输入的新值（当前：\(displayValue(entry.value))）。"))
         }
         // 修改确认（硬要求）：桌面配置写即时生效，影响所有正在运行的会话
         .confirmationDialog(
-            String(localized: "修改桌面设置 \(pendingChange?.key ?? "")？"),
+            String(localized: "修改桌面设置 \(pendingChange.map { Self.displayName(for: $0.key) } ?? "")？"),
             isPresented: Binding(
                 get: { pendingChange != nil },
                 set: { if !$0 { pendingChange = nil } }),
@@ -2511,7 +2613,11 @@ struct DesktopSettingsPage: View {
                 }
                 .background(T.bgCard)
                 .clipShape(RoundedRectangle(cornerRadius: T.rL))
-                Text(String(localized: "设置项由桌面端 settingService 提供；修改即时生效，未知形态的值不在此展示。"))
+                .overlay(
+                    RoundedRectangle(cornerRadius: T.rL)
+                        .stroke(T.border, lineWidth: 0.5)
+                )
+                Text(String(localized: "仅列出可在移动端调整的常用设置；修改即时作用于桌面端。"))
                     .font(T.font(10.5))
                     .foregroundColor(T.text3)
                     .padding(.top, T.sp1)
@@ -2526,19 +2632,13 @@ struct DesktopSettingsPage: View {
     @ViewBuilder
     private func settingRow(_ entry: Entry) -> some View {
         HStack(spacing: T.sp2) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(Self.displayName(for: entry.key))
-                    .font(T.font(14.5))
-                    .foregroundColor(T.text)
-                    .lineLimit(2)
-                // 原始键名副行（中文名映射在场时保留原键可辨识——编辑确认/排障对桌面侧对齐）
-                if Self.keyNames[entry.key] != nil {
-                    Text(entry.key)
-                        .font(T.mono(10))
-                        .foregroundColor(T.text3)
-                        .lineLimit(1)
-                }
-            }
+            // 只显示中文名：原始键名副行已撤（2026-11-25 用户报「桌面设置还有些英文
+            // 没有对应的中文」——副行是 mono 英文键，读作残留）。键名仍留在
+            // accessibilityIdentifier（12-desktop-setting-row-<key>）供排障与 E2E 定位。
+            Text(Self.displayName(for: entry.key))
+                .font(T.font(14.5))
+                .foregroundColor(T.text)
+                .lineLimit(2)
             Spacer()
             if busyKey == entry.key {
                 ProgressView()
@@ -2658,7 +2758,7 @@ struct DesktopSettingsPage: View {
             let fields: [String: JSONValue] = [change.key: change.newValue]
             do {
                 _ = try await settingCall("update", fields, allowRetry: false)
-                notice = String(localized: "已修改 \(change.key)")
+                notice = String(localized: "已修改 \(Self.displayName(for: change.key))")
                 noticeIsError = false
                 await load()
             } catch {
@@ -2679,14 +2779,14 @@ struct DesktopSettingsPage: View {
         switch entry.value {
         case .int:
             guard let parsed = Int(text) else {
-                notice = String(localized: "「\(entry.key)」需要整数")
+                notice = String(localized: "「\(Self.displayName(for: entry.key))」需要整数")
                 noticeIsError = true
                 return
             }
             newValue = .int(parsed)
         case .double:
             guard let parsed = Double(text) else {
-                notice = String(localized: "「\(entry.key)」需要数字")
+                notice = String(localized: "「\(Self.displayName(for: entry.key))」需要数字")
                 noticeIsError = true
                 return
             }
@@ -2743,6 +2843,8 @@ struct DesktopSettingsPage: View {
             }
         }
         return raw.compactMap { item in
+            // 白名单过滤：只保留有中文名、移动端可调的设置（其余是桌面内部状态）
+            guard isDisplayable(item.key) else { return nil }
             switch item.value {
             case .bool, .int, .double, .string:
                 return Entry(key: item.key, value: item.value, readonly: item.readonly)
@@ -2750,7 +2852,11 @@ struct DesktopSettingsPage: View {
                 return nil
             }
         }
-        .sorted { $0.key < $1.key }
+        .sorted { lhs, rhs in
+            let li = keyOrderIndex[lhs.key] ?? Int.max
+            let ri = keyOrderIndex[rhs.key] ?? Int.max
+            return li == ri ? lhs.key < rhs.key : li < ri
+        }
     }
 
     private func displayValue(_ value: JSONValue?) -> String {
@@ -2877,6 +2983,130 @@ struct ResetConfirmSheet: View {
     }
 }
 
+// MARK: - 设置子页公共行件（纸底卡组语言，与设置主页 group/toggleRow 同观感）
+//
+// 2026-11-25 用户报「自动归档/行为设置页面设计风格不符」：这两页原本用 SwiftUI
+// `Form`——系统分组列表自带 systemGroupedBackground（近白）+ 系统字号/缩进/蓝色勾，
+// 而全 App 其余设置页是「纸底 + bgCard 圆角卡 + 12pt 组标题 + 48pt 行」。这里收一组
+// 与设置主页同观的件，供自动归档/行为设置两页复用（后续新增设置子页同用）。
+
+@ViewBuilder
+private func settingsCard<Content: View>(
+    title: String,
+    @ViewBuilder content: () -> Content
+) -> some View {
+    VStack(alignment: .leading, spacing: T.sp2) {
+        Text(LocalizedStringKey(title))
+            .font(T.font(12, .semibold))
+            .foregroundColor(T.text3)
+            .padding(.leading, 2)
+        VStack(spacing: 0) {
+            content()
+        }
+        .background(T.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: T.rL))
+        // 纸底基值与卡面同色（T.bg == T.bgCard 浅档 #F7F3EC，品牌裁决不动基值）——
+        // 层次靠 12% 墨描边，与 Android SettingsGroup 的 1dp BiuZBorder 同规
+        .overlay(
+            RoundedRectangle(cornerRadius: T.rL)
+                .stroke(T.border, lineWidth: 0.5)
+        )
+    }
+}
+
+/// 行间分隔（左缩进对齐文字列，与 iOS 设置列表同观感）
+@ViewBuilder
+private func settingsRowDivider() -> some View {
+    Rectangle()
+        .fill(T.border)
+        .frame(height: 0.5)
+        .padding(.leading, T.sp3)
+}
+
+/// 卡内小标题（如「归档保留时长」这类选项组抬头）
+@ViewBuilder
+private func settingsLabelRow(title: String) -> some View {
+    Text(LocalizedStringKey(title))
+        .font(T.font(11.5, .semibold))
+        .foregroundColor(T.text3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, T.sp3)
+        .padding(.top, T.sp2)
+        .padding(.bottom, T.sp1)
+}
+
+/// 开关行（14.5 标题 + 11.5 副标题 + 右侧 Switch，与设置主页 toggleRow 同规格）
+@ViewBuilder
+private func settingsToggleRow(
+    title: String,
+    subtitle: String?,
+    isOn: Binding<Bool>,
+    disabled: Bool,
+    identifier: String
+) -> some View {
+    HStack(spacing: T.sp2) {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(LocalizedStringKey(title))
+                .font(T.font(14.5))
+                .foregroundColor(T.text)
+            if let subtitle {
+                Text(LocalizedStringKey(subtitle))
+                    .font(T.font(11.5))
+                    .foregroundColor(T.text3)
+                    .lineLimit(2)
+            }
+        }
+        Spacer()
+        Toggle("", isOn: isOn)
+            .labelsHidden()
+            .tint(T.accent)
+            .disabled(disabled)
+    }
+    .padding(.horizontal, T.sp3)
+    .frame(minHeight: 48)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier(identifier)
+}
+
+/// 勾选行（单选档位：标题 + 可选副标题 + 右侧印色 ✓）
+@ViewBuilder
+private func settingsCheckRow(
+    title: String,
+    detail: String?,
+    identifier: String,
+    selected: Bool,
+    disabled: Bool,
+    action: @escaping () -> Void
+) -> some View {
+    Button(action: action) {
+        HStack(spacing: T.sp2) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(LocalizedStringKey(title))
+                    .font(T.font(14.5))
+                    .foregroundColor(T.text)
+                if let detail {
+                    Text(LocalizedStringKey(detail))
+                        .font(T.font(11.5))
+                        .foregroundColor(T.text3)
+                        .lineLimit(2)
+                }
+            }
+            Spacer()
+            if selected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(T.accent)
+            }
+        }
+        .padding(.horizontal, T.sp3)
+        .frame(minHeight: 48)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(disabled)
+    .accessibilityIdentifier(identifier)
+}
+
 // MARK: - G43 自动归档设置页（web TaskAutoArchiveSettings 移动端同构，2026-11-25）
 //
 // setting 键【实证·上游仓 validationAppSettings.ts:555-557】：taskAutoArchiveEnabled
@@ -2903,56 +3133,72 @@ struct AutoArchiveSettingsPage: View {
     private static let enabledKey = "taskAutoArchiveEnabled"
 
     var body: some View {
-        Form {
-            switch phase {
-            case .loading:
-                HStack { Spacer(); SpinnerView(size: 14); Spacer() }
-            case .failed:
-                VStack(spacing: T.sp2) {
-                    Text(errorText ?? String(localized: "设置读取失败"))
-                        .font(T.font(12))
-                        .foregroundColor(T.red)
-                    Button(String(localized: "重试")) { Task { await load() } }
-                        .accessibilityIdentifier("12-auto-archive-retry")
-                }
-                .frame(maxWidth: .infinity)
-            case .loaded:
-                Section(String(localized: "自动归档")) {
-                    Toggle(String(localized: "自动归档旧任务"), isOn: Binding(
-                        get: { enabled },
-                        set: { newValue in
-                            enabled = newValue
-                            Task { await write(Self.enabledKey, .bool(newValue)) }
-                        }))
-                        .disabled(busyKey != nil)
-                        .accessibilityIdentifier("12-auto-archive-switch")
-                    if enabled {
-                        Picker(String(localized: "归档保留时长"), selection: Binding(
-                            get: { days },
-                            set: { newValue in
-                                days = newValue
-                                Task { await write(Self.dayKey, .int(newValue)) }
-                            })) {
+        // 纸底 + 卡组（与设置主页同一设计语言）。原用 SwiftUI `Form`——系统分组列表
+        // 自带 systemGroupedBackground（近白）+ 系统缩进，纸底主题下读作「另一个 App」
+        // （2026-11-25 用户报「自动归档/行为设置页面设计风格不符」）。
+        ScrollView {
+            VStack(alignment: .leading, spacing: T.sp4) {
+                switch phase {
+                case .loading:
+                    HStack { Spacer(); SpinnerView(size: 14); Spacer() }
+                        .padding(.top, T.sp4)
+                case .failed:
+                    VStack(spacing: T.sp2) {
+                        Text(errorText ?? String(localized: "设置读取失败"))
+                            .font(T.font(12))
+                            .foregroundColor(T.red)
+                            .multilineTextAlignment(.center)
+                        Button(String(localized: "重试")) { Task { await load() } }
+                            .accessibilityIdentifier("12-auto-archive-retry")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, T.sp4)
+                case .loaded:
+                    settingsCard(title: "自动归档") {
+                        settingsToggleRow(
+                            title: "自动归档旧任务",
+                            subtitle: "超过保留时长的旧任务自动移入归档",
+                            isOn: Binding(
+                                get: { enabled },
+                                set: { newValue in
+                                    enabled = newValue
+                                    Task { await write(Self.enabledKey, .bool(newValue)) }
+                                }),
+                            disabled: busyKey != nil,
+                            identifier: "12-auto-archive-switch")
+                        if enabled {
+                            settingsRowDivider()
+                            settingsLabelRow(title: "归档保留时长")
                             ForEach(Self.dayOptions, id: \.self) { option in
-                                Text(String(localized: "\(option) 天")).tag(option)
+                                settingsRowDivider()
+                                settingsCheckRow(
+                                    title: String(localized: "\(option) 天"),
+                                    detail: nil,
+                                    identifier: "12-auto-archive-day-\(option)",
+                                    selected: days == option,
+                                    disabled: busyKey != nil) {
+                                        days = option
+                                        Task { await write(Self.dayKey, .int(option)) }
+                                    }
                             }
                         }
-                        .disabled(busyKey != nil)
-                        .accessibilityIdentifier("12-auto-archive-days")
                     }
-                }
-                if let errorText {
-                    Section {
-                        Text(errorText).font(T.font(11.5)).foregroundColor(T.red)
+                    if let errorText {
+                        Text(errorText)
+                            .font(T.font(11.5))
+                            .foregroundColor(T.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                }
-                Section {
-                    Text(String(localized: "该设置写入桌面端，桌面侧「归档保留时长」同步生效。"))
+                    Text(String(localized: "该设置写入桌面端，桌面侧同步生效。"))
                         .font(T.font(10.5))
                         .foregroundColor(T.text3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+            .padding(T.sp4)
         }
+        .scrollIndicators(.hidden)
+        .background(T.bg)
         .navigationTitle(String(localized: "自动归档"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -3048,83 +3294,117 @@ struct BehaviorSettingsPage: View {
     @State private var loadRetried = false
 
     var body: some View {
-        Form {
-            switch phase {
-            case .loading:
-                HStack { Spacer(); SpinnerView(size: 14); Spacer() }
-            case .failed:
-                VStack(spacing: T.sp2) {
-                    Text(errorText ?? String(localized: "设置读取失败"))
-                        .font(T.font(12))
-                        .foregroundColor(T.red)
-                    Button(String(localized: "重试")) { Task { await load() } }
-                        .accessibilityIdentifier("12-behavior-retry")
-                }
-                .frame(maxWidth: .infinity)
-            case .loaded:
-                Section(String(localized: "交互")) {
-                    // 审批响应方式（web zcodeInteractionBehavior 两枚举 Select）
-                    Picker(String(localized: "审批响应方式"), selection: Binding(
-                        get: { interactionBehavior },
-                        set: { newValue in
-                            interactionBehavior = newValue
-                            Task { await write("zcodeInteractionBehavior", .string(newValue)) }
-                        })) {
-                        Text(String(localized: "排队等待确认")).tag("queue")
-                        Text(String(localized: "逐条引导确认")).tag("guide")
+        // 纸底 + 卡组（设置主页同一设计语言；原 Form 的系统分组列表在纸底主题下观感
+        // 割裂——2026-11-25 用户报「设计风格不符」）
+        ScrollView {
+            VStack(alignment: .leading, spacing: T.sp4) {
+                switch phase {
+                case .loading:
+                    HStack { Spacer(); SpinnerView(size: 14); Spacer() }
+                        .padding(.top, T.sp4)
+                case .failed:
+                    VStack(spacing: T.sp2) {
+                        Text(errorText ?? String(localized: "设置读取失败"))
+                            .font(T.font(12))
+                            .foregroundColor(T.red)
+                            .multilineTextAlignment(.center)
+                        Button(String(localized: "重试")) { Task { await load() } }
+                            .accessibilityIdentifier("12-behavior-retry")
                     }
-                    .pickerStyle(.inline)
-                    .disabled(busyKey != nil)
-                    .accessibilityIdentifier("12-behavior-interaction")
-                    Toggle(String(localized: "提问自动继续"), isOn: Binding(
-                        get: { askAutoResolution },
-                        set: { newValue in
-                            askAutoResolution = newValue
-                            Task { await write("askUserQuestionAutoResolutionEnabled", .bool(newValue)) }
-                        }))
-                        .disabled(busyKey != nil)
-                        .accessibilityIdentifier("12-behavior-ask-auto")
-                }
-                Section(String(localized: "消息流")) {
-                    Toggle(String(localized: "显示思考过程"), isOn: Binding(
-                        get: { showReasoning },
-                        set: { newValue in
-                            showReasoning = newValue
-                            Task { await write("messageStreamShowReasoning", .bool(newValue)) }
-                        }))
-                        .disabled(busyKey != nil)
-                        .accessibilityIdentifier("12-behavior-reasoning")
-                    Toggle(String(localized: "显示待办列表"), isOn: Binding(
-                        get: { showTodos },
-                        set: { newValue in
-                            showTodos = newValue
-                            Task { await write("messageStreamShowTodos", .bool(newValue)) }
-                        }))
-                        .disabled(busyKey != nil)
-                        .accessibilityIdentifier("12-behavior-todos")
-                }
-                Section(String(localized: "数据")) {
-                    Toggle(String(localized: "完整保留模型输入输出"), isOn: Binding(
-                        get: { modelIoRetention },
-                        set: { newValue in
-                            modelIoRetention = newValue
-                            Task { await write("modelIoFullRetentionEnabled", .bool(newValue)) }
-                        }))
-                        .disabled(busyKey != nil)
-                        .accessibilityIdentifier("12-behavior-modelio")
-                }
-                if let errorText {
-                    Section {
-                        Text(errorText).font(T.font(11.5)).foregroundColor(T.red)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, T.sp4)
+                case .loaded:
+                    settingsCard(title: "交互") {
+                        // 审批响应方式（web zcodeInteractionBehavior 两枚举 Select）→
+                        // 触屏用两行勾选承载（原生 Picker .inline 在纸底卡里是系统蓝勾，
+                        // 与品牌印色不一致）
+                        settingsLabelRow(title: "审批响应方式")
+                        settingsCheckRow(
+                            title: "排队等待确认",
+                            detail: "新审批排队，处理完一条再来下一条",
+                            identifier: "12-behavior-interaction-queue",
+                            selected: interactionBehavior == "queue",
+                            disabled: busyKey != nil) {
+                                interactionBehavior = "queue"
+                                Task { await write("zcodeInteractionBehavior", .string("queue")) }
+                            }
+                        settingsRowDivider()
+                        settingsCheckRow(
+                            title: "逐条引导确认",
+                            detail: "每条审批立即弹出，逐条确认",
+                            identifier: "12-behavior-interaction-guide",
+                            selected: interactionBehavior == "guide",
+                            disabled: busyKey != nil) {
+                                interactionBehavior = "guide"
+                                Task { await write("zcodeInteractionBehavior", .string("guide")) }
+                            }
+                        settingsRowDivider()
+                        settingsToggleRow(
+                            title: "提问自动继续",
+                            subtitle: "Agent 提问后按默认答案自动继续",
+                            isOn: Binding(
+                                get: { askAutoResolution },
+                                set: { newValue in
+                                    askAutoResolution = newValue
+                                    Task { await write("askUserQuestionAutoResolutionEnabled", .bool(newValue)) }
+                                }),
+                            disabled: busyKey != nil,
+                            identifier: "12-behavior-ask-auto")
                     }
-                }
-                Section {
+                    settingsCard(title: "消息流") {
+                        settingsToggleRow(
+                            title: "显示思考过程",
+                            subtitle: nil,
+                            isOn: Binding(
+                                get: { showReasoning },
+                                set: { newValue in
+                                    showReasoning = newValue
+                                    Task { await write("messageStreamShowReasoning", .bool(newValue)) }
+                                }),
+                            disabled: busyKey != nil,
+                            identifier: "12-behavior-reasoning")
+                        settingsRowDivider()
+                        settingsToggleRow(
+                            title: "显示待办列表",
+                            subtitle: nil,
+                            isOn: Binding(
+                                get: { showTodos },
+                                set: { newValue in
+                                    showTodos = newValue
+                                    Task { await write("messageStreamShowTodos", .bool(newValue)) }
+                                }),
+                            disabled: busyKey != nil,
+                            identifier: "12-behavior-todos")
+                    }
+                    settingsCard(title: "数据") {
+                        settingsToggleRow(
+                            title: "完整保留模型输入输出",
+                            subtitle: "关闭时只保留近期轮次，节省磁盘",
+                            isOn: Binding(
+                                get: { modelIoRetention },
+                                set: { newValue in
+                                    modelIoRetention = newValue
+                                    Task { await write("modelIoFullRetentionEnabled", .bool(newValue)) }
+                                }),
+                            disabled: busyKey != nil,
+                            identifier: "12-behavior-modelio")
+                    }
+                    if let errorText {
+                        Text(errorText)
+                            .font(T.font(11.5))
+                            .foregroundColor(T.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     Text(String(localized: "这些设置写入桌面端并即时生效。"))
                         .font(T.font(10.5))
                         .foregroundColor(T.text3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+            .padding(T.sp4)
         }
+        .scrollIndicators(.hidden)
+        .background(T.bg)
         .navigationTitle(String(localized: "行为设置"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
